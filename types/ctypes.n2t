@@ -1,0 +1,538 @@
+#include <ilias/net2/ilias_net2_export.h>
+%%
+#include <ilias/net2/ctypes.h>
+#include <stdint.h>
+%%
+
+type uint8 (
+	ctype uint8_t,
+	encode cp_uint8_encode,
+	decode cp_uint8_decode
+);
+
+type uint16 (
+	ctype uint16_t,
+	encode cp_uint16_encode,
+	decode cp_uint16_decode
+);
+
+type uint32 (
+	ctype uint32_t,
+	encode cp_uint32_encode,
+	decode cp_uint32_decode
+);
+
+type uint64 (
+	ctype uint64_t,
+	encode cp_uint64_encode,
+	decode cp_uint64_decode
+);
+
+
+type int8 (
+	ctype int8_t,
+	encode cp_int8_encode,
+	decode cp_int8_decode
+);
+
+type int16 (
+	ctype int16_t,
+	encode cp_int16_encode,
+	decode cp_int16_decode
+);
+
+type int32 (
+	ctype int32_t,
+	encode cp_int32_encode,
+	decode cp_int32_decode
+);
+
+type int64 (
+	ctype int64_t,
+	encode cp_int64_encode,
+	decode cp_int64_decode
+);
+
+
+type string (
+	ctype char*,
+	encode cp_string_encode,
+	decode cp_string_decode,
+	init cp_string_init,
+	destroy cp_string_destroy
+);
+
+type net2_buffer (
+	ctype struct net2_buffer*,
+	encode cp_net2_buffer32_encode,
+	decode cp_net2_buffer32_decode,
+	init cp_net2_buffer_init,
+	destroy cp_net2_buffer_destroy
+);
+
+type short_net2_buffer (
+	ctype struct net2_buffer*,
+	encode cp_net2_buffer16_encode,
+	decode cp_net2_buffer16_decode,
+	init cp_net2_buffer_init,
+	destroy cp_net2_buffer_destroy
+);
+
+type null_stringlist (
+	ctype char**,
+	encode cp_null_stringlist_encode,
+	decode cp_null_stringlist_decode,
+	init cp_null_stringlist_init,
+	destroy cp_null_stringlist_destroy
+);
+
+%%
+
+
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <bsd_compat/endian.h>
+#include <ilias/net2/buffer.h>
+
+ILIAS_NET2_LOCAL int
+cp_uint8_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const uint8_t *val, const void *cp_arg)
+{
+	return net2_buffer_add(out, val, sizeof(*val));
+}
+ILIAS_NET2_LOCAL int
+cp_uint8_decode(struct net2_encdec_ctx *c,
+    uint8_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	return net2_buffer_remove(in, val, sizeof(*val)) != sizeof(*val);
+}
+
+ILIAS_NET2_LOCAL int
+cp_uint16_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const uint16_t *val, const void *cp_arg)
+{
+	uint16_t be = htobe16(*val);
+	return net2_buffer_add(out, &be, sizeof(be));
+}
+ILIAS_NET2_LOCAL int
+cp_uint16_decode(struct net2_encdec_ctx *c,
+    uint16_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint16_t be;
+	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
+		return -1;
+	*val = betoh16(be);
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_uint32_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const uint32_t *val, const void *cp_arg)
+{
+	uint32_t be = htobe32(*val);
+	return net2_buffer_add(out, &be, sizeof(be));
+}
+ILIAS_NET2_LOCAL int
+cp_uint32_decode(struct net2_encdec_ctx *c,
+    uint32_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint32_t be;
+	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
+		return -1;
+	*val = betoh32(be);
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_uint64_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const uint64_t *val, const void *cp_arg)
+{
+	uint64_t be = htobe64(*val);
+	return net2_buffer_add(out, &be, sizeof(be));
+}
+ILIAS_NET2_LOCAL int
+cp_uint64_decode(struct net2_encdec_ctx *c,
+    uint64_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint64_t be;
+	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
+		return -1;
+	*val = betoh64(be);
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_int8_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const int8_t *val, const void *cp_arg)
+{
+	uint8_t u;
+
+	if (*val < 0)
+		u = (*val + 0x80) | 0x80;
+	else
+		u = *val;
+	return net2_cp_encode(c, &cp_uint8, out, &u, NULL);
+}
+ILIAS_NET2_LOCAL int
+cp_int8_decode(struct net2_encdec_ctx *c,
+    int8_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint8_t u;
+
+	if (net2_cp_decode(c, &cp_uint8, &u, in, NULL))
+		return -1;
+	*val = u & 0x7f;
+	if (u & 0x80)
+		*val -= 0x80;
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_int16_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const int16_t *val, const void *cp_arg)
+{
+	uint16_t u;
+
+	if (*val < 0)
+		u = (*val + 0x8000) | 0x8000;
+	else
+		u = *val;
+	return net2_cp_encode(c, &cp_uint16, out, &u, NULL);
+}
+ILIAS_NET2_LOCAL int
+cp_int16_decode(struct net2_encdec_ctx *c,
+    int16_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint16_t u;
+
+	if (net2_cp_decode(c, &cp_uint16, &u, in, NULL))
+		return -1;
+	*val = u & 0x7fff;
+	if (u & 0x8000)
+		*val -= 0x8000;
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_int32_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const int32_t *val, const void *cp_arg)
+{
+	uint32_t u;
+
+	if (*val < 0)
+		u = (*val + 0x80000000) | 0x80000000;
+	else
+		u = *val;
+	return net2_cp_encode(c, &cp_uint32, out, &u, NULL);
+}
+ILIAS_NET2_LOCAL int
+cp_int32_decode(struct net2_encdec_ctx *c,
+    int32_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint32_t u;
+
+	if (net2_cp_decode(c, &cp_uint32, &u, in, NULL))
+		return -1;
+	*val = u & 0x7fffffff;
+	if (u & 0x80000000)
+		*val -= 0x80000000;
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_int64_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, const int64_t *val, const void *cp_arg)
+{
+	uint64_t u;
+
+	if (*val < 0)
+		u = (*val + 0x8000000000000000ULL) | 0x8000000000000000ULL;
+	else
+		u = *val;
+	return net2_cp_encode(c, &cp_uint64, out, &u, NULL);
+}
+ILIAS_NET2_LOCAL int
+cp_int64_decode(struct net2_encdec_ctx *c,
+    int64_t *val, struct net2_buffer *in, const void *cp_arg)
+{
+	uint64_t u;
+
+	if (net2_cp_decode(c, &cp_uint64, &u, in, NULL))
+		return -1;
+	*val = u & 0x7fffffffffffffffULL;
+	if (u & 0x8000000000000000ULL)
+		*val -= 0x8000000000000000ULL;
+	return 0;
+}
+
+
+ILIAS_NET2_LOCAL int
+cp_string_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, char*const*s, const void *cp_arg)
+{
+	if (*s == NULL)
+		return -1;
+	return net2_buffer_add(out, *s, strlen(*s) + 1);
+}
+ILIAS_NET2_LOCAL int
+cp_string_decode(struct net2_encdec_ctx *c,
+    char**s, struct net2_buffer *in, const void *cp_arg)
+{
+	struct net2_buffer_ptr	end;
+	const char		nullchar = '\0';
+	int			err = 0;
+
+	if (*s != NULL)
+		return -1;
+
+	if (net2_buffer_search(in, &end, &nullchar, sizeof(nullchar), NULL)) {
+		err = -1;
+		goto out;
+	}
+
+	if ((*s = malloc(end.pos + 1)) == NULL) {
+		err = -1;
+		goto out;
+	}
+	err = net2_buffer_remove(in, *s, end.pos + 1) != end.pos + 1;
+
+out:
+	if (err != 0 && *s != NULL)
+		free(*s);
+	return err;
+}
+ILIAS_NET2_LOCAL int
+cp_string_init(struct net2_encdec_ctx *c,
+    char**s, const void *cp_arg)
+{
+	*s = NULL;
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+cp_string_destroy(struct net2_encdec_ctx *c,
+    char**s, const void *cp_arg)
+{
+	if (*s != NULL)
+		free(*s);
+	*s = NULL;
+	return 0;
+}
+
+
+ILIAS_NET2_LOCAL int
+cp_net2_buffer32_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, struct net2_buffer*const*buf, const void *cp_arg)
+{
+	uint32_t		 sz;
+	size_t			 sz_full;
+	int			 err;
+
+	/*
+	 * Store length of the buffer.
+	 */
+	sz_full = net2_buffer_length(*buf);
+	if (sz_full >= 0xffffffff)
+		goto fail;
+	sz = sz_full;
+	if (net2_cp_encode(c, &cp_uint32, out, &sz, NULL))
+		goto fail;
+
+	/*
+	 * Append the buffer itself.
+	 */
+	err = net2_buffer_append(out, *buf);
+	return err;
+
+fail:
+	/*
+	 * Cleanup for failure cases.
+	 */
+	return -1;
+}
+ILIAS_NET2_LOCAL int
+cp_net2_buffer32_decode(struct net2_encdec_ctx *c,
+    struct net2_buffer**buf, struct net2_buffer *in, const void *cp_arg)
+{
+	uint32_t		 sz;
+
+	if (*buf != NULL)
+		return -1;
+
+	/* Retrieve buffer length. */
+	if (net2_cp_decode(c, &cp_uint32, &sz, in, NULL))
+		goto fail;
+
+	/* Drain in into newly allocated buffer. */
+	*buf = net2_buffer_new();
+	if (net2_buffer_remove_buffer(in, *buf, sz) != sz)
+		goto fail_copy;
+
+	return 0;
+
+fail_copy:
+	net2_buffer_free(*buf);
+	*buf = NULL;
+fail:
+	return -1;
+}
+
+ILIAS_NET2_LOCAL int
+cp_net2_buffer16_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, struct net2_buffer*const*buf, const void *cp_arg)
+{
+	uint16_t		 sz;
+	size_t			 sz_full;
+	int			 err;
+
+	/*
+	 * Store length of the buffer.
+	 */
+	sz_full = net2_buffer_length(*buf);
+	if (sz_full >= 0xffff)
+		goto fail;
+	sz = sz_full;
+	if (net2_cp_encode(c, &cp_uint16, out, &sz, NULL))
+		goto fail;
+
+	/*
+	 * Append the buffer itself.
+	 */
+	err = net2_buffer_append(out, *buf);
+	return err;
+
+fail:
+	/*
+	 * Cleanup for failure cases.
+	 */
+	return -1;
+}
+ILIAS_NET2_LOCAL int
+cp_net2_buffer16_decode(struct net2_encdec_ctx *c,
+    struct net2_buffer**buf, struct net2_buffer *in, const void *cp_arg)
+{
+	uint16_t		 sz;
+
+	if (*buf != NULL)
+		return -1;
+
+	/* Retrieve buffer length. */
+	if (net2_cp_decode(c, &cp_uint16, &sz, in, NULL))
+		goto fail;
+
+	/* Drain in into newly allocated buffer. */
+	*buf = net2_buffer_new();
+	if (net2_buffer_remove_buffer(in, *buf, sz) != sz)
+		goto fail_copy;
+
+	return 0;
+
+fail_copy:
+	net2_buffer_free(*buf);
+	*buf = NULL;
+fail:
+	return -1;
+}
+
+ILIAS_NET2_LOCAL int
+cp_net2_buffer_init(struct net2_encdec_ctx *c,
+    struct net2_buffer**buf, const void *cp_arg)
+{
+	*buf = NULL;
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+cp_net2_buffer_destroy(struct net2_encdec_ctx *c,
+    struct net2_buffer**buf, const void *cp_arg)
+{
+	if (*buf != NULL)
+		net2_buffer_free(*buf);
+	*buf = NULL;
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+cp_null_stringlist_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, char**const*slistptr, const void *cp_arg)
+{
+	char			**slist;
+	uint16_t		 count;
+	struct net2_buffer	*tmp;
+	int			 err;
+
+	err = -1;
+	if ((tmp = net2_buffer_new()) == NULL)
+		return -1;
+
+	/* Calculate count. */
+	count = 0;
+	for (slist = *slistptr; slist != NULL && *slist != NULL; slist++) {
+		if (++count == 0)	/* Handle overflow. */
+			goto fail;
+		if (cp_string_encode(c, tmp, slist, cp_arg))
+			goto fail;
+	}
+
+	/* Write count to out. */
+	if (cp_uint16_encode(c, out, &count, cp_arg))
+		goto fail;
+	/* Append encoded data. */
+	if (count > 0 && net2_buffer_append(out, tmp))
+		goto fail;
+
+	err = 0;
+fail:
+	net2_buffer_free(tmp);
+	return err;
+}
+ILIAS_NET2_LOCAL int
+cp_null_stringlist_decode(struct net2_encdec_ctx *c,
+    char***slistptr, struct net2_buffer *in, const void *cp_arg)
+{
+	char			**slist;
+	uint16_t		 count;
+
+	if (cp_uint16_decode(c, &count, in, cp_arg))
+		return -1;
+	*slistptr = slist = calloc((size_t)count + 1, sizeof(*slist));
+	if (slist == NULL)
+		goto fail;
+	while (count > 0) {
+		if (cp_string_decode(c, slist, in, cp_arg))
+			goto fail;
+		count--;
+		slist++;
+	}
+
+	return 0;
+
+fail:
+	if (*slistptr != NULL) {
+		for (slist = *slistptr; *slist != NULL; slist++)
+			free(*slist);
+		free(*slistptr);
+		*slistptr = NULL;
+	}
+	return -1;
+}
+ILIAS_NET2_LOCAL int
+cp_null_stringlist_init(struct net2_encdec_ctx *c,
+    char***slistptr, const void *cp_arg)
+{
+	*slistptr = NULL;
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+cp_null_stringlist_destroy(struct net2_encdec_ctx *c,
+    char***slistptr, const void *cp_arg)
+{
+	char			**slist;
+
+	if (slistptr != NULL) {
+		for (slist = *slistptr; *slist != NULL; slist++)
+			free(*slist);
+		free(*slistptr);
+		*slistptr = NULL;
+	}
+	return 0;
+}

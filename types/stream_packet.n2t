@@ -1,0 +1,44 @@
+#include <stdint.h>
+#include <ilias/net2/ilias_net2_export.h>
+
+/*
+ * Stream acceptor data.
+ */
+struct stream_packet {
+	uint32_t		 seq;
+	uint16_t		 flags;
+#define STREAM_END		0x8000
+	struct net2_buffer	*payload;
+};
+
+/*
+ * Header requires 8 bytes.
+ * - seq	4 bytes
+ * - flags	2 bytes
+ * - payload	2 bytes to encode the length
+ */
+#define STREAM_PACKET_OVERHEAD	8
+/*
+ * Prefer to send payloads sized a multiple of 8 bytes,
+ * so that if the buffers on either side will be able to
+ * benefit from aligned access.
+ *
+ * Must be a power of 2.
+ */
+#define STREAM_PACKET_ALIGN	8
+/*
+ * Payload maximum length before encoding issues arise.
+ */
+#define STREAM_PACKET_MAXLEN	0xffff
+
+
+%%
+#include "stream_packet.h"
+#include <ilias/net2/ctypes.h>
+%%
+
+struct stream_packet(ctype struct stream_packet) {
+	uint32			 seq;
+	uint16			 flags;
+	short_net2_buffer	 payload;
+};

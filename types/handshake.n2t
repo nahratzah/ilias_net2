@@ -1,0 +1,251 @@
+#include <stdint.h>
+#include <ilias/net2/ilias_net2_export.h>
+
+/* Client connect request. */
+struct net2_hshake_c_connect {
+	uint32_t		 flags;
+	uint32_t		 seq;
+	uint16_t		 resend;
+
+	char			**xchange;
+	char			**enc;
+	char			**hash;
+};
+
+/* Server connect response. */
+struct net2_hshake_s_connect_reply {
+	uint32_t		 flags;
+	uint32_t		 seq;
+	uint16_t		 client_resend;
+	uint16_t		 resend;
+
+	uint16_t		 error;
+	char			*xchange;
+	char			*enc;
+	char			*sign;
+	char			*hash;
+};
+
+ILIAS_NET2_LOCAL
+int		 net2_client_handshake1_init(struct net2_hshake_c_connect*);
+ILIAS_NET2_LOCAL
+void		 net2_client_handshake1_deinit(struct net2_hshake_c_connect*);
+ILIAS_NET2_LOCAL
+int		 net2_server_handshake1_init(
+		    struct net2_hshake_s_connect_reply*,
+		    struct net2_hshake_c_connect*, int);
+ILIAS_NET2_LOCAL
+void		 net2_server_handshake1_deinit(
+		    struct net2_hshake_s_connect_reply*);
+
+#define NET2_HS_OK		0	/* No error. */
+#define NET2_HS_SELECT		1	/* Failed to select encryption,
+					 * hash or enc implementation. */
+
+
+%%
+#include <ilias/net2/handshake.h>
+#include <ilias/net2/ctypes.h>
+%%
+
+struct net2_hshake_c_connect (ctype struct net2_hshake_c_connect) {
+	uint32			 seq;
+	uint16			 resend;
+	null_stringlist		 enc;
+	null_stringlist		 hash;
+};
+
+struct net2_hshake_s_connect_reply (ctype struct net2_hshake_s_connect_reply) {
+	uint32			 seq;
+	uint32			 client_resend;
+	uint32			 resend;
+	uint16			 error;
+	string			 enc;
+	string			 sign;
+	string			 hash;
+};
+
+%%
+#include <ilias/net2/xchange.h>
+#include <ilias/net2/hash.h>
+#include <ilias/net2/enc.h>
+#include <bsd_compat/secure_random.h>
+#include <bsd_compat/error.h>
+#include <stdlib.h>
+#include <string.h>
+
+/*
+ * Allocate a client handshake.
+ * Fills in the supported hash and encryption schemes.
+ */
+ILIAS_NET2_LOCAL int
+net2_client_handshake1_init(struct net2_hshake_c_connect *c)
+{
+	size_t				 hashcount, enccount, xchangecount;
+	char				**p;
+	int				 i;
+	const char			*name;
+
+	xchangecount = hashcount = enccount = 0;
+	c->seq = secure_random();
+	c->resend = 0;
+	c->xchange = c->hash = c->enc = NULL;
+
+	/* Fill in all hashes. */
+	for (i = 0, p = NULL; i < net2_hashmax; i++) {
+		if ((name = net2_hash_getname(i)) == NULL)
+			continue;
+
+		p = realloc(c->hash, (++hashcount + 1) * sizeof(*p));
+		if (p == NULL)
+			goto fail;
+		c->hash = p;
+		if ((p[hashcount - 1] = strdup(name)) == NULL)
+			goto fail;
+		p[hashcount] = NULL;
+	}
+	/* Fill in all encodings. */
+	for (i = 0, p = NULL; i < net2_encmax; i++) {
+		if ((name = net2_enc_getname(i)) == NULL)
+			continue;
+
+		p = realloc(c->enc, (++enccount + 1) * sizeof(*p));
+		if (p == NULL)
+			goto fail;
+		c->enc = p;
+		if ((p[enccount - 1] = strdup(name)) == NULL)
+			goto fail;
+		p[enccount] = NULL;
+	}
+	/* Fill in all xchange keys; nil method is non-functional. */
+	for (i = 1, p = NULL; i < net2_xchangemax; i++) {
+		if ((name = net2_xchange_getname(i)) == NULL)
+			continue;
+
+		p = realloc(c->enc, (++xchangecount + 1) * sizeof(*p));
+		if (p == NULL)
+			goto fail;
+		c->xchange = p;
+		if ((p[xchangecount - 1] = strdup(name)) == NULL)
+			goto fail;
+		p[xchangecount] = NULL;
+	}
+
+	return 0;
+
+fail:
+	net2_client_handshake1_deinit(c);
+	return -1;
+}
+
+/*
+ * Free the client handshake.
+ */
+ILIAS_NET2_LOCAL void
+net2_client_handshake1_deinit(struct net2_hshake_c_connect *c)
+{
+	char				**p;
+
+	for (p = c->xchange; p != NULL && *p != NULL; p++)
+		free(*p);
+	for (p = c->hash; p != NULL && *p != NULL; p++)
+		free(*p);
+	for (p = c->enc; p != NULL && *p != NULL; p++)
+		free(*p);
+	if (c->xchange != NULL)
+		free(c->xchange);
+	if (c->hash != NULL)
+		free(c->hash);
+	if (c->enc != NULL)
+		free(c->enc);
+	c->xchange = NULL;
+	c->hash = NULL;
+	c->enc = NULL;
+}
+
+/* Create a server handshake1 reply, based on client request. */
+ILIAS_NET2_LOCAL int
+net2_server_handshake1_init(struct net2_hshake_s_connect_reply *r,
+    struct net2_hshake_c_connect *client, int error)
+{
+	int			 sign, hash, enc;
+	char			**p;
+	int			 p_idx;
+	size_t			 p_keylen;
+
+	sign = hash = enc = 0;	/* No sign/hash/enc selected. */
+
+	/* Select sign and hash implementation. */
+	for (p = client->hash; p != NULL && *p != NULL; p++) {
+		p_idx = net2_hash_findname(*p);
+		if (p_idx == -1)
+			continue;
+
+		p_keylen = net2_hash_getkeylen(p_idx);
+		if (p_keylen == 0) {
+			if (net2_hash_getkeylen(hash) >= p_keylen)
+				hash = p_idx;
+		} else {
+			if (net2_hash_getkeylen(enc) >= p_keylen)
+				sign = p_idx;
+		}
+	}
+
+	/* Select enc implementation. */
+	for (p = client->hash; p != NULL && *p != NULL; p++) {
+		p_idx = net2_hash_findname(*p);
+		if (p_idx == -1)
+			continue;
+
+		p_keylen = net2_hash_getkeylen(p_idx);
+		if (net2_enc_getkeylen(enc) <= p_keylen ||
+		    net2_enc_getivlen(enc) == 0)
+			enc = p_idx;
+	}
+
+	if (sign == 0 || hash == 0) {
+		const char	*which =
+		    (sign == 0 && hash == 0 ? "hash and sign" :
+		    (sign == 0 ? "sign" : "hash"));
+
+		warnx("client has no supported %s implementation",
+		    which);
+	}
+	if (enc == 0)
+		warnx("client has no supported enc implementation");
+	if ((sign == 0 || hash == 0 || enc == 0) && error == 0)
+		error = NET2_HS_SELECT;
+
+	/* Allocate storage. */
+	r->seq = secure_random();
+	r->client_resend = client->resend;
+	r->resend = 0;
+	r->error = error;
+	r->enc = strdup(net2_enc_getname(enc));
+	r->sign = strdup(net2_hash_getname(sign));
+	r->hash = strdup(net2_hash_getname(hash));
+
+	if (r->enc == NULL || r->sign == NULL || r->hash == NULL)
+		goto fail;
+
+	return 0;
+
+fail:
+	net2_server_handshake1_deinit(r);
+	return -1;
+}
+
+/* Release resources used by net2_hshake_s_connect_reply. */
+ILIAS_NET2_LOCAL void
+net2_server_handshake1_deinit(struct net2_hshake_s_connect_reply *r)
+{
+	if (r->enc)
+		free(r->enc);
+	if (r->sign)
+		free(r->sign);
+	if (r->hash)
+		free(r->hash);
+	r->enc = NULL;
+	r->sign = NULL;
+	r->hash = NULL;
+}

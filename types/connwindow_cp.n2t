@@ -1,0 +1,247 @@
+#include <ilias/net2/ilias_net2_export.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+/*
+ * Window update packet.
+ * Note that the current sequence of the packet comes from the packet header.
+ *
+ * The window update datagram will describe:
+ * - old packets, which are by the sender considered lost, but not yet acked
+ * - RECVOK acks
+ * - LOST acks
+ *
+ *         0                               4       5       6       7       8
+ *         +-------------------------------+-------+-------+-------+-------+
+ *       0 | Start of send window          | flags | #RECV | #LOST | #BAD  |
+ *         +-------------------------------+-------+-------+-------+-------+
+ *       8 | first RECV window ID          | last RECV window ID           |
+ *         +-------------------------------+-------------------------------+
+ *         | ...                                                           |
+ *         +-------------------------------+-------------------------------+
+ * 8+8*    | first LOST window ID          | last LOST window ID           |
+ * (#RECV) +-------------------------------+-------------------------------+
+ *         | ...                                                           |
+ *         +-------------------------------+-------------------------------+
+ * 8+8*    | BAD window ID                 | BAD window ID                 |
+ * (#RECV+ +-------------------------------+-------------------------------+
+ *  #LOST) | ...                           | BAD window ID or 0            |
+ *         +-------------------------------+-------------------------------+
+ *
+ * Total size: 8+8*(#RECV+#LOST)+roundup(4*(#BAD), 8)
+ *
+ * Note that the window update does not need to be complete. The full state
+ * logically follows from substates.
+ *
+ * Note that the sender is responsible for moving the window forward.
+ * This is the only acknowledgement you get for receiving all packets.
+ */
+
+#define WINDOWHEADER_MINSIZE		8	/* Smallest possible header. */
+#define WINDOWHEADER_RANGE_SIZE		8	/* Bytes per winrange. */
+#define WINDOWHEADER_BAD_PER_LINE	2	/* 2 bads fit in one range. */
+
+struct winrange {
+	uint32_t			first;
+	uint32_t			last;
+};
+
+struct windowheader {
+	/* Start of transmit window. */
+	uint32_t			 tx_start;
+
+	/* 1 byte reserved, 1 #RECV, 1 #LOST, 1 #BAD. */
+	uint8_t				 flags;
+	uint8_t				 num_recv;
+	uint8_t				 num_lost;
+	uint8_t				 num_bad;
+
+	/* Payload IDs. */
+	struct winrange			*recv;
+	struct winrange			*lost;
+	uint32_t			*bad;
+};
+
+%%
+#include "connwindow_cp.h"
+#include <ilias/net2/ctypes.h>
+#include <stdlib.h>
+%%
+struct winrange (
+    ctype struct winrange,
+    init NULL,
+    destroy NULL) {
+	uint32			first;
+	uint32			last;
+};
+
+type windowheader (
+	ctype struct windowheader,
+	init whinit,
+	destroy whdestroy,
+	encode whencode,
+	decode whdecode
+);
+
+%%
+static int
+whinit(struct net2_encdec_ctx *c, struct windowheader *wh,
+    const void *cp_arg)
+{
+	wh->tx_start = 0;
+	wh->flags = 0;
+	wh->num_recv = 0;
+	wh->num_lost = 0;
+	wh->num_bad = 0;
+	wh->recv = NULL;
+	wh->lost = NULL;
+	wh->bad = NULL;
+	return 0;
+}
+
+static int
+whdestroy(struct net2_encdec_ctx *c, struct windowheader *wh,
+    const void *cp_arg)
+{
+	if (wh->recv != NULL) {
+		free(wh->recv);
+		wh->recv = NULL;
+	}
+	if (wh->lost != NULL) {
+		free(wh->lost);
+		wh->lost = NULL;
+	}
+	if (wh->bad != NULL) {
+		free(wh->bad);
+		wh->bad = NULL;
+	}
+	return 0;
+}
+
+static int
+whencode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct windowheader *wh, const void *cp_arg)
+{
+	size_t		i;
+	uint32_t	pad = 0;
+
+	if (wh->num_recv > 0 && wh->recv == NULL)
+		goto fail;
+	if (wh->num_lost > 0 && wh->lost == NULL)
+		goto fail;
+	if (wh->num_bad > 0 && wh->bad == NULL)
+		goto fail;
+
+	if (net2_cp_encode(c, &cp_uint32, out, &wh->tx_start, NULL))
+		goto fail;
+
+	if (net2_cp_encode(c, &cp_uint8, out, &wh->flags, NULL))
+		goto fail;
+	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_recv, NULL))
+		goto fail;
+	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_lost, NULL))
+		goto fail;
+	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_bad, NULL))
+		goto fail;
+
+	for (i = 0; i < wh->num_recv; i++) {
+		if (net2_cp_encode(c, &cp_winrange, out, &wh->recv[i],
+		    NULL))
+			goto fail;
+	}
+
+	for (i = 0; i < wh->num_lost; i++) {
+		if (net2_cp_encode(c, &cp_winrange, out, &wh->lost[i],
+		    NULL))
+			goto fail;
+	}
+
+	for (i = 0; i < wh->num_bad; i++) {
+		if (net2_cp_encode(c, &cp_uint32, out, &wh->bad[i], NULL))
+			goto fail;
+	}
+	if (wh->num_bad & 0x1) {
+		if (net2_cp_encode(c, &cp_uint32, out, &pad, NULL))
+			goto fail;
+	}
+
+	return 0;
+
+fail:
+	return -1;
+}
+
+static int
+whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
+    struct net2_buffer *in, const void *cp_arg)
+{
+	size_t		i;
+	uint32_t	pad;
+
+	if (wh->recv != NULL || wh->lost != NULL || wh->bad != NULL)
+		return -1;
+
+	if (net2_cp_decode(c, &cp_uint32, &wh->tx_start, in, NULL))
+		goto fail;
+
+	if (net2_cp_decode(c, &cp_uint8, &wh->flags, in, NULL))
+		goto fail;
+	if (net2_cp_decode(c, &cp_uint8, &wh->num_recv, in, NULL))
+		goto fail;
+	if (net2_cp_decode(c, &cp_uint8, &wh->num_lost, in, NULL))
+		goto fail;
+	if (net2_cp_decode(c, &cp_uint8, &wh->num_bad, in, NULL))
+		goto fail;
+
+	if (wh->num_recv > 0) {
+		if ((wh->recv =
+		    malloc((size_t)wh->num_recv * sizeof(*wh->recv))) == NULL)
+			goto fail;
+	}
+	if (wh->num_lost > 0) {
+		if ((wh->lost =
+		    malloc((size_t)wh->num_lost * sizeof(*wh->lost))) == NULL)
+			goto fail;
+	}
+	if (wh->num_bad > 0) {
+		if ((wh->bad =
+		    malloc((size_t)wh->num_bad * sizeof(*wh->bad))) == NULL)
+			goto fail;
+	}
+
+	for (i = 0; i < wh->num_recv; i++) {
+		if (net2_cp_decode(c, &cp_winrange, &wh->recv[i], in, NULL))
+			goto fail;
+	}
+
+	for (i = 0; i < wh->num_lost; i++) {
+		if (net2_cp_decode(c, &cp_winrange, &wh->lost[i], in, NULL))
+			goto fail;
+	}
+
+	for (i = 0; i < wh->num_bad; i++) {
+		if (net2_cp_decode(c, &cp_uint32, &wh->bad[i], in, NULL))
+			goto fail;
+	}
+	if (wh->num_bad & 0x1) {
+		if (net2_cp_decode(c, &cp_uint32, &pad, in, NULL))
+			goto fail;
+	}
+
+	return 0;
+
+fail:
+	if (wh->recv) {
+		free(wh->recv);
+		wh->recv = NULL;
+	}
+	if (wh->lost) {
+		free(wh->lost);
+		wh->lost = NULL;
+	}
+	if (wh->bad) {
+		free(wh->bad);
+		wh->bad = NULL;
+	}
+	return -1;
+}

@@ -1,0 +1,131 @@
+#include <ilias/net2/ilias_net2_export.h>
+
+%%
+#include <ilias/net2/object.h>
+#include <ilias/net2/types.h>
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/remote.h>
+#include <ilias/net2/connection.h>
+#include <ilias/net2/context.h>
+#include <ilias/net2/protocol.h>
+#include <bsd_compat/error.h>
+#include <assert.h>
+#include "obj_internal.h"
+
+/*
+ * The object is encoded as a 32-bit integer (it's ID).
+ * The object ID is encoded for the remote end of the connection.
+ */
+
+%%
+
+type object (
+	ctype struct net2_obj*,
+	init net2_obj_init,
+	destroy net2_obj_destroy,
+	encode net2_obj_encode,
+	decode net2_obj_decode
+);
+
+%%
+
+ILIAS_NET2_LOCAL int
+net2_obj_init(struct net2_encdec_ctx *c,
+    struct net2_obj**val, const void *cp_arg)
+{
+	*val = NULL;
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+net2_obj_destroy(struct net2_encdec_ctx *c,
+    struct net2_obj**val, const void *cp_arg)
+{
+	if (*val != NULL) {
+		net2_obj_release(*val);
+		*val = NULL;
+	}
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+net2_obj_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, struct net2_obj*const*val, const void *cp_arg)
+{
+	struct net2_obj			*o;
+	struct __serialized_new_object	 s;
+
+	if (*val == NULL) {
+		s.obj_id = 0;
+		s.obj_type = 0;
+		return net2_cp_encode(c, &cp___serialized_new_object, out, &s,
+		    NULL);
+	}
+
+	o = *val;
+	if (net2_ctx_objtype_find(c->ed_conn->n2c_ctx, o->n2o_type->n2ot_id) !=
+	    o->n2o_type) {
+		warnx("%s: serialized object type %u %s "
+		    "unknown in protocol %s",
+		    __FUNCTION__,
+		    o->n2o_type->n2ot_id, o->n2o_type->n2ot_name,
+		    c->ed_conn->n2c_ctx->protocol->name);
+		return -1;
+	}
+
+	s.obj_id = o->n2o_id;
+	s.obj_type = o->n2o_type->n2ot_id;
+
+	if (s.obj_id != 0) {
+		if (s.obj_id & NET2_OBJ_IDREMOTE) {
+			warnx("%s: attempt to serialize remote object "
+			    "(id=%u type=%u %s impl=%p) "
+			    "as local object",
+			    __FUNCTION__,
+			    o->n2o_id, o->n2o_type->n2ot_id,
+			    o->n2o_type->n2ot_name, o->n2o_impl);
+			return -1;
+		}
+	} else {
+		s.obj_id = net2_encdec_newobj(c, o);
+		if (s.obj_id == 0) {
+			warnx("%s: failed to register local object %s %p "
+			    "prior to transmission",
+			    __FUNCTION__,
+			    o->n2o_type->n2ot_name, o->n2o_impl);
+			return -1;
+		}
+	}
+
+	s.win_id = o->n2o_window->n2w_winid;
+
+	assert(!(s.obj_id & NET2_OBJ_IDREMOTE));
+	s.obj_id |= NET2_OBJ_IDREMOTE;
+	return net2_cp_encode(c, &cp___serialized_new_object, out, &s, NULL);
+}
+
+ILIAS_NET2_LOCAL int
+net2_obj_decode(struct net2_encdec_ctx *c,
+    struct net2_obj**val, struct net2_buffer *in, const void *cp_arg)
+{
+	struct net2_obj			*o;
+	struct __serialized_new_object	 s;
+
+	/* Decode data, check arguments. */
+	if (net2_cp_decode(c, &cp___serialized_new_object, &s, in, NULL))
+		return -1;
+	if (s.obj_id == 0)
+		return 0;
+	if (!(s.obj_id & NET2_OBJ_IDREMOTE)) {
+		warnx("%s: received local ID %u, expected remote ID",
+		    __FUNCTION__, s.obj_id);
+		return -1;
+	}
+
+	/* Initialize local stub. */
+	o = net2_encdec_initstub(c, s.obj_type, s.obj_id, s.win_id);
+	if (o == NULL)
+		return -1;
+	*val = o;
+	return 0;
+}

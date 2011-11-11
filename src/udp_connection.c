@@ -1,0 +1,591 @@
+#include <ilias/net2/udp_connection.h>
+#include <ilias/net2/connection.h>
+#include <ilias/net2/evbase.h>
+#include <ilias/net2/mutex.h>
+#include <ilias/net2/sockdgram.h>
+#include <ilias/net2/buffer.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <event2/event.h>
+#ifdef WIN32
+#include <WinSock2.h>
+#include <io.h>
+#include <ws2def.h>
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#endif
+#include <bsd_compat/error.h>
+#include <bsd_compat/sysexits.h>
+#include <assert.h>
+
+
+struct net2_conn_p2p;
+
+/* Read at most this many packets per read. */
+#define DEQUEUE_MAX		256
+
+ILIAS_NET2_LOCAL
+void	net2_conn_p2p_destroy(struct net2_connection*);
+ILIAS_NET2_LOCAL
+void	net2_conn_p2p_ready_to_send(struct net2_connection*);
+ILIAS_NET2_LOCAL
+int	net2_conn_p2p_setev(struct net2_conn_p2p*, short);
+
+ILIAS_NET2_LOCAL
+void	net2_conn_p2p_recv(int, short, void*);
+ILIAS_NET2_LOCAL
+void	net2_udpsocket_recv(int, short, void*);
+
+ILIAS_NET2_LOCAL
+void	net2_udpsock_unlock(struct net2_udpsocket*);
+ILIAS_NET2_LOCAL
+void	net2_udpsock_conn_unlink(struct net2_udpsocket*,
+	    struct net2_conn_p2p*);
+ILIAS_NET2_LOCAL
+void	net2_udpsock_conn_wantsend(struct net2_udpsocket*,
+	    struct net2_conn_p2p*);
+
+
+static const struct net2_conn_functions udp_conn_fn = {
+	0,
+	net2_conn_p2p_destroy,
+	net2_conn_p2p_ready_to_send,
+};
+
+/* UDP connection. */
+struct net2_conn_p2p {
+	struct net2_connection	 np2p_conn;	/* Basic connection. */
+	int			 np2p_sock;	/* UDP socket. */
+	struct sockaddr		*np2p_remote;	/* Remote address. */
+	socklen_t		 np2p_remotelen; /* Remote address len. */
+	struct event		*np2p_ev;	/* Send/receive event. */
+	struct net2_udpsocket	*np2p_udpsock;	/* Shared UDP socket. */
+
+	RB_ENTRY(net2_conn_p2p)	 np2p_socktree;	/* Link into udp socket. */
+	TAILQ_ENTRY(net2_conn_p2p)
+				 np2p_wantwriteq; /* Link want-write queue. */
+	int			 np2p_flags;	/* State flags. */
+#define NP2P_F_SENDQ		 0x80000000	/* On udpsock sendqueue. */
+};
+
+RB_HEAD(net2_udpsocket_conns, net2_conn_p2p);
+
+/*
+ * UDP socket.
+ *
+ * A udp socket exists until both its reference count drops to zero and
+ * its connection queue becomes empty.
+ */
+struct net2_udpsocket {
+	int			 sock;		/* Socket. */
+	size_t			 refcnt;	/* Reference counter. */
+	struct net2_mutex	*guard;		/* Protect against races. */
+	struct event		*ev;		/* Send/receive event. */
+	struct net2_evbase	*evbase;	/* Thread context. */
+
+	struct net2_udpsocket_conns
+				 conns;		/* Active connections. */
+	TAILQ_HEAD(, net2_conn_p2p)
+				 wantwrite;	/* Transmit-ready conns. */
+};
+
+/*
+ * Compare two network addresses.
+ *
+ * Only implemented for AF_INET and AF_INET6.
+ */
+ILIAS_NET2_LOCAL int
+np2p_remote_cmp(struct net2_conn_p2p *c1, struct net2_conn_p2p *c2)
+{
+	int			 f1, f2;
+	struct sockaddr_in	*sin_1, *sin_2;
+	struct sockaddr_in6	*sin6_1, *sin6_2;
+	int			 cmp;
+
+	if (c1->np2p_remote != NULL && c2->np2p_remote != NULL) {
+		err(EX_SOFTWARE, "np2p_remote_cmp: "
+		    "comparison cannot complete because arguments are NULL");
+	}
+
+	if (c1->np2p_remotelen != c2->np2p_remotelen)
+		return (c1->np2p_remotelen < c2->np2p_remotelen ? -1 : 1);
+
+	f1 = c1->np2p_remote->sa_family;
+	f2 = c2->np2p_remote->sa_family;
+	if (f1 != f2)
+		return (f1 < f2 ? -1 : 1);
+
+	switch (f1) {
+	case AF_INET:
+		sin_1 = (struct sockaddr_in*)c1->np2p_remote;
+		sin_2 = (struct sockaddr_in*)c1->np2p_remote;
+		if (sin_1->sin_addr.s_addr != sin_2->sin_addr.s_addr) {
+			return (sin_1->sin_addr.s_addr <
+			    sin_2->sin_addr.s_addr ? -1 : 1);
+		}
+		if (sin_1->sin_port != sin_2->sin_port)
+			return (sin_1->sin_port < sin_2->sin_port ? -1 : 1);
+		break;
+	case AF_INET6:
+		sin6_1 = (struct sockaddr_in6*)c1->np2p_remote;
+		sin6_2 = (struct sockaddr_in6*)c1->np2p_remote;
+		cmp = memcmp(&sin6_1->sin6_addr, &sin6_2->sin6_addr,
+		    sizeof(sin6_1->sin6_addr));
+		if (cmp != 0)
+			return cmp;
+		if (sin6_1->sin6_port != sin6_2->sin6_port) {
+			return (sin6_1->sin6_port < sin6_2->sin6_port ?
+			    -1 : 1);
+		}
+		break;
+	default:
+		err(EX_SOFTWARE, "np2p_remote_cmp: "
+		    "no comparison for address family %d", (int)f1);
+	}
+
+	return 0;
+}
+
+RB_PROTOTYPE_STATIC(net2_udpsocket_conns, net2_conn_p2p, np2p_socktree,
+    np2p_remote_cmp);
+RB_GENERATE_STATIC(net2_udpsocket_conns, net2_conn_p2p, np2p_socktree,
+    np2p_remote_cmp);
+
+
+/*
+ * Create a new peer-to-peer connection.
+ */
+ILIAS_NET2_EXPORT struct net2_connection*
+net2_conn_p2p_create_fd(struct net2_ctx *ctx,
+    struct net2_evbase *evbase, int sock,
+    struct sockaddr *remote, socklen_t remotelen)
+{
+	struct net2_conn_p2p	*c;
+
+	/* Check arguments. */
+	if (sock == -1)
+		return NULL;
+	/* Reserve space. */
+	if ((c = malloc(sizeof(*c))) == NULL)
+		return NULL;
+	/* Copy remote address. */
+	if (remote) {
+		if ((c->np2p_remote = malloc(remotelen)) == NULL) {
+			free(c);
+			return NULL;
+		}
+		memcpy(c->np2p_remote, remote, remotelen);
+		c->np2p_remotelen = remotelen;
+	} else {
+		c->np2p_remote = NULL;
+		c->np2p_remotelen = 0;
+	}
+	/* Set socket. */
+	c->np2p_sock = sock;
+	c->np2p_udpsock = NULL;
+	c->np2p_flags = 0;
+
+	/* Perform base connection initialization. */
+	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn)) {
+		if (c->np2p_remote)
+			free(c->np2p_remote);
+		free(c);
+		return NULL;
+	}
+
+	/* Set up libevent network-receive event. */
+	c->np2p_ev = NULL;
+	if (net2_conn_p2p_setev(c, EV_READ)) {
+		net2_connection_deinit(&c->np2p_conn);
+		if (c->np2p_remote)
+			free(c->np2p_remote);
+		free(c);
+		return NULL;
+	}
+
+	return &c->np2p_conn;
+}
+
+/*
+ * Create a new peer-to-peer connection.
+ */
+ILIAS_NET2_EXPORT struct net2_connection*
+net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
+    struct net2_udpsocket *sock, struct sockaddr *remote, socklen_t remotelen)
+{
+	struct net2_conn_p2p	*c;
+
+	/* Check arguments. */
+	if (ctx == NULL || sock == NULL)
+		return NULL;
+	if (evbase == NULL)
+		evbase = sock->evbase;
+
+	if ((c = malloc(sizeof(*c))) == NULL)
+		return NULL;
+	c->np2p_sock = -1;
+	c->np2p_udpsock = sock;
+	c->np2p_remote = NULL;
+	c->np2p_remotelen = 0;
+	c->np2p_ev = NULL;
+	c->np2p_flags = 0;
+
+	if (remote) {
+		if ((c->np2p_remote = malloc(remotelen)) == NULL)
+			goto fail;
+		memcpy(c->np2p_remote, remote, remotelen);
+		c->np2p_remotelen = remotelen;
+	}
+
+	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn))
+		goto fail;
+
+	return &c->np2p_conn;
+
+fail:
+	if (c->np2p_remote)
+		free(c->np2p_remote);
+	free(c);
+	return NULL;
+}
+
+/*
+ * Create a UDP socket that can handle multiple connections.
+ */
+ILIAS_NET2_EXPORT struct net2_udpsocket*
+net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
+    socklen_t bindaddrlen)
+{
+	int			 fd = -1;
+	int			 saved_errno;
+	struct net2_udpsocket	*rv;
+
+	/* Check argument. */
+	if (bindaddr == NULL || evbase == NULL) {
+		errno = EINVAL;
+		goto fail;
+	}
+
+	/* Increase reference count to evbase. */
+	net2_evbase_ref(evbase);
+
+	/* Create socket. */
+	if ((fd = socket(bindaddr->sa_family, SOCK_DGRAM, 0)) == -1)
+		goto fail;
+	if (bind(fd, bindaddr, bindaddrlen))
+		goto fail;
+
+	/* Allocate result. */
+	if ((rv = malloc(sizeof(*rv))) == NULL)
+		goto fail;
+	rv->evbase = evbase;
+	rv->sock = fd;
+	rv->refcnt = 1;
+	if ((rv->guard = net2_mutex_alloc()) == NULL)
+		goto fail_guard;
+	rv->ev = event_new(evbase->evbase, fd, EV_READ|EV_PERSIST,
+	    &net2_udpsocket_recv, rv);
+	if (rv->ev == NULL)
+		goto fail_event_new;
+	if (event_add(rv->ev, NULL))
+		goto fail_event_add;
+
+	return rv;
+
+fail_event_add:
+	event_del(rv->ev);
+fail_event_new:
+	net2_mutex_free(rv->guard);
+fail_guard:
+	free(rv);
+fail:
+	if (fd != -1) {
+		saved_errno = errno;
+#ifdef WIN32
+		closesocket(fd);
+#else
+		while (close(fd) && errno == EINTR);
+#endif
+		errno = saved_errno;
+	}
+	net2_evbase_release(evbase);
+	return NULL;
+}
+
+/* Increase reference counter on socket. */
+ILIAS_NET2_EXPORT void
+net2_conn_p2p_socket_ref(struct net2_udpsocket *sock)
+{
+	net2_mutex_lock(sock->guard);
+	sock->refcnt++;
+	assert(sock->refcnt > 0);
+	net2_mutex_unlock(sock->guard);
+}
+
+/* Decrease reference counter on socket. */
+ILIAS_NET2_EXPORT void
+net2_conn_p2p_socket_release(struct net2_udpsocket *sock)
+{
+	net2_mutex_lock(sock->guard);
+	assert(sock->refcnt > 0);
+	sock->refcnt--;
+	net2_udpsock_unlock(sock);
+}
+
+ILIAS_NET2_LOCAL void
+net2_conn_p2p_destroy(struct net2_connection *cptr)
+{
+	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
+	struct net2_udpsocket	*udpsock;
+
+	udpsock = c->np2p_udpsock;
+	if (c->np2p_remote)
+		free(c->np2p_remote);
+	if (c->np2p_sock != -1)
+#ifdef WIN32
+		closesocket(c->np2p_sock);
+#else
+		while (close(c->np2p_sock) && errno == EINTR);
+#endif
+	if (udpsock != NULL)
+		net2_udpsock_conn_unlink(udpsock, c);
+	if (c->np2p_ev) {
+		event_del(c->np2p_ev);
+		event_free(c->np2p_ev);
+	}
+	net2_connection_deinit(cptr);
+	free(cptr);
+}
+
+/*
+ * Mark connection as ready-to-send.
+ */
+ILIAS_NET2_LOCAL void
+net2_conn_p2p_ready_to_send(struct net2_connection *cptr)
+{
+	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
+
+	if (c->np2p_udpsock != NULL)
+		net2_udpsock_conn_wantsend(c->np2p_udpsock, c);
+	else {
+		if (net2_conn_p2p_setev(c, EV_READ | EV_WRITE))
+			warnx("p2p connection: may lose data...");
+	}
+}
+
+/*
+ * P2P connection specific implementation of receive.
+ * Only to be used on connected datagram sockets.
+ */
+ILIAS_NET2_LOCAL void
+net2_conn_p2p_recv(int sock, short what, void *cptr)
+{
+	struct net2_conn_p2p	*c = cptr;
+	struct net2_conn_receive*r;
+	int			 dequeued;
+
+	assert(c->np2p_sock == sock);
+
+	/*
+	 * Read network input.
+	 */
+	if (what & EV_READ) {
+		for (dequeued = 0; dequeued < DEQUEUE_MAX; dequeued++) {
+			if (net2_sockdgram_recv(sock, &r, NULL, 0)) {
+				/* TODO: kill connection */
+				return;
+			}
+
+			/* GUARD */
+			if (r == NULL)
+				break;
+			net2_connection_recv(cptr, r);
+		}
+	}
+
+	/*
+	 * TODO: invoke write callback
+	 */
+}
+
+/* Event initialization for connection-based events. */
+ILIAS_NET2_LOCAL int
+net2_conn_p2p_setev(struct net2_conn_p2p *c, short what)
+{
+	int			 allocated = 1;
+	int			 want_write, have_write;
+	int			 want_read,  have_read;
+
+	assert(c->np2p_udpsock == NULL);
+	want_write = (what & EV_WRITE);
+	want_read = (what & EV_READ);
+
+	if (c->np2p_ev == NULL) {
+		if ((c->np2p_ev = event_new(c->np2p_conn.n2c_evbase->evbase,
+		    c->np2p_sock, what | EV_PERSIST,
+		    net2_conn_p2p_recv, c)) == NULL) {
+			warnx("event_new fail");
+			return -1;
+		}
+		allocated = 1;
+	} else {
+		/*
+		 * Check if the event is already pending for the right
+		 * event types.
+		 */
+		have_write = event_pending(c->np2p_ev, EV_WRITE, NULL);
+		have_read  = event_pending(c->np2p_ev, EV_READ, NULL);
+		if ((have_write == 0) == (want_write == 0) &&
+		    (have_read  == 0) == (want_read  == 0)) {
+			return 0;
+		}
+
+		/* Remove and reinitialize event. */
+		if (event_del(c->np2p_ev)) {
+			warnx("event_del fail");
+			goto fail;
+		}
+		if (event_assign(c->np2p_ev,
+		    c->np2p_conn.n2c_evbase->evbase,
+		    c->np2p_sock, what | EV_PERSIST,
+		    net2_conn_p2p_recv, c)) {
+			warnx("event_assign fail");
+			goto fail;
+		}
+	}
+
+	/* Add event. */
+	if (event_add(c->np2p_ev, NULL)) {
+		warnx("event_add fail");
+		goto fail;
+	}
+	return 0;
+
+fail:
+	if (allocated) {
+		event_free(c->np2p_ev);
+		c->np2p_ev = NULL;
+	}
+	return -1;
+}
+
+/*
+ * UDP specific implementation of receive.
+ */
+ILIAS_NET2_LOCAL void
+net2_udpsocket_recv(int sock, short what, void *udps_ptr)
+{
+	struct net2_udpsocket	*udps = udps_ptr;
+	struct net2_conn_receive*r;
+	struct sockaddr_storage	 from;
+	socklen_t		 fromlen;
+	struct net2_conn_p2p	*c, search;
+	int			 dequeued;
+
+	assert(udps->sock == sock);
+
+	/*
+	 * Read network input.
+	 */
+	if (what & EV_READ) {
+		for (dequeued = 0; dequeued < DEQUEUE_MAX; dequeued++) {
+			fromlen = sizeof(from);
+			if (net2_sockdgram_recv(sock, &r,
+			    (struct sockaddr*)&from, &fromlen)) {
+				/* TODO: kill socket */
+				return;
+			}
+
+			/* GUARD */
+			if (r == NULL)
+				break;
+
+			/* Find connection. */
+			search.np2p_remote = (struct sockaddr*)&from;
+			search.np2p_remotelen = fromlen;
+			net2_mutex_lock(udps->guard);	/* LOCK */
+			c = RB_FIND(net2_udpsocket_conns, &udps->conns,
+			    &search);
+
+			/* Deliver data to connection. */
+			if (c != NULL)
+				net2_connection_recv(&c->np2p_conn, r);
+			else {
+				/* Unrecognized connection. */
+				/* TODO: implement new connection callback */
+				if (r->buf)
+					net2_buffer_free(r->buf);
+				free(r);
+			}
+			net2_mutex_unlock(udps->guard);	/* UNLOCK */
+		}
+	}
+
+	/*
+	 * TODO: invoke write callback
+	 */
+}
+
+/* Unlock socket and remove it if it has no references. */
+ILIAS_NET2_LOCAL void
+net2_udpsock_unlock(struct net2_udpsocket *sock)
+{
+	int		do_rm;
+
+	do_rm = RB_EMPTY(&sock->conns) &&
+	    sock->refcnt == 0;
+	if (do_rm)
+		event_del(sock->ev);
+	net2_mutex_unlock(sock->guard);
+
+	if (do_rm) {
+		net2_mutex_free(sock->guard);
+		event_free(sock->ev);
+		net2_evbase_release(sock->evbase);
+		free(sock);
+	}
+}
+
+/* Remove a connection from a udp socket. */
+ILIAS_NET2_LOCAL void
+net2_udpsock_conn_unlink(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
+{
+	net2_mutex_lock(sock->guard);
+	if (RB_REMOVE(net2_udpsocket_conns, &sock->conns, c) != c)
+		warnx("udpsocket: removal of connection that doesn't exist");
+	net2_udpsock_unlock(sock);
+}
+
+ILIAS_NET2_LOCAL void
+net2_udpsock_conn_wantsend(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
+{
+	if (c->np2p_flags & NP2P_F_SENDQ)
+		return;
+
+	/* Acquire exclusive access to udpsocket. */
+	net2_mutex_lock(sock->guard);
+
+	/* Modify event to be pending for write. */
+	if (!event_pending(sock->ev, EV_WRITE, NULL)) {
+		if (event_del(sock->ev))
+			errx(EX_UNAVAILABLE, "event_del fail");
+		if (event_assign(sock->ev, sock->evbase->evbase, sock->sock,
+		    EV_READ|EV_WRITE|EV_PERSIST, &net2_udpsocket_recv, sock))
+			warnx("event_assign fail");
+		if (event_add(sock->ev, NULL))
+			warnx("event_add fail");
+	}
+
+	/* Add connection to wantwriteq. */
+	assert(RB_FIND(net2_udpsocket_conns, &sock->conns, c) == c);
+	c->np2p_flags |= NP2P_F_SENDQ;
+	TAILQ_INSERT_TAIL(&sock->wantwrite, c, np2p_wantwriteq);
+
+	/* Release exclusive access to udpsocket. */
+	net2_mutex_unlock(sock->guard);
+}

@@ -1,0 +1,42 @@
+net2: replace old net library.
+Because the old code did too many things at once and got too complicated.
+
+Bottom layer: net2_connection
+Deals with input and output.
+The bottom layer receives data, sends data.
+It invokes callbacks to get new data.
+It detects transmission loss, but does not handle retransmit.
+It guarantees at-most-once delivery.
+The delivery and data acquisition happen from an acceptor object.
+Performs measurement of bandwidth, packet loss.
+
+
+Middle layer: net2_windowmanager
+Deals with reliability and scheduling.
+Provides multiplexing (many windows can exist in a single connection).
+Allows packets to be revoked either manually or automatically.
+Performs datagram fragmentation and reassembly.
+Provides barriers, where anything before the barrier will be received prior to
+  anything after the barrier.
+Provides streaming capability.
+Provides deadline scheduler, where a best attempt will be made to deliver
+  a packet (and thus anything of a prior barrier too) before a timer expires.
+  This may cause the packet to be sent multiple times, to reduce the chance
+  of packet loss.
+
+
+Top layer: net2_objmanager
+Deals with objects and remote procedure invocation.
+Connects objects and windows together.
+Handles remote procedure result handling (usually invoking a callback provided
+  for this result at invocation time).
+Handles object set transfer between nodes (subject to constraints in the
+  involved objects).
+
+
+Negotiation:
+- a new connection acquires object ID 1, which is the connection meta object
+- a new connection acquires windows ID 1, which is the meta window
+The meta object controls the connection.
+The meta window maintains communication between the local and remote metas.
+The meta object and window are created at connection creation.
