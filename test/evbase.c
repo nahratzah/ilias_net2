@@ -84,7 +84,7 @@ main()
 	fprintf(stderr, "ok\n");
 
 	fprintf(stderr, "attempting to stop thread... ");
-	if (net2_evbase_threadstop(b)) {
+	if (net2_evbase_threadstop(b, 0)) {
 		fprintf(stderr, "fail\n");
 		return -1;
 	}

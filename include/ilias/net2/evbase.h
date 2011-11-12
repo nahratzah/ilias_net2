@@ -28,6 +28,8 @@ void				 net2_evbase_ref(struct net2_evbase*);
 ILIAS_NET2_EXPORT
 int				 net2_evbase_threadstart(struct net2_evbase*);
 ILIAS_NET2_EXPORT
-int				 net2_evbase_threadstop(struct net2_evbase*);
+int				 net2_evbase_threadstop(struct net2_evbase*,
+				    int);
+#define NET2_EVBASE_WAITONLY	0x00000001	/* Don't kill the thread. */
 
 #endif /* ILIAS_NET2_EVBASE_H */

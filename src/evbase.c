@@ -134,14 +134,15 @@ fail:
 
 /* Stop the event base. */
 ILIAS_NET2_EXPORT int
-net2_evbase_threadstop(struct net2_evbase *b)
+net2_evbase_threadstop(struct net2_evbase *b, int flags)
 {
 	net2_mutex_lock(b->mtx);
 	if (b->thread == NULL) {
 		net2_mutex_unlock(b->mtx);
 		return 0;
 	}
-	if (event_del(b->threadlive)) {
+	/* Don't stop the thread-live if WAITONLY was specified. */
+	if (!(flags & NET2_EVBASE_WAITONLY) && event_del(b->threadlive)) {
 		warnx("failed to remove thread live event");
 		net2_mutex_unlock(b->mtx);
 		return -1;
