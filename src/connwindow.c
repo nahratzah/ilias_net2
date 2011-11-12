@@ -135,6 +135,7 @@ struct net2_cw_tx {
 #define NET2_CWTX_F_WANTBAD	0x00000001	/* Want loss transmission. */
 #define NET2_CWTX_F_SENTBAD	0x00000002	/* Sent loss transmission. */
 #define NET2_CWTX_F_TIMEDOUT	0x00000004	/* Timeout cb invoked. */
+	int		 cwt_stalled;		/* No payload, no callbacks. */
 };
 
 /*
@@ -1206,17 +1207,20 @@ net2_connwindow_tx_prepare(struct net2_connwindow *w,
 {
 	struct net2_cw_tx		*tx;
 
+	update_stalled(w);
+
 	ph->seq = w->cw_tx_nextseq;
 	if ((tx = tx_new(w->cw_tx_nextseq, w)) == NULL)
 		goto fail_0;
-	if (RB_INSERT(net2_cw_transmits, &w->cw_tx_id, tx) != NULL)
-		goto fail_1;
 
-	update_stalled(w);
-	if (w->cw_flags & NET2_CW_F_STALLED)
+	if (w->cw_flags & NET2_CW_F_STALLED) {
 		ph->flags |= PH_STALLED;
-	else
+		tx->cwt_stalled = 1;
+	} else {
+		if (RB_INSERT(net2_cw_transmits, &w->cw_tx_id, tx) != NULL)
+			goto fail_1;
 		w->cw_tx_nextseq++;
+	}
 	return tx;
 
 fail_1:
@@ -1233,6 +1237,11 @@ net2_connwindow_tx_commit(struct net2_cw_tx *tx, size_t wire_sz)
 {
 	struct net2_connwindow		*w = tx->cwt_owner;
 	struct timeval			 timeout;
+
+	if (tx->cwt_stalled) {
+		tx_free(tx);
+		return;
+	}
 
 	net2_connstats_timeout(&w->cw_conn->n2c_stats, &timeout,
 	    TIMEOUT_TX_ACK);
@@ -1301,6 +1310,9 @@ net2_connwindow_txcb_register(struct net2_cw_tx *tx, struct net2_evbase *evbase,
 
 	/* Argument check. */
 	if (tx == NULL || evbase == NULL)
+		return -1;
+	/* Cannot add callbacks to stalled packet: this will never be acked. */
+	if (tx->cwt_stalled)
 		return -1;
 	/* Don't add empty events. */
 	if (cb_timeout == NULL && cb_ack == NULL && cb_nack == NULL &&
