@@ -1,6 +1,7 @@
 #include "testprotocol.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/udp_connection.h>
+#include <ilias/net2/stream_acceptor.h>
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
@@ -104,6 +105,8 @@ main()
 	struct net2_ctx		*protocol_ctx;
 	struct net2_evbase	*evbase;
 	struct net2_connection	*c1, *c2;
+	struct net2_stream_acceptor
+				*sa1, *sa2;
 
 	net2_init();
 
@@ -128,6 +131,18 @@ main()
 		return -1;
 	}
 
+	sa1 = net2_stream_acceptor_new();
+	sa2 = net2_stream_acceptor_new();
+	if (sa1 == NULL || sa2 == NULL) {
+		printf("net2_stream_acceptor_new() fail");
+		return -1;
+	}
+
+	if (net2_conn_acceptor_attach(c1, net2_stream_acceptor_reduce(sa1)) ||
+	    net2_conn_acceptor_attach(c2, net2_stream_acceptor_reduce(sa2))) {
+		printf("net2_conn_acceptor_attach() fail");
+		return -1;
+	}
 	/* TODO: stream acceptors for each connection */
 
 	net2_connection_destroy(c1);
