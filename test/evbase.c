@@ -23,7 +23,8 @@ main()
 {
 	struct net2_evbase	*b;
 	struct event		*ev;
-	struct timeval		 second = { 0, 0 };
+	struct timeval		 second = { 1, 0 };
+	struct timeval		 immediate = { 0, 0 };
 
 	/* Initializing libevent. */
 #ifdef WIN32
@@ -67,11 +68,37 @@ main()
 	fprintf(stderr, "ok\n");
 
 	/* Sleep 2 seconds for done to time out. */
-	fprintf(stderr, "sleeping 5 seconds for timeout... ");
+	fprintf(stderr, "sleeping 2 seconds for timeout... ");
 #ifdef WIN32
 	Sleep(2000); /* milli seconds */
 #else
 	sleep(2);
+#endif
+	if (done_timedout == 0) {
+		fprintf(stderr, "time out never happened\n");
+		return -1;
+	} else if (done_timedout != 1) {
+		fprintf(stderr, "time out happened wrong number of times: %d\n",
+		    done_timedout);
+		return -1;
+	}
+	fprintf(stderr, "ok\n");
+
+	/* Now test the same, with a zero-second timeout. */
+	done_timedout = 0;
+	fprintf(stderr, "scheduling immediate callback... ");
+	if (event_add(ev, &immediate)) {
+		fprintf(stderr, "event_add (immediate) fail\n");
+		return -1;
+	}
+	fprintf(stderr, "ok\n");
+
+	/* Sleep for 1 second for done to time out. */
+	fprintf(stderr, "sleeping for 1 seconds for timeout... ");
+#ifdef WIN32
+	Sleep(1000); /* milli seconds */
+#else
+	sleep(1);
 #endif
 	if (done_timedout == 0) {
 		fprintf(stderr, "time out never happened\n");
