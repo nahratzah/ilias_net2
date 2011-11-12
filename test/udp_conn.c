@@ -39,6 +39,34 @@ doodle_buf()
 }
 
 int fail = 0;
+volatile int detached = 0;
+volatile int finished = 0;
+volatile int recv_finished = 0;
+
+void
+detach_flag(int fd, short what, void *base_ptr)
+{
+	struct net2_evbase	*base = base_ptr;
+
+	detached = 1;
+	event_base_loopbreak(base->evbase);
+}
+void
+finish_flag(int fd, short what, void *base_ptr)
+{
+	struct net2_evbase	*base = base_ptr;
+
+	finished = 1;
+	event_base_loopbreak(base->evbase);
+}
+void
+recv_finish_flag(int fd, short what, void *base_ptr)
+{
+	struct net2_evbase	*base = base_ptr;
+
+	recv_finished = 1;
+	event_base_loopbreak(base->evbase);
+}
 
 int
 udp_socketpair(int *fd1, int *fd2, int do_connect)
@@ -203,10 +231,41 @@ main()
 		}
 	}
 
+	/* Set up the finish and detach events for sa1. */
+	{
+		struct event		*detach, *finish;
+		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa1);
+
+		detach = event_new(evbase->evbase, -1, 0,
+		    detach_flag, sa1);
+		finish = event_new(evbase->evbase, -1, 0,
+		    finish_flag, sa1);
+		if (detach == NULL || finish == NULL) {
+			printf("event_new fail");
+			return -1;
+		}
+
+		if (net2_sa_tx_set_event(tx, NET2_SATX_ON_DETACH,
+		    detach, NULL) ||
+		    net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
+		    finish, NULL)) {
+			printf("net2_sa_tx_set_event fail");
+			return -1;
+		}
+	}
+
 	/* Attach stream to connection. */
 	if (net2_conn_acceptor_attach(c1, net2_stream_acceptor_reduce(sa1)) ||
 	    net2_conn_acceptor_attach(c2, net2_stream_acceptor_reduce(sa2))) {
 		printf("net2_conn_acceptor_attach() fail");
+		return -1;
+	}
+
+	/*
+	 * Start the evbase.
+	 */
+	if (net2_evbase_threadstart(evbase)) {
+		printf("net2_evbase_threadstart fail");
 		return -1;
 	}
 
@@ -218,7 +277,45 @@ main()
 	net2_sa_tx_write(net2_stream_acceptor_tx(sa1), sent);
 	net2_sa_tx_close(net2_stream_acceptor_tx(sa1));
 
-	/* TODO: send data into sa1, read it back, compare. */
+	/*
+	 * We need to wait until both the transmitter and
+	 * receiver have completed.
+	 */
+	while (!(finished || detached) && !recv_finished) {
+		/* Wait for event loop to process everything. */
+		if (net2_evbase_threadstop(evbase, NET2_EVBASE_WAITONLY)) {
+			printf("net2_evbase_threadstop fail");
+			return -1;
+		}
+
+		/* Check why the eventloop ended. */
+		if (finished == 1) {
+			printf("\tprocessing finished");
+			finished = 2;		/* Only print once. */
+		}
+		if (recv_finished == 1) {
+			printf("\tprocessing recv finished");
+			recv_finished = 2;	/* Only print once. */
+		}
+		if (detached == 1) {
+			printf("\tFAIL: connection detached stream_acceptor");
+			fail++;
+			detached = 2;		/* Only print once. */
+		}
+	}
+
+	/* TODO: read data from sa1 */
+	received = net2_sa_rx_read(net2_stream_acceptor_rx(sa1), -1, 0);
+	if (!net2_sa_rx_eof(net2_stream_acceptor_rx(sa1))) {
+		printf("receiver has not received eof");
+		fail++;
+	}
+
+	/* TODO: compare data from sa1 */
+	if (net2_buffer_cmp(sent, received) != 0) {
+		printf("sent and received data differ");
+		fail++;
+	}
 
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
