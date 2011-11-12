@@ -388,6 +388,8 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 	struct net2_conn_p2p	*c = cptr;
 	struct net2_conn_receive*r;
 	int			 dequeued;
+	struct net2_buffer	*buf;
+	int			 rv;
 
 	assert(c->np2p_sock == sock);
 
@@ -404,13 +406,62 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 			/* GUARD */
 			if (r == NULL)
 				break;
-			net2_connection_recv(cptr, r);
+			net2_connection_recv(&c->np2p_conn, r);
 		}
 	}
 
 	/*
-	 * TODO: invoke write callback
+	 * Write network data.
 	 */
+	if (what & EV_WRITE) {
+		buf = NULL;
+		if (net2_conn_gather_tx(&c->np2p_conn, &buf,
+		    c->np2p_conn.n2c_stats.wire_sz)) {
+			/* TODO: kill connection */
+			return;
+		}
+		if (buf == NULL) {
+			/* Nothing to transmit, turn off write event. */
+			net2_conn_p2p_setev(c, EV_READ);
+			return;
+		}
+
+		rv = net2_sockdgram_send(sock, &c->np2p_conn, buf,
+		    c->np2p_remote, c->np2p_remotelen);
+		net2_buffer_free(buf);
+		switch (rv) {
+		case NET2_CONNFAIL_OK:
+			break;
+		case NET2_CONNFAIL_CLOSE:
+			/* TODO kill connection */
+			break;
+		case NET2_CONNFAIL_TOOBIG:
+			/* TODO: figure out what to do here,
+			 * better yet, try to avoid it */
+			break;
+		case NET2_CONNFAIL_BAD:
+			/* TODO: kill connection */
+			break;
+		case NET2_CONNFAIL_OS:
+			/*
+			 * Drop packet and let retransmission logic deal
+			 * with it.
+			 */
+			break;
+		case NET2_CONNFAIL_IO:
+			/* Drop packet. */
+			break;
+		case NET2_CONNFAIL_RESOURCE:
+			/*
+			 * Out of memory... maybe kill this connection to make
+			 * room? Or find a sacrificial goat somewhere...
+			 */
+			break;
+		default:
+			errx(EX_SOFTWARE, "net2_sockdgram_send "
+			    "unexpected response %d");
+		}
+	}
 }
 
 /* Event initialization for connection-based events. */
