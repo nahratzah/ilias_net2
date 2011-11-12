@@ -187,12 +187,14 @@ net2_conn_acceptor_attach(struct net2_connection *conn,
 
 	if (conn == NULL || a == NULL)
 		return -1;
+	a->ca_conn = conn;
 	old = conn->n2c_acceptor;
 	conn->n2c_acceptor = NULL;
 	rv = a->ca_fn->attach(conn, a);
 	if (rv == 0) {
 		if (old != NULL)
 			(*old->ca_fn->detach)(conn, old);
+		conn->n2c_acceptor = a;
 	} else
 		conn->n2c_acceptor = old;
 	return rv;
@@ -420,6 +422,10 @@ fail_1:
 	if (b != NULL)
 		net2_buffer_free(b);
 fail_0:
+	if (rv != 0) {
+		net2_buffer_free(*bptr);
+		*bptr = NULL;
+	}
 	return rv;
 }
 
