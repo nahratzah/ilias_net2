@@ -854,7 +854,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	if (maxlen < STREAM_PACKET_OVERHEAD + STREAM_PACKET_ALIGN)
 		goto out;
 	/* No work to be done. */
-	if (net2_buffer_empty(sa->sendbuf))
+	if (!(sa->flags & SATX_RESEND_CLOSE) && net2_buffer_empty(sa->sendbuf))
 		goto out;
 
 	/*
@@ -887,16 +887,19 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 		 * Find the first non-transmitted sequence.
 		 */
 		wf_start = sa->win_start;
-		for (i = 0; ; i++) {
+		for (i = 0; i <= 2; i++) {
 			switch (i) {
 			case 0:
 				r = RB_MAX(range_tree, &sa->ack);
+				break;
 			case 1:
 				r = RB_MAX(range_tree, &sa->transit);
+				break;
 			case 2:
 				r = RB_MAX(range_tree, &sa->retrans);
-			default:
 				break;
+			default:
+				assert(0);
 			}
 
 			if (r != NULL &&
