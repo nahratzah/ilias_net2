@@ -1,6 +1,7 @@
 #include <ilias/net2/evbase.h>
 #include <stdio.h>
 #include <event2/event.h>
+#include <event2/thread.h>
 #ifdef WIN32
 #include <Windows.h>
 #else
