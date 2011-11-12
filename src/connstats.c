@@ -143,6 +143,9 @@ net2_connstats_init(struct net2_connstats *cs, struct net2_connection *conn)
 	cs->send_for_97 = 1;
 	cs->bandwidth = 0;
 	cs->packets_sec = 0;
+	cs->wire_sz = 512; /* TODO: external constant for min packet len */
+	cs->latency_avg = 1000;
+	cs->latency_stddev = 1000;
 
 	tv_clock_gettime(CLOCK_MONOTONIC, &cs->last_update);
 
