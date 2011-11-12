@@ -114,7 +114,7 @@ net2_evbase_threadstart(struct net2_evbase *b)
 	/* wakeup: wake up every so often to check if something important
 	 * (like net2_evbase_threadstop) happened. */
 	const struct timeval
-			wakeup = { 1, 0 };
+			wakeup = { 60, 0 };
 	int		rv = -1;
 
 	net2_mutex_lock(b->mtx);
