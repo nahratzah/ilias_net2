@@ -6,6 +6,7 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
 #include <event2/event.h>
+#include <event2/thread.h>
 #include <sys/types.h>
 #include <string.h>
 #include <stdlib.h>
@@ -133,6 +134,22 @@ main()
 				*sa1, *sa2;
 	struct net2_buffer	*sent, *received;
 
+	/* Initializing libevent. */
+#ifdef WIN32
+	if (evthread_use_windows_threads()) {
+		fprintf(stderr, "unable to set up windows threading "
+		    "in libevent");
+		return -1;
+	}
+#else
+	if (evthread_use_pthreads()) {
+		fprintf(stderr, "unable to set up posix threading "
+		    "in libevent");
+		return -1;
+	}
+#endif
+
+	/* Initialize network. */
 	net2_init();
 
 	if (udp_socketpair(&fd[0], &fd[1], 1)) {
