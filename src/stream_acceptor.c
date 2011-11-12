@@ -1323,9 +1323,8 @@ sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_connection *conn,
 		goto fail_0;
 	if (net2_cp_init(ctx, &cp_stream_packet, &sp, NULL))
 		goto fail_1;
-	if (net2_cp_decode(ctx, &cp_stream_packet, &sp, in, NULL)) {
+	if (net2_cp_decode(ctx, &cp_stream_packet, &sp, in, NULL))
 		goto fail_2;
-	}
 
 	rv = sa_rx_recv(sa, &sp);
 
