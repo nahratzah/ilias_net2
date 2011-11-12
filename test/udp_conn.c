@@ -68,6 +68,31 @@ recv_finish_flag(int fd, short what, void *base_ptr)
 	event_base_loopbreak(base->evbase);
 }
 
+void
+mirror_recv_event(int fd, short what, void *nsa_ptr)
+{
+	struct net2_stream_acceptor	*nsa = nsa_ptr;
+	struct net2_sa_rx		*rx = net2_stream_acceptor_rx(nsa);
+	struct net2_sa_tx		*tx = net2_stream_acceptor_tx(nsa);
+	struct net2_buffer		*buf;
+
+	/* Bounce input back. */
+	if ((buf = net2_sa_rx_read(rx, -1, 0)) == NULL) {
+		printf("net2_sa_rx_read(rx, -1, 0) fail\n");
+		exit(-1);
+	}
+	printf("received %lu bytes\n", (unsigned long)net2_buffer_length(buf));
+	if (net2_sa_tx_write(tx, buf)) {
+		printf("net2_sa_tx_write() fail\n");
+		exit(-1);
+	}
+	net2_buffer_free(buf);
+
+	/* Close return stream on finishing input stream. */
+	if (net2_sa_rx_eof(rx))
+		net2_sa_tx_close(tx);
+}
+
 int
 udp_socketpair(int *fd1, int *fd2, int do_connect)
 {
@@ -127,30 +152,6 @@ fail:
 	return -1;
 }
 
-void
-mirror_recv_event(int fd, short what, void *nsa_ptr)
-{
-	struct net2_stream_acceptor	*nsa = nsa_ptr;
-	struct net2_sa_rx		*rx = net2_stream_acceptor_rx(nsa);
-	struct net2_sa_tx		*tx = net2_stream_acceptor_tx(nsa);
-	struct net2_buffer		*buf;
-
-	/* Bounce input back. */
-	if ((buf = net2_sa_rx_read(rx, -1, 0)) == NULL) {
-		printf("net2_sa_rx_read(rx, -1, 0) fail");
-		exit(-1);
-	}
-	if (net2_sa_tx_write(tx, buf)) {
-		printf("net2_sa_tx_write() fail");
-		exit(-1);
-	}
-	net2_buffer_free(buf);
-
-	/* Close return stream on finishing input stream. */
-	if (net2_sa_rx_eof(rx))
-		net2_sa_tx_close(tx);
-}
-
 int
 main()
 {
@@ -186,11 +187,11 @@ main()
 	}
 
 	if ((protocol_ctx = test_ctx()) == NULL) {
-		printf("test_ctx() fail");
+		printf("test_ctx() fail\n");
 		return -1;
 	}
 	if ((evbase = net2_evbase_new()) == NULL) {
-		printf("net2_evbase_new() fail");
+		printf("net2_evbase_new() fail\n");
 		return -1;
 	}
 
@@ -198,7 +199,7 @@ main()
 	c1 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[0], NULL, 0);
 	c2 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[1], NULL, 0);
 	if (c1 == NULL || c2 == NULL) {
-		printf("net2_conn_p2p_create_fd() fail");
+		printf("net2_conn_p2p_create_fd() fail\n");
 		return -1;
 	}
 
@@ -206,7 +207,7 @@ main()
 	sa1 = net2_stream_acceptor_new();
 	sa2 = net2_stream_acceptor_new();
 	if (sa1 == NULL || sa2 == NULL) {
-		printf("net2_stream_acceptor_new() fail");
+		printf("net2_stream_acceptor_new() fail\n");
 		return -1;
 	}
 
@@ -218,7 +219,7 @@ main()
 		mirror_ev = event_new(evbase->evbase, -1, 0,
 		    mirror_recv_event, sa2);
 		if (mirror_ev == NULL) {
-			printf("event_new fail");
+			printf("event_new fail\n");
 			return -1;
 		}
 
@@ -226,7 +227,7 @@ main()
 		    mirror_ev, NULL) ||
 		    net2_sa_rx_set_event(rx, NET2_SARX_ON_FINISH,
 		    mirror_ev, NULL)) {
-			printf("net2_sa_rx_set_event fail");
+			printf("net2_sa_rx_set_event fail\n");
 			return -1;
 		}
 	}
@@ -241,7 +242,7 @@ main()
 		finish = event_new(evbase->evbase, -1, 0,
 		    finish_flag, sa1);
 		if (detach == NULL || finish == NULL) {
-			printf("event_new fail");
+			printf("event_new fail\n");
 			return -1;
 		}
 
@@ -249,7 +250,7 @@ main()
 		    detach, NULL) ||
 		    net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
 		    finish, NULL)) {
-			printf("net2_sa_tx_set_event fail");
+			printf("net2_sa_tx_set_event fail\n");
 			return -1;
 		}
 	}
@@ -257,7 +258,7 @@ main()
 	/* Attach stream to connection. */
 	if (net2_conn_acceptor_attach(c1, net2_stream_acceptor_reduce(sa1)) ||
 	    net2_conn_acceptor_attach(c2, net2_stream_acceptor_reduce(sa2))) {
-		printf("net2_conn_acceptor_attach() fail");
+		printf("net2_conn_acceptor_attach() fail\n");
 		return -1;
 	}
 
@@ -265,13 +266,13 @@ main()
 	 * Start the evbase.
 	 */
 	if (net2_evbase_threadstart(evbase)) {
-		printf("net2_evbase_threadstart fail");
+		printf("net2_evbase_threadstart fail\n");
 		return -1;
 	}
 
 	/* Send data into sa1. */
 	if ((sent = doodle_buf()) == NULL) {
-		printf("doodle_buf() fail");
+		printf("doodle_buf() fail\n");
 		return -1;
 	}
 	net2_sa_tx_write(net2_stream_acceptor_tx(sa1), sent);
@@ -284,7 +285,7 @@ main()
 	while (!(finished || detached) && !recv_finished) {
 		/* Wait for event loop to process everything. */
 		if (net2_evbase_threadstop(evbase, NET2_EVBASE_WAITONLY)) {
-			printf("net2_evbase_threadstop fail");
+			printf("net2_evbase_threadstop fail\n");
 			return -1;
 		}
 
