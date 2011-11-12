@@ -289,7 +289,7 @@ net2_packet_encode(struct net2_encdec_ctx *ctx, struct packet_header *ph,
 	size_t			 ivlen;
 	void			*iv;
 
-	assert(outptr != NULL && *outptr != NULL && payload != NULL);
+	assert(outptr != NULL && *outptr == NULL && payload != NULL);
 	assert(ctx != NULL && ph != NULL);
 	conn = ctx->ed_conn;
 	out = hash = ph_net = ivbuf = NULL;
