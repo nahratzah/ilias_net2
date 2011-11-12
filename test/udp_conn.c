@@ -5,6 +5,7 @@
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
+#include <event2/event.h>
 #include <sys/types.h>
 #include <string.h>
 #include <stdlib.h>
@@ -98,6 +99,30 @@ fail:
 	return -1;
 }
 
+void
+mirror_recv_event(int fd, short what, void *nsa_ptr)
+{
+	struct net2_stream_acceptor	*nsa = nsa_ptr;
+	struct net2_sa_rx		*rx = net2_stream_acceptor_rx(nsa);
+	struct net2_sa_tx		*tx = net2_stream_acceptor_tx(nsa);
+	struct net2_buffer		*buf;
+
+	/* Bounce input back. */
+	if ((buf = net2_sa_rx_read(rx, -1, 0)) == NULL) {
+		printf("net2_sa_rx_read(rx, -1, 0) fail");
+		exit(-1);
+	}
+	if (net2_sa_tx_write(tx, buf)) {
+		printf("net2_sa_tx_write() fail");
+		exit(-1);
+	}
+	net2_buffer_free(buf);
+
+	/* Close return stream on finishing input stream. */
+	if (net2_sa_rx_eof(rx))
+		net2_sa_tx_close(tx);
+}
+
 int
 main()
 {
@@ -124,6 +149,7 @@ main()
 		return -1;
 	}
 
+	/* Create connection. */
 	c1 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[0], NULL, 0);
 	c2 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[1], NULL, 0);
 	if (c1 == NULL || c2 == NULL) {
@@ -131,6 +157,7 @@ main()
 		return -1;
 	}
 
+	/* Create stream. */
 	sa1 = net2_stream_acceptor_new();
 	sa2 = net2_stream_acceptor_new();
 	if (sa1 == NULL || sa2 == NULL) {
@@ -138,15 +165,39 @@ main()
 		return -1;
 	}
 
+	/* Turn sa2 into an echo service. */
+	{
+		struct event		*mirror_ev;
+		struct net2_sa_rx	*rx = net2_stream_acceptor_rx(sa2);
+
+		mirror_ev = event_new(evbase->evbase, -1, 0,
+		    mirror_recv_event, sa2);
+		if (mirror_ev == NULL) {
+			printf("event_new fail");
+			return -1;
+		}
+
+		if (net2_sa_rx_set_event(rx, NET2_SARX_ON_RECV,
+		    mirror_ev, NULL) ||
+		    net2_sa_rx_set_event(rx, NET2_SARX_ON_FINISH,
+		    mirror_ev, NULL)) {
+			printf("net2_sa_rx_set_event fail");
+			return -1;
+		}
+	}
+
+	/* Attach stream to connection. */
 	if (net2_conn_acceptor_attach(c1, net2_stream_acceptor_reduce(sa1)) ||
 	    net2_conn_acceptor_attach(c2, net2_stream_acceptor_reduce(sa2))) {
 		printf("net2_conn_acceptor_attach() fail");
 		return -1;
 	}
-	/* TODO: stream acceptors for each connection */
+	/* TODO: send data into sa1, read it back, compare. */
 
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
+	net2_stream_acceptor_destroy(sa1);
+	net2_stream_acceptor_destroy(sa2);
 	test_ctx_free(protocol_ctx);
 	net2_cleanup();
 
