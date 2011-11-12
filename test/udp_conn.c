@@ -22,7 +22,6 @@
 #endif
 
 #define DOODLE	"Yankee Doodle sing a song\ndoodaa, doodaa"
-#define PH_LEN	net2_ph_overhead
 
 static struct net2_buffer*
 doodle_buf()
@@ -132,6 +131,7 @@ main()
 	struct net2_connection	*c1, *c2;
 	struct net2_stream_acceptor
 				*sa1, *sa2;
+	struct net2_buffer	*sent, *received;
 
 	net2_init();
 
@@ -192,6 +192,15 @@ main()
 		printf("net2_conn_acceptor_attach() fail");
 		return -1;
 	}
+
+	/* Send data into sa1. */
+	if ((sent = doodle_buf()) == NULL) {
+		printf("doodle_buf() fail");
+		return -1;
+	}
+	net2_sa_tx_write(net2_stream_acceptor_tx(sa1), sent);
+	net2_sa_tx_close(net2_stream_acceptor_tx(sa1));
+
 	/* TODO: send data into sa1, read it back, compare. */
 
 	net2_connection_destroy(c1);
