@@ -110,9 +110,7 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 
 	/* Release buffer if an error occured. */
 	if (buf != NULL) {
-		if (error == NET2_CONNRECV_OK)
-			(*recvptr)->buf = buf;
-		else {
+		if (error != NET2_CONNRECV_OK) {
 			net2_buffer_free(buf);
 			buf = NULL;
 		}
