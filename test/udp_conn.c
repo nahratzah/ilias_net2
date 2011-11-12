@@ -132,7 +132,7 @@ main()
 
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
-	text_ctx_free(protocol_ctx);
+	test_ctx_free(protocol_ctx);
 	net2_cleanup();
 
 	return fail;

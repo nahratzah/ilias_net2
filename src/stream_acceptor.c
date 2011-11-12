@@ -5,9 +5,11 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
 #include <bsd_compat/minmax.h>
+#include <bsd_compat/error.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <event2/event.h>
 #include "stream_packet.h"
 
@@ -170,6 +172,50 @@ ILIAS_NET2_LOCAL
 int	sa_rx_init(struct net2_sa_rx*);
 ILIAS_NET2_LOCAL
 void	sa_rx_deinit(struct net2_sa_rx*);
+
+
+/* Function dispatch table for stream acceptor. */
+static const struct net2_conn_acceptor_fn nsa_fn = {
+	&nsa_detach,
+	&nsa_attach,
+	&nsa_accept,
+	&nsa_get_transmit
+};
+
+/* Create a new stream acceptor. */
+ILIAS_NET2_EXPORT struct net2_stream_acceptor*
+net2_stream_acceptor_new()
+{
+	struct net2_stream_acceptor	*nsa;
+
+	if ((nsa = malloc(sizeof(*nsa))) == NULL)
+		goto fail_0;
+	memset(&nsa->base, 0, sizeof(nsa->base));
+	nsa->base.ca_fn = &nsa_fn;
+	nsa->flags = 0;
+
+	if (sa_tx_init(&nsa->tx, &nsa_ready_to_send))
+		goto fail_1;
+	if (sa_rx_init(&nsa->rx))
+		goto fail_2;
+	return nsa;
+
+fail_2:
+	sa_tx_deinit(&nsa->tx);
+fail_1:
+	free(nsa);
+fail_0:
+	return NULL;
+}
+
+/* Destroy a stream acceptor. */
+ILIAS_NET2_EXPORT void
+net2_stream_acceptor_destroy(struct net2_stream_acceptor *nsa)
+{
+	sa_rx_deinit(&nsa->rx);
+	sa_tx_deinit(&nsa->tx);
+	free(nsa);
+}
 
 
 /* Range comparator. */

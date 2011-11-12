@@ -67,6 +67,13 @@ struct net2_buffer;	/* from ilias/net2/buffer.h */
 struct event;		/* from event2/event.h */
 
 ILIAS_NET2_EXPORT
+struct net2_stream_acceptor
+			*net2_stream_acceptor_new();
+ILIAS_NET2_EXPORT
+void			 net2_stream_acceptor_destroy(
+			    struct net2_stream_acceptor*);
+
+ILIAS_NET2_EXPORT
 struct net2_sa_tx	*net2_stream_acceptor_tx(struct net2_stream_acceptor*);
 ILIAS_NET2_EXPORT
 struct net2_sa_rx	*net2_stream_acceptor_rx(struct net2_stream_acceptor*);
