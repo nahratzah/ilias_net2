@@ -142,15 +142,17 @@ net2_evbase_threadstop(struct net2_evbase *b, int flags)
 		return 0;
 	}
 	/* Don't stop the thread-live if WAITONLY was specified. */
-	if (!(flags & NET2_EVBASE_WAITONLY) && event_del(b->threadlive)) {
-		warnx("failed to remove thread live event");
-		net2_mutex_unlock(b->mtx);
-		return -1;
-	}
-	if (event_base_loopbreak(b->evbase)) {
-		warnx("failed to loopbreak evbase");
-		net2_mutex_unlock(b->mtx);
-		return -1;
+	if (!(flags & NET2_EVBASE_WAITONLY)) {
+		if (event_del(b->threadlive)) {
+			warnx("failed to remove thread live event");
+			net2_mutex_unlock(b->mtx);
+			return -1;
+		}
+		if (event_base_loopbreak(b->evbase)) {
+			warnx("failed to loopbreak evbase");
+			net2_mutex_unlock(b->mtx);
+			return -1;
+		}
 	}
 
 	net2_mutex_unlock(b->mtx);
@@ -162,6 +164,11 @@ net2_evbase_threadstop(struct net2_evbase *b, int flags)
 
 	net2_thread_free(b->thread);
 	b->thread = NULL;
+	if (event_del(b->threadlive)) {
+		warnx("failed to remove thread live event");
+		net2_mutex_unlock(b->mtx);
+		return -1;
+	}
 	net2_mutex_unlock(b->mtx);
 	return 0;
 }
