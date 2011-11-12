@@ -100,7 +100,10 @@ fail:
 int
 main()
 {
-	int	fd[2];
+	int			 fd[2];
+	struct net2_ctx		*protocol_ctx;
+	struct net2_evbase	*evbase;
+	struct net2_connection	*c1, *c2;
 
 	net2_init();
 
@@ -109,6 +112,27 @@ main()
 		return -1;
 	}
 
+	if ((protocol_ctx = test_ctx()) == NULL) {
+		printf("test_ctx() fail");
+		return -1;
+	}
+	if ((evbase = net2_evbase_new()) == NULL) {
+		printf("net2_evbase_new() fail");
+		return -1;
+	}
+
+	c1 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[0], NULL, 0);
+	c2 = net2_conn_p2p_create_fd(protocol_ctx, evbase, fd[1], NULL, 0);
+	if (c1 == NULL || c2 == NULL) {
+		printf("net2_conn_p2p_create_fd() fail");
+		return -1;
+	}
+
+	/* TODO: stream acceptors for each connection */
+
+	net2_connection_destroy(c1);
+	net2_connection_destroy(c2);
+	text_ctx_free(protocol_ctx);
 	net2_cleanup();
 
 	return fail;
