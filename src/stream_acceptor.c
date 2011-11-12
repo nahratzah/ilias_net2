@@ -154,6 +154,9 @@ void	sa_tx_deinit(struct net2_sa_tx*);
 ILIAS_NET2_LOCAL
 void	sa_rx_deliver(struct net2_sa_rx*, struct net2_buffer*);
 ILIAS_NET2_LOCAL
+int	sa_rx_recvbuf(struct net2_sa_rx*, struct net2_connection*,
+	    struct net2_buffer*);
+ILIAS_NET2_LOCAL
 int	sa_rx_recv(struct net2_sa_rx*, struct stream_packet*);
 
 ILIAS_NET2_LOCAL
@@ -1046,9 +1049,9 @@ nsa_accept(struct net2_conn_acceptor *sa_ptr, struct packet_header *ph,
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
-
-	/* TODO: implement. */
-	assert(0);
+	if (sa_rx_recvbuf(&nsa->rx, sa_ptr->ca_conn, *bufptr)) {
+		/* TODO: kill connection, since delivery failed */
+	}
 }
 
 
@@ -1302,6 +1305,38 @@ sa_tx_deinit(struct net2_sa_tx *sa)
 	net2_mutex_free(sa->sendbuf_mtx);
 }
 
+
+/*
+ * Eat a single stream_packet from in and deliver it to the sa.
+ */
+ILIAS_NET2_LOCAL int
+sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_connection *conn,
+    struct net2_buffer *in)
+{
+	struct stream_packet		 sp;
+	struct net2_encdec_ctx		*ctx;
+	int				 rv = -1;
+
+	if ((ctx = net2_encdec_ctx_new(conn)) == NULL)
+		goto fail_0;
+	if (net2_cp_init(ctx, &cp_stream_packet, &sp, NULL))
+		goto fail_1;
+	if (net2_cp_decode(ctx, &cp_stream_packet, &sp, in, NULL)) {
+		goto fail_2;
+	}
+
+	rv = sa_rx_recv(sa, &sp);
+
+fail_2:
+	if (net2_cp_destroy(ctx, &cp_stream_packet, &sp, NULL))
+		warnx("stream_packet destroy failed");
+fail_1:
+	if (rv != 0)
+		net2_encdec_ctx_rollback(ctx);
+	net2_encdec_ctx_release(ctx);
+fail_0:
+	return -1;
+}
 
 /*
  * Put received stream_packet on recv queue.
