@@ -1351,22 +1351,39 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 		goto fail_0;
 	list = dst->list;
 
-	/* Calculate which segments need copying and start/end offsets. */
+	/*
+	 * If the length is 0, ensure no failure even if off points to the
+	 * end of b.
+	 */
 	start = net2_buffer_ptr0;
+	if (len == 0) {
+		/* Check that off doesn't point past the end. */
+		if (off != 0 && net2_buffer_ptr_advance(b, &start, off - 1))
+			goto fail_1;
+		return dst;
+	}
+
+	/* Calculate which segments need copying and start/end offsets. */
 	if (net2_buffer_ptr_advance(b, &start, off))
 		goto fail_1;
-	if (len == 0)
-		return dst;
 	end = start;
-	if (net2_buffer_ptr_advance(b, &end, len))
+	if (net2_buffer_ptr_advance(b, &end, len - 1))
 		goto fail_1;
+	/* Manually adjust end to one-past-the-end (array semantics). */
+	end.pos++;
+	end.off++;
 
 	/* Calculate destination listlen. */
-	listlen = end.segment - start.segment + (end.off == 0 ? 0 : 1);
+	listlen = end.segment - start.segment + 1;
 	/* Allocate storage. */
 	if ((list = realloc(list, listlen * sizeof(*list))) == NULL)
 		goto fail_1;
 	dst->list = list;
+
+	/* Validate algorithm. */
+	assert(end.segment < b->listlen);
+	assert(start.segment + listlen <= b->listlen);
+	assert(listlen > 0);
 
 	/* Copy segments. */
 	assert(dst->listlen == 0);
@@ -1375,9 +1392,15 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 		    &b->list[start.segment + dst->listlen]);
 	}
 
-	/* Drain the first and truncate the last segment to match. */
-	segment_drain(&list[0], start.off);
+	/*
+	 * Drain the first and truncate the last segment to match.
+	 *
+	 * We truncate before draining, since the result may be only a
+	 * single segment. In which case truncating won't affect the drain,
+	 * but the drain would affect the truncation.
+	 */
 	segment_trunc(&list[dst->listlen - 1], end.off);
+	segment_drain(&list[0], start.off);
 
 	return dst;
 
