@@ -87,11 +87,6 @@ ILIAS_NET2_EXPORT
 int			 net2_sa_tx_isclosed(struct net2_sa_tx*);
 ILIAS_NET2_EXPORT
 int			 net2_sa_tx_uptodate(struct net2_sa_tx*);
-ILIAS_NET2_EXPORT
-int			 net2_sa_tx_set_event(struct net2_sa_tx*, int,
-			    struct event*, struct event**);
-ILIAS_NET2_EXPORT
-struct event		*net2_sa_tx_get_event(struct net2_sa_tx*, int);
 
 ILIAS_NET2_EXPORT
 size_t			 net2_sa_tx_get_lowwatermark(struct net2_sa_tx*);
@@ -109,5 +104,18 @@ ILIAS_NET2_EXPORT
 int			 net2_sa_rx_eof(struct net2_sa_rx*);
 ILIAS_NET2_EXPORT
 int			 net2_sa_rx_eof_pending(struct net2_sa_rx*);
+
+
+ILIAS_NET2_EXPORT
+int			 net2_sa_tx_set_event(struct net2_sa_tx*, int,
+			    struct event*, struct event**);
+ILIAS_NET2_EXPORT
+struct event		*net2_sa_tx_get_event(struct net2_sa_tx*, int);
+
+ILIAS_NET2_EXPORT
+int			 net2_sa_rx_set_event(struct net2_sa_rx*, int,
+			    struct event*, struct event**);
+ILIAS_NET2_EXPORT
+struct event		*net2_sa_rx_get_event(struct net2_sa_rx*, int);
 
 #endif /* ILIAS_NET2_STREAM_ACCEPTOR_H */

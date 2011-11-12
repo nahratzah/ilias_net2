@@ -1204,43 +1204,6 @@ net2_sa_tx_uptodate(struct net2_sa_tx *sa)
 }
 
 /*
- * Set the event bound to this specific action.
- * If old is not NULL, the old event will be returned.
- */
-ILIAS_NET2_EXPORT int
-net2_sa_tx_set_event(struct net2_sa_tx *sa, int evno, struct event *ev,
-    struct event **old)
-{
-	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
-		return -1;
-
-	net2_mutex_lock(sa->sendbuf_mtx);
-	if (old != NULL)
-		*old = sa->event[evno];
-	sa->event[evno] = ev;
-	net2_mutex_unlock(sa->sendbuf_mtx);
-
-	return 0;
-}
-
-/*
- * Return the event bound to this specific action.
- */
-ILIAS_NET2_EXPORT struct event*
-net2_sa_tx_get_event(struct net2_sa_tx *sa, int evno)
-{
-	struct event			*ev;
-
-	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
-		return NULL;
-
-	net2_mutex_lock(sa->sendbuf_mtx);
-	ev = sa->event[evno];
-	net2_mutex_unlock(sa->sendbuf_mtx);
-	return ev;
-}
-
-/*
  * Return the current low water mark.
  */
 size_t
@@ -1762,4 +1725,80 @@ net2_sa_rx_eof_pending(struct net2_sa_rx *sa)
 	net2_mutex_unlock(sa->recvbuf_mtx);
 
 	return eof;
+}
+
+
+/*
+ * Set the event bound to this specific action.
+ * If old is not NULL, the old event will be returned.
+ */
+ILIAS_NET2_EXPORT int
+net2_sa_tx_set_event(struct net2_sa_tx *sa, int evno, struct event *ev,
+    struct event **old)
+{
+	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
+		return -1;
+
+	net2_mutex_lock(sa->sendbuf_mtx);
+	if (old != NULL)
+		*old = sa->event[evno];
+	sa->event[evno] = ev;
+	net2_mutex_unlock(sa->sendbuf_mtx);
+
+	return 0;
+}
+
+/*
+ * Return the event bound to this specific action.
+ */
+ILIAS_NET2_EXPORT struct event*
+net2_sa_tx_get_event(struct net2_sa_tx *sa, int evno)
+{
+	struct event			*ev;
+
+	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
+		return NULL;
+
+	net2_mutex_lock(sa->sendbuf_mtx);
+	ev = sa->event[evno];
+	net2_mutex_unlock(sa->sendbuf_mtx);
+	return ev;
+}
+
+
+/*
+ * Set the event bound to this specific action.
+ * If old is not NULL, the old event will be returned.
+ */
+ILIAS_NET2_EXPORT int
+net2_sa_rx_set_event(struct net2_sa_rx *sa, int evno, struct event *ev,
+    struct event **old)
+{
+	if (evno < 0 || evno >= NET2_SARX__NUM_EVENTS)
+		return -1;
+
+	net2_mutex_lock(sa->recvbuf_mtx);
+	if (old != NULL)
+		*old = sa->event[evno];
+	sa->event[evno] = ev;
+	net2_mutex_unlock(sa->recvbuf_mtx);
+
+	return 0;
+}
+
+/*
+ * Return the event bound to this specific action.
+ */
+ILIAS_NET2_EXPORT struct event*
+net2_sa_rx_get_event(struct net2_sa_rx *sa, int evno)
+{
+	struct event			*ev;
+
+	if (evno < 0 || evno >= NET2_SARX__NUM_EVENTS)
+		return NULL;
+
+	net2_mutex_lock(sa->recvbuf_mtx);
+	ev = sa->event[evno];
+	net2_mutex_unlock(sa->recvbuf_mtx);
+	return ev;
 }
