@@ -1049,8 +1049,10 @@ nsa_accept(struct net2_conn_acceptor *sa_ptr, struct packet_header *ph,
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
-	if (sa_rx_recvbuf(&nsa->rx, sa_ptr->ca_conn, *bufptr)) {
-		/* TODO: kill connection, since delivery failed */
+	while (!net2_buffer_empty(*bufptr)) {
+		if (sa_rx_recvbuf(&nsa->rx, sa_ptr->ca_conn, *bufptr)) {
+			/* TODO: kill connection, since delivery failed */
+		}
 	}
 }
 
