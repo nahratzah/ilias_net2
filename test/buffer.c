@@ -367,6 +367,110 @@ test_search()
 }
 
 int
+test_remove()
+{
+	struct net2_buffer		*orig, *tmp, *drained, *out;
+	size_t				 sizes[] = {
+		0,	/* Filled in with buffer_length(orig) */
+		2,
+		17,
+		123456,
+		-1
+	};
+	size_t				 expect_out, expect_drain;
+	size_t				 i, result;
+
+	if ((orig = net2_buffer_new()) == NULL) {
+		printf("  net2_buffer_new fail");
+		fail++;
+		return -1;
+	}
+	if (net2_buffer_add(orig, "0123456789", 10)) {
+		printf("  net2_buffer_add fail");
+		fail++;
+		return -1;
+	}
+
+	/* Force the buffer to fork. */
+	if ((tmp = net2_buffer_copy(orig)) == NULL)
+		printf("  buffer failure; test may not be accurate");
+	else {
+		if (net2_buffer_add(tmp, "dummy", 5))
+			printf("  buffer failure; test may not be accurate");
+		if (net2_buffer_add(orig, "0123456789", 10))
+			printf("  buffer failure; test may not be accurate");
+		net2_buffer_free(tmp);
+	}
+
+	/* Fill in special sizes[0]. */
+	sizes[0] = net2_buffer_length(orig);
+
+	for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+		/* Predict outcome. */
+		if (sizes[i] > net2_buffer_length(orig)) {
+			expect_out = net2_buffer_length(orig);
+			expect_drain = 0;
+		} else {
+			expect_out = sizes[i];
+			expect_drain = net2_buffer_length(orig) - sizes[i];
+		}
+
+		/* Copy original into drained. */
+		if ((drained = net2_buffer_copy(orig)) == NULL) {
+			printf("  net2_buffer_copy fail");
+			fail++;
+			return -1;
+		}
+
+		/* Initialize out. */
+		out = net2_buffer_new();
+
+		result = net2_buffer_remove_buffer(drained, out, sizes[i]);
+		if (result != expect_out) {
+			printf("  net2_buffer_remove_buffer returned %lu, "
+			    "failing to remove "
+			    "<=%lu bytes from buffer with length %lu\n",
+			    (unsigned long)result,
+			    (unsigned long)sizes[i],
+			    (unsigned long)net2_buffer_length(orig));
+			fail++;
+		} else if (net2_buffer_length(out) != expect_out ||
+		    net2_buffer_length(drained) != expect_drain) {
+			printf("  net2_buffer_remove_buffer: out len = %lu, "
+			    "expected %lu\n",
+			    (unsigned long)net2_buffer_length(out),
+			    (unsigned long)expect_out);
+			printf("  net2_buffer_remove_buffer: drain len = %lu, "
+			    "expected %lu\n",
+			    (unsigned long)net2_buffer_length(drained),
+			    (unsigned long)expect_drain);
+			fail++;
+		} else if (expect_drain == 0 &&
+		    net2_buffer_cmp(out, orig) != 0) {
+			printf("  net2_buffer_remove_buffer: "
+			    "out and orig not equal\n");
+			fail++;
+		} else {
+			if (net2_buffer_append(out, drained)) {
+				printf("  net2_buffer_append fail");
+				fail++;
+				return -1;
+			}
+			if (net2_buffer_cmp(out, orig) != 0) {
+				printf("  net2_buffer_remove_buffer: "
+				    "out + drained != original buffer\n");
+				fail++;
+			}
+		}
+
+		net2_buffer_free(out);
+		net2_buffer_free(drained);
+	}
+
+	return 0;
+}
+
+int
 main()
 {
 	printf("test 1: buffer new, free\n");
@@ -389,7 +493,11 @@ main()
 	if (test_copy())
 		return -1;
 
-	printf("test 6: search\n");
+	printf("test 6: buffer remove buffer\n");
+	if (test_remove())
+		return -1;
+
+	printf("test 7: search\n");
 	if (test_search())
 		return -1;
 
