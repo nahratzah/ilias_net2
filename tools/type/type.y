@@ -1478,7 +1478,7 @@ create_compound_initfun(struct np_struct *s)
 		err(EX_OSERR, "fprintf");
 
 	/* Begin function body. */
-	if (fprintf(cfile, "{\n\tint err;\n") < 0)
+	if (fprintf(cfile, "{\n\tint err = -1;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
 	if (fprintf(cfile, "\tnet2_protocol_t version = "
@@ -1527,7 +1527,7 @@ write_label:
 		errx(EX_SOFTWARE, "Init unwind code failure: idx = %d.", idx);
 
 	/* End function body. */
-	if (fprintf(cfile, "\treturn -1;\n}\n\n") < 0)
+	if (fprintf(cfile, "\treturn err;\n}\n\n") < 0)
 		err(EX_OSERR, "fprintf");
 }
 
