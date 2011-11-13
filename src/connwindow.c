@@ -180,12 +180,12 @@ struct net2_cw_rx {
  */
 ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead = 128;
 
-static __inline int
+static inline int
 tx_cmp(struct net2_cw_tx *tx1, struct net2_cw_tx *tx2)
 {
 	return (tx1->cwt_seq < tx2->cwt_seq ? -1 : tx1->cwt_seq > tx2->cwt_seq);
 }
-static __inline int
+static inline int
 rx_cmp(struct net2_cw_rx *rx1, struct net2_cw_rx *rx2)
 {
 	return (rx1->cwr_seq < rx2->cwr_seq ? -1 : rx1->cwr_seq > rx2->cwr_seq);
@@ -196,7 +196,7 @@ RB_GENERATE_STATIC(net2_cw_transmits, net2_cw_tx, cwt_entry_id, tx_cmp);
 RB_GENERATE_STATIC(net2_cw_recvs, net2_cw_rx, cwr_entry_id, rx_cmp);
 
 /* Set the stalled flag, depending on the transmission window. */
-static __inline void
+static inline void
 update_stalled(struct net2_connwindow *w)
 {
 	if (w->cw_tx_nextseq - w->cw_tx_start < w->cw_tx_windowsz)
@@ -280,6 +280,7 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	tx->cwt_owner = w;
 	tx->cwt_seq = seq;
 	tx->cwt_wire_sz = 0;	/* No idea how large yet. */
+	tx->cwt_stalled = 0;
 	TAILQ_INIT(&tx->cwt_cbq);
 	if ((tx->cwt_timeout = evtimer_new(evbase->evbase, tx_timeout, tx)) ==
 	    NULL)
@@ -422,6 +423,7 @@ tx_free(struct net2_cw_tx *tx)
 		TAILQ_REMOVE(&tx->cwt_cbq, cb, entry);
 		tx_cb_cdestroy(cb);
 	}
+	assert(RB_FIND(net2_cw_transmits, &tx->cwt_owner->cw_tx_id, tx) != tx);
 	free(tx);
 }
 
