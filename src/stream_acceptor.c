@@ -1009,6 +1009,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/* Transmitting close, remove as pending. */
 	if (r->stream_end)
 		sa->flags &= ~SATX_RESEND_CLOSE;
+	RB_INSERT(range_tree, &sa->transit, r);
 
 out:
 	net2_mutex_unlock(sa->sendbuf_mtx);
