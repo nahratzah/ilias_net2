@@ -13,7 +13,7 @@ struct net2_thread {
 static void*
 thread_wrapper(void *argptr)
 {
-	struct net2_thread	*t;
+	struct net2_thread	*t = argptr;
 	sigset_t		 sigset;
 
 	/* Block all signals to this thread. */
