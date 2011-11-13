@@ -4,6 +4,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/packet.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/error.h>
 #include <assert.h>
