@@ -415,6 +415,12 @@ test_remove()
 			expect_drain = net2_buffer_length(orig) - sizes[i];
 		}
 
+		/* Print what we're doing. */
+		printf("  %2lu: call net2_buffer_remove_buffer with sz=%lu,\n"
+		    "      expect out %lu, expect drain %lu\n",
+		    (unsigned long)i, (unsigned long)sizes[i],
+		    (unsigned long)expect_out, (unsigned long)expect_drain);
+
 		/* Copy original into drained. */
 		if ((drained = net2_buffer_copy(orig)) == NULL) {
 			printf("  net2_buffer_copy fail");
@@ -423,9 +429,15 @@ test_remove()
 		}
 
 		/* Initialize out. */
-		out = net2_buffer_new();
+		if ((out = net2_buffer_new()) == NULL) {
+			printf("  net2_buffer_new fail");
+			fail++;
+			return -1;
+		}
 
 		result = net2_buffer_remove_buffer(drained, out, sizes[i]);
+		printf("      yielded %lu\n", (unsigned long)result);
+
 		if (result != expect_out) {
 			printf("  net2_buffer_remove_buffer returned %lu, "
 			    "failing to remove "
