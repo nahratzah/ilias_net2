@@ -372,6 +372,7 @@ test_remove()
 	struct net2_buffer		*orig, *tmp, *drained, *out;
 	size_t				 sizes[] = {
 		0,	/* Filled in with buffer_length(orig) */
+		0,
 		2,
 		17,
 		123456,
