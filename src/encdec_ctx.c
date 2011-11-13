@@ -54,7 +54,7 @@ newobj_reserve(struct net2_obj***objlist)
 static struct net2_obj**
 newobj_find(struct net2_obj**haystack, struct net2_obj *needle)
 {
-	if (haystack != NULL)
+	if (haystack == NULL)
 		return NULL;
 
 	while (*haystack != NULL) {
