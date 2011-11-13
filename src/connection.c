@@ -61,8 +61,9 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 
 	conn->n2c_acceptor = NULL;
 	TAILQ_INIT(&conn->n2c_recvq);
+	conn->n2c_recvqsz = 0;
 
-	if ((conn->n2c_recv_ev = event_new(evbase->evbase, 0, 0,
+	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
 	    &net2_conn_handle_recv, conn)) == NULL)
 		goto fail_1;
 	if (net2_objmanager_init(conn))
@@ -148,23 +149,23 @@ net2_connection_recv(struct net2_connection *conn,
 	struct timeval now = { 0, 0 };
 
 	/* Argument validation. */
-	if (r == NULL)
-		return;
-	if (conn == NULL) {
+	assert(r != NULL && conn != NULL);
+
+	net2_mutex_lock(conn->n2c_recvmtx);
+	if (conn->n2c_recvqsz < 128) {
+		TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
+		conn->n2c_recvqsz++;
+	} else {
 		if (r->buf)
 			net2_buffer_free(r->buf);
 		free(r);
-		return;
 	}
-
-	net2_mutex_lock(conn->n2c_recvmtx);
-	if (TAILQ_EMPTY(&conn->n2c_recvq)) {
+	if (!event_pending(conn->n2c_recv_ev, EV_TIMEOUT, NULL)) {
 		if (event_add(conn->n2c_recv_ev, &now)) {
 			warnx("event_add fail");
 			/* TODO: kill connection */
 		}
 	}
-	TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
 	net2_mutex_unlock(conn->n2c_recvmtx);
 }
 
@@ -232,7 +233,9 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 
 	net2_mutex_lock(c->n2c_recvmtx);
 	while ((r = TAILQ_FIRST(&c->n2c_recvq)) != NULL) {
+		assert(c->n2c_recvqsz > 0);
 		TAILQ_REMOVE(&c->n2c_recvq, r, recvq);
+		c->n2c_recvqsz--;
 		if (r->buf == NULL) {
 			free(r);
 			continue;

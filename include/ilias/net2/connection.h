@@ -68,6 +68,7 @@ struct net2_connection {
 	struct net2_mutex	*n2c_recvmtx;	/* Protect recvq. */
 	TAILQ_HEAD(, net2_conn_receive)
 				 n2c_recvq;	/* List of received data. */
+	size_t			 n2c_recvqsz;	/* Size of n2c_recvq. */
 	struct event		*n2c_recv_ev;	/* Handle received data. */
 
 	struct {
