@@ -6,7 +6,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#ifndef NDEBUG
+#include <bsd_compat/error.h>
+#endif
 
+
+#ifndef NDEBUG
+/* Invariant check. */
+static void	buffer_is_valid(struct net2_buffer*,
+		    const char*, int, const char*);
+
+#define ASSERTBUFFER(_var)						\
+	buffer_is_valid((_var), __FUNCTION__, __LINE__, #_var)
+#else
+#define ASSERTBUFFER(_var)	do { /* NOTHING */ } while (0)
+#endif /* NDEBUG */
 
 /* Special constant, that points at offset 0 within a buffer. */
 ILIAS_NET2_EXPORT const struct net2_buffer_ptr
@@ -340,6 +354,7 @@ net2_buffer_new()
 		result->listlen = 0;
 		result->reserve = NULL;
 		result->reservelen = 0;
+		ASSERTBUFFER(result);
 	}
 	return result;
 }
@@ -377,6 +392,7 @@ net2_buffer_copy(const struct net2_buffer *src)
 
 	for (i = 0; i < dst->listlen; i++)
 		segment_init_copy(&dst->list[i], &src->list[i]);
+	ASSERTBUFFER(dst);
 	return dst;
 
 fail_1:
@@ -425,9 +441,11 @@ net2_buffer_add(struct net2_buffer *b, const void *data, size_t len)
 	if (segment_init_data(&list[b->listlen], data, len))
 		goto fail_0;
 	b->listlen++;
+	ASSERTBUFFER(b);
 	return 0;
 
 fail_0:
+	ASSERTBUFFER(b);
 	return -1;
 }
 
@@ -456,9 +474,11 @@ net2_buffer_append(struct net2_buffer *dst, const struct net2_buffer *src)
 		segment_init_copy(&list[listoff + i], &src->list[i]);
 
 	dst->listlen = newlen;
+	ASSERTBUFFER(dst);
 	return 0;
 
 fail_0:
+	ASSERTBUFFER(dst);
 	return -1;
 }
 
@@ -490,9 +510,11 @@ net2_buffer_prepend(struct net2_buffer *dst, const struct net2_buffer *src)
 		segment_init_copy(&list[i], &src->list[i]);
 
 	dst->listlen = newlen;
+	ASSERTBUFFER(dst);
 	return 0;
 
 fail_0:
+	ASSERTBUFFER(dst);
 	return -1;
 }
 
@@ -553,6 +575,7 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 	 * Return pointer to list[0], unless we failed (by triggering the break
 	 * in the above loop.
 	 */
+	ASSERTBUFFER(b);
 	return (fail ? NULL : segment_getptr(&list[0]));
 }
 
@@ -565,9 +588,10 @@ net2_buffer_length(const struct net2_buffer *b)
 	struct net2_buffer_segment	*list;
 	size_t				 i, sz;
 
+	list = b->list;
 	sz = 0;
-	for (i = 0, list = b->list; i < b->listlen; i++, list++)
-		sz += list->len;
+	for (i = 0; i < b->listlen; i++)
+		sz += list[i].len;
 
 	return sz;
 }
@@ -708,6 +732,8 @@ net2_buffer_remove(struct net2_buffer *b, void *datptr, size_t len)
 	/* Move segments to cover drained and released elements. */
 	b->listlen -= i;
 	memmove(&list[0], &list[i], b->listlen * sizeof(*list));
+
+	ASSERTBUFFER(b);
 
 	return drained;
 }
@@ -985,6 +1011,8 @@ remove_everything:
 		free(src->list);
 		src->list = NULL;
 		src->listlen = 0;
+		ASSERTBUFFER(src);
+		ASSERTBUFFER(dst);
 		return sz;
 	}
 	/* Manually adjust the pointer to one-past-the-end. */
@@ -1048,6 +1076,9 @@ remove_everything:
 		if (src_list != NULL)
 			src->list = src_list;
 	}
+
+	ASSERTBUFFER(src);
+	ASSERTBUFFER(dst);
 
 	return src_ptr.pos;
 }
@@ -1322,6 +1353,7 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 	kill_reserve(b);
 	b->listlen = spent;
 
+	ASSERTBUFFER(b);
 	return 0;
 
 fail:
@@ -1340,6 +1372,7 @@ fail:
 	 * Throw away reserved segments.
 	 */
 	kill_reserve(b);
+	ASSERTBUFFER(b);
 
 	return -1;
 }
@@ -1451,6 +1484,7 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 	segment_trunc(&list[dst->listlen - 1], end.off);
 	segment_drain(&list[0], start.off);
 
+	ASSERTBUFFER(dst);
 	return dst;
 
 fail_1:
@@ -1496,4 +1530,30 @@ net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 	/* Attempt to conserve memory. */
 	if ((list = realloc(list, listlen * sizeof(*list))) != NULL)
 		b->list = list;
+
+	ASSERTBUFFER(b);
 }
+
+
+#ifndef NDEBUG
+static void
+buffer_is_valid(struct net2_buffer *b, const char *fun, int line,
+    const char *var)
+{
+	size_t				 i;
+	int				 fail = 0;
+
+	/* Segments may not be empty. */
+	for (i = 0; i < b->listlen; i++) {
+		if (b->list[i].len <= 0) {
+			fail++;
+			warnx("  %s() at %d -- %s: list[%lu].len = %lu\n",
+			    fun, line, var, (unsigned long)i,
+			    (unsigned long)b->list[i].len);
+		}
+	}
+
+	if (fail)
+		abort();
+}
+#endif /* NDEBUG */
