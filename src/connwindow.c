@@ -712,7 +712,9 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 
 		/* Remove rx that is no longer in the window. */
 		rx_search.cwr_seq = w->cw_rx_start;
-		rx = RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, &rx_search);
+		rx = RB_FIND(net2_cw_recvs, &w->cw_rx_id, &rx_search);
+		if (rx != NULL)
+			RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, rx);
 
 		/*
 		 * rx must exist: window cannot continue unless all packets
