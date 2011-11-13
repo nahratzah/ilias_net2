@@ -1466,7 +1466,7 @@ create_compound_initfun(struct np_struct *s)
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
 	    "%s(struct net2_encdec_ctx *c,\n"
-	    "    struct net2_buffer *out, %s%s%s%s*val,\n"
+	    "    %s%s%s%s*val,\n"
 	    "    const %s *cp_arg)\n",
 	    s->nps_spec.init,
 	    (s->nps_spec.is_struct ? "struct " : ""),
@@ -1542,7 +1542,7 @@ create_compound_destroyfun(struct np_struct *s)
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
 	    "%s(struct net2_encdec_ctx *c,\n"
-	    "    struct net2_buffer *out, %s%s%s%s*val,\n"
+	    "    %s%s%s%s*val,\n"
 	    "    const %s *cp_arg)\n",
 	    s->nps_spec.destroy,
 	    (s->nps_spec.is_struct ? "struct " : ""),
