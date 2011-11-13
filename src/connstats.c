@@ -89,6 +89,9 @@ segment_shift(struct net2_connstats *cs)
 
 		cs->latency_stddev = 0;
 		for (i = 0; i < NET2_STATS_LEN; i++) {
+			if (cs->segments[i].rtt.count == 0)
+				continue;
+
 			cs->latency_stddev += rebase_sumsq(
 			    cs->segments[i].rtt.sumsquare,
 			    cs->segments[i].rtt.sum,
@@ -97,7 +100,8 @@ segment_shift(struct net2_connstats *cs)
 			      (cs->segments[i].rtt.sum /
 			       cs->segments[i].rtt.count));
 		}
-		cs->latency_stddev /= count;
+		if (count > 0)
+			cs->latency_stddev /= count;
 	}
 
 	/*
