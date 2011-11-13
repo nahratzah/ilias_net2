@@ -175,6 +175,7 @@ main()
 	struct net2_stream_acceptor
 				*sa1, *sa2;
 	struct net2_buffer	*sent, *received;
+	int			 thread_running = 0;
 
 	/* Initializing libevent. */
 #ifdef WIN32
@@ -282,6 +283,7 @@ main()
 		printf("net2_evbase_threadstart fail\n");
 		return -1;
 	}
+	thread_running = 1;
 
 	/* Send data into sa1. */
 	if ((sent = doodle_buf()) == NULL) {
@@ -296,11 +298,20 @@ main()
 	 * receiver have completed.
 	 */
 	while (!(finished || detached) && !recv_finished) {
+		if (!thread_running) {
+			if (net2_evbase_threadstart(evbase)) {
+				printf("net2_evbase_threadstart fail\n");
+				return -1;
+			}
+			thread_running = 1;
+		}
+
 		/* Wait for event loop to process everything. */
 		if (net2_evbase_threadstop(evbase, NET2_EVBASE_WAITONLY)) {
 			printf("net2_evbase_threadstop fail\n");
 			return -1;
 		}
+		thread_running = 0;
 
 		/* Check why the eventloop ended. */
 		if (finished == 1) {
