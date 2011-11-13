@@ -1285,6 +1285,7 @@ net2_connwindow_tx_rollback(struct net2_cw_tx *tx)
 		tx_free(tx);
 	} else if (w->cw_tx_nextseq - 1 == tx->cwt_seq) {
 		w->cw_tx_nextseq--;
+		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
 		tx_free(tx);
 	} else {
 		/*
