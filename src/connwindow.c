@@ -869,12 +869,11 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		ph_needdestroy = 1;
 		if (net2_cp_decode(ctx, &cp_windowheader, &wh, buf, NULL))
 			goto fail_0;
-	}
 
-	if ((w->cw_flags & NET2_CW_F_WANTRECV) != 0 &&
-	    (ph->flags & PH_WINUPDATE) != 0) {
-		w->cw_rx_start = w->cw_rx_nextrecv = wh.tx_start;
-		w->cw_flags &= ~NET2_CW_F_WANTRECV;
+		if ((w->cw_flags & NET2_CW_F_WANTRECV) != 0) {
+			w->cw_rx_start = w->cw_rx_nextrecv = wh.tx_start;
+			w->cw_flags &= ~NET2_CW_F_WANTRECV;
+		}
 	}
 
 	/*
