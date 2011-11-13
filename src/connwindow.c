@@ -1166,7 +1166,7 @@ skip:			/* All goto skip continue here. */
 		tx->cwt_flags &= ~NET2_CWTX_F_WANTBAD;
 		tx->cwt_flags |= NET2_CWTX_F_SENTBAD;
 		event_del(tx->cwt_timeout);
-		if (event_add(rx->cwr_timeout, &tx_bad_timeout))
+		if (event_add(tx->cwt_timeout, &tx_bad_timeout))
 			warnx("event_add fail, window may misbehave...");
 	}
 
