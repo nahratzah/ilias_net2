@@ -1019,6 +1019,7 @@ fail_0:
 	 * If progress was made (first != 0, aka at least one other payload
 	 * was pushed into the connection) we let the error slide.
 	 */
+	net2_mutex_unlock(sa->sendbuf_mtx);
 	return (first ? -1 : 0);
 }
 
