@@ -99,6 +99,10 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 			warn("recvfrom fail");
 			goto fail;
 		}
+	} else if (recvlen == 0) {
+		/* Don't push empty packets up the chain. */
+		net2_buffer_free(buf);
+		return 0;
 	}
 
 	/* Commit received data to buffer. */
@@ -127,8 +131,8 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 fail:
 	/* Failure. Release resources and return error. */
 	if (*recvptr != NULL) {
-		*recvptr = NULL;
 		free(*recvptr);
+		*recvptr = NULL;
 	}
 	if (buf != NULL)
 		net2_buffer_free(buf);
