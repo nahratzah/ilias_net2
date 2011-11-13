@@ -107,7 +107,7 @@ np2p_remote_cmp(struct net2_conn_p2p *c1, struct net2_conn_p2p *c2)
 	struct sockaddr_in6	*sin6_1, *sin6_2;
 	int			 cmp;
 
-	if (c1->np2p_remote != NULL && c2->np2p_remote != NULL) {
+	if (c1->np2p_remote == NULL || c2->np2p_remote == NULL) {
 		err(EX_SOFTWARE, "np2p_remote_cmp: "
 		    "comparison cannot complete because arguments are NULL");
 	}
