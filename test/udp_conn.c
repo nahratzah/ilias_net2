@@ -5,6 +5,7 @@
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
+#include <bsd_compat/secure_random.h>
 #include <event2/event.h>
 #include <event2/thread.h>
 #include <sys/types.h>
@@ -22,19 +23,31 @@
 #include <netinet/in.h>
 #endif
 
-#define DOODLE	"Yankee Doodle sing a song\ndoodaa, doodaa"
+#define DOODLE	"Yankee Doodle sing a song\ndoodaa, doodaa\n"
 
 static struct net2_buffer*
 doodle_buf()
 {
 	struct net2_buffer	*buf;
+	int			 i;
+	uint8_t			 bytes[1024];
 
 	if ((buf = net2_buffer_new()) == NULL)
 		return NULL;
-	if (net2_buffer_add(buf, DOODLE, strlen(DOODLE)) == -1) {
+	if (net2_buffer_add(buf, DOODLE, strlen(DOODLE) + 1) == -1) {
 		net2_buffer_free(buf);
 		return NULL;
 	}
+
+	/* Generate 100 MB of random data to append. */
+	for (i = 0; i < 100 * 1024; i++) {
+		secure_random_buf(&bytes[0], sizeof(bytes));
+		if (net2_buffer_add(buf, &bytes[0], sizeof(bytes))) {
+			net2_buffer_free(buf);
+			return NULL;
+		}
+	}
+
 	return buf;
 }
 
