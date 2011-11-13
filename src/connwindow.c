@@ -554,10 +554,11 @@ do_transmit_ack(struct net2_connwindow *w, uint32_t first, uint32_t last,
 	for (seq = 0; seq <= last - first; seq++) {
 		/* Lookup entry. */
 		tx_search.cwt_seq = seq + first;
-		tx = RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, &tx_search);
+		tx = RB_FIND(net2_cw_transmits, &w->cw_tx_id, &tx_search);
 		/* Skip already acked entries. */
 		if (tx == NULL)
 			continue;
+		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
 		/* We're performing work. */
 		did_nothing = 0;
 
