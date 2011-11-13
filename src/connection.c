@@ -394,7 +394,7 @@ write_window_buf:
 	}
 
 	/* Nothing to send. */
-	if (net2_buffer_empty(to_add) && count == 0) {
+	if (net2_buffer_empty(b) && count == 0) {
 		rv = 0;
 		goto fail_2;	/* not a failure: rv has been set to 0. */
 	}
