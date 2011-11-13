@@ -949,6 +949,10 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	dst_list = dst->list;
 	src_list = src->list;
 
+	/* Always succeeds. */
+	if (len == 0)
+		return 0;
+
 #ifndef NDEBUG
 	srclen_expect = net2_buffer_length(src);
 	dstlen_expect = net2_buffer_length(dst);
@@ -963,6 +967,7 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 
 	src_ptr = net2_buffer_ptr0;
 	if (net2_buffer_ptr_advance(src, &src_ptr, len - 1)) {
+remove_everything:
 		/*
 		 * Source has insufficient entries -> add all.
 		 */
@@ -985,6 +990,8 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	/* Manually adjust the pointer to one-past-the-end. */
 	src_ptr.pos++;
 	src_ptr.off++;
+	if (src_ptr.segment + 1 == src->listlen && src_ptr.off == src_list[src_ptr.segment].len)
+		goto remove_everything;
 
 	assert(src_ptr.pos == len);
 
@@ -1011,7 +1018,7 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	dst->listlen += mv;
 
 	/* Move entries that remain in src to the bottom of src. */
-	memmove(&src_list[mv], &src_list[0],
+	memmove(&src_list[0], &src_list[mv],
 	    (src->listlen - mv) * sizeof(*src_list));
 	src->listlen -= mv;
 
@@ -1429,6 +1436,7 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 	/* Copy segments. */
 	assert(dst->listlen == 0);
 	for (dst->listlen = 0; dst->listlen < listlen; dst->listlen++) {
+		assert(start.segment + dst->listlen < b->listlen);
 		segment_init_copy(&list[dst->listlen],
 		    &b->list[start.segment + dst->listlen]);
 	}
