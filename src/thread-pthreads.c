@@ -32,7 +32,9 @@ net2_thread_new(void *(*fn)(void*), void *arg)
 
 	if ((t = malloc(sizeof(*t))) == NULL)
 		return NULL;
-	if (pthread_create(&t->n2t_impl, NULL, fn, arg)) {
+	t->fn = fn;
+	t->arg = arg;
+	if (pthread_create(&t->n2t_impl, NULL, &thread_wrapper, t)) {
 		warn("pthread_create");
 		free(t);
 		return NULL;
