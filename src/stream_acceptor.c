@@ -1671,7 +1671,7 @@ net2_sa_rx_read(struct net2_sa_rx *sa, size_t len, int flags)
 	} else {
 		/* Read the data. */
 		if ((result = net2_buffer_new()) != NULL)
-			net2_buffer_remove(sa->recvbuf, result, len);
+			net2_buffer_remove_buffer(sa->recvbuf, result, len);
 	}
 
 out:
