@@ -236,11 +236,12 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		assert(c->n2c_recvqsz > 0);
 		TAILQ_REMOVE(&c->n2c_recvq, r, recvq);
 		c->n2c_recvqsz--;
-		if (r->buf == NULL) {
-			free(r);
-			continue;
-		}
 		net2_mutex_unlock(c->n2c_recvmtx);
+
+		/* TODO: handle r->error */
+
+		if (r->buf == NULL)
+			goto release;
 
 		buf = r->buf;
 		r->buf = NULL;
@@ -281,6 +282,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 
 		if (buf)
 			net2_buffer_free(buf);
+release:
 		free(r);
 		net2_mutex_lock(c->n2c_recvmtx);
 	}
