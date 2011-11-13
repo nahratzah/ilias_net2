@@ -174,12 +174,12 @@ net2_packet_decode(struct net2_encdec_ctx *ctx, struct packet_header *ph,
 	}
 	if (windowcheck && !net2_connwindow_accept(&ctx->ed_conn->n2c_window,
 	    ph)) {
-		info("received duplicate packet, seq=%x, flags=0x%x",
+		debug("received duplicate packet, seq=%x, flags=0x%x",
 		    ph->seq, ph->flags);
 		rv = NET2_PDECODE_WINDOW;
 		goto fail_1;
 	}
-	info("received packet, seq=%d, flags=0x%x", ph->seq, ph->flags);
+	debug("received packet, seq=%x, flags=0x%x", ph->seq, ph->flags);
 
 	/*
 	 * Check for encryption and signing flags on packet header.
