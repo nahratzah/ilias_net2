@@ -395,6 +395,14 @@ write_window_buf:
 
 	/* Nothing to send. */
 	if (net2_buffer_empty(b) && count == 0) {
+		/*
+		 * Undo transmission: no transmission implies rollback
+		 * instead of commit.
+		 */
+		net2_connwindow_tx_rollback(tx);
+		tx = NULL;
+		net2_encdec_ctx_rollback(ctx);
+
 		rv = 0;
 		goto fail_2;	/* not a failure: rv has been set to 0. */
 	}
