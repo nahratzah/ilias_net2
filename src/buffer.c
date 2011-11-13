@@ -565,10 +565,9 @@ net2_buffer_length(const struct net2_buffer *b)
 	struct net2_buffer_segment	*list;
 	size_t				 i, sz;
 
-	list = b->list;
 	sz = 0;
-	for (i = 0; i < b->listlen; i++)
-		sz += list[i].len;
+	for (i = 0, list = b->list; i < b->listlen; i++, list++)
+		sz += list->len;
 
 	return sz;
 }
@@ -941,13 +940,29 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	size_t				 dst_add, mv;
 	size_t				 i;
 
+#ifndef NDEBUG
+	size_t				 srclen_expect, dstlen_expect;
+#endif
+
 	kill_reserve(src);
 	kill_reserve(dst);
 	dst_list = dst->list;
 	src_list = src->list;
 
+#ifndef NDEBUG
+	srclen_expect = net2_buffer_length(src);
+	dstlen_expect = net2_buffer_length(dst);
+	if (len > srclen_expect) {
+		dstlen_expect += srclen_expect;
+		srclen_expect = 0;
+	} else {
+		dstlen_expect += len;
+		srclen_expect -= len;
+	}
+#endif
+
 	src_ptr = net2_buffer_ptr0;
-	if (net2_buffer_ptr_advance(src, &src_ptr, len)) {
+	if (net2_buffer_ptr_advance(src, &src_ptr, len - 1)) {
 		/*
 		 * Source has insufficient entries -> add all.
 		 */
@@ -967,15 +982,23 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 		src->listlen = 0;
 		return sz;
 	}
+	/* Manually adjust the pointer to one-past-the-end. */
+	src_ptr.pos++;
+	src_ptr.off++;
+
 	assert(src_ptr.pos == len);
 
 	/*
 	 * dst_add: number of additional segments in dst.
 	 * mv: number of segments that is moved entirely from src to dst.
 	 */
-	dst_add = src_ptr.segment + (src_ptr.off == 0 ? 0 : 1);
-	mv = src_ptr.segment;
+	dst_add = src_ptr.segment + 1;
+	mv = src_ptr.segment +
+	    (src_ptr.off == src_list[src_ptr.segment].len ? 1 : 0);
 	listlen = dst->listlen + dst_add;
+
+	assert(dst_add <= src->listlen);
+	assert(mv <= src->listlen);
 
 	/* Prepare space in dst. */
 	dst_list = realloc(dst_list, listlen * sizeof(*dst_list));
@@ -992,13 +1015,31 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	    (src->listlen - mv) * sizeof(*src_list));
 	src->listlen -= mv;
 
-	/* Share the first entry in src with the last in dst,
-	 * as it is split through the middle. */
-	if (src_ptr.off != 0) {
+	/*
+	 * Share the first entry in src with the last in dst,
+	 * as it is split through the middle.
+	 */
+	if (dst_add != mv) {
 		segment_init_copy(&dst_list[dst->listlen], &src_list[0]);
 		segment_trunc(&dst_list[dst->listlen], src_ptr.off);
 		segment_drain(&src_list[0], src_ptr.off);
 		dst->listlen++;
+	}
+
+	/* Validation. */
+#ifndef NDEBUG
+	assert(net2_buffer_length(src) == srclen_expect);
+	assert(net2_buffer_length(dst) == dstlen_expect);
+#endif
+	if (src->listlen == 0) {
+		free(src->list);
+		src->list = NULL;
+	} else {
+		/* Reduce memory usage. */
+		src_list = realloc(src_list,
+		    src->listlen * sizeof(*src_list));
+		if (src_list != NULL)
+			src->list = src_list;
 	}
 
 	return src_ptr.pos;
