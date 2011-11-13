@@ -447,9 +447,11 @@ sa_transit_ack(void *arg0, void *arg1)
 	struct range			*t = arg1;
 
 	if (t->start != t->end || t->stream_end) {
+		assert(RB_FIND(range_tree, &sa->transit, t) == t);
 		RB_REMOVE(range_tree, &sa->transit, t);
 
-		sa_ack(sa, t->start, t->end);
+		if (t->start != t->end)
+			sa_ack(sa, t->start, t->end);
 		if (t->stream_end)
 			sa_ack_close(sa);
 	}
@@ -468,9 +470,11 @@ sa_transit_nack(void *arg0, void *arg1)
 	struct range			*t = arg1;
 
 	if (t->start != t->end || t->stream_end) {
+		assert(RB_FIND(range_tree, &sa->transit, t) == t);
 		RB_REMOVE(range_tree, &sa->transit, t);
 
-		sa_timeout(sa, t->start, t->end);
+		if (t->start != t->end)
+			sa_timeout(sa, t->start, t->end);
 		if (t->stream_end)
 			sa_timeout_close(sa);
 	}
@@ -489,8 +493,10 @@ sa_transit_destroy(void *arg0, void *arg1)
 	struct net2_sa_tx		*sa = arg0;
 	struct range			*t = arg1;
 
-	if (t->start != t->end || t->stream_end)
+	if (t->start != t->end || t->stream_end) {
+		assert(RB_FIND(range_tree, &sa->transit, t) == t);
 		RB_REMOVE(range_tree, &sa->transit, t);
+	}
 	sa_range_free(t);
 }
 
@@ -722,7 +728,7 @@ sa_transit_update(struct net2_sa_tx *sa, uint32_t new_window_start)
 		next = RB_NEXT(range_tree, &sa->transit, t);
 
 		/* We're done here. */
-		if (WIN_OFF(sa, next->start) >= WIN_OFF(sa, new_window_start))
+		if (WIN_OFF(sa, t->start) >= WIN_OFF(sa, new_window_start))
 			break;
 
 		/*
@@ -730,7 +736,7 @@ sa_transit_update(struct net2_sa_tx *sa, uint32_t new_window_start)
 		 * outside the window.
 		 */
 		forward = WIN_OFF(sa, new_window_start) -
-		    WIN_OFF(sa, next->start);
+		    WIN_OFF(sa, t->start);
 
 		/*
 		 * If the full datagram falls outside, inform the callbacks.
