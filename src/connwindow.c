@@ -280,11 +280,12 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	tx->cwt_owner = w;
 	tx->cwt_seq = seq;
 	tx->cwt_wire_sz = 0;	/* No idea how large yet. */
-	tx->cwt_stalled = 0;
 	TAILQ_INIT(&tx->cwt_cbq);
 	if ((tx->cwt_timeout = evtimer_new(evbase->evbase, tx_timeout, tx)) ==
 	    NULL)
 		goto fail_1;
+	tx->cwt_flags = 0;
+	tx->cwt_stalled = 0;
 
 	return tx;
 
