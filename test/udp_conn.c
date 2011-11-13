@@ -61,6 +61,7 @@ detach_flag(int fd, short what, void *base_ptr)
 {
 	struct net2_evbase	*base = base_ptr;
 
+	printf("event: detached\n");
 	detached = 1;
 	event_base_loopbreak(base->evbase);
 }
@@ -69,6 +70,7 @@ finish_flag(int fd, short what, void *base_ptr)
 {
 	struct net2_evbase	*base = base_ptr;
 
+	printf("event: finished\n");
 	finished = 1;
 	event_base_loopbreak(base->evbase);
 }
@@ -77,6 +79,7 @@ recv_finish_flag(int fd, short what, void *base_ptr)
 {
 	struct net2_evbase	*base = base_ptr;
 
+	printf("event: finish_flag\n");
 	recv_finished = 1;
 	event_base_loopbreak(base->evbase);
 }
@@ -94,7 +97,9 @@ mirror_recv_event(int fd, short what, void *nsa_ptr)
 		printf("net2_sa_rx_read(rx, -1, 0) fail\n");
 		exit(-1);
 	}
+#if 0
 	printf("received %lu bytes\n", (unsigned long)net2_buffer_length(buf));
+#endif
 	if (net2_sa_tx_write(tx, buf)) {
 		printf("net2_sa_tx_write() fail\n");
 		exit(-1);
