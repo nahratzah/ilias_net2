@@ -1171,6 +1171,7 @@ skip:			/* All goto skip continue here. */
 	}
 
 	/* Result. */
+	ph->flags |= PH_WINUPDATE;
 	return buf;
 
 fail_2:
