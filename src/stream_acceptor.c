@@ -274,6 +274,7 @@ sa_range_new(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 	r->sa = sa;
 	r->start = start;
 	r->end = end;
+	r->stream_end = 0;
 	return r;
 }
 
@@ -963,7 +964,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 
 	/* Is this the last packet in the stream? */
 	if ((sa->flags & SATX_CLOSING) &&
-	    WIN_OFF(sa, wf_end) == net2_buffer_length(sa->sendbuf)) {
+	    (size_t)WIN_OFF(sa, wf_end) == net2_buffer_length(sa->sendbuf)) {
 		/* Mark this packet as the last in the stream. */
 		data.flags |= STREAM_END;
 		r->stream_end = 1;
