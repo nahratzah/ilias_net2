@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 struct net2_mutex {
 	pthread_mutex_t n2m_impl;
@@ -53,8 +54,18 @@ net2_mutex_lock(struct net2_mutex *m)
 {
 	int rv;
 
-	if ((rv = pthread_mutex_lock(&m->n2m_impl)) != 0)
-		errx(EX_OSERR, "%s: %s", "pthread_mutex_lock", strerror(rv));
+	while ((rv = pthread_mutex_lock(&m->n2m_impl)) != 0) {
+		switch (rv) {
+		case EINTR:
+			break;
+		case EDEADLK:
+			warnx("%s: %s", "pthread_mutex_lock", strerror(rv));
+			abort();
+		default:
+			errx(EX_OSERR, "%s: %s", "pthread_mutex_lock",
+			    strerror(rv));
+		}
+	}
 }
 
 /*
@@ -65,6 +76,13 @@ net2_mutex_unlock(struct net2_mutex *m)
 {
 	int rv;
 
-	if ((rv = pthread_mutex_unlock(&m->n2m_impl)) != 0)
-		errx(EX_OSERR, "%s: %s", "pthread_mutex_lock", strerror(rv));
+	while ((rv = pthread_mutex_unlock(&m->n2m_impl)) != 0) {
+		switch (rv) {
+		case EINTR:
+			break;
+		default:
+			errx(EX_OSERR, "%s: %s", "pthread_mutex_unlock",
+			    strerror(rv));
+		}
+	}
 }
