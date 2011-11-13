@@ -39,10 +39,15 @@ segment_shift(struct net2_connstats *cs)
 		sent += cs->segments[i].arrive.sent;
 		arrived += cs->segments[i].arrive.arrived;
 	}
-	cs->arrival_chance = 100 * sent / arrived;
+	/* Don't update if nothing happened. */
+	if (sent == 0)
+		return;
+
+	/* Calculate arrival chance. */
+	cs->arrival_chance = 100 * arrived / sent;
 
 	/* # packet retransmits for 97% reliability. */
-	{
+	if (sent > 0) {
 		uint64_t loss_accept = 3 * sent / 100;
 		uint64_t lost_n = lost = sent - arrived;
 
@@ -116,7 +121,10 @@ rtt_update(struct net2_connstats_rtt *l, int64_t usec)
 {
 	int64_t			old_avg, new_avg, avg_inc;
 
-	old_avg = l->sum / l->count;
+	if (l->count == 0)
+		old_avg = 0;
+	else
+		old_avg = l->sum / l->count;
 	new_avg = (l->sum + usec) / (l->count + 1);
 	avg_inc = new_avg - old_avg;
 
@@ -174,8 +182,10 @@ net2_connstats_tx_datapoint(struct net2_connstats *cs, struct timeval *sent_ts,
 	segment = &cs->segments[NET2_STATS_LEN - 1];
 	tv_clock_gettime(CLOCK_MONOTONIC, &now);
 
-	if (now.tv_sec != cs->last_update.tv_sec)
+	if (now.tv_sec != cs->last_update.tv_sec) {
 		segment_shift(cs);
+		cs->last_update = now;
+	}
 
 	/* Update largest wire_sz in this window. */
 	if (ok && segment->max_wire_sz < wire_sz)
