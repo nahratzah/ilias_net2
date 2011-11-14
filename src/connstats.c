@@ -230,13 +230,11 @@ ILIAS_NET2_LOCAL void
 net2_connstats_tx_datapoint(struct net2_connstats *cs, struct timeval *sent_ts,
     struct timeval *ack_ts, size_t wire_sz, int ok)
 {
-	struct timeval		 sent, ack, rtt, now;
+	struct timeval		 rtt, now;
 	struct net2_connstats_segment
 				*segment;
 	int64_t			 microsec;
 
-	sent = *sent_ts;
-	ack = *ack_ts;
 	segment = &cs->segments[NET2_STATS_LEN - 1];
 	tv_clock_gettime(CLOCK_MONOTONIC, &now);
 
@@ -252,7 +250,7 @@ net2_connstats_tx_datapoint(struct net2_connstats *cs, struct timeval *sent_ts,
 	/* Update round-trip-time. */
 	if (ok) {
 		/* Calculate round-trip-time. */
-		timersub(&ack, &sent, &rtt);
+		timersub(ack_ts, sent_ts, &rtt);
 		/* Make sure we don't clip. */
 		if (rtt.tv_sec >= (INT64_MAX - rtt.tv_usec) / 1000000)
 			microsec = INT64_MAX;
