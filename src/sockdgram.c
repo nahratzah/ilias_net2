@@ -159,7 +159,7 @@ net2_sockdgram_send(int sock, struct net2_connection *c,
 	numvec = net2_buffer_peek(txbuf, tbuf_len, NULL, 0);
 	if ((vec = calloc(numvec, sizeof(*vec))) == NULL) {
 		warn("%s: failed to allocate %d iovec", __FUNCTION__, numvec);
-		return -1;
+		return NET2_CONNFAIL_RESOURCE;
 	}
 	net2_buffer_peek(txbuf, tbuf_len, vec, numvec);
 
