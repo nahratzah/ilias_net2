@@ -554,7 +554,7 @@ sa_timeout_close(struct net2_sa_tx *sa)
 ILIAS_NET2_LOCAL int
 sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 {
-	struct range			*r, *next;
+	struct range			*r, *next, *mrl, *mrr;
 	uint32_t			 new_start;
 
 	/* Skip empty range. */
@@ -566,6 +566,7 @@ sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 	 * simply move the window forward.
 	 */
 	if (start == sa->win_start) {
+		/* Merge and remove any overlapping acks. */
 		next = sa_range_merge_right(sa, &sa->ack, start, end);
 		if (next != NULL) {
 			/* Update the end to include next->end. */
@@ -584,10 +585,82 @@ sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 			}
 		}
 
+		/* Remove any overlapping retrans. */
+		mrr = sa_range_merge_right(sa, &sa->retrans, start, end);
+		if (mrr != NULL) {
+			/* Remove everything up to mrr. */
+			while ((r = RB_MIN(range_tree, &sa->retrans)) != mrr) {
+				RB_REMOVE(range_tree, &sa->retrans, r);
+				sa_range_free(r);
+			}
+
+			/* Make mrr fall outside the acked range. */
+			if (WIN_OFF(sa, mrr->end) > WIN_OFF(sa, end)) {
+				mrr->start = end;
+			} else {
+				RB_REMOVE(range_tree, &sa->retrans, r);
+				sa_range_free(r);
+			}
+		}
+
 		sa_update_winstart(sa, end);
 		return 0;
 	}
 
+	/*
+	 * Remove intersecting retrans.
+	 */
+	mrl = sa_range_merge_left(sa, &sa->retrans, start, end);
+	if (mrl == NULL)
+		goto skip_retrans;
+	mrr = sa_range_merge_left(sa, &sa->retrans, start, end);
+	assert(mrr != NULL);
+
+	if (mrl == mrr) {
+		if (WIN_OFF(sa, mrl->start) < WIN_OFF(sa, start) &&
+		    WIN_OFF(sa, mrr->end  ) > WIN_OFF(sa, end  )) {
+			/* This ack punched a hole in the retrans. */
+			if ((r = sa_range_new(sa, end, mrr->end)) == NULL)
+				return -1;
+			mrl->end = start;
+			RB_INSERT(range_tree, &sa->retrans, r);
+		} else if (WIN_OFF(sa, mrl->start) < WIN_OFF(sa, start)) {
+			mrl->end = start;
+		} else if (WIN_OFF(sa, mrr->end  ) > WIN_OFF(sa, end  )) {
+			mrr->start = end;
+		} else {
+			/* Completely covered by this ack. */
+			RB_REMOVE(range_tree, &sa->retrans, mrl);
+			sa_range_free(mrl);
+		}
+	} else {
+		/* Remove everything between mrl and mrr. */
+		for (r = RB_NEXT(range_tree, &sa->retrans, mrl);
+		    r != mrr; r = next) {
+			next = RB_NEXT(range_tree, &sa->retrans, r);
+
+			RB_REMOVE(range_tree, &sa->retrans, r);
+			sa_range_free(r);
+		}
+
+		/* Only keep mrl if it doesn't fully overlap. */
+		if (WIN_OFF(sa, mrl->start) < WIN_OFF(sa, start))
+			mrl->end = start;
+		else {
+			RB_REMOVE(range_tree, &sa->retrans, mrl);
+			sa_range_free(mrl);
+		}
+
+		/* Only keep mrr if it doesn't fully overlap. */
+		if (WIN_OFF(sa, mrr->end) > WIN_OFF(sa, end))
+			mrr->start = end;
+		else {
+			RB_REMOVE(range_tree, &sa->retrans, mrr);
+			sa_range_free(mrr);
+		}
+	}
+
+skip_retrans:
 	return sa_merge(sa, &sa->ack, start, end);
 }
 
@@ -1030,6 +1103,17 @@ fail_2:
 fail_1:
 	sa_range_free(r);
 fail_0:
+	if (is_retrans) {
+		if (sa_merge(sa, &sa->retrans, wf_start, wf_end)) {
+			/*
+			 * Insufficient memory to keep the connection state
+			 * stable. Now we are forced to break an invariant.
+			 */
+			/* TODO: kill connection */
+			abort();
+		}
+	}
+
 	/*
 	 * If progress was made (first != 0, aka at least one other payload
 	 * was pushed into the connection) we let the error slide.
