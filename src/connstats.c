@@ -12,7 +12,7 @@
  * An algorithm to compute the square root of an int64, using only integer math.
  * Takes 32 steps.
  */
-static uint32_t
+static uint64_t
 isqrt64(uint64_t v)
 {
 	uint32_t		r = 0;
@@ -128,7 +128,11 @@ segment_shift(struct net2_connstats *cs)
 		}
 		if (count > 0)
 			cs->latency_stddev /= count;
-		cs->latency_stddev = isqrt64(cs->latency_stddev);
+		/*
+		 * +1, since the isqrt returns the floor value, while
+		 * we want the ceil.
+		 */
+		cs->latency_stddev = isqrt64(cs->latency_stddev) + 1;
 	}
 
 	/*
