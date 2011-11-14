@@ -152,14 +152,9 @@ net2_connection_recv(struct net2_connection *conn,
 	assert(r != NULL && conn != NULL);
 
 	net2_mutex_lock(conn->n2c_recvmtx);
-	if (conn->n2c_recvqsz < 128) {
-		TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
-		conn->n2c_recvqsz++;
-	} else {
-		if (r->buf)
-			net2_buffer_free(r->buf);
-		free(r);
-	}
+	TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
+	conn->n2c_recvqsz++;
+
 	if (!event_pending(conn->n2c_recv_ev, EV_TIMEOUT, NULL)) {
 		if (event_add(conn->n2c_recv_ev, &now)) {
 			warnx("event_add fail");
