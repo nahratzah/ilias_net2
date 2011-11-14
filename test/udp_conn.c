@@ -28,27 +28,36 @@
 static struct net2_buffer*
 doodle_buf()
 {
-	struct net2_buffer	*buf;
-	int			 i;
-	uint8_t			 bytes[1024];
+	struct net2_buffer	*buf, *tmp;
 
+	tmp = NULL;
 	if ((buf = net2_buffer_new()) == NULL)
-		return NULL;
-	if (net2_buffer_add(buf, DOODLE, strlen(DOODLE) + 1) == -1) {
-		net2_buffer_free(buf);
-		return NULL;
+		goto fail;
+
+	/* Doodle buf. */
+	if (net2_buffer_add(buf, DOODLE, strlen(DOODLE) + 1) == -1)
+		goto fail;
+
+	/* Result: repeat doodle until we reach 100 MB. */
+	while (net2_buffer_length(buf) < 100 * 1024 * 1024) {
+		printf("doodle: %lu bytes\n",
+		    (unsigned long)net2_buffer_length(buf));
+
+		if ((tmp = net2_buffer_copy(buf)) == NULL ||
+		    net2_buffer_append(buf, tmp))
+			goto fail;
+		net2_buffer_free(tmp);
+		tmp = NULL;
 	}
 
-	/* Generate 100 MB of random data to append. */
-	for (i = 0; i < 100 * 1024; i++) {
-		secure_random_buf(&bytes[0], sizeof(bytes));
-		if (net2_buffer_add(buf, &bytes[0], sizeof(bytes))) {
-			net2_buffer_free(buf);
-			return NULL;
-		}
-	}
-
+	printf("doodle complete: %lu bytes\n",
+	    (unsigned long)net2_buffer_length(buf));
 	return buf;
+
+fail:
+	net2_buffer_free(buf);
+	net2_buffer_free(tmp);
+	return NULL;
 }
 
 int fail = 0;
