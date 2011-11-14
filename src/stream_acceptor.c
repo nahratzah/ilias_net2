@@ -917,7 +917,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
     struct net2_cw_tx *tx, int first, size_t maxlen)
 {
 	struct net2_encdec_ctx		*ctx;
-	struct range			*r;
+	struct range			*r, *collide;
 	size_t				 len;
 	uint32_t			 wf_start, wf_end;
 	int				 i;
@@ -1047,7 +1047,6 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 
 	data.payload = net2_buffer_subrange(sa->sendbuf,
 	    WIN_OFF(sa, wf_start), wf_end - wf_start);
-
 	if (data.payload == NULL)
 		goto fail_1;
 
@@ -1085,7 +1084,8 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/* Transmitting close, remove as pending. */
 	if (r->stream_end)
 		sa->flags &= ~SATX_RESEND_CLOSE;
-	RB_INSERT(range_tree, &sa->transit, r);
+	collide = RB_INSERT(range_tree, &sa->transit, r);
+	assert(collide == NULL);
 
 out:
 	if (data.payload != NULL)
@@ -1472,7 +1472,7 @@ sa_rx_recv(struct net2_sa_rx *sa, struct stream_packet *sp)
 		 * If the buffer has no overlap with the window,
 		 * it is simply ancient and should be discared.
 		 */
-		if (net2_buffer_length(sp->payload) < sa->win_start - sp->seq)
+		if (net2_buffer_length(sp->payload) <= sa->win_start - sp->seq)
 			return 0;
 
 		/*
@@ -1587,7 +1587,7 @@ sa_rx_recv(struct net2_sa_rx *sa, struct stream_packet *sp)
 	 * Merge mleft data with sp->payload.
 	 */
 	if (WIN_OFF(sa, mleft->start) < WIN_OFF(sa, start)) {
-		off = WIN_OFF(sa, mleft->end) - WIN_OFF(sa, start);
+		off = mleft->end - start;
 		net2_buffer_drain(sp->payload, off);
 
 		if (net2_buffer_prepend(sp->payload, mleft->payload))
@@ -1599,8 +1599,8 @@ sa_rx_recv(struct net2_sa_rx *sa, struct stream_packet *sp)
 	 * Merge mright data with sp->payload.
 	 */
 	if (WIN_OFF(sa, mright->end) > WIN_OFF(sa, end)) {
-		off = WIN_OFF(sa, end) - WIN_OFF(sa, mright->start);
-		net2_buffer_truncate(sp->payload, end - off - start);
+		off = end - mright->start;
+		net2_buffer_truncate(sp->payload, end - start - off);
 
 		if (net2_buffer_append(sp->payload, mright->payload))
 			return -1;
