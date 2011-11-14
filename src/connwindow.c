@@ -199,10 +199,24 @@ RB_GENERATE_STATIC(net2_cw_recvs, net2_cw_rx, cwr_entry_id, rx_cmp);
 static inline void
 update_stalled(struct net2_connwindow *w)
 {
-	if (w->cw_tx_nextseq - w->cw_tx_start < w->cw_tx_windowsz)
-		w->cw_flags &= ~NET2_CW_F_STALLED;
-	else
+	if (w->cw_tx_nextseq - w->cw_tx_start < w->cw_tx_windowsz) {
+		if (w->cw_stallbackoff != NULL)
+			evtimer_del(w->cw_stallbackoff);
+		w->cw_flags &= ~(NET2_CW_F_STALLED | NET2_CW_F_STALLBACKOFF);
+	} else
 		w->cw_flags |= NET2_CW_F_STALLED;
+}
+
+/* Clear the stallbackoff flag. */
+static void
+stallbackoff(int fd, short what, void *wptr)
+{
+	struct net2_connwindow		*w = wptr;
+
+	if (w->cw_flags & NET2_CW_F_STALLBACKOFF) {
+		w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
+		net2_conn_ready_to_send(w->cw_conn);
+	}
 }
 
 
@@ -777,6 +791,9 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	TAILQ_INIT(&w->cw_rx_wantack);
 	RB_INIT(&w->cw_rx_id);
 	w->cw_flags = NET2_CW_F_WANTRECV;
+	if ((w->cw_stallbackoff = evtimer_new(c->n2c_evbase->evbase,
+	    stallbackoff, w)) == NULL)
+		return -1;
 
 	return 0;
 }
@@ -796,6 +813,8 @@ net2_connwindow_deinit(struct net2_connwindow *w)
 		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
 		tx_free(tx);
 	}
+	if (w->cw_stallbackoff != NULL)
+		event_free(w->cw_stallbackoff);
 }
 
 /*
@@ -1214,6 +1233,8 @@ net2_connwindow_tx_prepare(struct net2_connwindow *w,
 	struct net2_cw_tx		*tx;
 
 	update_stalled(w);
+	if (w->cw_flags & NET2_CW_F_STALLBACKOFF)
+		return NULL;
 
 	ph->seq = w->cw_tx_nextseq;
 	if ((tx = tx_new(w->cw_tx_nextseq, w)) == NULL)
@@ -1239,12 +1260,17 @@ fail_0:
  * Commit a connwindow transmission.
  */
 ILIAS_NET2_LOCAL void
-net2_connwindow_tx_commit(struct net2_cw_tx *tx, size_t wire_sz)
+net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
+    size_t wire_sz)
 {
+	static const struct timeval	 stalltimeout = { 0, 250000 };
 	struct net2_connwindow		*w = tx->cwt_owner;
 	struct timeval			 timeout;
 
 	if (tx->cwt_stalled) {
+		if (!evtimer_add(w->cw_stallbackoff, &stalltimeout))
+			w->cw_flags |= NET2_CW_F_STALLBACKOFF;
+
 		tx_free(tx);
 		return;
 	}
@@ -1377,6 +1403,24 @@ static void
 add_statistic(struct net2_connwindow *w, struct timeval *tx_ts,
     struct timeval *ack_ts, size_t winsz, int succes)
 {
+	struct timeval			 resolution;
+
+	if (ack_ts != NULL) {
+		/*
+		 * Transmission and ack having the same timestamp is
+		 * physically impossible. This happening means the clock
+		 * resolution is insufficient to detect the delta.
+		 *
+		 * In this case, we enforce a minimum of 1 clock resolution
+		 * for the round-trip-time.
+		 */
+		if (timercmp(ack_ts, tx_ts, <=)) {
+			if (tv_clock_getres(CLOCK_MONOTONIC, &resolution))
+				err(EX_OSERR, "clock_getres fail");
+			timeradd(tx_ts, &resolution, ack_ts);
+		}
+	}
+
 	net2_connstats_tx_datapoint(&w->cw_conn->n2c_stats, tx_ts, ack_ts,
 	    winsz, succes);
 

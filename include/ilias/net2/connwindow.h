@@ -64,9 +64,11 @@ struct net2_connwindow {
 	RB_HEAD(net2_cw_recvs, net2_cw_rx)
 			 cw_rx_id;		/* Receives per ID. */
 
+	struct event	*cw_stallbackoff;	/* Stall backoff event. */
 	int		 cw_flags;		/* Connection window state. */
 #define NET2_CW_F_WANTRECV	0x00000001	/* Need to recv 1st packet. */
 #define NET2_CW_F_STALLED	0x00000002	/* Damocles pending. */
+#define NET2_CW_F_STALLBACKOFF	0x00000004	/* Don't send stalled. */
 };
 
 
@@ -94,7 +96,8 @@ ILIAS_NET2_LOCAL
 struct net2_cw_tx	*net2_connwindow_tx_prepare(struct net2_connwindow*,
 			    struct packet_header*);
 ILIAS_NET2_LOCAL
-void			 net2_connwindow_tx_commit(struct net2_cw_tx*, size_t);
+void			 net2_connwindow_tx_commit(struct net2_cw_tx*,
+			    struct packet_header*, size_t);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_rollback(struct net2_cw_tx*);
 #endif /* ilias_net2_EXPORTS */
