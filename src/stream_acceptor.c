@@ -1523,14 +1523,18 @@ sa_rx_recv(struct net2_sa_rx *sa, struct stream_packet *sp)
 	if (sa->win_start == start) {
 		mright = sa_fragment_merge_right(sa, start, end);
 
-		if (mright != NULL &&
-		    WIN_OFF(sa, mright->end) > WIN_OFF(sa, end)) {
-			/* Merge in mright: it extends sp->payload. */
-			off = WIN_OFF(sa, end) - WIN_OFF(sa, mright->start);
-			net2_buffer_truncate(sp->payload, end - off - start);
-			if (net2_buffer_append(sp->payload, mright->payload))
-				return -1;
-			end = mright->end;
+		if (mright != NULL) {
+			if (WIN_OFF(sa, mright->end) > WIN_OFF(sa, end)) {
+				/* Merge in mright: it extends sp->payload. */
+				off = WIN_OFF(sa, end) -
+				    WIN_OFF(sa, mright->start);
+				net2_buffer_truncate(sp->payload,
+				    end - start - off);
+				if (net2_buffer_append(sp->payload,
+				    mright->payload))
+					return -1;
+				end = mright->end;
+			}
 
 			/*
 			 * Now eat all entries up to and including mright.
