@@ -1,5 +1,6 @@
 #include <ilias/net2/connstats.h>
 #include <string.h>
+#include <stdio.h>
 #include <bsd_compat/clock.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
@@ -7,13 +8,38 @@
 #include <Windows.h>
 #endif
 
+/*
+ * An algorithm to compute the square root of an int64, using only integer math.
+ * Takes 32 steps.
+ */
+static uint32_t
+isqrt64(uint64_t v)
+{
+	uint32_t		r = 0;
+	int			i;
+
+	for (i = 31; i >= 0; i--) {
+		if (v >= ((uint64_t)1 << (2 * i))) {
+			v -= ((uint64_t)1 << (2 * i));
+			r |= ((uint32_t)1 << i);
+		}
+	}
+	return r;
+}
+
 /* Rebase a set of summed squares for stddev to a new average. */
 static int64_t
 rebase_sumsq(int64_t sumsquare, int64_t sum, int64_t count, int64_t avg_inc)
 {
-	return sumsquare +
+	int64_t			rv;
+
+	rv = sumsquare +
 	    (2 * avg_inc * sum) +
 	    count * avg_inc * avg_inc;
+	/* Rounding errors? */
+	if (rv < 0)
+		rv = 0;
+	return rv;
 }
 
 /*
@@ -102,6 +128,7 @@ segment_shift(struct net2_connstats *cs)
 		}
 		if (count > 0)
 			cs->latency_stddev /= count;
+		cs->latency_stddev = isqrt64(cs->latency_stddev);
 	}
 
 	/*
@@ -117,6 +144,29 @@ segment_shift(struct net2_connstats *cs)
 
 	/* Reset last segment in the list. */
 	memset(&cs->segments[NET2_STATS_LEN - 1], 0, sizeof(cs->segments[0]));
+
+	/* Print statistics. */
+	/* TODO: debug */
+	fprintf(stderr, "stats:\n"
+	    "\t%-16s %8d%s\n"		/* arrival change */
+	    "\t%-16s %8d%s\n"		/* send for 97% */
+	    "\t%-16s %8ld%s\n"		/* bandwidth */
+	    "\t%-16s %8ld%s\n"		/* bandwidth in packets */
+	    "\t%-16s %8u%s\n"		/* packet size */
+	    "\t%-16s %8llu%s\n"		/* latency avg */
+	    "\t%-16s %8llu%s\n"		/* latency stddev */
+	    "\t%-16s %8u%s\n"		/* sent */
+	    "\t%-16s %8u%s\n",		/* arrived */
+
+	    "arrival chance:", cs->arrival_chance, "%",
+	    "send for 97%:", cs->send_for_97, " packets",
+	    "bandwidth:", (unsigned long)cs->bandwidth, " bytes/sec",
+	    "", (unsigned long)cs->packets_sec, " packets/sec",
+	    "packet size:", (unsigned int)cs->wire_sz, " bytes",
+	    "latency avg:", (unsigned long long)cs->latency_avg, " usec",
+	    "latency stddev:", (unsigned long long)cs->latency_stddev, " usec",
+	    "  sent:", (unsigned int)sent, " packets",
+	    "  arrived:", (unsigned int)arrived, " packets");
 }
 
 /* Update round trip time by adding new value. */
@@ -242,8 +292,7 @@ net2_connstats_timeout(struct net2_connstats *cs, struct timeval *tv,
 		l_stddev = 500000;
 
 	/* Is this correct? */
-	v = (l_avg + (l_stddev * (int64_t)n * (int64_t)d)) *
-	    (int64_t)n;
+	v = (l_avg + (l_stddev * (int64_t)d)) * (int64_t)n;
 	tv->tv_usec = v % 1000000;
 	tv->tv_sec = v / 1000000;
 }
