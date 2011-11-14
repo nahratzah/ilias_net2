@@ -35,8 +35,10 @@ doodle_buf()
 		goto fail;
 
 	/* Doodle buf. */
-	if (net2_buffer_add(buf, DOODLE, strlen(DOODLE) + 1) == -1)
-		goto fail;
+	do {
+		if (net2_buffer_add(buf, DOODLE, strlen(DOODLE) + 1) == -1)
+			goto fail;
+	} while (net2_buffer_length(buf) < 64 * 1024);
 
 	/* Result: repeat doodle until we reach 100 MB. */
 	while (net2_buffer_length(buf) < 100 * 1024 * 1024) {
