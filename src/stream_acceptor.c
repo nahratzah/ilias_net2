@@ -806,24 +806,19 @@ sa_transit_update(struct net2_sa_tx *sa, uint32_t new_window_start)
 			break;
 
 		/*
-		 * Calculate how many bytes at the front now fall
-		 * outside the window.
-		 */
-		forward = WIN_OFF(sa, new_window_start) -
-		    WIN_OFF(sa, t->start);
-
-		/*
 		 * If the full datagram falls outside, inform the callbacks.
 		 *
 		 * Else, eat the bytes at the front so the whole thing falls
 		 * within the window again.
 		 */
-		if (forward >= t->end - t->start) {
-			if (!t->stream_end)
+		if (WIN_OFF(sa, t->end) <= WIN_OFF(sa, new_window_start)) {
+			if (!t->stream_end || t->end != new_window_start) {
+				t->stream_end = 0;
 				RB_REMOVE(range_tree, &sa->transit, t);
+			}
 			t->start = t->end = new_window_start;
 		} else
-			t->start += forward;
+			t->start = new_window_start;
 	}
 }
 
