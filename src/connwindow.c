@@ -218,6 +218,17 @@ stallbackoff(int fd, short what, void *wptr)
 		net2_conn_ready_to_send(w->cw_conn);
 	}
 }
+/* Fire a new keepalive. */
+static void
+keepalive(int fd, short what, void *wptr)
+{
+	struct net2_connwindow		*w = wptr;
+
+	if (w->cw_flags & NET2_CW_F_KEEPALIVE) {
+		w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
+		net2_conn_ready_to_send(w->cw_conn);
+	}
+}
 
 
 static void	tx_cb_timeout(struct net2_cw_transmit_cb*);
@@ -793,9 +804,17 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	w->cw_flags = NET2_CW_F_WANTRECV;
 	if ((w->cw_stallbackoff = evtimer_new(c->n2c_evbase->evbase,
 	    stallbackoff, w)) == NULL)
-		return -1;
+		goto fail_0;
+	if ((w->cw_keepalive = evtimer_new(c->n2c_evbase->evbase,
+	    keepalive, w)) == NULL)
+		goto fail_1;
 
 	return 0;
+
+fail_1:
+	event_free(w->cw_stallbackoff);
+fail_0:
+	return -1;
 }
 
 /* Destroy a connection window. */
@@ -813,8 +832,8 @@ net2_connwindow_deinit(struct net2_connwindow *w)
 		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
 		tx_free(tx);
 	}
-	if (w->cw_stallbackoff != NULL)
-		event_free(w->cw_stallbackoff);
+	event_free(w->cw_stallbackoff);
+	event_free(w->cw_keepalive);
 }
 
 /*
@@ -1228,13 +1247,19 @@ fail_0:
  */
 ILIAS_NET2_LOCAL struct net2_cw_tx*
 net2_connwindow_tx_prepare(struct net2_connwindow *w,
-    struct packet_header *ph)
+    struct packet_header *ph, int *want_payload)
 {
 	struct net2_cw_tx		*tx;
 
 	update_stalled(w);
 	if (w->cw_flags & NET2_CW_F_STALLBACKOFF)
 		return NULL;
+
+	/*
+	 * If the keep-alive timer is ticking, only send
+	 * if we have payload.
+	 */
+	*want_payload = (w->cw_flags & NET2_CW_F_KEEPALIVE);
 
 	ph->seq = w->cw_tx_nextseq;
 	if ((tx = tx_new(w->cw_tx_nextseq, w)) == NULL)
@@ -1264,15 +1289,29 @@ net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
     size_t wire_sz)
 {
 	static const struct timeval	 stalltimeout = { 0, 250000 };
+	static const struct timeval	 ka_timeout = { 5, 0 };
 	struct net2_connwindow		*w = tx->cwt_owner;
 	struct timeval			 timeout;
 
+	/* Backoff when stalled. */
 	if (tx->cwt_stalled) {
 		if (!evtimer_add(w->cw_stallbackoff, &stalltimeout))
 			w->cw_flags |= NET2_CW_F_STALLBACKOFF;
 
 		tx_free(tx);
 		return;
+	}
+
+	if (!evtimer_del(w->cw_keepalive)) {
+		w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
+
+		/*
+		 * Don't do keepalives on stalled connection:
+		 * stall timer will handle this for us.
+		 */
+		if (!tx->cwt_stalled &&
+		    !evtimer_add(w->cw_keepalive, &ka_timeout))
+			w->cw_flags |= NET2_CW_F_KEEPALIVE;
 	}
 
 	net2_connstats_timeout(&w->cw_conn->n2c_stats, &timeout,

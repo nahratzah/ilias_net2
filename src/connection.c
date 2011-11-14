@@ -311,6 +311,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	int				 rv = -1;
 	size_t				 winoverhead;
 	struct net2_cw_tx		*tx;
+	int				 want_payload;
 
 	*bptr = NULL;
 	winoverhead = net2_connwindow_overhead;
@@ -332,7 +333,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 	if (c->n2c_enc.algorithm != 0)
 		ph.flags |= PH_SIGNED;
 	/* Fill in ph.seq and acquire a transmission context. */
-	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph)) == NULL) {
+	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph,
+	    &want_payload)) == NULL) {
 		net2_encdec_ctx_rollback(ctx);
 		rv = 0;
 		goto fail_2;
@@ -370,14 +372,19 @@ fill_up:
 			 * use its own timeout routines to know of the
 			 * failure.
 			 */
+			net2_buffer_free(to_add);
 			warnx("buffer_append fail");
 			break;
 		}
 
 		/* Acceptor only wants to send a keep-alive. */
 		avail -= net2_buffer_length(to_add);
-		if (net2_buffer_length(to_add) == 0)
+		if (net2_buffer_length(to_add) == 0) {
+			net2_buffer_free(to_add);
 			break;
+		}
+		net2_buffer_free(to_add);
+		to_add = NULL;
 	}
 
 	/*
@@ -402,7 +409,7 @@ write_window_buf:
 	}
 
 	/* Nothing to send. */
-	if (net2_buffer_empty(b) && count == 0) {
+	if (count == 0 && (want_payload || net2_buffer_empty(b))) {
 		/*
 		 * Undo transmission: no transmission implies rollback
 		 * instead of commit.

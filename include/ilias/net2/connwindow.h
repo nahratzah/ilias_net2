@@ -65,10 +65,12 @@ struct net2_connwindow {
 			 cw_rx_id;		/* Receives per ID. */
 
 	struct event	*cw_stallbackoff;	/* Stall backoff event. */
+	struct event	*cw_keepalive;		/* Keepalive timer. */
 	int		 cw_flags;		/* Connection window state. */
 #define NET2_CW_F_WANTRECV	0x00000001	/* Need to recv 1st packet. */
 #define NET2_CW_F_STALLED	0x00000002	/* Damocles pending. */
 #define NET2_CW_F_STALLBACKOFF	0x00000004	/* Don't send stalled. */
+#define NET2_CW_F_KEEPALIVE	0x00000008	/* Keepalive timer ticking. */
 };
 
 
@@ -94,7 +96,7 @@ struct net2_buffer	*net2_connwindow_writebuf(struct net2_connwindow*,
 
 ILIAS_NET2_LOCAL
 struct net2_cw_tx	*net2_connwindow_tx_prepare(struct net2_connwindow*,
-			    struct packet_header*);
+			    struct packet_header*, int*);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_commit(struct net2_cw_tx*,
 			    struct packet_header*, size_t);
