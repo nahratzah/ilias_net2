@@ -899,7 +899,6 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	struct net2_encdec_ctx		*ctx = NULL;
 	struct windowheader		 wh;
 	int				 ph_needdestroy = 0;
-	int				 ack_count;
 
 	assert(net2_connwindow_accept(w, ph));
 
@@ -947,13 +946,12 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		fix_txstart(w);
 	}
 
-	/* Force transmission if the number of acks grows large. */
-	ack_count = w->cw_rx_windowsz / 4;
-	TAILQ_FOREACH(rx, &w->cw_rx_wantack, cwr_entry_rx) {
-		if (--ack_count == 0) {
-			net2_conn_ready_to_send(w->cw_conn);
-			break;
-		}
+	if (ph->flags & (PH_STALLED | PH_PAYLOAD)) {
+		if (!event_del(w->cw_keepalive))
+			w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
+		if (!event_del(w->cw_stallbackoff))
+			w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
+		net2_conn_ready_to_send(w->cw_conn);
 	}
 
 	return 0;
