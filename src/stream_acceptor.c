@@ -1446,7 +1446,7 @@ fail_1:
 		net2_encdec_ctx_rollback(ctx);
 	net2_encdec_ctx_release(ctx);
 fail_0:
-	return -1;
+	return rv;
 }
 
 /*
