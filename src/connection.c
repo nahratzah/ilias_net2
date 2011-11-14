@@ -332,8 +332,11 @@ net2_conn_gather_tx(struct net2_connection *c,
 	if (c->n2c_enc.algorithm != 0)
 		ph.flags |= PH_SIGNED;
 	/* Fill in ph.seq and acquire a transmission context. */
-	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph)) == NULL)
+	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph)) == NULL) {
+		net2_encdec_ctx_rollback(ctx);
+		rv = 0;
 		goto fail_2;
+	}
 	/* Don't add payload to stalled state: these packets are not acked. */
 	count = 0;
 	if (ph.flags & PH_STALLED)
@@ -423,9 +426,10 @@ write_window_buf:
 
 fail_2:
 	if (tx != NULL) {
-		if (rv == 0)
-			net2_connwindow_tx_commit(tx, net2_buffer_length(b));
-		else
+		if (rv == 0) {
+			net2_connwindow_tx_commit(tx, &ph,
+			    net2_buffer_length(b));
+		} else
 			net2_connwindow_tx_rollback(tx);
 	}
 	if (rv != 0)
