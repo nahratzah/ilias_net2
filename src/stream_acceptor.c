@@ -925,6 +925,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	int				 is_retrans = 0;
 
 	net2_mutex_lock(sa->sendbuf_mtx);
+	data.payload = NULL;
 
 	/* Cannot do any work. */
 	if (maxlen < STREAM_PACKET_OVERHEAD + STREAM_PACKET_ALIGN)
@@ -1087,6 +1088,8 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	RB_INSERT(range_tree, &sa->transit, r);
 
 out:
+	if (data.payload != NULL)
+		net2_buffer_free(data.payload);
 	net2_mutex_unlock(sa->sendbuf_mtx);
 	return 0;
 
