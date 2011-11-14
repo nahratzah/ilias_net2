@@ -949,7 +949,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	 */
 	r = RB_MIN(range_tree, &sa->retrans);
 	if (r != NULL) {
-		assert(WIN_OFF(sa, r->start) <= MAX_WINDOW_SIZE);
+		assert(WIN_OFF(sa, r->start) < MAX_WINDOW_SIZE);
 		wf_start = r->start;
 		wf_end = r->end;
 		if (wf_end - wf_start > len) {
@@ -992,7 +992,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 		if (net2_buffer_length(sa->sendbuf) <= WIN_OFF(sa, wf_start)) {
 			/* Oh, close is not acked yet. */
 			if (sa->flags & SATX_RESEND_CLOSE) {
-				assert(net2_buffer_length(sa->sendbuf) <=
+				assert(net2_buffer_length(sa->sendbuf) <
 				    MAX_WINDOW_SIZE);
 				wf_start = wf_end = sa->win_start +
 				    (uint32_t)net2_buffer_length(sa->sendbuf);
