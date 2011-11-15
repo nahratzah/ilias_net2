@@ -110,7 +110,7 @@ struct net2_stream_acceptor {
 /* Calculate the window offset of a sequence number. */
 #define WIN_OFF(sa, val)		((val) - (sa)->win_start)
 /* The maximum allowed window size. */
-#define MAX_WINDOW_SIZE			0x80000000
+#define MAX_WINDOW_SIZE			16000000
 
 
 ILIAS_NET2_LOCAL
