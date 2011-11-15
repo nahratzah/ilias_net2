@@ -137,28 +137,24 @@ ILIAS_NET2_EXPORT int
 net2_evbase_threadstop(struct net2_evbase *b, int flags)
 {
 	net2_mutex_lock(b->mtx);
-	if (b->thread == NULL) {
-		net2_mutex_unlock(b->mtx);
-		return 0;
-	}
+	if (b->thread == NULL)
+		goto out;
 	/* Don't stop the thread-live if WAITONLY was specified. */
 	if (!(flags & NET2_EVBASE_WAITONLY)) {
 		if (event_del(b->threadlive)) {
 			warnx("failed to remove thread live event");
-			net2_mutex_unlock(b->mtx);
-			return -1;
+			goto fail;
 		}
 		if (event_base_loopbreak(b->evbase)) {
 			warnx("failed to loopbreak evbase");
-			net2_mutex_unlock(b->mtx);
-			return -1;
+			goto fail;
 		}
 	}
 
 	net2_mutex_unlock(b->mtx);
 	if (net2_thread_join(b->thread, NULL)) {
 		warnx("failed to join evbase thread");
-		return -1;
+		goto fail_unlocked;
 	}
 	net2_mutex_lock(b->mtx);
 
@@ -166,9 +162,14 @@ net2_evbase_threadstop(struct net2_evbase *b, int flags)
 	b->thread = NULL;
 	if (event_del(b->threadlive)) {
 		warnx("failed to remove thread live event");
-		net2_mutex_unlock(b->mtx);
-		return -1;
+		goto fail;
 	}
+out:
 	net2_mutex_unlock(b->mtx);
 	return 0;
+
+fail:
+	net2_mutex_unlock(b->mtx);
+fail_unlocked:
+	return -1;
 }
