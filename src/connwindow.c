@@ -903,7 +903,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	assert(net2_connwindow_accept(w, ph));
 
 	if ((ph->flags & PH_WINUPDATE) != 0) {
-		if ((ctx = net2_encdec_ctx_new(w->cw_conn)) == NULL)
+		if ((ctx = net2_encdec_ctx_new(NULL)) == NULL)
 			goto fail_0;
 		if (net2_cp_init(ctx, &cp_windowheader, &wh, NULL))
 			goto fail_0;
@@ -1175,7 +1175,7 @@ skip:			/* All goto skip continue here. */
 	 * We now have a valid window.
 	 * Encode it into a buffer.
 	 */
-	if ((ctx = net2_encdec_ctx_new(w->cw_conn)) == NULL)
+	if ((ctx = net2_encdec_ctx_new(NULL)) == NULL)
 		goto fail_1;
 	if (net2_cp_encode(ctx, &cp_windowheader, buf, &wh, NULL))
 		goto fail_2;

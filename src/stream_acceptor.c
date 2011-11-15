@@ -1061,7 +1061,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 		goto fail_2;
 
 	/* Encode stream packet. */
-	if ((ctx = net2_encdec_ctx_new(conn)) == NULL)
+	if ((ctx = net2_encdec_ctx_new(NULL)) == NULL)
 		goto fail_3;
 	if (net2_cp_encode(ctx, &cp_stream_packet, *bufptr, &data, NULL)) {
 		net2_encdec_ctx_rollback(ctx);
@@ -1434,7 +1434,7 @@ sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_connection *conn,
 	struct net2_encdec_ctx		*ctx;
 	int				 rv = -1;
 
-	if ((ctx = net2_encdec_ctx_new(conn)) == NULL)
+	if ((ctx = net2_encdec_ctx_new(NULL)) == NULL)
 		goto fail_0;
 	if (net2_cp_init(ctx, &cp_stream_packet, &sp, NULL))
 		goto fail_1;

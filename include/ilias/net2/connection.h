@@ -2,10 +2,8 @@
 #define ILIAS_NET2_CONNECTION_H
 
 #include <ilias/net2/types.h>
-#include <ilias/net2/remote.h>
 #include <ilias/net2/connstats.h>
 #include <ilias/net2/connwindow.h>
-#include <ilias/net2/window.h>
 
 struct net2_conn_acceptor;
 struct packet_header;
@@ -59,8 +57,6 @@ struct net2_connection {
 
 	net2_protocol_t		 n2c_version;	/* Communication protocol
 						 * version. */
-	struct net2_objmanager	 n2c_objmanager;/* Remote object manager. */
-	struct net2_winmanager	 n2c_winmanager;/* Window manager. */
 
 	TAILQ_ENTRY(net2_connection)
 				 n2c_ctxconns;	/* Link into context. */
