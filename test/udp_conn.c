@@ -339,15 +339,15 @@ main()
 
 		/* Check why the eventloop ended. */
 		if (finished == 1) {
-			printf("\tprocessing finished");
+			printf("\tprocessing finished\n");
 			finished = 2;		/* Only print once. */
 		}
 		if (recv_finished == 1) {
-			printf("\tprocessing recv finished");
+			printf("\tprocessing recv finished\n");
 			recv_finished = 2;	/* Only print once. */
 		}
 		if (detached == 1) {
-			printf("\tFAIL: connection detached stream_acceptor");
+			printf("\tFAIL: connection detached stream_acceptor\n");
 			fail++;
 			detached = 2;		/* Only print once. */
 		}
@@ -356,13 +356,13 @@ main()
 	/* TODO: read data from sa1 */
 	received = net2_sa_rx_read(net2_stream_acceptor_rx(sa1), -1, 0);
 	if (!net2_sa_rx_eof(net2_stream_acceptor_rx(sa1))) {
-		printf("receiver has not received eof");
+		printf("receiver has not received eof\n");
 		fail++;
 	}
 
 	/* TODO: compare data from sa1 */
 	if (net2_buffer_cmp(sent, received) != 0) {
-		printf("sent and received data differ");
+		printf("sent and received data differ\n");
 		fail++;
 	}
 
