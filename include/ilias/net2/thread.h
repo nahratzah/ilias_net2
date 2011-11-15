@@ -11,7 +11,7 @@ struct net2_thread;
 
 #ifdef ilias_net2_EXPORTS
 ILIAS_NET2_LOCAL
-struct net2_thread	*net2_thread_new(void *(*)(void*), void*);
+struct net2_thread	*net2_thread_new(void *(*)(void*), void*, const char*);
 ILIAS_NET2_LOCAL
 int			 net2_thread_join(struct net2_thread*, void**);
 ILIAS_NET2_LOCAL

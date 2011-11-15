@@ -21,7 +21,7 @@ thread_wrapper(void *tptr)
 
 /* Start a new thread. */
 ILIAS_NET2_LOCAL struct net2_thread*
-net2_thread_new(void *(*fn)(void*), void *arg)
+net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 {
 	struct net2_thread	*t;
 

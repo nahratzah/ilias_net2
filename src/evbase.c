@@ -122,7 +122,8 @@ net2_evbase_threadstart(struct net2_evbase *b)
 		goto fail;
 	if (event_add(b->threadlive, &wakeup))
 		goto fail;
-	if ((b->thread = net2_thread_new(&net2_evbase_worker, b)) == NULL)
+	if ((b->thread = net2_thread_new(&net2_evbase_worker, b, "evbase")) ==
+	    NULL)
 		goto fail;
 	b->refcnt++;
 

@@ -3,6 +3,11 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <bsd_compat/error.h>
+#include "config.h"
+
+#ifdef HAVE_PTHREAD_NP_H
+#include <pthread_np.h>
+#endif /* HAVE_PTHREAD_NP_H */
 
 struct net2_thread {
 	pthread_t		 n2t_impl;
@@ -26,7 +31,7 @@ thread_wrapper(void *argptr)
 
 /* Start a new thread. */
 ILIAS_NET2_LOCAL struct net2_thread*
-net2_thread_new(void *(*fn)(void*), void *arg)
+net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 {
 	struct net2_thread	*t;
 
@@ -39,6 +44,11 @@ net2_thread_new(void *(*fn)(void*), void *arg)
 		free(t);
 		return NULL;
 	}
+
+#ifdef HAS_PTHREAD_SET_NAME_NP
+	if (name != NULL)
+		pthread_set_name_np(&t->n2t_impl, name);
+#endif /* HAS_PTHREAD_SET_NAME_NP */
 	return t;
 }
 
