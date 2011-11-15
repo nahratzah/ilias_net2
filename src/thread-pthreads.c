@@ -47,7 +47,7 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 
 #ifdef HAS_PTHREAD_SET_NAME_NP
 	if (name != NULL)
-		pthread_set_name_np(&t->n2t_impl, name);
+		pthread_set_name_np(t->n2t_impl, name);
 #endif /* HAS_PTHREAD_SET_NAME_NP */
 	return t;
 }
