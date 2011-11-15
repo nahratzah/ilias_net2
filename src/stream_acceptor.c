@@ -595,10 +595,11 @@ sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 			}
 
 			/* Make mrr fall outside the acked range. */
+			RB_REMOVE(range_tree, &sa->retrans, r);
 			if (WIN_OFF(sa, mrr->end) > WIN_OFF(sa, end)) {
 				mrr->start = end;
+				RB_INSERT(range_tree, &sa->retrans, r);
 			} else {
-				RB_REMOVE(range_tree, &sa->retrans, r);
 				sa_range_free(r);
 			}
 		}
@@ -627,7 +628,9 @@ sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 		} else if (WIN_OFF(sa, mrl->start) < WIN_OFF(sa, start)) {
 			mrl->end = start;
 		} else if (WIN_OFF(sa, mrr->end  ) > WIN_OFF(sa, end  )) {
+			RB_REMOVE(range_tree, &sa->retrans, mrr);
 			mrr->start = end;
+			RB_INSERT(range_tree, &sa->retrans, mrr);
 		} else {
 			/* Completely covered by this ack. */
 			RB_REMOVE(range_tree, &sa->retrans, mrl);
@@ -652,9 +655,11 @@ sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 		}
 
 		/* Only keep mrr if it doesn't fully overlap. */
-		if (WIN_OFF(sa, mrr->end) > WIN_OFF(sa, end))
+		if (WIN_OFF(sa, mrr->end) > WIN_OFF(sa, end)) {
+			RB_REMOVE(range_tree, &sa->retrans, mrr);
 			mrr->start = end;
-		else {
+			RB_INSERT(range_tree, &sa->retrans, mrr);
+		} else {
 			RB_REMOVE(range_tree, &sa->retrans, mrr);
 			sa_range_free(mrr);
 		}
@@ -811,14 +816,17 @@ sa_transit_update(struct net2_sa_tx *sa, uint32_t new_window_start)
 		 * Else, eat the bytes at the front so the whole thing falls
 		 * within the window again.
 		 */
+		RB_REMOVE(range_tree, &sa->transit, t);
 		if (WIN_OFF(sa, t->end) <= WIN_OFF(sa, new_window_start)) {
-			if (!t->stream_end || t->end != new_window_start) {
+			if (!t->stream_end || t->end != new_window_start)
 				t->stream_end = 0;
-				RB_REMOVE(range_tree, &sa->transit, t);
-			}
 			t->start = t->end = new_window_start;
-		} else
+			if (t->stream_end)
+				RB_INSERT(range_tree, &sa->transit, t);
+		} else {
 			t->start = new_window_start;
+			RB_INSERT(range_tree, &sa->transit, t);
+		}
 	}
 }
 
