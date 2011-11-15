@@ -50,8 +50,8 @@ struct net2_buffer_segment_impl {
  * Allocate multiples of 256 byte, to reduce the number of required
  * reallocations.
  * */
-#define NET2_BUFFER_ALIGN	((size_t)256)
-#define NET2_BUFFER_FRAGMENT	((size_t)2048)
+#define NET2_BUFFER_ALIGN	((size_t)8)
+#define NET2_BUFFER_FRAGMENT	((size_t)1024*1024)
 
 /* Allocate a new segment impl with the given length. */
 static struct net2_buffer_segment_impl*
