@@ -339,7 +339,7 @@ main()
 	 * We need to wait until both the transmitter and
 	 * receiver have completed.
 	 */
-	while (!(finished || detached) && !recv_finished && !sa1_recv_finished) {
+	while (!finished || !recv_finished || !sa1_recv_finished) {
 		if (!thread_running) {
 			if (net2_evbase_threadstart(evbase)) {
 				printf("net2_evbase_threadstart fail\n");
@@ -368,6 +368,7 @@ main()
 			printf("\tFAIL: connection detached stream_acceptor\n");
 			fail++;
 			detached = 2;		/* Only print once. */
+			return -1;
 		}
 		if (sa1_recv_finished == 1) {
 			printf("\tsa1 receiver finished\n");
