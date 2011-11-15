@@ -243,12 +243,15 @@ main()
 
 	/* Turn sa2 into an echo service. */
 	{
-		struct event		*mirror_ev;
+		struct event		*mirror_ev, *recv_finish_ev;
 		struct net2_sa_rx	*rx = net2_stream_acceptor_rx(sa2);
+		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa2);
 
 		mirror_ev = event_new(evbase->evbase, -1, 0,
 		    mirror_recv_event, sa2);
-		if (mirror_ev == NULL) {
+		recv_finish_ev = event_new(evbase->evbase, -1, 0,
+		    recv_finish_flag, evbase);
+		if (mirror_ev == NULL || recv_finish_ev == NULL) {
 			printf("event_new fail\n");
 			return -1;
 		}
@@ -260,6 +263,11 @@ main()
 			printf("net2_sa_rx_set_event fail\n");
 			return -1;
 		}
+		if (net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
+		    recv_finish_ev, NULL)) {
+			printf("net2_sa_tx_set_event fail\n");
+			return -1;
+		}
 	}
 
 	/* Set up the finish and detach events for sa1. */
@@ -268,9 +276,9 @@ main()
 		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa1);
 
 		detach = event_new(evbase->evbase, -1, 0,
-		    detach_flag, sa1);
+		    detach_flag, evbase);
 		finish = event_new(evbase->evbase, -1, 0,
-		    finish_flag, sa1);
+		    finish_flag, evbase);
 		if (detach == NULL || finish == NULL) {
 			printf("event_new fail\n");
 			return -1;
