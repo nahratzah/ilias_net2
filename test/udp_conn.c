@@ -66,6 +66,7 @@ int fail = 0;
 volatile int detached = 0;
 volatile int finished = 0;
 volatile int recv_finished = 0;
+volatile int sa1_recv_finished = 0;
 
 void
 detach_flag(int fd, short what, void *base_ptr)
@@ -92,6 +93,15 @@ recv_finish_flag(int fd, short what, void *base_ptr)
 
 	printf("event: finish_flag\n");
 	recv_finished = 1;
+	event_base_loopbreak(base->evbase);
+}
+void
+sa1_recv_finish_flag(int fd, short what, void *base_ptr)
+{
+	struct net2_evbase	*base = base_ptr;
+
+	printf("event: sa1_recv_finish_flag\n");
+	sa1_recv_finished = 1;
 	event_base_loopbreak(base->evbase);
 }
 
@@ -272,14 +282,17 @@ main()
 
 	/* Set up the finish and detach events for sa1. */
 	{
-		struct event		*detach, *finish;
+		struct event		*detach, *finish, *sa1_recv_finish;
 		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa1);
+		struct net2_sa_rx	*rx = net2_stream_acceptor_rx(sa1);
 
 		detach = event_new(evbase->evbase, -1, 0,
 		    detach_flag, evbase);
 		finish = event_new(evbase->evbase, -1, 0,
 		    finish_flag, evbase);
-		if (detach == NULL || finish == NULL) {
+		sa1_recv_finish = event_new(evbase->evbase, -1, 0,
+		    sa1_recv_finish_flag, evbase);
+		if (detach == NULL || finish == NULL || sa1_recv_finish == NULL) {
 			printf("event_new fail\n");
 			return -1;
 		}
@@ -289,6 +302,11 @@ main()
 		    net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
 		    finish, NULL)) {
 			printf("net2_sa_tx_set_event fail\n");
+			return -1;
+		}
+		if (net2_sa_rx_set_event(rx, NET2_SARX_ON_FINISH,
+		    sa1_recv_finish, NULL)) {
+			printf("net2_sa_rx_set_event fail\n");
 			return -1;
 		}
 	}
@@ -321,7 +339,7 @@ main()
 	 * We need to wait until both the transmitter and
 	 * receiver have completed.
 	 */
-	while (!(finished || detached) && !recv_finished) {
+	while (!(finished || detached) && !recv_finished && !sa1_recv_finished) {
 		if (!thread_running) {
 			if (net2_evbase_threadstart(evbase)) {
 				printf("net2_evbase_threadstart fail\n");
@@ -343,13 +361,17 @@ main()
 			finished = 2;		/* Only print once. */
 		}
 		if (recv_finished == 1) {
-			printf("\tprocessing recv finished\n");
+			printf("\tsa2 finished\n");
 			recv_finished = 2;	/* Only print once. */
 		}
 		if (detached == 1) {
 			printf("\tFAIL: connection detached stream_acceptor\n");
 			fail++;
 			detached = 2;		/* Only print once. */
+		}
+		if (sa1_recv_finished == 1) {
+			printf("\tsa1 receiver finished\n");
+			sa1_recv_finished = 2;	/* Only print once. */
 		}
 	}
 
