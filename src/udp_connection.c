@@ -21,6 +21,7 @@
 #endif
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
+#include <bsd_compat/secure_random.h>
 #include <assert.h>
 
 
@@ -390,6 +391,7 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 	int			 dequeued;
 	struct net2_buffer	*buf;
 	int			 rv;
+	size_t			 wire_sz;
 
 	assert(c->np2p_sock == sock);
 
@@ -414,9 +416,14 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 	 * Write network data.
 	 */
 	if (what & EV_WRITE) {
+		wire_sz = c->np2p_conn.n2c_stats.wire_sz;
+		if (secure_random_uniform(16) == 0) {
+			wire_sz += secure_random_uniform(16) +
+			    secure_random_uniform(32);
+		}
+
 		buf = NULL;
-		if (net2_conn_gather_tx(&c->np2p_conn, &buf,
-		    c->np2p_conn.n2c_stats.wire_sz)) {
+		if (net2_conn_gather_tx(&c->np2p_conn, &buf, wire_sz)) {
 			/* TODO: kill connection */
 			return;
 		}
