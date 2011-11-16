@@ -56,7 +56,7 @@ struct net2_sa_rx;
 
 
 /* Cast stream acceptor to conn acceptor. */
-static inline struct net2_conn_acceptor*
+static __inline struct net2_conn_acceptor*
 net2_stream_acceptor_reduce(struct net2_stream_acceptor *nsa)
 {
 	return (struct net2_conn_acceptor*)nsa;

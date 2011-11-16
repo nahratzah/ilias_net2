@@ -555,7 +555,6 @@ ILIAS_NET2_LOCAL int
 sa_ack(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 {
 	struct range			*r, *next, *mrl, *mrr;
-	uint32_t			 new_start;
 
 	/* Skip empty range. */
 	if (start == end)
@@ -801,7 +800,6 @@ ILIAS_NET2_LOCAL void
 sa_transit_update(struct net2_sa_tx *sa, uint32_t new_window_start)
 {
 	struct range			*t, *next;
-	uint32_t			 forward;
 
 	for (t = RB_MIN(range_tree, &sa->transit); t != NULL; t = next) {
 		next = RB_NEXT(range_tree, &sa->transit, t);
@@ -1399,7 +1397,6 @@ ILIAS_NET2_LOCAL void
 sa_tx_deinit(struct net2_sa_tx *sa)
 {
 	struct range			*r;
-	int				 i;
 
 	/* Remove all acks. */
 	while ((r = RB_ROOT(&sa->ack)) != NULL) {
@@ -1653,8 +1650,6 @@ sa_rx_recv(struct net2_sa_rx *sa, struct stream_packet *sp)
 ILIAS_NET2_LOCAL void
 sa_rx_deliver(struct net2_sa_rx *sa, struct net2_buffer *b)
 {
-	int				 do_event;
-
 	net2_mutex_lock(sa->recvbuf_mtx);
 	net2_buffer_append(sa->recvbuf, b);
 	sa_rx_on_recv(sa);
