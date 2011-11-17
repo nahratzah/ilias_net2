@@ -133,8 +133,8 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 			rv = 0;
 		} else if (s->refcnt == 1 && do_realloc) {
 			require = SEGMENT_SZ(off + add);
-			want = ~((require + NET2_BUFFER_ALIGN - 1) &
-			    (NET2_BUFFER_ALIGN - 1));
+			want = ((require + NET2_BUFFER_ALIGN - 1) &
+			    ~(NET2_BUFFER_ALIGN - 1));
 			if ((tmp = realloc(s, want)) == NULL) {
 				if ((tmp = realloc(s, require)) == NULL)
 					goto fail_0;
