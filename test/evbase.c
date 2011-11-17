@@ -1,4 +1,5 @@
 #include <ilias/net2/evbase.h>
+#include <ilias/net2/init.h>
 #include <stdio.h>
 #include <event2/event.h>
 #include <event2/thread.h>
@@ -41,6 +42,7 @@ main()
 	}
 #endif
 
+	net2_init();
 
 	fprintf(stderr, "creating evbase... ");
 	if ((b = net2_evbase_new()) == NULL) {
@@ -118,5 +120,7 @@ main()
 	fprintf(stderr, "ok\n");
 
 	net2_evbase_release(b);
+
+	net2_cleanup();
 	return 0;
 }
