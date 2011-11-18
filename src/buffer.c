@@ -6,9 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifndef NDEBUG
 #include <bsd_compat/error.h>
-#endif
+#include <bsd_compat/sysexits.h>
 
 
 #ifndef NDEBUG
@@ -40,8 +39,30 @@ struct net2_buffer_segment_impl {
 	size_t				 refcnt;
 	size_t				 len;
 	size_t				 use;
+
+	int				 flags;
+#define BUF_STD				0x00000001	/* Standard buffer style. */
+#define BUF_REFERENCE			0x00000002	/* Reference data. */
 	/* Data after segment. */
 };
+
+/* Memory reference data. */
+struct reference {
+	void				*release_arg;
+	void				(*release)(void*);
+	void				*data;
+};
+
+/* Extract reference info from buffer segment impl. */
+static __inline struct reference*
+get_reference(struct net2_buffer_segment_impl *s)
+{
+	void				*p;
+
+	assert(s->flags & BUF_REFERENCE);
+	p = (uint8_t*)s + sizeof(*s);
+	return p;
+}
 
 #define SEGMENT_SZ(datasz)						\
 	(sizeof(struct net2_buffer_segment_impl) + (datasz))
@@ -78,8 +99,41 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 	s->refcnt = 1;
 	s->len = have - sizeof(*s);
 	s->use = datlen;
+	s->flags = BUF_STD;
 	if (data)
 		memcpy((uint8_t*)s + sizeof(*s), data, datlen);
+	return s;
+
+fail_1:
+	free(s);
+fail_0:
+	return NULL;
+}
+
+/* Allocate a new segment impl, referencing the given data. */
+static struct net2_buffer_segment_impl*
+segment_impl_newref(void *data, size_t len, void (*release)(void*), void *release_arg)
+{
+	struct net2_buffer_segment_impl	*s;
+	struct reference		*r;
+
+	if (len == 0)
+		goto fail_0;
+
+	if ((s = malloc(sizeof(*s) + sizeof(*r))) == NULL)
+		goto fail_0;
+	if ((s->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
+	s->refcnt = 1;
+	s->len = len;
+	s->use = len;
+	s->flags = BUF_REFERENCE;
+
+	r = get_reference(s);
+	r->data = data;
+	r->release = release;
+	r->release_arg = release_arg;
+
 	return s;
 
 fail_1:
@@ -92,12 +146,21 @@ fail_0:
 static void
 segment_impl_release(struct net2_buffer_segment_impl *s)
 {
+	struct reference		*r;
+
 	net2_mutex_lock(s->mtx);
 
 	assert(s->refcnt > 0);
 	if (--s->refcnt == 0) {
 		net2_mutex_unlock(s->mtx);
 		net2_mutex_free(s->mtx);
+
+		if (s->flags & BUF_REFERENCE) {
+			r = get_reference(s);
+			if (r->release != NULL)
+				(*r->release)(r->release_arg);
+		}
+
 		free(s);
 		return;
 	}
@@ -127,7 +190,7 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 	size_t				 require, want, have;
 
 	assert(s->use >= off);
-	if (s->use == off) {
+	if ((s->flags & BUF_STD) && s->use == off) {
 		if (s->len - s->use >= add) {
 			s->use += add;
 			rv = 0;
@@ -240,6 +303,18 @@ segment_init_data(struct net2_buffer_segment *s, const void *data, size_t len)
 	return 0;
 }
 
+/* Initialize a new segment, referencing data. */
+static int
+segment_init_ref(struct net2_buffer_segment *s, void *data, size_t len,
+    void (*release)(void*), void *release_arg)
+{
+	s->off = 0;
+	s->len = len;
+	if ((s->data = segment_impl_newref(data, len, release, release_arg)) == NULL)
+		return -1;
+	return 0;
+}
+
 /* Copy a segment. */
 static void
 segment_init_copy(struct net2_buffer_segment *dst,
@@ -263,7 +338,20 @@ segment_deinit(struct net2_buffer_segment *s)
 static void*
 segment_getptr(struct net2_buffer_segment *s)
 {
-	return (uint8_t*)s->data + sizeof(*s->data) + s->off;
+	uint8_t				*p;
+	struct reference		*r;
+
+	if (s->data->flags & BUF_REFERENCE) {
+		r = get_reference(s->data);
+		p = r->data;
+	} else if (s->data->flags & BUF_STD)
+		p = (uint8_t*)s->data + sizeof(*s->data);
+	else {
+		errx(EX_SOFTWARE, "unrecognized buffer segment: flags=0x%x",
+		    s->data->flags);
+	}
+
+	return p + s->off;
 }
 
 /*
@@ -439,6 +527,44 @@ net2_buffer_add(struct net2_buffer *b, const void *data, size_t len)
 		goto fail_0;
 	b->list = list;
 	if (segment_init_data(&list[b->listlen], data, len))
+		goto fail_0;
+	b->listlen++;
+	ASSERTBUFFER(b);
+	return 0;
+
+fail_0:
+	ASSERTBUFFER(b);
+	return -1;
+}
+
+/*
+ * Append referenced data to a buffer.
+ *
+ * The data must remain valid until the release function has been called.
+ *
+ * The release function will be called with the release_arg parameter, once the
+ * last reference to this data is removed.
+ */
+ILIAS_NET2_EXPORT int
+net2_buffer_add_reference(struct net2_buffer *b, void *data, size_t len,
+    void (*release)(void*), void *release_arg)
+{
+	struct net2_buffer_segment	*last;
+	struct net2_buffer_segment	*list;
+
+	kill_reserve(b);
+	/* Trivial case. */
+	if (len == 0)
+		return -1;	/* Cannot reference no data. */
+	if (data == NULL)
+		return -1;	/* Cannot reference null data. */
+
+	list = b->list;
+
+	if ((list = realloc(list, (b->listlen + 1) * sizeof(*list))) == NULL)
+		goto fail_0;
+	b->list = list;
+	if (segment_init_ref(&list[b->listlen], data, len, release, release_arg))
 		goto fail_0;
 	b->listlen++;
 	ASSERTBUFFER(b);
