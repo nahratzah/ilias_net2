@@ -20,6 +20,12 @@ struct net2_protocol {
 	const char			*name;
 	/* Implementation version of the protocol. */
 	net2_protocol_t			 version;
+
+	/* CP serialization. */
+	const struct command_param	**cp;
+	/* Number of CP in this protocol. */
+	size_t				 numcp;
+
 	/* List of types in this context. */
 	const struct net2_objtype	**types;
 	/* Number of types in this context. */
@@ -32,6 +38,10 @@ struct net2_protocol {
 #define NET2_CTX_HAS_CLIENT	 0x10000000	/* Client/server cluster. */
 #define NET2_CTX_OBJMOVE	 0x00800000	/* Objects may hop nodes. */
 };
+
+/* Specification of the net2 protocol. */
+extern ILIAS_NET2_EXPORT
+const struct net2_protocol	 net2_proto;
 
 ILIAS_NET2_EXPORT
 const struct net2_objtype	*net2_protocol_type(
