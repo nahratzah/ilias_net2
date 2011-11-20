@@ -53,3 +53,115 @@ const struct net2_protocol net2_proto = {
 
 	/* flags */ 0
 };
+
+
+/* Protocol comparator. Compares based on pointer to protocol. */
+static int
+net2_pvlist_cmp(const void *a1, const void *a2)
+{
+	const struct net2_proto_version	*p1, *p2;
+
+	p1 = a1;
+	p2 = a2;
+	return (p1->pv_protocol < p2->pv_protocol ? -1 :
+	    p1->pv_protocol > p2->pv_protocol);
+}
+
+/* Initialize set. */
+ILIAS_NET2_EXPORT int
+net2_pvlist_init(struct net2_pvlist *pv)
+{
+	pv->list = NULL;
+	pv->listsz = 0;
+	return 0;
+}
+
+/* Release resource. */
+ILIAS_NET2_EXPORT void
+net2_pvlist_deinit(struct net2_pvlist *pv)
+{
+	free(pv->list);
+	pv->list = NULL;
+	pv->listsz = 0;
+}
+
+/* Add a protocol with version. */
+ILIAS_NET2_EXPORT int
+net2_pvlist_add(struct net2_pvlist *pv, const struct net2_protocol *p,
+    net2_protocol_t v)
+{
+	struct net2_proto_version	key, *list, *elem;
+
+	key.pv_protocol = p;
+	if (bsearch(&key, pv->list, pv->listsz, sizeof(pv->list[0]),
+	    &net2_pvlist_cmp) != NULL)
+		return -1;
+
+	list = pv->list;
+	if ((list = realloc(list, pv->listsz * sizeof(*list))) == NULL)
+		return -1;
+	pv->list = list;
+	elem = &list[pv->listsz];
+	elem->pv_protocol = p;
+	elem->pv_version = v;
+	if (mergesort(list, pv->listsz + 1, sizeof(*list), &net2_pvlist_cmp))
+		return -1;
+
+	pv->listsz++;
+	return 0;
+}
+
+/* Find the version for the given protocol. */
+ILIAS_NET2_EXPORT int
+net2_pvlist_get(const struct net2_pvlist *pv, const struct net2_protocol *p,
+    net2_protocol_t *v)
+{
+	struct net2_proto_version	key, *f;
+
+	key.pv_protocol = p;
+	f = bsearch(&key, pv->list, pv->listsz, sizeof(pv->list[0]), &net2_pvlist_cmp);
+	if (f == NULL)
+		return -1;
+	*v = f->pv_version;
+	return 0;
+}
+
+/*
+ * Merge another list into this list.
+ *
+ * If a protocol occurs in both lists, the one in dst will stay.
+ */
+ILIAS_NET2_EXPORT int
+net2_pvlist_merge(struct net2_pvlist *dst, const struct net2_pvlist *src)
+{
+	size_t				 listlen, i, insert_idx;
+	struct net2_proto_version	*list, *collide;
+
+	if (src->listsz == 0)
+		return 0;
+
+	list = dst->list;
+	listlen = dst->listsz + src->listsz;
+	dst->list = list;
+	if ((list = realloc(list, listlen * sizeof(*list))) == NULL)
+		return -1;
+
+	insert_idx = dst->listsz;
+	for (i = 0; i < src->listsz; i++) {
+		collide = bsearch(&src->list[i], src->list, src->listsz,
+		    sizeof(src->list[0]), &net2_pvlist_cmp);
+		if (collide != NULL) {
+			/* Collision. */
+			continue;
+		}
+
+		list[insert_idx++] = src->list[i];
+	}
+
+	/* Ensure everything is sorted. */
+	if (mergesort(list, insert_idx, sizeof(*list), &net2_pvlist_cmp))
+		return -1;
+	/* Update dst listsz. */
+	dst->listsz = insert_idx;
+	return 0;
+}

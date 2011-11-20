@@ -39,6 +39,19 @@ struct net2_protocol {
 #define NET2_CTX_OBJMOVE	 0x00800000	/* Objects may hop nodes. */
 };
 
+/* Protocol with negotiated version number. */
+struct net2_proto_version {
+	const struct net2_protocol	*pv_protocol;
+	net2_protocol_t			 pv_version;
+};
+
+/* List of protocols with corresponding version numbers. */
+struct net2_pvlist {
+	struct net2_proto_version	*list;
+	size_t				 listsz;
+};
+
+
 /* Specification of the net2 protocol. */
 extern ILIAS_NET2_EXPORT
 const struct net2_protocol	 net2_proto;
@@ -46,6 +59,20 @@ const struct net2_protocol	 net2_proto;
 ILIAS_NET2_EXPORT
 const struct net2_objtype	*net2_protocol_type(
 				    const struct net2_protocol*, uint32_t);
+
+ILIAS_NET2_EXPORT
+int				 net2_pvlist_init(struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+void				 net2_pvlist_deinit(struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+int				 net2_pvlist_add(struct net2_pvlist*,
+				    const struct net2_protocol*, net2_protocol_t);
+ILIAS_NET2_EXPORT
+int				 net2_pvlist_get(const struct net2_pvlist*,
+				    const struct net2_protocol*, net2_protocol_t*);
+ILIAS_NET2_EXPORT
+int				 net2_pvlist_merge(struct net2_pvlist*,
+				    const struct net2_pvlist*);
 #ifdef __cplusplus
 }
 #endif
