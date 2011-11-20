@@ -17,7 +17,7 @@ net2_encdec_ctx_new(struct net2_pvlist *pv, struct net2_objmanager *m)
 		goto fail_0;
 	if (net2_pvlist_init(&ctx->ed_proto))
 		goto fail_1;
-	if (net2_pvlist_merge(&ctx->ed_proto, pv))
+	if (pv != NULL && net2_pvlist_merge(&ctx->ed_proto, pv))
 		goto fail_2;
 
 	ctx->ed_objman = m;
@@ -50,4 +50,21 @@ net2_encdec_ctx_release(struct net2_encdec_ctx *ctx)
 {
 	net2_pvlist_deinit(&ctx->ed_proto);
 	free(ctx);
+}
+
+ILIAS_NET2_LOCAL struct net2_encdec_ctx*
+net2_encdec_ctx_newconn(struct net2_connection *c)
+{
+	struct net2_encdec_ctx		*ctx;
+
+	if (c == NULL)
+		return NULL;
+
+	if ((ctx = net2_encdec_ctx_new(NULL, NULL)) == NULL)
+		return NULL;
+	if (net2_pvlist_add(&ctx->ed_proto, &net2_proto, c->n2c_version)) {
+		net2_encdec_ctx_release(ctx);
+		return NULL;
+	}
+	return ctx;
 }

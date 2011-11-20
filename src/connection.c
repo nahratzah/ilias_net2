@@ -211,8 +211,8 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 	int			 decode_err;
 	size_t			 wire_sz;
 
-	if ((ctx = net2_encdec_ctx_new(NULL)) == NULL) {
-		warn("net2_encdec_ctx_new fail");
+	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL) {
+		warn("net2_encdec_ctx fail");
 		return;
 	}
 
@@ -308,7 +308,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 		goto fail_0;
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((ctx = net2_encdec_ctx_new(NULL)) == NULL)
+	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL)
 		goto fail_1;
 
 	/* Initialize packet header. */
