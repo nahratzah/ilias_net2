@@ -145,14 +145,14 @@ net2_pvlist_merge(struct net2_pvlist *dst, const struct net2_pvlist *src)
 
 	list = dst->list;
 	listlen = dst->listsz + src->listsz;
-	dst->list = list;
 	if ((list = realloc(list, listlen * sizeof(*list))) == NULL)
 		return -1;
+	dst->list = list;
 
 	insert_idx = dst->listsz;
 	for (i = 0; i < src->listsz; i++) {
-		collide = bsearch(&src->list[i], src->list, src->listsz,
-		    sizeof(src->list[0]), &net2_pvlist_cmp);
+		collide = bsearch(&src->list[i], list, dst->listsz,
+		    sizeof(dst->list[0]), &net2_pvlist_cmp);
 		if (collide != NULL) {
 			/* Collision. */
 			continue;
