@@ -1321,7 +1321,7 @@ compound_need_version(struct np_struct *s)
 		if (sm->npsm_firstprot != 0 || sm->npsm_lastprot != 0)
 			return 1;
 	}
-	return s->nps_spec.proto != NULL;
+	return 0;
 }
 
 /* Write version derive statement. */
