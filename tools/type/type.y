@@ -105,7 +105,6 @@ extern int	 yylex(void);
 	}			 y_smopt;
 
 	struct y_smoptspec_t {
-		char		*proto;
 		long		 firstprot;
 		long		 lastprot;
 		struct y_smopt_t dfl;
