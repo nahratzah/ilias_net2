@@ -86,6 +86,7 @@ extern int	 yylex(void);
 			NPTS_NODESTROY,
 			NPTS_ARG,
 			NPTS_ARGSTRUCT,
+			NPTS_PROTO,
 		}		 kind;
 		char		*text;
 		int		 ptr;
@@ -160,6 +161,7 @@ struct np_type {
 /* Struct specification. */
 struct np_struct_spec {
 	char			*cname;		/* C name. */
+	char			*proto;		/* Used protocol. */
 	char			*init;		/* Initialization function. */
 	char			*destroy;	/* Destructor. */
 	int			 is_struct;	/* C type is a struct. */
@@ -486,6 +488,12 @@ d_ss_stmt	: KW_CNAME opt_struct identifier opt_pointer
 				$$.text = $3;
 				$$.ptr = 0;
 			}
+		| KW_PROTOCOL identifier_chain
+			{
+				$$.kind = NPTS_PROTO;
+				$$.text = $2;
+				$$.ptr = 0;
+			}
 		;
 
 d_smembers	: '{' d_smemberlist '}'
@@ -712,6 +720,11 @@ ts_apply(struct np_type_spec *spec, struct y_tsline_t *line)
 			err(EX_OSERR, "asprintf");
 		free(line->text);
 		break;
+	case NPTS_PROTO:
+		warnx("%d: ctype has no protocol",
+		    yyline);
+		return -1;
+		break;
 	}
 	return 0;
 }
@@ -788,6 +801,14 @@ ss_apply(struct np_struct_spec *spec, struct y_tsline_t *line)
 		if (asprintf(&spec->argtype, "struct %s", line->text) < 0)
 			err(EX_OSERR, "asprintf");
 		free(line->text);
+		break;
+	case NPTS_PROTO:
+		if (spec->proto != NULL) {
+			warnx("%d: protocol already defined",
+			    yyline);
+			return -1;
+		}
+		spec->proto = line->text;
 		break;
 	}
 	return 0;
