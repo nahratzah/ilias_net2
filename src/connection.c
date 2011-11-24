@@ -231,7 +231,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		buf = r->buf;
 		r->buf = NULL;
 		wire_sz = net2_buffer_length(buf);
-		decode_err = net2_packet_decode(ctx, &ph, &buf, 1);
+		decode_err = net2_packet_decode(c, ctx, &ph, &buf, 1);
 		switch (decode_err) {
 		case NET2_PDECODE_RESOURCE:
 			warnx("insufficient resources to process packet");
@@ -410,7 +410,7 @@ write_window_buf:
 	if (count > 0)
 		ph.flags |= PH_PAYLOAD;
 
-	if (net2_packet_encode(ctx, &ph, bptr, b))
+	if (net2_packet_encode(c, ctx, &ph, bptr, b))
 		goto fail_2;
 
 	/* Succes!. */
