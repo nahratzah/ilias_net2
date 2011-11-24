@@ -92,13 +92,13 @@ net2_pvlist_add(struct net2_pvlist *pv, const struct net2_protocol *p,
 {
 	struct net2_proto_version	key, *list, *elem;
 
+	list = pv->list;
 	key.pv_protocol = p;
-	if (bsearch(&key, pv->list, pv->listsz, sizeof(pv->list[0]),
-	    &net2_pvlist_cmp) != NULL)
+	if (list != NULL && bsearch(&key, list, pv->listsz,
+	    sizeof(pv->list[0]), &net2_pvlist_cmp) != NULL)
 		return -1;
 
-	list = pv->list;
-	if ((list = realloc(list, pv->listsz * sizeof(*list))) == NULL)
+	if ((list = realloc(list, (pv->listsz + 1) * sizeof(*list))) == NULL)
 		return -1;
 	pv->list = list;
 	elem = &list[pv->listsz];
@@ -117,6 +117,9 @@ net2_pvlist_get(const struct net2_pvlist *pv, const struct net2_protocol *p,
     net2_protocol_t *v)
 {
 	struct net2_proto_version	key, *f;
+
+	if (pv->listsz == 0)
+		return -1;
 
 	key.pv_protocol = p;
 	f = bsearch(&key, pv->list, pv->listsz, sizeof(pv->list[0]), &net2_pvlist_cmp);
