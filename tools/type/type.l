@@ -44,5 +44,5 @@ int yyliteral;
 (0x[0-9a-fA-F]+)|([0-9]+)	{
 					yynumber = strtol(yytext, NULL, 0);
 					return NUMBER;
-				}
+				};
 .				{ return yytext[0]; };
