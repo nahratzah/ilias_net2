@@ -1278,6 +1278,28 @@ create_type_code(struct np_type *type)
 		err(EX_OSERR, "fprintf");
 }
 
+/* Return true iff the np_struct depends on a version. */
+int
+compound_need_version(struct np_struct *s)
+{
+	struct np_structmember	*sm;
+
+	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
+		if (sm->npsm_firstprot != 0 || sm->npsm_lastprot != 0)
+			return 1;
+	}
+	return 0;
+}
+
+/* Write version derive statement. */
+void
+compound_derive_version(struct np_struct *s, const char *indent)
+{
+	if (fprintf(cfile, "%snet2_protocol_t version = "
+	    "c->ed_conn->n2c_version;\n", indent) < 0)
+		err(EX_OSERR, "fprintf");
+}
+
 /*
  * Generate encode statements for compound type.
  */
@@ -1307,9 +1329,8 @@ create_compound_encoder(struct np_struct *s)
 	if (fprintf(cfile, "{\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
@@ -1393,9 +1414,8 @@ create_compound_decoder(struct np_struct *s)
 	if (fprintf(cfile, "{\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
@@ -1481,9 +1501,8 @@ create_compound_initfun(struct np_struct *s)
 	if (fprintf(cfile, "{\n\tint err = -1;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	idx = 0;
@@ -1560,9 +1579,8 @@ create_compound_destroyfun(struct np_struct *s)
 	if (fprintf(cfile, "\tint err = 0;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
