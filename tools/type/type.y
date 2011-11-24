@@ -49,7 +49,7 @@ extern int	 yylex(void);
 %type <y_definitions>	definitions program
 %type <y_type>		d_type
 %type <y_struct>	d_struct
-%type <y_string>	identifier
+%type <y_string>	identifier identifier_chain
 %type <y_bool>		opt_struct
 %type <y_tsline>	d_ts_stmt d_ss_stmt
 %type <y_type_spec>	d_ts_list d_typespecs
@@ -105,6 +105,7 @@ extern int	 yylex(void);
 	}			 y_smopt;
 
 	struct y_smoptspec_t {
+		char		*proto;
 		long		 firstprot;
 		long		 lastprot;
 		struct y_smopt_t dfl;
@@ -295,6 +296,18 @@ identifier	: ID
 				$$ = strdup(yytext);
 				if ($$ == NULL)
 					err(EX_OSERR, "strdup");
+			}
+		;
+identifier_chain: identifier
+			{	$$ = $1; }
+		| identifier_chain '.' identifier
+			{
+				$$ = realloc($1, strlen($1) + 1 + strlen($3) + 1);
+				if ($$ == NULL)
+					err(EX_OSERR, "realloc");
+
+				strcat(strcat($$, "."), $3);
+				free($3);
 			}
 		;
 number		: NUMBER
