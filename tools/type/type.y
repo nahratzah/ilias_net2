@@ -1321,15 +1321,24 @@ compound_need_version(struct np_struct *s)
 		if (sm->npsm_firstprot != 0 || sm->npsm_lastprot != 0)
 			return 1;
 	}
-	return 0;
+	return s->nps_spec.proto != NULL;
 }
 
 /* Write version derive statement. */
 void
 compound_derive_version(struct np_struct *s, const char *indent)
 {
-	if (fprintf(cfile, "%snet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n", indent) < 0)
+	if (s->nps_spec.proto == NULL) {
+		errx(EX_DATAERR, "%d: struct serialization depends on protocol "
+		    "version, but no protocol specified", s->nps_line);
+	}
+
+	if (fprintf(cfile, "%snet2_protocol_t version;\n"
+	    "%sif (net2_encdec_ctx_p2v(c, &%s, &version))\n"
+	    "%s\treturn -1;\n",
+	    indent,
+	    indent, s->nps_spec.proto,
+	    indent) < 0)
 		err(EX_OSERR, "fprintf");
 }
 

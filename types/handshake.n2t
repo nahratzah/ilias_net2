@@ -46,16 +46,17 @@ void		 net2_server_handshake1_deinit(
 %%
 #include <ilias/net2/handshake.h>
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/protocol.h>
 %%
 
-struct net2_hshake_c_connect (ctype struct net2_hshake_c_connect) {
+struct net2_hshake_c_connect (ctype struct net2_hshake_c_connect, protocol net2_proto) {
 	uint32			 seq;
 	uint16			 resend;
 	null_stringlist		 enc;
 	null_stringlist		 hash;
 };
 
-struct net2_hshake_s_connect_reply (ctype struct net2_hshake_s_connect_reply) {
+struct net2_hshake_s_connect_reply (ctype struct net2_hshake_s_connect_reply, protocol net2_proto) {
 	uint32			 seq;
 	uint32			 client_resend;
 	uint32			 resend;
