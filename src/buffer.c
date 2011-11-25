@@ -765,10 +765,11 @@ net2_buffer_peek(const struct net2_buffer *b, size_t len,
 	for (count = 0; len > 0 && list != list_end; count++, list++) {
 		if (iovlen > 0) {
 			iov->iov_base = segment_getptr(list);
-			iov->iov_len = list->len;
+			iov->iov_len = MIN(len, list->len);
 			iov++;
 			iovlen--;
 		}
+		len -= MIN(len, list->len);
 	}
 
 	return count;
