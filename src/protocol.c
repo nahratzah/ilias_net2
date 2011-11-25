@@ -104,8 +104,7 @@ net2_pvlist_add(struct net2_pvlist *pv, const struct net2_protocol *p,
 	elem = &list[pv->listsz];
 	elem->pv_protocol = p;
 	elem->pv_version = v;
-	if (mergesort(list, pv->listsz + 1, sizeof(*list), &net2_pvlist_cmp))
-		return -1;
+	qsort(list, pv->listsz + 1, sizeof(*list), &net2_pvlist_cmp);
 
 	pv->listsz++;
 	return 0;
@@ -162,8 +161,7 @@ net2_pvlist_merge(struct net2_pvlist *dst, const struct net2_pvlist *src)
 	}
 
 	/* Ensure everything is sorted. */
-	if (mergesort(list, insert_idx, sizeof(*list), &net2_pvlist_cmp))
-		return -1;
+	qsort(list, insert_idx, sizeof(*list), &net2_pvlist_cmp);
 	/* Update dst listsz. */
 	dst->listsz = insert_idx;
 	return 0;
