@@ -1345,13 +1345,18 @@ net2_buffer_reserve_space(struct net2_buffer *b, size_t len, struct iovec *iov,
 		 * New segment is allocated with NULL data, causing the
 		 * memory to be uninitialized.
 		 */
-		for (grow = len; grow > 0; grow /= 2) {
+		if (spent + 1 < *iovlen) {
+			grow = MIN(len, NET2_BUFFER_FRAGMENT);
+		} else
+			grow = len;
+		for (; grow > 0; grow /= 2) {
 			if (segment_init_data(&reserve[spent],
 			    NULL, grow) == 0)
 				break;
 		}
 		if (grow == 0)
 			goto fail;
+
 		iov->iov_base = segment_getptr(&reserve[spent]);
 		iov->iov_len = reserve[spent].len;
 		len -= iov->iov_len;
