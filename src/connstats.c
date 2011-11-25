@@ -8,6 +8,9 @@
 #include <Windows.h>
 #endif
 
+/* Define CONNSTATS_PRINTSTATS to periodically print statistics on the connection. */
+/* #define CONNSTATS_PRINTSTATS */
+
 /*
  * An algorithm to compute the square root of an int64, using only integer math.
  * Takes 32 steps.
@@ -149,8 +152,8 @@ segment_shift(struct net2_connstats *cs)
 	/* Reset last segment in the list. */
 	memset(&cs->segments[NET2_STATS_LEN - 1], 0, sizeof(cs->segments[0]));
 
+#ifdef CONNSTATS_PRINTSTATS
 	/* Print statistics. */
-	/* TODO: debug */
 	fprintf(stderr, "stats:\n"
 	    "\t%-16s %8d%s\n"		/* arrival change */
 	    "\t%-16s %8d%s\n"		/* send for 97% */
@@ -171,6 +174,7 @@ segment_shift(struct net2_connstats *cs)
 	    "latency stddev:", (unsigned long long)cs->latency_stddev, " usec",
 	    "  sent:", (unsigned int)sent, " packets",
 	    "  arrived:", (unsigned int)arrived, " packets");
+#endif /* CONNSTATS_PRINTSTATS */
 }
 
 /* Update round trip time by adding new value. */
