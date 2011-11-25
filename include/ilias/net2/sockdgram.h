@@ -23,6 +23,8 @@ int	net2_sockdgram_recv(int, struct net2_conn_receive**,
 ILIAS_NET2_LOCAL
 int	net2_sockdgram_send(int, struct net2_connection*,
 	    struct net2_buffer*, struct sockaddr*, socklen_t);
+ILIAS_NET2_LOCAL
+int	net2_sockdgram_nonblock(int);
 #endif /* ilias_net2_EXPORTS */
 
 

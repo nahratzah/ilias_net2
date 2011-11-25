@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <fcntl.h>
 #endif
 
 #ifdef WIN32	/* Windows compatibility. */
@@ -271,4 +272,28 @@ handle_errno:
 	}
 
 	goto out;
+}
+
+
+/*
+ * Mark socket as nonblocking.
+ */
+ILIAS_NET2_LOCAL int
+net2_sockdgram_nonblock(int sock)
+{
+	int			flags;
+
+	if (sock == -1)
+		return -1;
+
+	flags = fcntl(sock, F_GETFL, 0);
+	if (flags < 0)
+		return -1;
+
+	if (!(flags & O_NONBLOCK)) {
+		flags |= O_NONBLOCK;
+		if (fcntl(sock, F_SETFL, flags) == -1)
+			return -1;
+	}
+	return 0;
 }

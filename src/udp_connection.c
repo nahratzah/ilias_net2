@@ -173,13 +173,11 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 		return NULL;
 	/* Reserve space. */
 	if ((c = malloc(sizeof(*c))) == NULL)
-		return NULL;
+		goto fail_0;
 	/* Copy remote address. */
 	if (remote) {
-		if ((c->np2p_remote = malloc(remotelen)) == NULL) {
-			free(c);
-			return NULL;
-		}
+		if ((c->np2p_remote = malloc(remotelen)) == NULL)
+			goto fail_1;
 		memcpy(c->np2p_remote, remote, remotelen);
 		c->np2p_remotelen = remotelen;
 	} else {
@@ -192,24 +190,28 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 	c->np2p_flags = 0;
 
 	/* Perform base connection initialization. */
-	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn)) {
-		if (c->np2p_remote)
-			free(c->np2p_remote);
-		free(c);
-		return NULL;
-	}
+	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn))
+		goto fail_2;
+
+	/* Set socket to nonblocking mode. */
+	if (net2_sockdgram_nonblock(sock))
+		goto fail_3;
 
 	/* Set up libevent network-receive event. */
 	c->np2p_ev = NULL;
-	if (net2_conn_p2p_setev(c, EV_READ)) {
-		net2_connection_deinit(&c->np2p_conn);
-		if (c->np2p_remote)
-			free(c->np2p_remote);
-		free(c);
-		return NULL;
-	}
+	if (net2_conn_p2p_setev(c, EV_READ))
+		goto fail_3;
 
 	return &c->np2p_conn;
+
+fail_3:
+	net2_connection_deinit(&c->np2p_conn);
+fail_2:
+	free(c->np2p_remote);
+fail_1:
+	free(c);
+fail_0:
+	return NULL;
 }
 
 /*
@@ -279,6 +281,8 @@ net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
 	if ((fd = socket(bindaddr->sa_family, SOCK_DGRAM, 0)) == -1)
 		goto fail;
 	if (bind(fd, bindaddr, bindaddrlen))
+		goto fail;
+	if (net2_sockdgram_nonblock(fd))
 		goto fail;
 
 	/* Allocate result. */
