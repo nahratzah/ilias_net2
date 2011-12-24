@@ -103,6 +103,22 @@ segment_shift(struct net2_connstats *cs)
 		if (cs->wire_sz < cs->segments[i].max_wire_sz)
 			cs->wire_sz = cs->segments[i].max_wire_sz;
 	}
+	/* Smallest failed packet with size > wire_sz. */
+	cs->over_sz = 0;
+	for (i = 0; i < NET2_STATS_LEN; i++) {
+		/*
+		 * Skip if packets equal or larger were acked.
+		 * 0 is skipped, since cs->wire_sz will always be at least
+		 * 0 bytes.
+		 */
+		if (cs->segments[i].min_over_sz <= cs->wire_sz)
+			continue;
+
+		/* Search for smallest value. */
+		if (cs->over_sz == 0 ||
+		    cs->over_sz > cs->segments[i].min_over_sz)
+			cs->over_sz = cs->segments[i].min_over_sz;
+	}
 
 	/*
 	 * Latency average and standard deviation.
@@ -248,8 +264,15 @@ net2_connstats_tx_datapoint(struct net2_connstats *cs, struct timeval *sent_ts,
 	}
 
 	/* Update largest wire_sz in this window. */
-	if (ok && segment->max_wire_sz < wire_sz)
-		segment->max_wire_sz = wire_sz;
+	if (segment->max_wire_sz < wire_sz) {
+		if (ok) {
+			segment->max_wire_sz = wire_sz;
+			if (cs->wire_sz < wire_sz)
+				cs->wire_sz = wire_sz;
+		} else if (segment->min_over_sz == 0 ||
+		    segment->min_over_sz > wire_sz)
+			segment->min_over_sz = wire_sz;
+	}
 
 	/* Update round-trip-time. */
 	if (ok) {
