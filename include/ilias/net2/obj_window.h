@@ -18,6 +18,9 @@ extern "C" {
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
 
+/*
+ * Receiver window for object requests.
+ */
 struct net2_objwin {
 	RB_HEAD(net2_objwin_barriers, net2_objwin_barrier)
 				barriers;
