@@ -90,7 +90,6 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 		case WSAEINTR:
 #endif
 		case EWOULDBLOCK: /* No data available. */
-		case EAGAIN:	/* Timed out. */
 		case EINTR:	/* Interrupted, let libevent deal with it. */
 			net2_buffer_free(buf);
 			return 0;
@@ -315,7 +314,6 @@ handle_errno:
 	case WSAEWOULDBLOCK:
 #endif
 	case EWOULDBLOCK:	/* Wait for write access. */
-	case EAGAIN:		/* Wait for write access. */
 		err = -1;
 		break;
 	default:
