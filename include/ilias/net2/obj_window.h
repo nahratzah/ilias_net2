@@ -328,7 +328,7 @@ update_wbarrier_start(struct net2_objwin *w, uint32_t barrier)
  * Superseding an already superseded command will not fail and
  * set the accept value.
  */
-int
+ILIAS_NET2_EXPORT int
 n2ow_supersede(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
     int *accept)
 {
@@ -411,7 +411,7 @@ barrier_misordering:
  *
  * TODO: add payload argument
  */
-int
+ILIAS_NET2_EXPORT int
 n2ow_receive(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
     int *accept)
 {
@@ -478,4 +478,75 @@ barrier_misordering:
 	RB_REMOVE(net2_objwin_recvs, &w->recvs, r);
 	free(r);
 	return EINVAL;
+}
+
+/*
+ * Retrieve next pending object from objwin.
+ *
+ * The returned recv will be marked as in-progress.
+ * Returns NULL if no pending recvs are ready to execute.
+ */
+ILIAS_NET2_EXPORT struct net2_objwin_recv*
+n2ow_get_pending(struct net2_objwin *w)
+{
+	struct net2_objwin_recv	*r;
+	struct net2_objwin_barrier
+				*b;
+
+	if ((b = RB_MIN(net2_objwin_barriers, &w->barriers)) == NULL)
+		return NULL;
+	if ((r = TAILQ_FIRST(&b->pending)) == NULL)
+		return NULL;
+
+	r->flags |= E_IN_PROGRESS;
+	TAILQ_REMOVE(&b->pending, r, barrierq);
+	TAILQ_INSERT_TAIL(&b->in_progress, r, barrierq);
+	return r;
+}
+
+/*
+ * Mark an in-progress object as finished.
+ */
+ILIAS_NET2_EXPORT void
+n2ow_finished(struct net2_objwin_recv *r)
+{
+	struct net2_objwin	*w = r->objwin;
+	struct net2_objwin_barrier
+				*b = r->barrier;
+
+	assert(r->flags & E_IN_PROGRESS);
+	r->flags &= E_IN_PROGRESS;
+	r->flags |= E_FINISHED;
+	TAILQ_REMOVE(&b->in_progress, r, barrierq);
+	TAILQ_INSERT_TAIL(&b->finished, r, barrierq);
+
+	if (r->e_seq == w->window_start)
+		update_window_start(w);
+	return;
+}
+
+/*
+ * Create a new objwin.
+ */
+ILIAS_NET2_EXPORT int
+n2ow_init(struct net2_objwin *w)
+{
+	RB_INIT(&w->recvs);
+	RB_INIT(&w->barriers);
+	w->window_start = 0;
+	w->window_barrier = w->first_barrier = w->last_barrier = 0;
+	return 0;
+}
+
+/*
+ * Release all resources held by objwin.
+ */
+ILIAS_NET2_EXPORT void
+n2ow_deinit(struct net2_objwin *w)
+{
+	struct net2_objwin_barrier
+				*b;
+
+	while ((b = RB_ROOT(w->barriers)) != NULL)
+		kill_barrier(b);	/* Barrier kills recv. */
 }
