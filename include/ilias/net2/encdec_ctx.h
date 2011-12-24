@@ -3,6 +3,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/types.h>
+#include <ilias/net2/protocol.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,25 +21,31 @@ extern "C" {
  * net2_encdec_ctx is rolled back.
  */
 struct net2_encdec_ctx {
-	struct net2_connection	*ed_conn;	/* Connection in context. */
-
-	struct net2_obj		**ed_newobj;	/* List of created objects. */
+	struct net2_pvlist	 ed_proto;	/* Protocol list. */
+	struct net2_objmanager	*ed_objman;	/* Object manager. */
 };
 
 #ifdef ilias_net2_EXPORTS
+struct net2_connection;
+
 ILIAS_NET2_LOCAL
-struct net2_encdec_ctx	*net2_encdec_ctx_new(struct net2_connection*);
-ILIAS_NET2_LOCAL
-uint32_t		 net2_encdec_newobj(struct net2_encdec_ctx*,
-			    struct net2_obj*);
-ILIAS_NET2_LOCAL
-struct net2_obj		*net2_encdec_initstub(struct net2_encdec_ctx*,
-			    uint32_t, uint32_t, uint32_t);
+struct net2_encdec_ctx	*net2_encdec_ctx_new(struct net2_pvlist*,
+			    struct net2_objmanager*);
 ILIAS_NET2_LOCAL
 void			 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
 void			 net2_encdec_ctx_release(struct net2_encdec_ctx*);
+ILIAS_NET2_LOCAL
+struct net2_encdec_ctx	*net2_encdec_ctx_newconn(struct net2_connection*);
 #endif /* ilias_net2_EXPORTS */
+
+/* Returns the protocol version from this context. */
+static __inline int
+net2_encdec_ctx_p2v(struct net2_encdec_ctx *ctx, const struct net2_protocol *p,
+    net2_protocol_t *v)
+{
+	return net2_pvlist_get(&ctx->ed_proto, p, v);
+}
 
 #ifdef __cplusplus
 }

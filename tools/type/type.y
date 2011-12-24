@@ -49,7 +49,7 @@ extern int	 yylex(void);
 %type <y_definitions>	definitions program
 %type <y_type>		d_type
 %type <y_struct>	d_struct
-%type <y_string>	identifier
+%type <y_string>	identifier identifier_chain
 %type <y_bool>		opt_struct
 %type <y_tsline>	d_ts_stmt d_ss_stmt
 %type <y_type_spec>	d_ts_list d_typespecs
@@ -86,6 +86,7 @@ extern int	 yylex(void);
 			NPTS_NODESTROY,
 			NPTS_ARG,
 			NPTS_ARGSTRUCT,
+			NPTS_PROTO,
 		}		 kind;
 		char		*text;
 		int		 ptr;
@@ -160,6 +161,7 @@ struct np_type {
 /* Struct specification. */
 struct np_struct_spec {
 	char			*cname;		/* C name. */
+	char			*proto;		/* Used protocol. */
 	char			*init;		/* Initialization function. */
 	char			*destroy;	/* Destructor. */
 	int			 is_struct;	/* C type is a struct. */
@@ -295,6 +297,18 @@ identifier	: ID
 				$$ = strdup(yytext);
 				if ($$ == NULL)
 					err(EX_OSERR, "strdup");
+			}
+		;
+identifier_chain: identifier
+			{	$$ = $1; }
+		| identifier_chain '.' identifier
+			{
+				$$ = realloc($1, strlen($1) + 1 + strlen($3) + 1);
+				if ($$ == NULL)
+					err(EX_OSERR, "realloc");
+
+				strcat(strcat($$, "."), $3);
+				free($3);
 			}
 		;
 number		: NUMBER
@@ -472,6 +486,12 @@ d_ss_stmt	: KW_CNAME opt_struct identifier opt_pointer
 			{
 				$$.kind = ($2 ? NPTS_ARGSTRUCT : NPTS_ARG);
 				$$.text = $3;
+				$$.ptr = 0;
+			}
+		| KW_PROTOCOL identifier_chain
+			{
+				$$.kind = NPTS_PROTO;
+				$$.text = $2;
 				$$.ptr = 0;
 			}
 		;
@@ -700,6 +720,11 @@ ts_apply(struct np_type_spec *spec, struct y_tsline_t *line)
 			err(EX_OSERR, "asprintf");
 		free(line->text);
 		break;
+	case NPTS_PROTO:
+		warnx("%d: ctype has no protocol",
+		    yyline);
+		return -1;
+		break;
 	}
 	return 0;
 }
@@ -776,6 +801,14 @@ ss_apply(struct np_struct_spec *spec, struct y_tsline_t *line)
 		if (asprintf(&spec->argtype, "struct %s", line->text) < 0)
 			err(EX_OSERR, "asprintf");
 		free(line->text);
+		break;
+	case NPTS_PROTO:
+		if (spec->proto != NULL) {
+			warnx("%d: protocol already defined",
+			    yyline);
+			return -1;
+		}
+		spec->proto = line->text;
 		break;
 	}
 	return 0;
@@ -1278,6 +1311,37 @@ create_type_code(struct np_type *type)
 		err(EX_OSERR, "fprintf");
 }
 
+/* Return true iff the np_struct depends on a version. */
+int
+compound_need_version(struct np_struct *s)
+{
+	struct np_structmember	*sm;
+
+	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
+		if (sm->npsm_firstprot != 0 || sm->npsm_lastprot != 0)
+			return 1;
+	}
+	return 0;
+}
+
+/* Write version derive statement. */
+void
+compound_derive_version(struct np_struct *s, const char *indent)
+{
+	if (s->nps_spec.proto == NULL) {
+		errx(EX_DATAERR, "%d: struct serialization depends on protocol "
+		    "version, but no protocol specified", s->nps_line);
+	}
+
+	if (fprintf(cfile, "%snet2_protocol_t version;\n"
+	    "%sif (net2_encdec_ctx_p2v(c, &%s, &version))\n"
+	    "%s\treturn -1;\n",
+	    indent,
+	    indent, s->nps_spec.proto,
+	    indent) < 0)
+		err(EX_OSERR, "fprintf");
+}
+
 /*
  * Generate encode statements for compound type.
  */
@@ -1307,9 +1371,8 @@ create_compound_encoder(struct np_struct *s)
 	if (fprintf(cfile, "{\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
@@ -1393,9 +1456,8 @@ create_compound_decoder(struct np_struct *s)
 	if (fprintf(cfile, "{\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {
@@ -1481,9 +1543,8 @@ create_compound_initfun(struct np_struct *s)
 	if (fprintf(cfile, "{\n\tint err = -1;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	idx = 0;
@@ -1560,9 +1621,8 @@ create_compound_destroyfun(struct np_struct *s)
 	if (fprintf(cfile, "\tint err = 0;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
-	if (fprintf(cfile, "\tnet2_protocol_t version = "
-	    "c->ed_conn->n2c_version;\n") < 0)
-		err(EX_OSERR, "fprintf");
+	if (compound_need_version(s))
+		compound_derive_version(s, "\t");
 
 	/* Handle each member. */
 	TAILQ_FOREACH(sm, &s->nps_members, npsm_q) {

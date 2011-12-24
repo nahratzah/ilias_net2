@@ -36,18 +36,6 @@ net2type(srcs "types/ctypes.n2t"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_EXPORT"
     "ILIAS_NET2_CTYPES_H")
-net2type(srcs "types/object.n2t"
-    "${PROJECT_SOURCE_DIR}/src/object.c"
-    "${PROJECT_SOURCE_DIR}/include/ilias/net2/object.h"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_EXPORT"
-    "ILIAS_NET2_OBJECT_H")
-net2type(srcs "types/obj_internal.n2t"
-    "${PROJECT_BINARY_DIR}/obj_internal.c"
-    "${PROJECT_BINARY_DIR}/obj_internal.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_OBJ_INTERNAL_H")
 net2type(srcs "types/packet.n2t"
     "${PROJECT_SOURCE_DIR}/src/packet.c"
     "${PROJECT_SOURCE_DIR}/include/ilias/net2/packet.h"
@@ -155,11 +143,10 @@ add_library (ilias_net2 SHARED
 	include/ilias/net2/hash.h
 	include/ilias/net2/init.h
 	include/ilias/net2/mutex.h
+	include/ilias/net2/obj_window.h
 	include/ilias/net2/protocol.h
-	include/ilias/net2/remote.h
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/stream_acceptor.h
-	include/ilias/net2/window.h
 	include/ilias/net2/xchange.h
 	include/ilias/net2/cluster/cfg.h
 	include/ilias/net2/cluster/cluster.h
@@ -176,12 +163,11 @@ add_library (ilias_net2 SHARED
 	src/enc.c
 	src/hash.c
 	src/init.c
+	src/obj_window.c
 	src/protocol.c
-	src/remote.c
 	src/sockdgram.c
 	src/stream_acceptor.c
 	src/types.c
-	src/window.c
 	src/xchange.c
 	src/cluster_cfg.c
 	src/cluster_cluster.c

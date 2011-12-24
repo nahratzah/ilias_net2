@@ -25,6 +25,9 @@ struct net2_connstats_arrive {
 
 struct net2_connstats_segment {
 	uint32_t		 max_wire_sz;	/* Largest acked packet. */
+	uint32_t		 min_over_sz;	/* Smallest lost packet,
+						 * that was larger than
+						 * max_wire_sz. */
 	struct net2_connstats_rtt
 				 rtt;		/* Round trip time. */
 	struct net2_connstats_arrive
@@ -48,6 +51,7 @@ struct net2_connstats {
 	int32_t			 bandwidth;	/* Bytes per second. */
 	int32_t			 packets_sec;	/* Packets per second. */
 	uint32_t		 wire_sz;	/* Bytes per packet. */
+	uint32_t		 over_sz;	/* Too many bytes. */
 	uint64_t		 latency_avg;	/* Average latency. */
 	uint64_t		 latency_stddev; /* Latency std deviation. */
 };

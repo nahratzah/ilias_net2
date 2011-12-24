@@ -17,6 +17,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <fcntl.h>
+#include <netinet/in.h>
 #endif
 
 #ifdef WIN32	/* Windows compatibility. */
@@ -271,4 +273,112 @@ handle_errno:
 	}
 
 	goto out;
+}
+
+
+/*
+ * Mark socket as nonblocking.
+ */
+ILIAS_NET2_LOCAL int
+net2_sockdgram_nonblock(int sock)
+{
+	int			flags;
+
+	if (sock == -1)
+		return -1;
+
+	flags = fcntl(sock, F_GETFL, 0);
+	if (flags < 0)
+		return -1;
+
+	if (!(flags & O_NONBLOCK)) {
+		flags |= O_NONBLOCK;
+		if (fcntl(sock, F_SETFL, flags) == -1)
+			return -1;
+	}
+	return 0;
+}
+
+/*
+ * Set the do-not-fragment bit for udp connections.
+ */
+ILIAS_NET2_LOCAL int
+net2_sockdgram_dnf(int sock)
+{
+	struct sockaddr_storage	name;
+	socklen_t		namelen;
+	int			opt;
+
+	namelen = sizeof(name);
+	if (getsockname(sock, (struct sockaddr*)&name, &namelen))
+		return -1;
+
+	switch (name.ss_family) {
+#ifdef AF_INET
+	case AF_INET:
+#ifdef IP_DONTFRAG
+		opt = 1;
+		if (setsockopt(sock, IP_OPTIONS, IP_DONTFRAG,
+		    &opt, sizeof(opt))) {
+			switch (errno) {
+			case EBADF:
+			case ENOTSOCK:
+				return -1;
+			case EFAULT:
+				abort();
+				break;
+			case ENOPROTOOPT:
+				warn("do-not-fragment: "
+				    "IP_DONTFRAG not recognized");
+				/* Ignore. */
+				break;
+			}
+		}
+#endif
+
+#ifdef IP_MTU_DISCOVER
+		opt = IP_PMTUDISC_DO;
+		if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER,
+		    &opt, sizeof(opt))) {
+			switch (errno) {
+			case EBADF:
+			case ENOTSOCK:
+				return -1;
+			case EFAULT:
+				abort();
+				break;
+			case ENOPROTOOPT:
+				warn("do-not-fragment: "
+				    "IP_MTU_DISCOVER not recognized");
+				/* Ignore. */
+				break;
+			}
+		}
+#endif /* IP_MTU_DISCOVER */
+#endif /* AF_INET */
+#ifdef AF_INET6
+	case AF_INET6:
+		opt = 1;
+		if (setsockopt(sock, IPV6_OPTIONS, IPV6_DONTFRAG,
+		    &opt, sizeof(opt))) {
+			switch (errno) {
+			case EBADF:
+			case ENOTSOCK:
+				return -1;
+			case EFAULT:
+				abort();
+				break;
+			case ENOPROTOOPT:
+				warn("do-not-fragment: "
+				    "IPV6_DONTFRAG not recognized");
+				/* Ignore. */
+				break;
+			}
+		}
+#endif /* AF_INET6 */
+	default:
+		return 0;
+	}
+
+	return 0;
 }

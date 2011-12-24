@@ -35,9 +35,10 @@ struct stream_packet {
 %%
 #include "stream_packet.h"
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/protocol.h>
 %%
 
-struct stream_packet(ctype struct stream_packet) {
+struct stream_packet(ctype struct stream_packet, protocol net2_proto) {
 	uint32			 seq;
 	uint16			 flags;
 	short_net2_buffer	 payload;

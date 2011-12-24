@@ -66,29 +66,21 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
 	    &net2_conn_handle_recv, conn)) == NULL)
 		goto fail_1;
-	if (net2_objmanager_init(conn))
-		goto fail_2;
-	if (net2_winmanager_init(conn))
-		goto fail_3;
 	if ((conn->n2c_recvmtx = net2_mutex_alloc()) == NULL)
-		goto fail_4;
+		goto fail_2;
 	if (net2_connwindow_init(&conn->n2c_window, conn))
-		goto fail_5;
+		goto fail_3;
 	if (net2_connstats_init(&conn->n2c_stats, conn))
-		goto fail_6;
+		goto fail_4;
 	if (ctx)
 		TAILQ_INSERT_TAIL(&ctx->conn, conn, n2c_ctxconns);
 
 	return 0;
 
-fail_6:
-	net2_connwindow_deinit(&conn->n2c_window);
-fail_5:
-	net2_mutex_free(conn->n2c_recvmtx);
 fail_4:
-	net2_winmanager_destroy(conn);
+	net2_connwindow_deinit(&conn->n2c_window);
 fail_3:
-	net2_objmanager_destroy(conn);
+	net2_mutex_free(conn->n2c_recvmtx);
 fail_2:
 	event_free(conn->n2c_recv_ev);
 fail_1:
@@ -112,8 +104,6 @@ net2_connection_deinit(struct net2_connection *conn)
 	}
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
-	net2_winmanager_destroy(conn);
-	net2_objmanager_destroy(conn);
 	event_free(conn->n2c_recv_ev);
 	net2_evbase_release(conn->n2c_evbase);
 	if (conn->n2c_ctx)
@@ -221,8 +211,8 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 	int			 decode_err;
 	size_t			 wire_sz;
 
-	if ((ctx = net2_encdec_ctx_new(c)) == NULL) {
-		warn("net2_encdec_ctx_new fail");
+	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL) {
+		warn("net2_encdec_ctx fail");
 		return;
 	}
 
@@ -241,7 +231,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		buf = r->buf;
 		r->buf = NULL;
 		wire_sz = net2_buffer_length(buf);
-		decode_err = net2_packet_decode(ctx, &ph, &buf, 1);
+		decode_err = net2_packet_decode(c, ctx, &ph, &buf, 1);
 		switch (decode_err) {
 		case NET2_PDECODE_RESOURCE:
 			warnx("insufficient resources to process packet");
@@ -318,7 +308,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 		goto fail_0;
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((ctx = net2_encdec_ctx_new(c)) == NULL)
+	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL)
 		goto fail_1;
 
 	/* Initialize packet header. */
@@ -420,7 +410,7 @@ write_window_buf:
 	if (count > 0)
 		ph.flags |= PH_PAYLOAD;
 
-	if (net2_packet_encode(ctx, &ph, bptr, b))
+	if (net2_packet_encode(c, ctx, &ph, bptr, b))
 		goto fail_2;
 
 	/* Succes!. */

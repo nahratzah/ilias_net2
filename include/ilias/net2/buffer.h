@@ -58,6 +58,9 @@ ILIAS_NET2_EXPORT
 int			 net2_buffer_add(struct net2_buffer*,
 			    const void*, size_t);
 ILIAS_NET2_EXPORT
+int			 net2_buffer_add_reference(struct net2_buffer*, void*, size_t,
+			    void (*)(void*), void*);
+ILIAS_NET2_EXPORT
 int			 net2_buffer_append(struct net2_buffer*,
 			    const struct net2_buffer*);
 ILIAS_NET2_EXPORT

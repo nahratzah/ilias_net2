@@ -65,12 +65,14 @@ struct windowheader {
 %%
 #include "connwindow_cp.h"
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/protocol.h>
 #include <stdlib.h>
 %%
 struct winrange (
     ctype struct winrange,
     init NULL,
-    destroy NULL) {
+    destroy NULL,
+    protocol net2_proto) {
 	uint32			first;
 	uint32			last;
 };

@@ -95,6 +95,22 @@ type null_stringlist (
 #include <bsd_compat/endian.h>
 #include <ilias/net2/buffer.h>
 
+/* Test if the value can be read from the buffer directly. */
+static __inline void*
+direct(struct net2_buffer *in, size_t len)
+{
+	struct iovec	vec;
+
+	if ((len & (len - 1)) != 0)
+		return NULL;
+	if (net2_buffer_peek(in, len, &vec, 1) == 1 &&
+	    vec.iov_len >= len &&
+	    ((size_t)vec.iov_base & (len - 1)) == 0)
+		return vec.iov_base;
+	return NULL;
+}
+
+
 ILIAS_NET2_LOCAL int
 cp_uint8_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, const uint8_t *val, const void *cp_arg)
@@ -119,7 +135,15 @@ ILIAS_NET2_LOCAL int
 cp_uint16_decode(struct net2_encdec_ctx *c,
     uint16_t *val, struct net2_buffer *in, const void *cp_arg)
 {
-	uint16_t be;
+	uint16_t	  be;
+	uint16_t	 *p;
+
+	if ((p = direct(in, sizeof(*p))) != NULL) {
+		*val = betoh16(*p);
+		net2_buffer_drain(in, sizeof(*p));
+		return 0;
+	}
+
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
 		return -1;
 	*val = betoh16(be);
@@ -137,7 +161,15 @@ ILIAS_NET2_LOCAL int
 cp_uint32_decode(struct net2_encdec_ctx *c,
     uint32_t *val, struct net2_buffer *in, const void *cp_arg)
 {
-	uint32_t be;
+	uint32_t	 be;
+	uint32_t	*p;
+
+	if ((p = direct(in, sizeof(*p))) != NULL) {
+		*val = betoh32(*p);
+		net2_buffer_drain(in, sizeof(*p));
+		return 0;
+	}
+
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
 		return -1;
 	*val = betoh32(be);
@@ -155,7 +187,15 @@ ILIAS_NET2_LOCAL int
 cp_uint64_decode(struct net2_encdec_ctx *c,
     uint64_t *val, struct net2_buffer *in, const void *cp_arg)
 {
-	uint64_t be;
+	uint64_t	 be;
+	uint64_t	*p;
+
+	if ((p = direct(in, sizeof(*p))) != NULL) {
+		*val = betoh64(*p);
+		net2_buffer_drain(in, sizeof(*p));
+		return 0;
+	}
+
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
 		return -1;
 	*val = betoh64(be);

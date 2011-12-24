@@ -40,12 +40,6 @@ void			 net2_ctx_init(struct net2_ctx*,
 ILIAS_NET2_EXPORT
 void			 net2_ctx_destroy(struct net2_ctx*);
 
-#ifdef ilias_net2_EXPORTS
-ILIAS_NET2_LOCAL
-const struct net2_objtype
-			*net2_ctx_objtype_find(struct net2_ctx*, uint32_t);
-#endif /* ilias_net2_EXPORTS */
-
 #ifdef __cplusplus
 }
 #endif

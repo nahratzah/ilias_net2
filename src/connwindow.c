@@ -230,6 +230,24 @@ keepalive(int fd, short what, void *wptr)
 	}
 }
 
+static struct net2_encdec_ctx*
+cw_edctx(struct net2_connwindow *cw)
+{
+	struct net2_pvlist	 pv;
+	struct net2_encdec_ctx	*ctx;
+
+	assert(cw != NULL);
+
+	if (net2_pvlist_init(&pv))
+		return NULL;
+	ctx = NULL;
+	if (!net2_pvlist_add(&pv, &net2_proto, cw->cw_conn->n2c_version))
+		ctx = net2_encdec_ctx_new(&pv, NULL);
+
+	net2_pvlist_deinit(&pv);
+	return ctx;
+}
+
 
 static void	tx_cb_timeout(struct net2_cw_transmit_cb*);
 static void	tx_cb_ack(struct net2_cw_transmit_cb*);
@@ -903,7 +921,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	assert(net2_connwindow_accept(w, ph));
 
 	if ((ph->flags & PH_WINUPDATE) != 0) {
-		if ((ctx = net2_encdec_ctx_new(w->cw_conn)) == NULL)
+		if ((ctx = cw_edctx(w)) == NULL)
 			goto fail_0;
 		if (net2_cp_init(ctx, &cp_windowheader, &wh, NULL))
 			goto fail_0;
@@ -1175,7 +1193,7 @@ skip:			/* All goto skip continue here. */
 	 * We now have a valid window.
 	 * Encode it into a buffer.
 	 */
-	if ((ctx = net2_encdec_ctx_new(w->cw_conn)) == NULL)
+	if ((ctx = cw_edctx(w)) == NULL)
 		goto fail_1;
 	if (net2_cp_encode(ctx, &cp_windowheader, buf, &wh, NULL))
 		goto fail_2;
@@ -1493,9 +1511,14 @@ add_statistic(struct net2_connwindow *w, struct timeval *tx_ts,
 
 		/*
 		 * Predict if we expected this packet to be lost.
+		 * Packets that are larger than the biggest we received ack
+		 * for, are expected loss (because they are used to find the
+		 * correct window size).
+		 *
 		 * If not, start congestion avoidance.
 		 */
-		if ((int)secure_random_uniform(100) >
+		if (winsz <= w->cw_conn->n2c_stats.wire_sz &&
+		    (int)secure_random_uniform(100) >
 		    w->cw_conn->n2c_stats.arrival_chance) {
 			w->cw_tx_ssthresh = w->cw_tx_windowsz =
 			    MAX(1, w->cw_tx_windowsz / 2);
