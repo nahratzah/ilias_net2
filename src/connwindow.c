@@ -1511,9 +1511,14 @@ add_statistic(struct net2_connwindow *w, struct timeval *tx_ts,
 
 		/*
 		 * Predict if we expected this packet to be lost.
+		 * Packets that are larger than the biggest we received ack
+		 * for, are expected loss (because they are used to find the
+		 * correct window size).
+		 *
 		 * If not, start congestion avoidance.
 		 */
-		if ((int)secure_random_uniform(100) >
+		if (winsz <= w->cw_conn->n2c_stats.wire_sz &&
+		    (int)secure_random_uniform(100) >
 		    w->cw_conn->n2c_stats.arrival_chance) {
 			w->cw_tx_ssthresh = w->cw_tx_windowsz =
 			    MAX(1, w->cw_tx_windowsz / 2);
