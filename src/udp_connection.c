@@ -194,7 +194,8 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 		goto fail_2;
 
 	/* Set socket to nonblocking mode. */
-	if (net2_sockdgram_nonblock(sock))
+	if (net2_sockdgram_nonblock(sock) ||
+	    net2_sockdgram_dnf(sock))
 		goto fail_3;
 
 	/* Set up libevent network-receive event. */
@@ -282,7 +283,7 @@ net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
 		goto fail;
 	if (bind(fd, bindaddr, bindaddrlen))
 		goto fail;
-	if (net2_sockdgram_nonblock(fd))
+	if (net2_sockdgram_nonblock(fd) || net2_sockdgram_dnf(fd))
 		goto fail;
 
 	/* Allocate result. */
