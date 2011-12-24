@@ -422,8 +422,16 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 	if (what & EV_WRITE) {
 		wire_sz = c->np2p_conn.n2c_stats.wire_sz;
 		if (secure_random_uniform(16) == 0) {
-			wire_sz += secure_random_uniform(16) +
-			    secure_random_uniform(32);
+			if (c->np2p_conn.n2c_stats.over_sz == 0)
+				wire_sz *= 2;
+			else {
+				/*
+				 * Take the average between largest ack and
+				 * smallest nack.
+				 */
+				wire_sz += c->np2p_conn.n2c_stats.over_sz;
+				wire_sz /= 2;
+			}
 		}
 
 		buf = NULL;
