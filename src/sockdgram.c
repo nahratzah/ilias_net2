@@ -10,6 +10,8 @@
 
 #ifdef WIN32
 #include <WinSock2.h>
+#include <ws2ipdef.h>
+#include <WS2tcpip.h>
 #include <io.h>
 #else
 #include <sys/syslimits.h>
@@ -26,6 +28,9 @@
 #define ssize_t	ptrdiff_t
 
 /* Only works here: errno is only used for checking send* and recvfrom. */
+#ifdef errno
+#undef errno
+#endif /* errno */
 #define errno	WSAGetLastError()
 #endif
 
@@ -80,10 +85,21 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 	    (struct sockaddr*)from, fromlen);
 	if (recvlen == -1) {
 		switch (errno) {
+#ifdef WIN32
+		case WSAEWOULDBLOCK:
+		case WSAEINTR:
+#endif
+		case EWOULDBLOCK: /* No data available. */
 		case EAGAIN:	/* Timed out. */
 		case EINTR:	/* Interrupted, let libevent deal with it. */
 			net2_buffer_free(buf);
 			return 0;
+#ifdef WIN32
+		case WSAEHOSTUNREACH:
+		case WSAEHOSTDOWN:
+		case WSAENETDOWN:
+		case WSAECONNREFUSED:
+#endif
 		case EHOSTUNREACH: /* Unreachable host. */
 #ifdef EHOSTDOWN
 		case EHOSTDOWN:	/* Host is down. */
@@ -92,13 +108,22 @@ net2_sockdgram_recv(int sock, struct net2_conn_receive **recvptr,
 		case ECONNREFUSED: /* Connection rejected. */
 			error = NET2_CONNRECV_REJECT;
 			break;
+#ifdef WIN32
+		case WSAEBADF:
+		case WSAENOTCONN:
+		case WSAENOTSOCK:
+		case WSAEFAULT:
+		case WSAEINVAL:
+#endif
 		case EBADF:	/* Socket gone bad. */
 		case ENOTCONN:	/* Socket not connected. */
 		case ENOTSOCK:	/* Descriptor is no socket. */
 		case EFAULT:	/* Ehm... */
 		case EINVAL:	/* Recvlen too large. */
-		default:
 			warn("recvfrom fail");
+			goto fail;
+		default:
+			warn("recvfrom fail with errno %d", (int)errno);
 			goto fail;
 		}
 	} else if (recvlen == 0) {
@@ -239,6 +264,18 @@ handle_errno:
 	 * - a net2_conntransmit_fail is enqueued.
 	 */
 	switch (errno) {
+#ifdef WIN32
+	case WSAEBADF:
+	case WSAENOTSOCK:
+	case WSAEDESTADDRREQ:
+	case WSAEISCONN:
+	case WSAEAFNOSUPPORT:
+	case WSAEHOSTUNREACH:
+	case WSAEHOSTDOWN:
+	case WSAENETDOWN:
+	case WSAECONNREFUSED:
+	case WSAENOPROTOOPT:
+#endif
 	case EBADF:		/* Connection is clearly broken. */
 	case ENOTSOCK:		/* Connection is clearly broken. */
 	case EDESTADDRREQ:	/* Connection is broken: need address. */
@@ -254,16 +291,30 @@ handle_errno:
 	case ENOPROTOOPT:	/* Connected socket failed to send. */
 		err = NET2_CONNFAIL_BAD;
 		break;
+#ifdef WIN32
+	case WSAEMSGSIZE:
+#endif
 	case EMSGSIZE:		/* Message too big. */
 		err = NET2_CONNFAIL_TOOBIG;
 		break;
+#ifdef WIN32
+	case WSAENOBUFS:
+	case WSAEINVAL:
+#endif
 	case ENOBUFS:		/* OS needs to free up buffers. */
 	case EINVAL:		/* OS doesn't grok our flags. */
 		err = NET2_CONNFAIL_OS;
 		break;
+#ifdef WIN32
+	case WSAEFAULT:
+#endif
 	case EFAULT:		/* Uh oh... */
 		err = NET2_CONNFAIL_IO;
 		break;
+#ifdef WIN32
+	case WSAEWOULDBLOCK:
+#endif
+	case EWOULDBLOCK:	/* Wait for write access. */
 	case EAGAIN:		/* Wait for write access. */
 		err = -1;
 		break;
@@ -282,6 +333,14 @@ handle_errno:
 ILIAS_NET2_LOCAL int
 net2_sockdgram_nonblock(int sock)
 {
+#ifdef WIN32
+	u_long			arg;
+
+	arg = 1;
+	if (ioctlsocket(sock, FIONBIO, &arg) != NO_ERROR)
+		return -1;
+	return 0;
+#else
 	int			flags;
 
 	if (sock == -1)
@@ -297,8 +356,12 @@ net2_sockdgram_nonblock(int sock)
 			return -1;
 	}
 	return 0;
+#endif
 }
 
+#if defined(IP_DONTFRAGMENT) && !defined(IP_DONTFRAG)
+#define IP_DONTFRAG IP_DONTFRAGMENT
+#endif
 /*
  * Set the do-not-fragment bit for udp connections.
  */
@@ -307,7 +370,11 @@ net2_sockdgram_dnf(int sock)
 {
 	struct sockaddr_storage	name;
 	socklen_t		namelen;
+#ifdef WIN32
+	DWORD			opt;
+#else
 	int			opt;
+#endif
 
 	namelen = sizeof(name);
 	if (getsockname(sock, (struct sockaddr*)&name, &namelen))
@@ -318,7 +385,7 @@ net2_sockdgram_dnf(int sock)
 	case AF_INET:
 #ifdef IP_DONTFRAG
 		opt = 1;
-		if (setsockopt(sock, IP_OPTIONS, IP_DONTFRAG,
+		if (setsockopt(sock, IPPROTO_IP, IP_DONTFRAG,
 		    &opt, sizeof(opt))) {
 			switch (errno) {
 			case EBADF:
@@ -359,7 +426,7 @@ net2_sockdgram_dnf(int sock)
 #ifdef AF_INET6
 	case AF_INET6:
 		opt = 1;
-		if (setsockopt(sock, IPV6_OPTIONS, IPV6_DONTFRAG,
+		if (setsockopt(sock, IPPROTO_IPV6, IPV6_DONTFRAG,
 		    &opt, sizeof(opt))) {
 			switch (errno) {
 			case EBADF:
