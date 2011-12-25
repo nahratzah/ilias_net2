@@ -5,10 +5,16 @@
 #include <stdint.h>
 #include <bsd_compat.h>
 
-#ifdef HAVE_TREE_H
+#ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
 #include <bsd_compat/tree.h>
+#endif
+
+#ifdef HASE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <bsd_compat/queue.h>
 #endif
 
 #ifdef __cplusplus
@@ -17,6 +23,8 @@ extern "C" {
 
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
+struct net2_objwin_tx;
+struct net2_buffer;
 
 /*
  * Receiver window for object requests.
@@ -47,6 +55,39 @@ ILIAS_NET2_EXPORT
 int	 n2ow_init(struct net2_objwin*);
 ILIAS_NET2_EXPORT
 void	 n2ow_deinit(struct net2_objwin*);
+
+/*
+ * Transmit side of objwin.
+ */
+struct net2_objwin_stub {
+	RB_HEAD(net2_objwin_txs, net2_objwin_tx)
+				txs;			/* Message transit. */
+	TAILQ_HEAD(, net2_objwin_tx)
+				sendq;			/* Need transmit. */
+	TAILQ_HEAD(, net2_objwin_tx)
+				unsentq;		/* To be sent. */
+	int			flags;			/* State flags. */
+	uint32_t		window_start;		/* Oldest un-acked. */
+	uint32_t		window_end;		/* First unsent. */
+	uint32_t		barrier;		/* Current barrier. */
+};
+
+ILIAS_NET2_EXPORT
+int	n2ow_init_stub(struct net2_objwin_stub*);
+ILIAS_NET2_EXPORT
+void	n2ow_deinit_stub(struct net2_objwin_stub*);
+ILIAS_NET2_EXPORT
+int	n2ow_transmit_get(struct net2_objwin_stub*, struct net2_objwin_tx**,
+	    uint32_t*, uint32_t*, struct net2_buffer**);
+ILIAS_NET2_EXPORT
+void	n2ow_transmit_timeout(struct net2_objwin_stub*,
+	    struct net2_objwin_tx*);
+ILIAS_NET2_EXPORT
+void	n2ow_transmit_ack(struct net2_objwin_stub*,
+	    struct net2_objwin_tx*);
+ILIAS_NET2_EXPORT
+void	n2ow_transmit_nack(struct net2_objwin_stub*,
+	    struct net2_objwin_tx*);
 
 #ifdef __cplusplus
 }

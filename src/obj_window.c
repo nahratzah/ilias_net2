@@ -1,4 +1,5 @@
 #include <ilias/net2/obj_window.h>
+#include <ilias/net2/buffer.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -557,4 +558,217 @@ n2ow_deinit(struct net2_objwin *w)
 
 	while ((b = RB_ROOT(&w->barriers)) != NULL)
 		kill_barrier(b);	/* Barrier kills recv. */
+}
+
+
+/*
+ * Description of objwin tx.
+ */
+struct net2_objwin_tx {
+	uint32_t		 e_seq;
+	uint32_t		 barrier;
+
+	RB_ENTRY(net2_objwin_tx) tree;
+	TAILQ_ENTRY(net2_objwin_tx)
+				 sendq;
+	struct net2_buffer	*msg;
+	int			 flags;
+#define TX_SENT			0x00000001	/* Was sent. */
+#define TX_SUPERSEDE		0x00000002	/* Supersede instead of
+						 * retransmit. */
+#define TX_ON_SENDQ		0x00000004	/* On sendq. */
+#define TX_BARRIER_PRE_INC	0x00000100	/* Raise prior to request. */
+#define TX_BARRIER_POST_INC	0x00000200	/* Raise after request. */
+
+	size_t			 refcnt;	/* # external references. */
+};
+
+#define STUB_STALLED		0x00000001	/* Transfer stall. */
+#define STUB_BARRIER_INC	0x00000002	/* Barrier is raised. */
+
+/* ID comparator. */
+static __inline int
+objwin_tx_cmp(struct net2_objwin_tx *t1, struct net2_objwin_tx *t2)
+{
+	return (t1->e_seq < t2->e_seq ? -1 : t1->e_seq > t2->e_seq);
+}
+
+RB_PROTOTYPE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
+RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
+
+/* Initialize stub. */
+ILIAS_NET2_EXPORT int
+n2ow_init_stub(struct net2_objwin_stub *w)
+{
+	RB_INIT(&w->txs);
+	TAILQ_INIT(&w->sendq);
+	w->flags = 0;
+	w->window_start = w->window_end = 0;
+	w->barrier = 0;
+	return 0;
+}
+
+/* Release stub. */
+ILIAS_NET2_EXPORT void
+n2ow_deinit_stub(struct net2_objwin_stub *w)
+{
+	struct net2_objwin_tx	*tx;
+
+	while ((tx = RB_ROOT(&w->txs)) != NULL) {
+		net2_buffer_free(tx->msg);
+		free(tx);
+	}
+}
+
+static void
+tx_release(struct net2_objwin_tx *tx)
+{
+	/* Release tx memory. */
+	if (--tx->refcnt == 0) {
+		net2_buffer_free(tx->msg);
+		free(tx);
+	}
+}
+
+/*
+ * Get a transmission from objwin_stub.
+ *
+ * txptr: will be set to the internal ID of the transmission.
+ * seq: will be set to the sequence number of the transmission.
+ * barrier: will be set to the barrier of the transmission.
+ * payload_ptr: will be set to the payload of the transmission.
+ * maxsz: max accepted message size.
+ * nullsz: treat NULL payload as having this length.
+ *
+ * If the command has been superseded, payload_ptr will be set to NULL.
+ * If no transmission is available, txptr is set to NULL and the other
+ * values are undefined.
+ *
+ * Returns 0, unless an error occurs.
+ * If an error occurs, the argument pointers are left undefined.
+ */
+ILIAS_NET2_EXPORT int
+n2ow_transmit_get(struct net2_objwin_stub *w, struct net2_objwin_tx **txptr,
+    uint32_t *seq, uint32_t *barrier, struct net2_buffer **payload_ptr,
+    size_t maxsz, size_t nullsz)
+{
+	struct net2_objwin_tx	*tx;
+
+	/* Fall back to no transmission. */
+	*txptr = NULL;
+
+	/* Attempt retransmit. */
+	TAILQ_FOREACH(tx, &w->sendq, sendq) {
+		if (tx->msg == NULL && nullsz <= maxsz)
+			break;
+		else if (net2_buffer_length(tx->msg) <= maxsz)
+			break;
+	}
+
+	if (tx != NULL) {
+		TAILQ_REMOVE(&w->sendq, tx, sendq);
+		tx->flags &= ~TX_ON_SENDQ;
+	} else while (tx == NULL) {
+		/* Check if we are stalled. */
+		if (w->window_end - w->window_start >= MAX_WINDOW) {
+			w->flags |= STUB_STALLED;
+			return 0;
+		}
+
+		/* Attempt to send a new message. */
+		tx = TAILQ_FIRST(&w->unsentq);
+		if (tx == NULL)
+			return 0;
+
+		/* Assign sequence to new message. */
+		tx->e_seq = w->window_end++;
+		/* Raise barrier prior to assignment, if requested. */
+		if ((tx->flags & TX_BARRIER_PRE_INC) &&
+		    !(w->flags & STUB_BARRIER_INC))
+			w->barrier++;
+		tx->barrier = w->barrier;
+		w->flags &= ~STUB_BARRIER_INC;	/* Barrier no longer raised. */
+		/* Raise barrier after assignment, if requested. */
+		if (tx->flags & TX_BARRIER_POST_INC) {
+			w->barrier++;
+			w->flags |= STUB_BARRIER_INC;
+		}
+
+		/* Store in txs. */
+		RB_INSERT(net2_objwin_txs, &w->txs, tx);
+		tx->flags |= TX_SENT;
+
+		/* Check if we can send this message. */
+		assert(tx->msg != NULL);
+		if (net2_buffer_length(tx->msg) <= maxsz)
+			break;
+	}
+
+	/* Assign sequence and barrier args. */
+	*seq = tx->e_seq;
+	*barrier = tx->barrier;
+
+	/* Set the payload. Null means the command was superseded. */
+	if (tx->msg == NULL)
+		*payload_ptr = NULL;
+	else if (tx->flags & TX_SUPERSEDE) {
+		*payload_ptr = tx->msg;
+		tx->msg = NULL;
+	} else {
+		if ((*payload_ptr = net2_buffer_copy(tx->msg)) == NULL)
+			return -1;
+	}
+
+	/* Succes. */
+	*txptr = tx;
+
+	return 0;
+}
+
+/* Handle transmission timeout. */
+ILIAS_NET2_EXPORT void
+n2ow_transmit_timeout(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+{
+	if (!(tx->flags & TX_ON_SENDQ)) {
+		/* Fire want-to-send. */
+		tx->flags |= TX_ON_SENDQ;
+		TAILQ_INSERT_TAIL(&w->sendq, tx, sendq);
+	}
+}
+
+/* Handle transmission ack. */
+ILIAS_NET2_EXPORT void
+n2ow_transmit_ack(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+{
+	struct net2_objwin_tx	*next;
+
+	/* Take tx from sendq. */
+	if (tx->flags & TX_ON_SENDQ) {
+		tx->flags &= ~TX_ON_SENDQ;
+		TAILQ_REMOVE(&w->sendq, tx, sendq);
+	}
+
+	/* Update window start. */
+	if (tx->e_seq == w->window_start) {
+		if ((next = RB_NEXT(net2_objwin_txs, &w->txs, tx)) == NULL)
+			next = RB_MIN(net2_objwin_txs, &w->txs);
+
+		if (next == NULL)
+			w->window_start = w->window_end;
+		else
+			w->window_start = next->e_seq;
+		w->flags &= ~STUB_STALLED;
+	}
+
+	/* Remove from txs. */
+	RB_REMOVE(net2_objwin_txs, &w->txs, tx);
+	tx_release(tx);
+}
+
+/* Handle transmission nack. */
+ILIAS_NET2_EXPORT void
+n2ow_transmit_nack(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+{
+	n2ow_transmit_timeout(w, tx);
+	tx_release(tx);
 }

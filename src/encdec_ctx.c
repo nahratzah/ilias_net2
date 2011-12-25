@@ -1,5 +1,6 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/connection.h>
+#include <ilias/net2/obj_manager.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/protocol.h>
 #include <stdlib.h>
@@ -52,6 +53,9 @@ net2_encdec_ctx_release(struct net2_encdec_ctx *ctx)
 	free(ctx);
 }
 
+/*
+ * Create a new encdec_ctx from a connection.
+ */
 ILIAS_NET2_LOCAL struct net2_encdec_ctx*
 net2_encdec_ctx_newconn(struct net2_connection *c)
 {
@@ -67,4 +71,13 @@ net2_encdec_ctx_newconn(struct net2_connection *c)
 		return NULL;
 	}
 	return ctx;
+}
+
+/*
+ * Create a new encdec_ctx from an objmanager.
+ */
+ILIAS_NET2_LOCAL struct net2_encdec_ctx*
+net2_encdec_ctx_newobjman(struct net2_objmanager *m)
+{
+	return net2_encdec_ctx_new(&m->pvlist, m);
 }

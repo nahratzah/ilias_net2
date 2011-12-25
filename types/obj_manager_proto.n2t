@@ -1,0 +1,97 @@
+#include <stdint.h>
+#include <ilias/net2/types.h>
+
+/*
+ * Here are all the protocol messages defined that the objmanager uses to
+ * coordinate between the local and remote endpoints.
+ */
+
+
+/*
+ * Protocol header.
+ * The flags declare if a objman command is sent.
+ */
+struct net2_objman_proto_header {
+	uint16_t	 flags;		/* Options. */
+#define OBJMAN_PROTO_HEADER_IS_REQUEST	0x8000	/* MSB: objman request */
+	uint16_t	 req;		/* Request ID. */
+};
+
+/*
+ * Acquire the proto request lock.
+ *
+ * Prio is a random bit pattern, which is compared between two hosts
+ * to see which one goes first. The response to this packet is to
+ * generate the same request (with a different number) in return.
+ *
+ * Sending a value of 0, means you release the lock.
+ * Sending any other value will either immediately grant the lock
+ * (if you sent the largest number) or queue you (based on the number(s)
+ * other hosts transmitted).
+ */
+struct net2_objman_proto_request_start {
+	uint32_t	 prio;
+};
+
+/*
+ * Protocol negotiation request.
+ *
+ * Protocol name is sent, with the max supported version and a suggested
+ * position.
+ */
+struct net2_objman_proto_request {
+	const char	*name;		/* Protocol name. */
+	net2_protocol_t	 version;	/* Max version. */
+	uint32_t	 position;	/* Suggested position. */
+};
+
+/*
+ * Protocol negotiation response.
+ *
+ * The exact meaning of the response depends on the value of flags:
+ * ACCEPT:
+ *   Protocol with the given name is accepted at the given position.
+ * BAD:
+ *   Request made no sense.
+ *   Usually happens if the protocol is already negotiated or the
+ *   given position is unavailable.
+ * UNKNOWN:
+ *   Protocol is unknown.
+ *   position and version are 0.
+ *
+ * Note that position 0 will never be sent across the wire, since this is
+ * the net2_proto version, negotiated by net2_connection.
+ */
+struct net2_objman_proto_response {
+	const char	*name;
+	uint32_t	 flags;
+#define OBJMAN_PROTO_REQUEST_ACCEPT	0x00000001
+#define OBJMAN_PROTO_REQUEST_BAD	0x00000002
+#define OBJMAN_PROTO_REQUEST_UNKNOWN	0x00000004
+	uint32_t	 position;
+	net2_protocol_t	 version;
+};
+
+%%
+#include "obj_manager_proto.h"
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/protocol.h>
+%%
+
+struct net2_objman_proto_header (ctype struct net2_objman_proto_header, protocol net2_proto) {
+	uint16		 flags;
+	uint16		 req;
+};
+
+struct net2_objman_proto_request (ctype struct net2_objman_proto_request, protocol net2_proto) {
+	net2_protocol	 version;
+	uint32		 position;
+	string		 name;
+};
+
+struct net2_objman_proto_response (ctype struct net2_objman_proto_response, protocol net2_proto) {
+	net2_protocol	 version;
+	string		 name;
+	int32		 position;
+	int32		 flags;
+};

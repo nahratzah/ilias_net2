@@ -27,6 +27,7 @@ struct net2_encdec_ctx {
 
 #ifdef ilias_net2_EXPORTS
 struct net2_connection;
+struct net2_objmanager;
 
 ILIAS_NET2_LOCAL
 struct net2_encdec_ctx	*net2_encdec_ctx_new(struct net2_pvlist*,
@@ -37,6 +38,8 @@ ILIAS_NET2_LOCAL
 void			 net2_encdec_ctx_release(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
 struct net2_encdec_ctx	*net2_encdec_ctx_newconn(struct net2_connection*);
+ILIAS_NET2_LOCAL
+struct net2_encdec_ctx	*net2_encdec_ctx_newobjman(struct net2_objmanager*);
 #endif /* ilias_net2_EXPORTS */
 
 /* Returns the protocol version from this context. */

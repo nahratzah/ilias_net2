@@ -60,6 +60,12 @@ net2type(srcs "types/stream_packet.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_STREAM_PACKET_H")
+net2type(srcs "types/obj_manager_proto.n2t"
+    "${CMAKE_CURRENT_BINARY_DIR}/obj_manager_proto.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/obj_manager_proto.h"
+    "static"
+    "ILIAS_NET2_LOCAL"
+    "ILIAS_NET2_OBJ_MANAGER_PROTO_H")
 
 
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
@@ -143,6 +149,7 @@ add_library (ilias_net2 SHARED
 	include/ilias/net2/hash.h
 	include/ilias/net2/init.h
 	include/ilias/net2/mutex.h
+	include/ilias/net2/obj_manager.h
 	include/ilias/net2/obj_window.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/sockdgram.h
@@ -163,6 +170,7 @@ add_library (ilias_net2 SHARED
 	src/enc.c
 	src/hash.c
 	src/init.c
+	src/obj_manager.c
 	src/obj_window.c
 	src/protocol.c
 	src/sockdgram.c
