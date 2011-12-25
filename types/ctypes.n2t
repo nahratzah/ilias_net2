@@ -86,6 +86,12 @@ type null_stringlist (
 	destroy cp_null_stringlist_destroy
 );
 
+type net2_protocol (
+	ctype net2_protocol_t,
+	encode cp_uint32_encode,
+	decode cp_uint32_decode
+);
+
 %%
 
 
