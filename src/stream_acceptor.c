@@ -1171,6 +1171,7 @@ nsa_attach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
 	/* Prevent reattaching the stream. */
 	if (nsa->flags & SA_ATTACHED)
 		return -1;
+	nsa->flags |= SA_ATTACHED;
 
 	if (!net2_buffer_empty(nsa->tx.sendbuf))
 		net2_conn_ready_to_send(conn);
