@@ -683,7 +683,6 @@ n2ow_unlock_stub(struct net2_objwin_stub *w)
 {
 	struct net2_objwin_tx	*tx;
 	int			 do_free;
-	int			 i;
 
 	if (w->refcnt == 0 && RB_EMPTY(&w->txs) && TAILQ_EMPTY(&w->unsentq))
 		do_free = 1;
@@ -699,10 +698,6 @@ n2ow_unlock_stub(struct net2_objwin_stub *w)
 		 * No need to free w->txs and w->unsentq: they're already
 		 * empty for reaching this point.
 		 */
-		for (i = 0; i < NET2_OBJWIN_STUB__NUM_EVENTS; i++) {
-			if (w->event[i] != NULL)
-				event_free(w->event[i]);
-		}
 		net2_mutex_free(w->mtx);
 		free(w);
 	}
@@ -1038,4 +1033,36 @@ fail_1:
 	free(tx);
 fail:
 	return NULL;
+}
+
+/* Assign event. */
+ILIAS_NET2_LOCAL int
+n2ow_stub_set_event(struct net2_objwin_stub *w, int evno, struct event *ev,
+    struct event **old)
+{
+	if (evno < 0 || evno >= NET2_OBJWIN_STUB__NUM_EVENTS)
+		return -1;
+
+	net2_mutex_lock(w->mtx);
+	if (old != NULL)
+		*old = w->event[evno];
+	w->event[evno] = ev;
+	net2_mutex_unlock(w->mtx);
+
+	return 0;
+}
+
+/* Read event. */
+ILIAS_NET2_LOCAL struct event*
+n2ow_stub_get_event(struct net2_objwin_stub *w, int evno)
+{
+	struct event		*ev;
+
+	if (evno < 0 || evno >= NET2_OBJWIN_STUB__NUM_EVENTS)
+		return NULL;
+
+	net2_mutex_lock(w->mtx);
+	ev = w->event[evno];
+	net2_mutex_unlock(w->mtx);
+	return ev;
 }

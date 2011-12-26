@@ -22,6 +22,7 @@
 extern "C" {
 #endif
 
+struct event;		/* from event2/event.h */
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
 struct net2_objwin_tx;
@@ -89,6 +90,11 @@ void			 n2ow_tx_finished(struct net2_objwin_tx*);
 ILIAS_NET2_LOCAL
 struct net2_objwin_tx	*n2ow_tx_add(struct net2_objwin_stub*,
 			    const struct net2_buffer*, int);
+ILIAS_NET2_LOCAL
+int			 n2ow_stub_set_event(struct net2_objwin_stub*, int,
+			    struct event*, struct event**);
+ILIAS_NET2_LOCAL
+struct event		*n2ow_stub_get_event(struct net2_objwin_stub*, int);
 
 #define N2OW_TXADD_BARRIER_PRE		0x1
 #define N2OW_TXADD_BARRIER_POST		0x2
