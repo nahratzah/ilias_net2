@@ -65,7 +65,7 @@ struct net2_objwin_stub;
 #define NET2_OBJWIN_STUB__NUM_EVENTS		1	/* Number of events. */
 
 ILIAS_NET2_LOCAL
-struct net2_objwin_stub	*n2ow_init_stub();
+struct net2_objwin_stub	*n2ow_new_stub();
 ILIAS_NET2_LOCAL
 void			 n2ow_ref_stub(struct net2_objwin_stub*);
 ILIAS_NET2_LOCAL
