@@ -101,7 +101,7 @@ ILIAS_NET2_LOCAL
 void			 n2ow_tx_finished(struct net2_objwin_tx*);
 ILIAS_NET2_LOCAL
 struct net2_objwin_tx	*n2ow_tx_add(struct net2_objwin_stub*,
-			    struct net2_buffer*, int);
+			    const struct net2_buffer*, int);
 
 #define N2OW_TXADD_BARRIER_PRE		0x1
 #define N2OW_TXADD_BARRIER_POST		0x2

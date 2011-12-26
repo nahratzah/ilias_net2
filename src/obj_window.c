@@ -905,9 +905,16 @@ n2ow_tx_cancel(struct net2_objwin_tx *tx)
 		tx->msg = NULL;
 
 		if ((tx->flags & (TX_SENT | TX_ON_SENDQ)) == TX_SENT) {
+			/* Cancel the message and publish the cancellation. */
 			net2_mutex_lock(w->mtx);
 			tx->flags |= TX_ON_SENDQ;
 			TAILQ_INSERT_HEAD(&w->sendq, tx, sendq);
+			net2_mutex_unlock(w->mtx);
+		} else if (!(tx->flags & TX_SENT)) {
+			/* Unsent message: erase immediately. */
+			net2_mutex_lock(w->mtx);
+			tx->flags |= TX_RELEASED;
+			TAILQ_REMOVE(&w->unsentq, tx, sendq);
 			net2_mutex_unlock(w->mtx);
 		}
 	}
@@ -941,7 +948,8 @@ n2ow_transmit_finished(struct net2_objwin_tx *tx)
 
 /* Add a transmission to the set, returning referenced tx. */
 ILIAS_NET2_LOCAL struct net2_objwin_tx*
-n2ow_tx_add(struct net2_objwin_stub *w, struct net2_buffer *payload, int flags)
+n2ow_tx_add(struct net2_objwin_stub *w, const struct net2_buffer *payload,
+    int flags)
 {
 	struct net2_objwin_tx	*tx;
 
