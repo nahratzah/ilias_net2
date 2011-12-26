@@ -57,24 +57,11 @@ int	 n2ow_init(struct net2_objwin*);
 ILIAS_NET2_LOCAL
 void	 n2ow_deinit(struct net2_objwin*);
 
-/*
- * Transmit side of objwin.
- */
-struct net2_objwin_stub {
-	RB_HEAD(net2_objwin_txs, net2_objwin_tx)
-				 txs;			/* Message transit. */
-	TAILQ_HEAD(, net2_objwin_tx)
-				 sendq;			/* Need transmit. */
-	TAILQ_HEAD(, net2_objwin_tx)
-				 unsentq;		/* To be sent. */
-	int			 flags;			/* State flags. */
-	uint32_t		 window_start;		/* Oldest un-acked. */
-	uint32_t		 window_end;		/* First unsent. */
-	uint32_t		 barrier;		/* Current barrier. */
+/* Transmission side of objwin. */
+struct net2_objwin_stub;
 
-	struct net2_mutex	*mtx;			/* Guard. */
-	size_t			 refcnt;
-};
+#define NET2_OBJWIN_STUB_ON_READY_TO_SEND	0	/* Ready to send. */
+#define NET2_OBJWIN_STUB__NUM_EVENTS		1	/* Number of events. */
 
 ILIAS_NET2_LOCAL
 struct net2_objwin_stub	*n2ow_init_stub();

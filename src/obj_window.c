@@ -1,6 +1,7 @@
 #include <ilias/net2/obj_window.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/mutex.h>
+#include <event2/event.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -563,6 +564,30 @@ n2ow_deinit(struct net2_objwin *w)
 
 
 /*
+ * Transmit side of objwin.
+ */
+struct net2_objwin_stub {
+	RB_HEAD(net2_objwin_txs, net2_objwin_tx)
+				 txs;			/* Message transit. */
+	TAILQ_HEAD(, net2_objwin_tx)
+				 sendq;			/* Need transmit. */
+	TAILQ_HEAD(, net2_objwin_tx)
+				 unsentq;		/* To be sent. */
+	int			 flags;			/* State flags. */
+#define STUB_STALLED		0x00000001	/* Transfer stall. */
+#define STUB_BARRIER_INC	0x00000002	/* Barrier is raised. */
+	uint32_t		 window_start;		/* Oldest un-acked. */
+	uint32_t		 window_end;		/* First unsent. */
+	uint32_t		 barrier;		/* Current barrier. */
+
+	struct net2_mutex	*mtx;			/* Guard. */
+	size_t			 refcnt;
+
+	struct event		*event[NET2_OBJWIN_STUB__NUM_EVENTS];
+							/* Event list. */
+};
+
+/*
  * Description of objwin tx.
  */
 struct net2_objwin_tx {
@@ -588,9 +613,6 @@ struct net2_objwin_tx {
 	size_t			 refcnt;	/* # external references. */
 };
 
-#define STUB_STALLED		0x00000001	/* Transfer stall. */
-#define STUB_BARRIER_INC	0x00000002	/* Barrier is raised. */
-
 /* ID comparator. */
 static __inline int
 objwin_tx_cmp(struct net2_objwin_tx *t1, struct net2_objwin_tx *t2)
@@ -601,11 +623,24 @@ objwin_tx_cmp(struct net2_objwin_tx *t1, struct net2_objwin_tx *t2)
 RB_PROTOTYPE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 
+/* Fire ready-to-send event; called with w locked. */
+void
+n2ow_stub_ready_to_send(struct net2_objwin_stub *w)
+{
+	struct timeval now = { 0, 0 };
+
+	if (w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND] != NULL &&
+	    !event_pending(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND],
+	    EV_TIMEOUT, NULL))
+		event_add(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND], &now);
+}
+
 /* Initialize stub. */
 ILIAS_NET2_LOCAL struct net2_objwin_stub*
 n2ow_new_stub()
 {
 	struct net2_objwin_stub *w;
+	int			 i;
 
 	if ((w = malloc(sizeof(*w))) == NULL)
 		goto fail_0;
@@ -617,6 +652,11 @@ n2ow_new_stub()
 	w->window_start = w->window_end = 0;
 	w->barrier = 0;
 	w->refcnt = 1;
+
+	/* Initialize null events. */
+	for (i = 0; i < NET2_OBJWIN_STUB__NUM_EVENTS; i++)
+		w->event[i] = NULL;
+
 	return w;
 
 fail_1:
@@ -643,6 +683,7 @@ n2ow_unlock_stub(struct net2_objwin_stub *w)
 {
 	struct net2_objwin_tx	*tx;
 	int			 do_free;
+	int			 i;
 
 	if (w->refcnt == 0 && RB_EMPTY(&w->txs) && TAILQ_EMPTY(&w->unsentq))
 		do_free = 1;
@@ -658,6 +699,10 @@ n2ow_unlock_stub(struct net2_objwin_stub *w)
 		 * No need to free w->txs and w->unsentq: they're already
 		 * empty for reaching this point.
 		 */
+		for (i = 0; i < NET2_OBJWIN_STUB__NUM_EVENTS; i++) {
+			if (w->event[i] != NULL)
+				event_free(w->event[i]);
+		}
 		net2_mutex_free(w->mtx);
 		free(w);
 	}
@@ -822,7 +867,7 @@ n2ow_transmit_timeout(struct net2_objwin_tx *tx)
 
 	if (!(tx->flags & TX_ON_SENDQ)) {
 		net2_mutex_lock(w->mtx);
-		assert(0); /* TODO: Fire want-to-send. */
+		n2ow_stub_ready_to_send(w);
 		tx->flags |= TX_ON_SENDQ;
 		TAILQ_INSERT_TAIL(&w->sendq, tx, sendq);
 		net2_mutex_unlock(w->mtx);
@@ -979,7 +1024,7 @@ n2ow_tx_add(struct net2_objwin_stub *w, const struct net2_buffer *payload,
 	/* Insert tx into the window. */
 	net2_mutex_lock(w->mtx);
 	if (TAILQ_EMPTY(&w->sendq) && TAILQ_EMPTY(&w->unsentq))
-		assert(0);	/* TODO: fire ready-to-send */
+		n2ow_stub_ready_to_send(w);
 	TAILQ_INSERT_TAIL(&w->unsentq, tx, sendq);
 	net2_mutex_unlock(w->mtx);
 
