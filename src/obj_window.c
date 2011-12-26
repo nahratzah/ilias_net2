@@ -1,5 +1,6 @@
 #include <ilias/net2/obj_window.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/mutex.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -337,7 +338,7 @@ update_wbarrier_start(struct net2_objwin *w, uint32_t barrier)
  * Superseding an already superseded command will not fail and
  * set the accept value.
  */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 n2ow_supersede(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
     int *accept)
 {
@@ -420,7 +421,7 @@ barrier_misordering:
  *
  * TODO: add payload argument
  */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 n2ow_receive(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
     int *accept)
 {
@@ -495,7 +496,7 @@ barrier_misordering:
  * The returned recv will be marked as in-progress.
  * Returns NULL if no pending recvs are ready to execute.
  */
-ILIAS_NET2_EXPORT struct net2_objwin_recv*
+ILIAS_NET2_LOCAL struct net2_objwin_recv*
 n2ow_get_pending(struct net2_objwin *w)
 {
 	struct net2_objwin_recv	*r;
@@ -516,7 +517,7 @@ n2ow_get_pending(struct net2_objwin *w)
 /*
  * Mark an in-progress object as finished.
  */
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_LOCAL void
 n2ow_finished(struct net2_objwin_recv *r)
 {
 	struct net2_objwin	*w = r->objwin;
@@ -537,7 +538,7 @@ n2ow_finished(struct net2_objwin_recv *r)
 /*
  * Create a new objwin.
  */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 n2ow_init(struct net2_objwin *w)
 {
 	RB_INIT(&w->recvs);
@@ -550,7 +551,7 @@ n2ow_init(struct net2_objwin *w)
 /*
  * Release all resources held by objwin.
  */
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_LOCAL void
 n2ow_deinit(struct net2_objwin *w)
 {
 	struct net2_objwin_barrier
@@ -568,6 +569,8 @@ struct net2_objwin_tx {
 	uint32_t		 e_seq;
 	uint32_t		 barrier;
 
+	struct net2_objwin_stub	*owner;		/* Point back to owner. */
+
 	RB_ENTRY(net2_objwin_tx) tree;
 	TAILQ_ENTRY(net2_objwin_tx)
 				 sendq;
@@ -577,9 +580,11 @@ struct net2_objwin_tx {
 #define TX_SUPERSEDE		0x00000002	/* Supersede instead of
 						 * retransmit. */
 #define TX_ON_SENDQ		0x00000004	/* On sendq. */
+#define TX_RELEASED		0x00000008	/* Not in objwin_stub. */
 #define TX_BARRIER_PRE_INC	0x00000100	/* Raise prior to request. */
 #define TX_BARRIER_POST_INC	0x00000200	/* Raise after request. */
 
+	struct net2_mutex	*mtx;		/* Guard. */
 	size_t			 refcnt;	/* # external references. */
 };
 
@@ -597,35 +602,94 @@ RB_PROTOTYPE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 
 /* Initialize stub. */
-ILIAS_NET2_EXPORT int
-n2ow_init_stub(struct net2_objwin_stub *w)
+ILIAS_NET2_LOCAL struct net2_objwin_stub*
+n2ow_new_stub()
 {
+	struct net2_objwin_stub *w;
+
+	if ((w = malloc(sizeof(*w))) == NULL)
+		goto fail_0;
+	if ((w->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
 	RB_INIT(&w->txs);
 	TAILQ_INIT(&w->sendq);
-	w->flags = 0;
+	w->flags = STUB_BARRIER_INC;
 	w->window_start = w->window_end = 0;
 	w->barrier = 0;
-	return 0;
+	w->refcnt = 1;
+	return w;
+
+fail_1:
+	free(w);
+fail_0:
+	return NULL;
 }
 
-/* Release stub. */
-ILIAS_NET2_EXPORT void
-n2ow_deinit_stub(struct net2_objwin_stub *w)
+/* Reference stub. */
+ILIAS_NET2_LOCAL void
+n2ow_ref_stub(struct net2_objwin_stub *w)
+{
+	net2_mutex_lock(w->mtx);
+	w->refcnt++;
+	net2_mutex_unlock(w->mtx);
+}
+
+/*
+ * Special unlock function, tests if w became unreacheable while the lock
+ * was held and, if so, frees it.
+ */
+static void
+n2ow_unlock_stub(struct net2_objwin_stub *w)
 {
 	struct net2_objwin_tx	*tx;
+	int			 do_free;
 
-	while ((tx = RB_ROOT(&w->txs)) != NULL) {
-		net2_buffer_free(tx->msg);
-		free(tx);
+	if (w->refcnt == 0 && RB_EMPTY(&w->txs) && TAILQ_EMPTY(&w->unsentq))
+		do_free = 1;
+	else
+		do_free = 0;
+	net2_mutex_unlock(w->mtx);
+
+	/*
+	 * Destroy the objwin_stub.
+	 */
+	if (do_free) {
+		/*
+		 * No need to free w->txs and w->unsentq: they're already
+		 * empty for reaching this point.
+		 */
+		net2_mutex_free(w->mtx);
+		free(w);
 	}
 }
 
-static void
-tx_release(struct net2_objwin_tx *tx)
+/* Release stub. */
+ILIAS_NET2_LOCAL void
+n2ow_release_stub(struct net2_objwin_stub *w)
 {
+	net2_mutex_lock(w->mtx);
+	assert(w->refcnt > 0);
+	w->refcnt--;
+	n2ow_unlock_stub(w);
+}
+
+/* Release tx if unreferenced. Decrement refcnt iff decrement is set. */
+static void
+tx_release(struct net2_objwin_tx *tx, int decrement)
+{
+	int			 do_free;
+
+	net2_mutex_lock(tx->mtx);
+	if (decrement)
+		tx->refcnt--;
+
 	/* Release tx memory. */
-	if (--tx->refcnt == 0) {
+	do_free = (tx->refcnt == 0 && (tx->flags & TX_RELEASED));
+	net2_mutex_unlock(tx->mtx);
+
+	if (do_free) {
 		net2_buffer_free(tx->msg);
+		net2_mutex_free(tx->mtx);
 		free(tx);
 	}
 }
@@ -647,15 +711,14 @@ tx_release(struct net2_objwin_tx *tx)
  * Returns 0, unless an error occurs.
  * If an error occurs, the argument pointers are left undefined.
  */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 n2ow_transmit_get(struct net2_objwin_stub *w, struct net2_objwin_tx **txptr,
     uint32_t *seq, uint32_t *barrier, struct net2_buffer **payload_ptr,
     size_t maxsz, size_t nullsz)
 {
 	struct net2_objwin_tx	*tx;
 
-	/* Fall back to no transmission. */
-	*txptr = NULL;
+	net2_mutex_lock(w->mtx);
 
 	/* Attempt retransmit. */
 	TAILQ_FOREACH(tx, &w->sendq, sendq) {
@@ -668,17 +731,25 @@ n2ow_transmit_get(struct net2_objwin_stub *w, struct net2_objwin_tx **txptr,
 	if (tx != NULL) {
 		TAILQ_REMOVE(&w->sendq, tx, sendq);
 		tx->flags &= ~TX_ON_SENDQ;
-	} else while (tx == NULL) {
+	} else for (;;) {
 		/* Check if we are stalled. */
 		if (w->window_end - w->window_start >= MAX_WINDOW) {
 			w->flags |= STUB_STALLED;
-			return 0;
+			goto empty;
 		}
 
 		/* Attempt to send a new message. */
 		tx = TAILQ_FIRST(&w->unsentq);
 		if (tx == NULL)
-			return 0;
+			goto empty;
+		TAILQ_REMOVE(&w->unsentq, tx, sendq);
+
+		/* If the tx has been superseded by caller, drop it now. */
+		if (tx->msg == NULL) {
+			tx->flags |= TX_RELEASED;
+			tx_release(tx, 0);
+			continue;
+		}
 
 		/* Assign sequence to new message. */
 		tx->e_seq = w->window_end++;
@@ -716,31 +787,60 @@ n2ow_transmit_get(struct net2_objwin_stub *w, struct net2_objwin_tx **txptr,
 		tx->msg = NULL;
 	} else {
 		if ((*payload_ptr = net2_buffer_copy(tx->msg)) == NULL)
-			return -1;
+			goto fail;
 	}
 
 	/* Succes. */
 	*txptr = tx;
+	tx->refcnt++;
 
+	net2_mutex_unlock(w->mtx);
 	return 0;
+
+empty:
+	/* No transmission. */
+	net2_mutex_unlock(w->mtx);
+	*txptr = NULL;
+	return 0;
+
+fail:
+	net2_mutex_unlock(w->mtx);
+	return -1;
 }
 
 /* Handle transmission timeout. */
-ILIAS_NET2_EXPORT void
-n2ow_transmit_timeout(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+ILIAS_NET2_LOCAL void
+n2ow_transmit_timeout(struct net2_objwin_tx *tx)
 {
+	struct net2_objwin_stub	*w;
+
+	/* Check if the tx is still on the sendq. */
+	if (tx->flags & TX_RELEASED)
+		return;
+
+	w = tx->owner;
+
 	if (!(tx->flags & TX_ON_SENDQ)) {
-		/* Fire want-to-send. */
+		net2_mutex_lock(w->mtx);
+		assert(0); /* TODO: Fire want-to-send. */
 		tx->flags |= TX_ON_SENDQ;
 		TAILQ_INSERT_TAIL(&w->sendq, tx, sendq);
+		net2_mutex_unlock(w->mtx);
 	}
 }
 
-/* Handle transmission ack. */
-ILIAS_NET2_EXPORT void
-n2ow_transmit_ack(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+/* Handle transmission ack and release tx. */
+ILIAS_NET2_LOCAL void
+n2ow_transmit_ack(struct net2_objwin_tx *tx)
 {
+	struct net2_objwin_stub	*w;
 	struct net2_objwin_tx	*next;
+
+	/* Check if the tx is still on the sendq. */
+	if (tx->flags & TX_RELEASED)
+		goto release;
+
+	w = tx->owner;
 
 	/* Take tx from sendq. */
 	if (tx->flags & TX_ON_SENDQ) {
@@ -759,16 +859,130 @@ n2ow_transmit_ack(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
 			w->window_start = next->e_seq;
 		w->flags &= ~STUB_STALLED;
 	}
-
-	/* Remove from txs. */
-	RB_REMOVE(net2_objwin_txs, &w->txs, tx);
-	tx_release(tx);
+release:
+	tx_release(tx, 1);
 }
 
-/* Handle transmission nack. */
-ILIAS_NET2_EXPORT void
-n2ow_transmit_nack(struct net2_objwin_stub *w, struct net2_objwin_tx *tx)
+/* Handle transmission nack and release tx. */
+ILIAS_NET2_LOCAL void
+n2ow_transmit_nack(struct net2_objwin_tx *tx)
 {
-	n2ow_transmit_timeout(w, tx);
-	tx_release(tx);
+	/* Check if the tx is still on the sendq. */
+	if (tx->flags & TX_RELEASED)
+		goto release;
+
+	n2ow_transmit_timeout(tx);
+release:
+	tx_release(tx, 1);
+}
+
+/* Increment the reference counter on the tx. */
+ILIAS_NET2_LOCAL void
+n2ow_transmit_ref(struct net2_objwin_tx *tx)
+{
+	net2_mutex_lock(tx->mtx);
+	tx->refcnt++;
+	net2_mutex_unlock(tx->mtx);
+}
+
+/* Release tx pointer. */
+ILIAS_NET2_LOCAL void
+n2ow_tx_release(struct net2_objwin_tx *tx)
+{
+	tx_release(tx, 1);
+}
+
+/* Supersede and release tx. */
+ILIAS_NET2_LOCAL void
+n2ow_tx_cancel(struct net2_objwin_tx *tx)
+{
+	struct net2_objwin_stub	*w;
+
+	w = tx->owner;
+
+	if (!(tx->flags & TX_RELEASED) && tx->msg != NULL) {
+		net2_buffer_free(tx->msg);
+		tx->msg = NULL;
+
+		if ((tx->flags & (TX_SENT | TX_ON_SENDQ)) == TX_SENT) {
+			net2_mutex_lock(w->mtx);
+			tx->flags |= TX_ON_SENDQ;
+			TAILQ_INSERT_HEAD(&w->sendq, tx, sendq);
+			net2_mutex_unlock(w->mtx);
+		}
+	}
+	tx_release(tx, 1);
+}
+
+/*
+ * Mark the message as finished and release it.
+ *
+ * A message isn't finished until the remote end has finished executing it.
+ * May only be called once.
+ */
+ILIAS_NET2_LOCAL void
+n2ow_transmit_finished(struct net2_objwin_tx *tx)
+{
+	struct net2_objwin_stub	*w;
+
+	w = tx->owner;
+
+	net2_mutex_lock(w->mtx);
+
+	/* Remove from txs. */
+	assert(!(tx->flags & TX_RELEASED));
+	RB_REMOVE(net2_objwin_txs, &w->txs, tx);
+	tx->flags |= TX_RELEASED;
+
+	n2ow_unlock_stub(w);
+
+	tx_release(tx, 1);
+}
+
+/* Add a transmission to the set, returning referenced tx. */
+ILIAS_NET2_LOCAL struct net2_objwin_tx*
+n2ow_tx_add(struct net2_objwin_stub *w, struct net2_buffer *payload, int flags)
+{
+	struct net2_objwin_tx	*tx;
+
+	/* Check argument. */
+	if (payload == NULL)
+		return NULL;
+
+	/* Create new tx. */
+	if ((tx = malloc(sizeof(*tx))) == NULL)
+		goto fail;
+	tx->owner = w;
+	if ((tx->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
+	if ((tx->msg = net2_buffer_copy(payload)) == NULL)
+		goto fail_2;
+	tx->refcnt = 1;
+	tx->flags = 0;
+
+	/* Convert argument flags to internal flags. */
+	if (flags & N2OW_TXADD_BARRIER_PRE)
+		tx->flags |= TX_BARRIER_PRE_INC;
+	if (flags & N2OW_TXADD_BARRIER_POST)
+		tx->flags |= TX_BARRIER_POST_INC;
+	if (flags & N2OW_TXADD_AUTO_SUPERSEDE)
+		tx->flags |= TX_SUPERSEDE;
+
+	/* Insert tx into the window. */
+	net2_mutex_lock(w->mtx);
+	if (TAILQ_EMPTY(&w->sendq) && TAILQ_EMPTY(&w->unsentq))
+		assert(0);	/* TODO: fire ready-to-send */
+	TAILQ_INSERT_TAIL(&w->unsentq, tx, sendq);
+	net2_mutex_unlock(w->mtx);
+
+	return tx;
+
+fail_3:
+	net2_buffer_free(tx->msg);
+fail_2:
+	net2_mutex_free(tx->mtx);
+fail_1:
+	free(tx);
+fail:
+	return NULL;
 }
