@@ -20,7 +20,8 @@ struct net2_objman_group {
 	/* TODO: implement group moving. */
 	/* TODO: implement forwarding mail when group moves. */
 
-	struct net2_objwin	 win;
+	struct net2_objwin	 scheduler;	/* Request scheduler. */
+	struct net2_objwin_stub	*transmittor;	/* Request transmittor. */
 
 	/* TODO: implement object set. */
 	/* TODO: add list of command invocations. */
@@ -95,13 +96,18 @@ RB_PROTOTYPE_STATIC(net2_objman_trx, net2_objman_rx_ticket, id_tree, trx_cmp);
 RB_GENERATE_STATIC(net2_objman_trx, net2_objman_rx_ticket, id_tree, trx_cmp);
 
 
-static int	net2_objmanager_attach(struct net2_connection*,
+static int	 net2_objmanager_attach(struct net2_connection*,
 		    struct net2_conn_acceptor *self);
-static void	net2_objmanager_detach(struct net2_connection*,
+static void	 net2_objmanager_detach(struct net2_connection*,
 		    struct net2_conn_acceptor *self);
-static void	kill_group(struct net2_objman_group*);
-static void	kill_tx_ticket(struct net2_objman_tx_ticket*);
-static void	kill_rx_ticket(struct net2_objman_rx_ticket*);
+static void	 kill_group(struct net2_objman_group*);
+static void	 kill_tx_ticket(struct net2_objman_tx_ticket*);
+static void	 kill_rx_ticket(struct net2_objman_rx_ticket*);
+static struct net2_objman_group
+		*create_group(struct net2_objmanager*, uint32_t);
+static struct net2_objman_group
+		*get_group(struct net2_objmanager*, uint32_t, int);
+static void	 unused_group_id(struct net2_objmanager*);
 
 static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
 	net2_objmanager_detach,
@@ -203,7 +209,8 @@ net2_objmanager_release(struct net2_objmanager *m)
 static void
 kill_group(struct net2_objman_group *g)
 {
-	n2ow_deinit(&g->win);
+	n2ow_deinit(&g->scheduler);
+	n2ow_release_stub(g->transmittor);
 	free(g);
 }
 
@@ -225,4 +232,46 @@ static void
 kill_rx_ticket(struct net2_objman_rx_ticket *trx)
 {
 	assert(0);	/* TODO: implement this. */
+}
+
+/* Create a new group in the object manager. */
+static struct net2_objman_group*
+create_group(struct net2_objmanager *m, uint32_t id)
+{
+	struct net2_objman_group	*g;
+
+	if ((g = malloc(sizeof(*g))) == NULL)
+		goto fail_0;
+	g->id = id;
+	if (n2ow_init(&g->scheduler))
+		goto fail_1;
+	if ((g->transmittor = n2ow_new_stub()) == NULL)
+		goto fail_2;
+
+	if (RB_INSERT(net2_objman_groups, &m->groups, g) != NULL)
+		goto fail_3;
+
+	return g;
+
+fail_3:
+	n2ow_release_stub(g->transmittor);
+fail_2:
+	n2ow_deinit(&g->scheduler);
+fail_1:
+	free(g);
+fail_0:
+	return NULL;
+}
+
+/* Get a group from the object manager. */
+static struct net2_objman_group*
+get_group(struct net2_objmanager *m, uint32_t id, int create)
+{
+	struct net2_objman_group	*g, search;
+
+	search.id = id;
+	g = RB_FIND(net2_objman_groups, &m->groups, &search);
+	if (g == NULL && create)
+		g = create_group(m, id);
+	return g;
 }
