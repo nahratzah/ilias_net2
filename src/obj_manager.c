@@ -18,7 +18,7 @@ struct net2_objman_group {
 				 tree;
 
 	/* TODO: implement group moving. */
-	/* TODO: implement forwarding mail when group moves. */
+	/* TODO: implement forwarding when group moves. */
 
 	struct net2_objwin	 scheduler;	/* Request scheduler. */
 	struct net2_objwin_stub	*transmittor;	/* Request transmittor. */
