@@ -439,7 +439,9 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 fail_2:
 	net2_invocation_ctx_free(invocation);
 fail_1:
-	/* TODO: kill group iff it was created */
+	if (error) {
+		/* TODO: kill group iff it was created */
+	}
 fail_0:
 	if (packet->request.in_param) {
 		net2_cp_destroy_alloc(c, packet->request.method->cm_in,
@@ -456,8 +458,37 @@ static int
 accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
     struct net2_objman_packet *packet)
 {
-	assert(0);	/* TODO: implement */
+	struct net2_objman_group	*g;
+	uint32_t			 seq, barrier;
+	int				 accept;
+	int				 error = -1;	/* Default: fail. */
+
+	/* Lookup group, sequence and barrier. */
+	if ((g = get_group(m, packet->request.invocation.group, 1)) == NULL)
+		goto fail_0;
+	seq = packet->request.invocation.seq;
+	barrier = packet->request.invocation.barrier;
+
+	/* Supersede the message. */
+	if (n2ow_supersede(&g->scheduler, barrier, seq, &accept))
+		goto fail_1;
+
+	if (!accept) {
+		/*
+		 * TODO: check if the command is running and mark it as
+		 * cancelled, so the executing function can cease doing
+		 * work that is no longer relevant.
+		 */
+	}
+
 	return 0;
+
+fail_1:
+	if (error) {
+		/* TODO: kill group iff it was created */
+	}
+fail_0:
+	return error;
 }
 /*
  * Accept command invocation response (OBJMAN_PH_IS_RESPONSE).
