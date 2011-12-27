@@ -35,6 +35,12 @@ int net2_cp_init(struct net2_encdec_ctx*, const struct command_param*,
 ILIAS_NET2_EXPORT
 int net2_cp_destroy(struct net2_encdec_ctx*, const struct command_param*,
     void*, const void*);
+ILIAS_NET2_EXPORT
+int net2_cp_init_alloc(struct net2_encdec_ctx*, const struct command_param*,
+    void**, const void*);
+ILIAS_NET2_EXPORT
+int net2_cp_destroy_alloc(struct net2_encdec_ctx*, const struct command_param*,
+    void**, const void*);
 
 
 struct net2_invocation_ctx;

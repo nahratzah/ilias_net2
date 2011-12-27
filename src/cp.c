@@ -38,6 +38,52 @@ net2_cp_destroy(struct net2_encdec_ctx *c, const struct command_param *cp,
 	return (*cp->cp_delete)(c, val, arg);
 }
 
+/*
+ * Allocate and initialize a command_param.
+ */
+ILIAS_NET2_EXPORT int
+net2_cp_init_alloc(struct net2_encdec_ctx *ctx, const struct command_param *cp,
+    void **ptr, const void *arg)
+{
+	/* Allocate parameter space. */
+	if ((*ptr = malloc(cp->cp_size)) == NULL)
+		goto fail_0;
+	/* Initialize allocated space. */
+	if (net2_cp_init(ctx, cp, *ptr, arg))
+		goto fail_1;
+
+	return 0;
+
+fail_1:
+	free(*ptr);
+	*ptr = NULL;
+fail_0:
+	return -1;
+}
+
+/*
+ * Destroy and release a command param.
+ */
+ILIAS_NET2_EXPORT int
+net2_cp_destroy_alloc(struct net2_encdec_ctx *ctx,
+    const struct command_param *cp, void **ptr, const void *arg)
+{
+	int				 err;
+
+	/* Cannot release what doesn't exist. */
+	if (*ptr == NULL)
+		return 0;
+
+	/* Destroy allocated space. */
+	if ((err = net2_cp_destroy(ctx, cp, *ptr, arg)) == 0) {
+		/* Release parameter space. */
+		free(*ptr);
+		*ptr = NULL;	/* For safety. */
+	}
+
+	return err;
+}
+
 
 struct net2_invocation_ctx {
 	struct net2_objmanager		*man;
@@ -47,79 +93,42 @@ struct net2_invocation_ctx {
 	uint32_t			 error;
 };
 
-/*
- * Allocate and initialize a command_param.
- */
 static int
-init_cp_pointer(struct net2_objmanager *man, const struct command_param *cp,
+init(struct net2_objmanager *man, const struct command_param *cp,
     void **ptr, const void *arg)
 {
 	struct net2_encdec_ctx		*ctx;
+	int				 err;
 
-	/* Creating nothing is easy. */
 	if (cp == NULL) {
 		*ptr = NULL;
 		return 0;
 	}
 
-	/* Prepare encoding context. */
 	if ((ctx = net2_encdec_ctx_newobjman(man)) == NULL)
-		goto fail_0;
-	/* Allocate parameter space. */
-	if ((*ptr = malloc(cp->cp_size)) == NULL)
-		goto fail_1;
-	/* Initialize allocated space. */
-	if (net2_cp_init(ctx, cp, *ptr, arg))
-		goto fail_2;
-
-	/* Release encoding context. */
+		return -1;
+	if ((err = net2_cp_init_alloc(ctx, cp, ptr, arg)) != 0)
+		net2_encdec_ctx_rollback(ctx);
 	net2_encdec_ctx_release(ctx);
-	return 0;
-
-fail_2:
-	free(*ptr);
-	*ptr = NULL;
-fail_1:
-	net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
-fail_0:
-	return -1;
+	return err;
 }
 
-/*
- * Destroy and release a command param.
- */
 static int
-destroy_cp_pointer(struct net2_objmanager *man, const struct command_param *cp,
+destroy(struct net2_objmanager *man, const struct command_param *cp,
     void **ptr, const void *arg)
 {
 	struct net2_encdec_ctx		*ctx;
+	int				 err;
 
-	/* Cannot release what doesn't exist. */
-	if (cp == NULL)
-		return 0;
-	if (*ptr == NULL)
+	if (cp == NULL || *ptr == NULL)
 		return 0;
 
-	/* Prepare encoding context. */
 	if ((ctx = net2_encdec_ctx_newobjman(man)) == NULL)
-		goto fail_0;
-	/* Destroy allocated space. */
-	if (net2_cp_destroy(ctx, cp, *ptr, arg))
-		goto fail_1;
-	/* Release parameter space. */
-	free(*ptr);
-	*ptr = NULL;	/* For safety. */
-
-	/* Release encoding context. */
+		return -1;
+	if ((err = net2_cp_destroy_alloc(ctx, cp, ptr, arg)) != 0)
+		net2_encdec_ctx_rollback(ctx);
 	net2_encdec_ctx_release(ctx);
-	return 0;
-
-fail_1:
-	net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
-fail_0:
-	return -1;
+	return err;
 }
 
 /*
@@ -145,7 +154,7 @@ net2_invocation_ctx_new(struct net2_objmanager *man,
 	ctx->error = 0;
 
 	/* Prepare output space. */
-	if (init_cp_pointer(man, cm->cm_out, &ctx->out_params, NULL))
+	if (init(man, cm->cm_out, &ctx->out_params, NULL))
 		goto fail_1;
 
 	return ctx;
@@ -167,10 +176,10 @@ net2_invocation_ctx_free(struct net2_invocation_ctx *ctx)
 		return;
 
 	/* No ability to handle errors in this path... */
-	destroy_cp_pointer(ctx->man, ctx->invocation->cm_in, ctx->in_params,
-	    NULL);
-	destroy_cp_pointer(ctx->man, ctx->invocation->cm_out, ctx->out_params,
-	    NULL);
+	destroy(ctx->man, ctx->invocation->cm_in,
+	    ctx->in_params, NULL);
+	destroy(ctx->man, ctx->invocation->cm_out,
+	    ctx->out_params, NULL);
 
 	if (ctx->man)
 		net2_objmanager_release(ctx->man);

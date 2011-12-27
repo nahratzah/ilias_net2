@@ -141,10 +141,8 @@ n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 		if (args == NULL)
 			p->request.in_param = NULL;
 		else {
-			p->request.in_param = malloc(args->cp_size);
-			if (p->request.in_param == NULL)
-				goto request_fail_malloc;
-			if (net2_cp_init(c, args, p->request.in_param, NULL))
+			if (net2_cp_init_alloc(c, args, &p->request.in_param,
+			    NULL))
 				goto request_fail_init;
 			if (net2_cp_decode(c, args, p->request.in_param, in,
 			    NULL))
@@ -178,9 +176,7 @@ n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 	 * Failure cleanup for OBJMAN_PH_IS_REQUEST case.
 	 */
 request_fail_decode:
-	net2_cp_destroy(c, args, p->request.in_param, NULL);
+	net2_cp_destroy_alloc(c, args, &p->request.in_param, NULL);
 request_fail_init:
-	free(p->request.in_param);
-request_fail_malloc:
 	return -1;
 }
