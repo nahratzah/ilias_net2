@@ -240,12 +240,10 @@ net2_objmanager_release(struct net2_objmanager *m)
 
 	net2_mutex_lock(m->mtx);
 	assert(m->refcnt > 0);
-	if (--m->refcnt == 0 && m->base.ca_conn == NULL)
-		do_free = 1;
-	else
-		do_free = 0;
+	do_free = (--m->refcnt == 0);
 	net2_mutex_unlock(m->mtx);
 
+	assert(m->base.ca_conn == NULL);
 	if (do_free) {
 		net2_objmanager_deinit(m);
 		free(m);
