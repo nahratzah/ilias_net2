@@ -2,6 +2,7 @@
 #include <ilias/net2/obj_window.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/evbase.h>
+#include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/mutex.h>
 #include "obj_manager_proto.h"
 #include <stdlib.h>
@@ -101,6 +102,9 @@ static int	 net2_objmanager_attach(struct net2_connection*,
 		    struct net2_conn_acceptor *self);
 static void	 net2_objmanager_detach(struct net2_connection*,
 		    struct net2_conn_acceptor *self);
+static void	 net2_objmanager_accept(struct net2_conn_acceptor*,
+		    struct packet_header*, struct net2_buffer**);
+
 static void	 kill_group(struct net2_objman_group*);
 static void	 kill_tx_ticket(struct net2_objman_tx_ticket*);
 static void	 kill_rx_ticket(struct net2_objman_rx_ticket*);
@@ -113,15 +117,16 @@ static void	 unused_group_id(struct net2_objmanager*);
 /*
  * Functions handling different categories of received information.
  */
-static void	 objman_handle_request();
-static void	 objman_handle_completion();
-static void	 objman_handle_objman();
+static int	 accept_request(struct net2_objman_packet*);
+static int	 accept_supersede(struct net2_objman_packet*);
+static int	 accept_response(struct net2_objman_packet*);
+static int	 accept_objman(struct net2_objman_packet*);
 
 
 static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
 	net2_objmanager_detach,
 	net2_objmanager_attach,
-	NULL, /* accept */
+	net2_objmanager_accept,
 	NULL /* get_transmit */
 };
 
@@ -194,7 +199,7 @@ fail:
 }
 
 /* Detach objmanager from connection. */
-void
+static void
 net2_objmanager_detach(struct net2_connection *conn,
     struct net2_conn_acceptor *self)
 {
@@ -202,6 +207,64 @@ net2_objmanager_detach(struct net2_connection *conn,
 
 	m = (struct net2_objmanager*)self;
 	net2_objmanager_release(m);
+}
+
+/* Accept incoming data from connection. */
+static void
+net2_objmanager_accept(struct net2_conn_acceptor *self,
+    struct packet_header *ph, struct net2_buffer **bufptr)
+{
+	struct net2_objmanager		*m;
+	struct net2_objman_packet	 packet;
+	struct net2_encdec_ctx		*ctx;
+
+	m = (struct net2_objmanager*)self;
+	/* Prepare decoding context. */
+	if ((ctx = net2_encdec_ctx_newobjman(m)) != NULL)
+		goto fail_0;
+
+	/* Decode all messages. */
+	while (!net2_buffer_empty(*bufptr)) {
+		if (n2omp_decode_header(ctx, &packet, *bufptr))
+			goto fail_1;
+		switch ((packet.mh.flags & OBJMAN_PH_IS_MASK) >>
+		    OBJMAN_PH_IS_MASK_SHIFT) {
+
+		case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
+			if (accept_request(&packet))
+				goto fail_1;
+			break;
+
+		case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
+			if (accept_supersede(&packet))
+				goto fail_1;
+			break;
+
+		case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
+			if (accept_response(&packet))
+				goto fail_1;
+			break;
+
+		case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
+			if (accept_objman(&packet))
+				goto fail_1;
+			break;
+
+		default:
+			goto fail_1;
+		}
+	}
+
+	/* Release encoding context. */
+	net2_encdec_ctx_release(ctx);
+	return;
+
+fail_1:
+	net2_encdec_ctx_rollback(ctx);
+	net2_encdec_ctx_release(ctx);
+fail_0:
+	/* TODO: kill connection since delivery failed. */
+	return;
 }
 
 /* Create a new obj manager. */
@@ -319,4 +382,50 @@ get_group(struct net2_objmanager *m, uint32_t id, int create)
 	if (g == NULL && create)
 		g = create_group(m, id);
 	return g;
+}
+
+
+/*
+ * Accept command invocation request (OBJMAN_PH_IS_REQUEST).
+ *
+ * Will claim all resources held by packet regardless of succes or failure.
+ */
+static int
+accept_request(struct net2_objman_packet *packet)
+{
+	assert(0);	/* TODO: implement */
+	return 0;
+}
+/*
+ * Accept command invocation supersede (OBJMAN_PH_IS_SUPERSEDE).
+ *
+ * Will claim all resources held by packet regardless of succes or failure.
+ */
+static int
+accept_supersede(struct net2_objman_packet *packet)
+{
+	assert(0);	/* TODO: implement */
+	return 0;
+}
+/*
+ * Accept command invocation response (OBJMAN_PH_IS_RESPONSE).
+ *
+ * Will claim all resources held by packet regardless of succes or failure.
+ */
+static int
+accept_response(struct net2_objman_packet *packet)
+{
+	assert(0);	/* TODO: implement */
+	return 0;
+}
+/*
+ * Accept objman management message (OBJMAN_PH_IS_OBJMAN).
+ *
+ * Will claim all resources held by packet regardless of succes or failure.
+ */
+static int
+accept_objman(struct net2_objman_packet *packet)
+{
+	assert(0);	/* TODO: implement */
+	return 0;
 }
