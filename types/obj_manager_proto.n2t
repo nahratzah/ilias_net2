@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <ilias/net2/types.h>
+#include <ilias/net2/buffer.h>
 
 /*
  * Here are all the protocol messages defined that the objmanager uses to
@@ -9,89 +10,177 @@
 
 /*
  * Protocol header.
- * The flags declare if a objman command is sent.
+ * flags: declare what was sent
  */
 struct net2_objman_proto_header {
-	uint16_t	 flags;		/* Options. */
-#define OBJMAN_PROTO_HEADER_IS_REQUEST	0x8000	/* MSB: objman request */
-	uint16_t	 req;		/* Request ID. */
+	uint32_t	 flags;		/* Options. */
+#define OBJMAN_PH_IS_MASK	0xf0000000	/* Request type mask. */
+#define OBJMAN_PH_IS_MASK_SHIFT	28		/* Shift for switch. */
+#define OBJMAN_PH_IS_OBJMAN	0x00000000	/* MSB: objman request */
+#define OBJMAN_PH_IS_REQUEST	0x10000000	/* New request. */
+#define OBJMAN_PH_IS_RESPONSE	0x20000000	/* Response of request. */
+#define OBJMAN_PH_IS_SUPERSEDE	0x30000000	/* Superseded request. */
 };
 
 /*
- * Acquire the proto request lock.
+ * Objman invocation request.
  *
- * Prio is a random bit pattern, which is compared between two hosts
- * to see which one goes first. The response to this packet is to
- * generate the same request (with a different number) in return.
- *
- * Sending a value of 0, means you release the lock.
- * Sending any other value will either immediately grant the lock
- * (if you sent the largest number) or queue you (based on the number(s)
- * other hosts transmitted).
+ * Describes which method to invoke.
  */
-struct net2_objman_proto_request_start {
-	uint32_t	 prio;
+struct net2_objman_invocation {
+	uint32_t		 seq;		/* Sequence and request ID. */
+	uint32_t		 barrier;	/* Invocation barrier seq. */
+	uint32_t		 group;		/* Main group. */
+	uint32_t		 proto;		/* Method protocol. */
+	uint32_t		 method;	/* Method number. */
 };
 
-/*
- * Protocol negotiation request.
- *
- * Protocol name is sent, with the max supported version and a suggested
- * position.
- */
-struct net2_objman_proto_request {
-	const char	*name;		/* Protocol name. */
-	net2_protocol_t	 version;	/* Max version. */
-	uint32_t	 position;	/* Suggested position. */
+/* Invocation request. */
+struct net2_objman_request {
+	struct net2_objman_invocation
+				 invocation;	/* Invocation header. */
+	const struct command_method
+				*method;	/* Invoked method. */
+	void			*in_param;	/* Input parameters. */
 };
 
+
 /*
- * Protocol negotiation response.
+ * Objman supersede request.
  *
- * The exact meaning of the response depends on the value of flags:
- * ACCEPT:
- *   Protocol with the given name is accepted at the given position.
- * BAD:
- *   Request made no sense.
- *   Usually happens if the protocol is already negotiated or the
- *   given position is unavailable.
- * UNKNOWN:
- *   Protocol is unknown.
- *   position and version are 0.
- *
- * Note that position 0 will never be sent across the wire, since this is
- * the net2_proto version, negotiated by net2_connection.
+ * Describes which request to supersede.
  */
-struct net2_objman_proto_response {
-	const char	*name;
-	uint32_t	 flags;
-#define OBJMAN_PROTO_REQUEST_ACCEPT	0x00000001
-#define OBJMAN_PROTO_REQUEST_BAD	0x00000002
-#define OBJMAN_PROTO_REQUEST_UNKNOWN	0x00000004
-	uint32_t	 position;
-	net2_protocol_t	 version;
+struct net2_objman_supersede {
+	uint32_t		 seq;		/* Sequence and request ID. */
+	uint32_t		 group;		/* Main group. */
 };
+
+
+/*
+ * Objman response.
+ *
+ * Contains the response of an invoked message.
+ */
+struct net2_objman_response {
+	/* TODO: implement. */
+};
+
+
+/* A single data packet from/for objman. */
+struct net2_objman_packet {
+	struct net2_objman_proto_header	mh;
+
+	union {
+		struct net2_objman_request	request;
+		struct net2_objman_supersede	supersede;
+		struct net2_objman_response	response;
+	};
+};
+
+ILIAS_NET2_LOCAL
+int	n2omp_decode_header(struct net2_encdec_ctx*,
+	    struct net2_objman_packet*, struct net2_buffer*);
 
 %%
 #include "obj_manager_proto.h"
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/protocol.h>
+#include <stdlib.h>
 %%
 
 struct net2_objman_proto_header (ctype struct net2_objman_proto_header, protocol net2_proto) {
-	uint16		 flags;
-	uint16		 req;
+	uint32		 flags;
 };
 
-struct net2_objman_proto_request (ctype struct net2_objman_proto_request, protocol net2_proto) {
-	net2_protocol	 version;
-	uint32		 position;
-	string		 name;
+struct net2_objman_invocation (ctype struct net2_objman_invocation, protocol net2_proto) {
+	uint32		 seq;
+	uint32		 barrier;
+	uint32		 group;
+	uint32		 proto;
+	uint32		 method;
 };
 
-struct net2_objman_proto_response (ctype struct net2_objman_proto_response, protocol net2_proto) {
-	net2_protocol	 version;
-	string		 name;
-	int32		 position;
-	int32		 flags;
+struct net2_objman_supersede (ctype struct net2_objman_supersede, protocol net2_proto) {
+	uint32		 seq;
+	uint32		 group;
 };
+
+%%
+
+/* Drain objman packet from in. */
+ILIAS_NET2_LOCAL int
+n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
+    struct net2_buffer *in)
+{
+	const struct net2_protocol	*protocol;
+	const struct command_param	*args;
+
+	/* Decode message header. */
+	if (net2_cp_decode(c, &cp_net2_objman_proto_header, &p->mh, in, NULL))
+		return -1;
+
+	switch ((p->mh.flags & OBJMAN_PH_IS_MASK) >> OBJMAN_PH_IS_MASK_SHIFT) {
+	case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
+		/* Decode invocation header. */
+		if (net2_cp_decode(c, &cp_net2_objman_invocation,
+		    &p->request.invocation, in, NULL))
+			return -1;
+
+		/* Protocol lookup. */
+		if ((protocol = net2_pvlist_get_by_id(&c->ed_proto,
+		    p->request.invocation.proto)) == NULL)
+			return -1;
+
+		/* Method lookup. */
+		if ((p->request.method = net2_protocol_method(protocol,
+		    p->request.invocation.method)) == NULL)
+			return -1;
+		args = p->request.method->cm_in;
+
+		/* Decode parameters. */
+		if (args == NULL)
+			p->request.in_param = NULL;
+		else {
+			p->request.in_param = malloc(args->cp_size);
+			if (p->request.in_param == NULL)
+				goto request_fail_malloc;
+			if (net2_cp_init(c, args, p->request.in_param, NULL))
+				goto request_fail_init;
+			if (net2_cp_decode(c, args, p->request.in_param, in,
+			    NULL))
+				goto request_fail_decode;
+		}
+
+		/* Fully decoded. */
+		break;
+
+	case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
+		if (net2_cp_decode(c, &cp_net2_objman_supersede, &p->supersede,
+		    in, NULL))
+			return -1;
+		break;
+
+	case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
+		return -1;	/* TODO: implement */
+
+	case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
+		return -1;	/* TODO: implement */
+
+	default:
+		/* Message not recognized. */
+		return -1;
+	}
+
+	return 0;
+
+
+	/*
+	 * Failure cleanup for OBJMAN_PH_IS_REQUEST case.
+	 */
+request_fail_decode:
+	net2_cp_destroy(c, args, p->request.in_param, NULL);
+request_fail_init:
+	free(p->request.in_param);
+request_fail_malloc:
+	return -1;
+}

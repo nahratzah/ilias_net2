@@ -36,4 +36,18 @@ ILIAS_NET2_EXPORT
 int net2_cp_destroy(struct net2_encdec_ctx*, const struct command_param*,
     void*, const void*);
 
+
+struct net2_invocation_ctx;
+typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
+    void*, void*);
+
+struct command_method {
+	const struct command_param
+			*cm_in;
+	const struct command_param
+			*cm_out;
+	net2_cm_invocation
+			 cm_method;
+};
+
 #endif /* ILIAS_NET2_CP_H */

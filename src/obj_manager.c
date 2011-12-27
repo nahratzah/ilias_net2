@@ -109,6 +109,14 @@ static struct net2_objman_group
 		*get_group(struct net2_objmanager*, uint32_t, int);
 static void	 unused_group_id(struct net2_objmanager*);
 
+/*
+ * Functions handling different categories of received information.
+ */
+static void	 objman_handle_request();
+static void	 objman_handle_completion();
+static void	 objman_handle_objman();
+
+
 static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
 	net2_objmanager_detach,
 	net2_objmanager_attach,

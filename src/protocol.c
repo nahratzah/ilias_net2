@@ -14,6 +14,14 @@ net2_protocol_type(const struct net2_protocol *p, uint32_t tid)
 	return p->types[tid];
 }
 
+ILIAS_NET2_EXPORT const struct command_method *
+net2_protocol_method(const struct net2_protocol *p, uint32_t mid)
+{
+	if (mid >= p->nummethods)
+		return NULL;
+	return p->methods[mid];
+}
+
 static const struct command_param *net2_cp_array[] = {
 	&cp_uint8,
 	&cp_uint16,
@@ -33,6 +41,11 @@ static const struct command_param *net2_cp_array[] = {
 	&cp_stream_packet
 };
 
+#if 0	/* not yet */
+static const struct command_method *net2_method_array[] = {
+};
+#endif
+
 /*
  * Specification of the base net2 protocol.
  */
@@ -43,6 +56,13 @@ const struct net2_protocol net2_proto = {
 
 	net2_cp_array,
 	sizeof(net2_cp_array) / sizeof(net2_cp_array[0]),
+
+#if 0	/* not yet */
+	net2_method_array,
+	sizeof(net2_method_array) / sizeof(net2_method_array[0]),
+#else
+	NULL, 0,
+#endif
 
 #if 0	/* not yet */
 	net2_proto_types,
@@ -165,4 +185,17 @@ net2_pvlist_merge(struct net2_pvlist *dst, const struct net2_pvlist *src)
 	/* Update dst listsz. */
 	dst->listsz = insert_idx;
 	return 0;
+}
+
+/*
+ * Look for a protocol at a given index.
+ */
+ILIAS_NET2_EXPORT
+const struct net2_protocol	*net2_pvlist_get_by_id(const struct net2_pvlist *pv,
+				    size_t idx)
+{
+	/* TODO: protocol index must be stable and specified at add time. */
+	if (idx >= pv->listsz)
+		return NULL;
+	return pv->list[idx].pv_protocol;
 }

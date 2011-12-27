@@ -26,6 +26,11 @@ struct net2_protocol {
 	/* Number of CP in this protocol. */
 	size_t				 numcp;
 
+	/* Method serialization. */
+	const struct command_method	**methods;
+	/* Number of methods in this protocol. */
+	size_t				 nummethods;
+
 	/* List of types in this context. */
 	const struct net2_objtype	**types;
 	/* Number of types in this context. */
@@ -59,6 +64,9 @@ const struct net2_protocol	 net2_proto;
 ILIAS_NET2_EXPORT
 const struct net2_objtype	*net2_protocol_type(
 				    const struct net2_protocol*, uint32_t);
+ILIAS_NET2_EXPORT
+const struct command_method	*net2_protocol_method(
+				    const struct net2_protocol*, uint32_t);
 
 ILIAS_NET2_EXPORT
 int				 net2_pvlist_init(struct net2_pvlist*);
@@ -73,6 +81,10 @@ int				 net2_pvlist_get(const struct net2_pvlist*,
 ILIAS_NET2_EXPORT
 int				 net2_pvlist_merge(struct net2_pvlist*,
 				    const struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+const struct net2_protocol	*net2_pvlist_get_by_id(const struct net2_pvlist*,
+				    size_t idx);
+
 #ifdef __cplusplus
 }
 #endif
