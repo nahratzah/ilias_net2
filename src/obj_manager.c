@@ -2,6 +2,7 @@
 #include <ilias/net2/obj_window.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/evbase.h>
+#include <ilias/net2/mutex.h>
 #include "obj_manager_proto.h"
 #include <stdlib.h>
 #include <assert.h>
@@ -137,8 +138,16 @@ net2_objmanager_init(struct net2_objmanager *m)
 	RB_INIT(&m->tx_tickets);
 	RB_INIT(&m->rx_tickets);
 	if (net2_pvlist_init(&m->pvlist))
-		return -1;
+		goto fail_0;
+	m->refcnt = 1;
+	if ((m->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
 	return 0;
+
+fail_1:
+	net2_pvlist_deinit(&m->pvlist);
+fail_0:
+	return -1;
 }
 
 /* Destroy object manager. */
@@ -205,12 +214,34 @@ fail_0:
 	return NULL;
 }
 
+/* Reference an objmanager. */
+ILIAS_NET2_EXPORT void
+net2_objmanager_ref(struct net2_objmanager *m)
+{
+	net2_mutex_lock(m->mtx);
+	m->refcnt++;
+	assert(m->refcnt > 0);
+	net2_mutex_unlock(m->mtx);
+}
+
 /* Release an objmanager. */
 ILIAS_NET2_EXPORT void
 net2_objmanager_release(struct net2_objmanager *m)
 {
-	net2_objmanager_deinit(m);
-	free(m);
+	int		do_free;
+
+	net2_mutex_lock(m->mtx);
+	assert(m->refcnt > 0);
+	if (--m->refcnt == 0 && m->base.ca_conn == NULL)
+		do_free = 1;
+	else
+		do_free = 0;
+	net2_mutex_unlock(m->mtx);
+
+	if (do_free) {
+		net2_objmanager_deinit(m);
+		free(m);
+	}
 }
 
 /* Release window group. */

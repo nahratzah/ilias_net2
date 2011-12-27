@@ -55,6 +55,9 @@ struct net2_objmanager {
 				 groups;
 	struct net2_objman_ttx	 tx_tickets;
 	struct net2_objman_trx	 rx_tickets;
+
+	struct net2_mutex	*mtx;		/* Guard. */
+	size_t			 refcnt;	/* Reference counter. */
 };
 #endif /* ilias_net2_EXPORTS */
 
@@ -71,6 +74,9 @@ net2_objmanager_reduce(struct net2_objmanager *m)
 ILIAS_NET2_EXPORT
 struct net2_objmanager	*net2_objmanager_new();
 
+/* Reference an objmanager. */
+ILIAS_NET2_EXPORT
+void			 net2_objmanager_ref(struct net2_objmanager*);
 /* Release an objmanager. */
 ILIAS_NET2_EXPORT
 void			 net2_objmanager_release(struct net2_objmanager*);
