@@ -175,14 +175,22 @@ net2_objmanager_attach(struct net2_connection *conn,
 	struct net2_objmanager	*m;
 
 	m = (struct net2_objmanager*)self;
+	net2_mutex_lock(m->mtx);
 
 	if (m->flags & OM_ATTACHED)
-		return -1;
+		goto fail;
 	m->flags |= OM_ATTACHED;
 
 	if (net2_pvlist_add(&m->pvlist, &net2_proto, conn->n2c_version))
-		return -1;
+		goto fail;
+
+	m->refcnt++;
+	net2_mutex_unlock(m->mtx);
 	return 0;
+
+fail:
+	net2_mutex_unlock(m->mtx);
+	return -1;
 }
 
 /* Detach objmanager from connection. */
@@ -193,7 +201,7 @@ net2_objmanager_detach(struct net2_connection *conn,
 	struct net2_objmanager	*m;
 
 	m = (struct net2_objmanager*)self;
-	assert(0); /* TODO: implement */
+	net2_objmanager_release(m);
 }
 
 /* Create a new obj manager. */
