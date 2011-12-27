@@ -4,6 +4,7 @@
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/cp.h>
 #include "obj_manager_proto.h"
 #include <stdlib.h>
 #include <assert.h>
@@ -117,10 +118,14 @@ static void	 unused_group_id(struct net2_objmanager*);
 /*
  * Functions handling different categories of received information.
  */
-static int	 accept_request(struct net2_objman_packet*);
-static int	 accept_supersede(struct net2_objman_packet*);
-static int	 accept_response(struct net2_objman_packet*);
-static int	 accept_objman(struct net2_objman_packet*);
+static int	 accept_request(struct net2_objmanager*,
+		    struct net2_encdec_ctx*, struct net2_objman_packet*);
+static int	 accept_supersede(struct net2_objmanager*,
+		    struct net2_encdec_ctx*, struct net2_objman_packet*);
+static int	 accept_response(struct net2_objmanager*,
+		    struct net2_encdec_ctx*, struct net2_objman_packet*);
+static int	 accept_objman(struct net2_objmanager*,
+		    struct net2_encdec_ctx*, struct net2_objman_packet*);
 
 
 static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
@@ -231,22 +236,22 @@ net2_objmanager_accept(struct net2_conn_acceptor *self,
 		    OBJMAN_PH_IS_MASK_SHIFT) {
 
 		case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_request(&packet))
+			if (accept_request(m, ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_supersede(&packet))
+			if (accept_supersede(m, ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_response(&packet))
+			if (accept_response(m, ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_objman(&packet))
+			if (accept_objman(m, ctx, &packet))
 				goto fail_1;
 			break;
 
@@ -391,10 +396,56 @@ get_group(struct net2_objmanager *m, uint32_t id, int create)
  * Will claim all resources held by packet regardless of succes or failure.
  */
 static int
-accept_request(struct net2_objman_packet *packet)
+accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
+    struct net2_objman_packet *packet)
 {
+	struct net2_objman_group	*g;
+	uint32_t			 seq, barrier;
+	int				 accept;
+	struct net2_invocation_ctx	*invocation;
+	int				 error = -1;	/* Default: fail. */
+
+	/* Lookup group, sequence and barrier. */
+	if ((g = get_group(m, packet->request.invocation.group, 1)) == NULL)
+		goto fail_0;
+	seq = packet->request.invocation.seq;
+	barrier = packet->request.invocation.barrier;
+
+	/* Create invocation context for this request. */
+	if ((invocation = net2_invocation_ctx_new(m, packet->request.method,
+	    packet->request.in_param)) == NULL)
+		goto fail_1;
+	packet->request.in_param = NULL;	/* Now owned by invocation. */
+
+	/* Ask the scheduler to accept this message. */
+	/* TODO: have the scheduler own the invocation, so it can hand it back to us when the message is to be executed. */
+	if (n2ow_receive(&g->scheduler, barrier, seq, &accept))
+		goto fail_2;
+	if (!accept) {
+		/*
+		 * The packet was not accepted.
+		 *
+		 * This may happen because the packet was already superseded,
+		 * was received twice or has already been processed.
+		 * Therefore this is not an error condition.
+		 */
+		error = 0;
+		goto fail_2;
+	}
+
 	assert(0);	/* TODO: implement */
 	return 0;
+
+fail_2:
+	net2_invocation_ctx_free(invocation);
+fail_1:
+	/* TODO: kill group iff it was created */
+fail_0:
+	if (packet->request.in_param) {
+		net2_cp_destroy_alloc(c, packet->request.method->cm_in,
+		    &packet->request.in_param, NULL);
+	}
+	return error;
 }
 /*
  * Accept command invocation supersede (OBJMAN_PH_IS_SUPERSEDE).
@@ -402,7 +453,8 @@ accept_request(struct net2_objman_packet *packet)
  * Will claim all resources held by packet regardless of succes or failure.
  */
 static int
-accept_supersede(struct net2_objman_packet *packet)
+accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
+    struct net2_objman_packet *packet)
 {
 	assert(0);	/* TODO: implement */
 	return 0;
@@ -413,7 +465,8 @@ accept_supersede(struct net2_objman_packet *packet)
  * Will claim all resources held by packet regardless of succes or failure.
  */
 static int
-accept_response(struct net2_objman_packet *packet)
+accept_response(struct net2_objmanager *m, struct net2_encdec_ctx *c,
+    struct net2_objman_packet *packet)
 {
 	assert(0);	/* TODO: implement */
 	return 0;
@@ -424,7 +477,8 @@ accept_response(struct net2_objman_packet *packet)
  * Will claim all resources held by packet regardless of succes or failure.
  */
 static int
-accept_objman(struct net2_objman_packet *packet)
+accept_objman(struct net2_objmanager *m, struct net2_encdec_ctx *c,
+    struct net2_objman_packet *packet)
 {
 	assert(0);	/* TODO: implement */
 	return 0;
