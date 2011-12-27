@@ -38,6 +38,7 @@ int net2_cp_destroy(struct net2_encdec_ctx*, const struct command_param*,
 
 
 struct net2_invocation_ctx;
+struct net2_objmanager;
 typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
     void*, void*);
 
@@ -49,5 +50,12 @@ struct command_method {
 	net2_cm_invocation
 			 cm_method;
 };
+
+ILIAS_NET2_EXPORT
+struct net2_invocation_ctx
+		*net2_invocation_ctx_new(struct net2_objmanager*,
+		    const struct command_method*, void*);
+ILIAS_NET2_EXPORT
+void		 net2_invocation_ctx_free(struct net2_invocation_ctx*);
 
 #endif /* ILIAS_NET2_CP_H */
