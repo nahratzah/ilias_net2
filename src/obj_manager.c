@@ -107,12 +107,13 @@ static void	 net2_objmanager_accept(struct net2_conn_acceptor*,
 		    struct packet_header*, struct net2_buffer**);
 
 static void	 kill_group(struct net2_objman_group*);
+static void	 rm_group(struct net2_objmanager*, struct net2_objman_group*);
 static void	 kill_tx_ticket(struct net2_objman_tx_ticket*);
 static void	 kill_rx_ticket(struct net2_objman_rx_ticket*);
 static struct net2_objman_group
 		*create_group(struct net2_objmanager*, uint32_t);
 static struct net2_objman_group
-		*get_group(struct net2_objmanager*, uint32_t, int);
+		*get_group(struct net2_objmanager*, uint32_t, int, int*);
 static void	 unused_group_id(struct net2_objmanager*);
 
 /*
@@ -376,16 +377,32 @@ fail_0:
 	return NULL;
 }
 
+/* Remove group from manager. */
+static void
+rm_group(struct net2_objmanager *m, struct net2_objman_group *g)
+{
+	RB_REMOVE(net2_objman_groups, &m->groups, g);
+	kill_group(g);
+}
+
 /* Get a group from the object manager. */
 static struct net2_objman_group*
-get_group(struct net2_objmanager *m, uint32_t id, int create)
+get_group(struct net2_objmanager *m, uint32_t id, int create, int *created)
 {
 	struct net2_objman_group	*g, search;
 
+	/* Didn't create a group. */
+	if (created != NULL)
+		*created = 0;
+
 	search.id = id;
 	g = RB_FIND(net2_objman_groups, &m->groups, &search);
-	if (g == NULL && create)
+	if (g == NULL && create) {
 		g = create_group(m, id);
+		/* Mark created bit. */
+		if (created != NULL && g != NULL)
+			*created = 1;
+	}
 	return g;
 }
 
@@ -404,9 +421,11 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	int				 accept;
 	struct net2_invocation_ctx	*invocation;
 	int				 error = -1;	/* Default: fail. */
+	int				 g_is_new;
 
 	/* Lookup group, sequence and barrier. */
-	if ((g = get_group(m, packet->request.invocation.group, 1)) == NULL)
+	if ((g = get_group(m, packet->request.invocation.group, 1,
+	    &g_is_new)) == NULL)
 		goto fail_0;
 	seq = packet->request.invocation.seq;
 	barrier = packet->request.invocation.barrier;
@@ -440,7 +459,9 @@ fail_2:
 	net2_invocation_ctx_free(invocation);
 fail_1:
 	if (error) {
-		/* TODO: kill group iff it was created */
+		/* kill group iff it was created */
+		if (g_is_new)
+			rm_group(m, g);
 	}
 fail_0:
 	if (packet->request.in_param) {
@@ -462,9 +483,11 @@ accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	uint32_t			 seq, barrier;
 	int				 accept;
 	int				 error = -1;	/* Default: fail. */
+	int				 g_is_new;
 
 	/* Lookup group, sequence and barrier. */
-	if ((g = get_group(m, packet->request.invocation.group, 1)) == NULL)
+	if ((g = get_group(m, packet->request.invocation.group, 1,
+	    &g_is_new)) == NULL)
 		goto fail_0;
 	seq = packet->request.invocation.seq;
 	barrier = packet->request.invocation.barrier;
@@ -485,7 +508,9 @@ accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 
 fail_1:
 	if (error) {
-		/* TODO: kill group iff it was created */
+		/* kill group iff it was created */
+		if (g_is_new)
+			rm_group(m, g);
 	}
 fail_0:
 	return error;
