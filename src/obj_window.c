@@ -57,6 +57,8 @@ struct net2_objwin_recv {
 				 tree;
 	TAILQ_ENTRY(net2_objwin_recv)
 				 barrierq;
+
+	void			*data_ptr;		/* Caller defined. */
 };
 TAILQ_HEAD(net2_objwin_recvq, net2_objwin_recv);
 
@@ -187,7 +189,7 @@ barrier_finished(struct net2_objwin_barrier *b)
 
 /* Free all resources used by the given recv. */
 static void
-kill_recv(struct net2_objwin_recv *r)
+kill_recv(struct net2_objwin_recv *r, net2_objwin_dataptr_free data_ptr_free)
 {
 	struct net2_objwin	*w;
 	struct net2_objwin_barrier
@@ -199,6 +201,10 @@ kill_recv(struct net2_objwin_recv *r)
 
 	w = r->objwin;
 	b = r->barrier;
+	if (r->data_ptr != NULL && data_ptr_free != NULL) {
+		(*data_ptr_free)(r->data_ptr);
+		r->data_ptr = NULL;
+	}
 
 	if (w != NULL)
 		RB_REMOVE(net2_objwin_recvs, &w->recvs, r);
@@ -218,7 +224,8 @@ kill_recv(struct net2_objwin_recv *r)
 
 /* Free all resources used by the given barrier. */
 static void
-kill_barrier(struct net2_objwin_barrier *b)
+kill_barrier(struct net2_objwin_barrier *b,
+    net2_objwin_dataptr_free data_ptr_free)
 {
 	struct net2_objwin	*w;
 	struct net2_objwin_recv	*r;
@@ -231,18 +238,18 @@ kill_barrier(struct net2_objwin_barrier *b)
 	while ((r = TAILQ_FIRST(&b->pending)) != NULL) {
 		assert(r->flags & (E_FINISHED | E_SUPERSEDED));
 
-		kill_recv(r);
+		kill_recv(r, data_ptr_free);
 	}
 	while ((r = TAILQ_FIRST(&b->in_progress)) != NULL) {
 		assert(r->flags & E_IN_PROGRESS);
 
-		kill_recv(r);
+		kill_recv(r, data_ptr_free);
 	}
 	while ((r = TAILQ_FIRST(&b->finished)) != NULL) {
 		assert((r->flags &
 		    (E_FINISHED | E_SUPERSEDED | E_IN_PROGRESS)) == 0);
 
-		kill_recv(r);
+		kill_recv(r, data_ptr_free);
 	}
 
 	if (w != NULL)
@@ -264,7 +271,7 @@ barrier_test_finish(struct net2_objwin_barrier *b)
 
 	if (barrier_finished(b)) {
 		b_seq = b->b_seq;
-		kill_barrier(b);
+		kill_barrier(b, w->data_ptr_free);
 
 		if (w->first_barrier == b_seq) {
 			assert(!RB_EMPTY(&w->barriers));
@@ -300,7 +307,7 @@ update_window_start(struct net2_objwin *w)
 		else
 			wbarrier = b->b_seq;
 
-		kill_recv(r);
+		kill_recv(r, w->data_ptr_free);
 		w->window_barrier = wbarrier;
 		w->window_start++;
 		barrier_test_finish(b);
@@ -387,6 +394,7 @@ n2ow_supersede(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
 		r->objwin = w;
 		r->barrier = b;
 		r->flags = E_SUPERSEDED;
+		r->data_ptr = NULL;
 
 		RB_INSERT(net2_objwin_recvs, &w->recvs, r);
 
@@ -424,7 +432,7 @@ barrier_misordering:
  */
 ILIAS_NET2_LOCAL int
 n2ow_receive(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
-    int *accept)
+    int *accept, void *data_ptr)
 {
 	struct net2_objwin_recv	*r;
 	struct net2_objwin_barrier
@@ -457,6 +465,7 @@ n2ow_receive(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
 	r->flags = 0;
 	r->objwin = w;
 	r->barrier = b;
+	r->data_ptr = data_ptr;
 
 	/* Insert new recv. */
 	RB_INSERT(net2_objwin_recvs, &w->recvs, r);
@@ -540,12 +549,13 @@ n2ow_finished(struct net2_objwin_recv *r)
  * Create a new objwin.
  */
 ILIAS_NET2_LOCAL int
-n2ow_init(struct net2_objwin *w)
+n2ow_init(struct net2_objwin *w, net2_objwin_dataptr_free data_ptr_free)
 {
 	RB_INIT(&w->recvs);
 	RB_INIT(&w->barriers);
 	w->window_start = 0;
 	w->window_barrier = w->first_barrier = w->last_barrier = 0;
+	w->data_ptr_free = data_ptr_free;
 	return 0;
 }
 
@@ -559,7 +569,7 @@ n2ow_deinit(struct net2_objwin *w)
 				*b;
 
 	while ((b = RB_ROOT(&w->barriers)) != NULL)
-		kill_barrier(b);	/* Barrier kills recv. */
+		kill_barrier(b, w->data_ptr_free); /* Barrier kills recv. */
 }
 
 

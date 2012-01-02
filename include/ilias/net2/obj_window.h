@@ -28,6 +28,8 @@ struct net2_objwin_recv;
 struct net2_objwin_tx;
 struct net2_buffer;
 
+/* Free implementation for data_ptr. */
+typedef void (*net2_objwin_dataptr_free)(void*);
 /*
  * Receiver window for object requests.
  */
@@ -41,20 +43,22 @@ struct net2_objwin {
 	uint32_t		window_barrier;		/* Expected barrier. */
 	uint32_t		first_barrier;		/* First in set. */
 	uint32_t		last_barrier;		/* Last in set. */
+	net2_objwin_dataptr_free
+				data_ptr_free;		/* Free function. */
 };
 
 
 ILIAS_NET2_LOCAL
 int	 n2ow_supersede(struct net2_objwin*, uint32_t, uint32_t, int*);
 ILIAS_NET2_LOCAL
-int	 n2ow_receive(struct net2_objwin*, uint32_t, uint32_t, int*);
+int	 n2ow_receive(struct net2_objwin*, uint32_t, uint32_t, int*, void*);
 ILIAS_NET2_LOCAL
 struct net2_objwin_recv
 	*n2ow_get_pending(struct net2_objwin*);
 ILIAS_NET2_LOCAL
 void	 n2ow_finished(struct net2_objwin_recv*);
 ILIAS_NET2_LOCAL
-int	 n2ow_init(struct net2_objwin*);
+int	 n2ow_init(struct net2_objwin*, net2_objwin_dataptr_free);
 ILIAS_NET2_LOCAL
 void	 n2ow_deinit(struct net2_objwin*);
 

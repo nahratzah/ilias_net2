@@ -348,6 +348,13 @@ kill_rx_ticket(struct net2_objman_rx_ticket *trx)
 	assert(0);	/* TODO: implement this. */
 }
 
+/* Release structs held in group-scheduler. */
+static void
+scheduler_release(void *p)
+{
+	net2_invocation_ctx_free((struct net2_invocation_ctx*)p);
+}
+
 /* Create a new group in the object manager. */
 static struct net2_objman_group*
 create_group(struct net2_objmanager *m, uint32_t id)
@@ -357,7 +364,7 @@ create_group(struct net2_objmanager *m, uint32_t id)
 	if ((g = malloc(sizeof(*g))) == NULL)
 		goto fail_0;
 	g->id = id;
-	if (n2ow_init(&g->scheduler))
+	if (n2ow_init(&g->scheduler, &scheduler_release))
 		goto fail_1;
 	if ((g->transmittor = n2ow_new_stub()) == NULL)
 		goto fail_2;
@@ -438,7 +445,7 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 
 	/* Ask the scheduler to accept this message. */
 	/* TODO: have the scheduler own the invocation, so it can hand it back to us when the message is to be executed. */
-	if (n2ow_receive(&g->scheduler, barrier, seq, &accept))
+	if (n2ow_receive(&g->scheduler, barrier, seq, &accept, invocation))
 		goto fail_2;
 	if (!accept) {
 		/*
@@ -447,16 +454,18 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 		 * This may happen because the packet was already superseded,
 		 * was received twice or has already been processed.
 		 * Therefore this is not an error condition.
+		 *
+		 * Failure path will release unused invocation.
 		 */
 		error = 0;
 		goto fail_2;
 	}
 
-	assert(0);	/* TODO: implement */
 	return 0;
 
 fail_2:
-	net2_invocation_ctx_free(invocation);
+	if (invocation)
+		net2_invocation_ctx_free(invocation);
 fail_1:
 	if (error) {
 		/* kill group iff it was created */
