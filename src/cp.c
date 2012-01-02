@@ -4,6 +4,7 @@
 #include <ilias/net2/mutex.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 ILIAS_NET2_EXPORT int
 net2_cp_encode(struct net2_encdec_ctx *c, const struct command_param *cp,
@@ -100,8 +101,9 @@ struct net2_invocation_ctx {
 
 	struct net2_mutex		*mtx;		/* Protect flags. */
 	int				 flags;		/* State flags. */
-#define N2IVCTX_RUNNING			0x00000001	/* Is running. */
-#define N2IVCTX_CANCEL_REQ		0x00000002	/* Cancel requested. */
+#define N2IVCTX_RUNNING			0x00000010	/* Is running. */
+#define N2IVCTX_CANCEL_REQ		0x00000020	/* Cancel requested. */
+#define N2IVCTX_FINISHED		0x0000000f	/* Finish mask. */
 };
 
 static int
@@ -140,6 +142,18 @@ destroy(struct net2_objmanager *man, const struct command_param *cp,
 		net2_encdec_ctx_rollback(ctx);
 	net2_encdec_ctx_release(ctx);
 	return err;
+}
+
+/* Retrieve flags in atomic fashion. */
+static int
+net2_invocation_ctx_flags(struct net2_invocation_ctx *ctx)
+{
+	int				 flags;
+
+	net2_mutex_lock(ctx->mtx);
+	flags = ctx->flags;
+	net2_mutex_unlock(ctx->mtx);
+	return flags;
 }
 
 /*
@@ -221,10 +235,122 @@ net2_invocation_ctx_cancel(struct net2_invocation_ctx *ctx)
 ILIAS_NET2_EXPORT int
 net2_invocation_ctx_is_cancelled(struct net2_invocation_ctx *ctx)
 {
-	int		 cancelled;
+	return (net2_invocation_ctx_flags(ctx) & N2IVCTX_CANCEL_REQ);
+}
+
+/*
+ * Mark invocation as finished, due to cancelled request.
+ */
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_fin(struct net2_invocation_ctx *ctx, int how)
+{
+	int			error = 0;
+
+	/* Check that how is an allowed parameter. */
+	switch (how) {
+	case NET2_IVCTX_FIN_OK:
+	case NET2_IVCTX_FIN_CANCEL:
+	case NET2_IVCTX_FIN_ERROR:
+		break;
+	default:
+		return EINVAL;
+	}
+
+	/* May only be invoked by asynchronous methods. */
+	if (!(ctx->invocation->cm_flags & CM_ASYNC))
+		return EINVAL;
 
 	net2_mutex_lock(ctx->mtx);
-	cancelled = (ctx->flags & N2IVCTX_CANCEL_REQ);
+
+	/* Cannot finish invocation that isn't running. */
+	if (!(ctx->flags & N2IVCTX_RUNNING)) {
+		error = EINVAL;
+		goto out;
+	}
+
+	ctx->flags &= ~N2IVCTX_RUNNING;
+	ctx->flags |= how;
+
+out:
 	net2_mutex_unlock(ctx->mtx);
-	return cancelled;
+	return error;
+}
+
+/*
+ * Start running an invocation.
+ */
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_run(struct net2_invocation_ctx *ctx)
+{
+	int			error = 0;
+	int			invoke_error;
+
+	net2_mutex_lock(ctx->mtx);
+
+	/* Prevent double invocation. */
+	if (ctx->flags & (N2IVCTX_RUNNING | N2IVCTX_FINISHED)) {
+		error = EBUSY;
+		goto out;
+	}
+	/* If cancelled, handle that immediately. */
+	if (ctx->flags & N2IVCTX_CANCEL_REQ) {
+		ctx->flags |= NET2_IVCTX_FIN_CANCEL;
+		goto out;
+	}
+
+	/* Set to running state. */
+	ctx->flags |= N2IVCTX_RUNNING;
+	net2_mutex_unlock(ctx->mtx);
+
+	/* Invoke method and store invocation error. */
+	invoke_error = (*ctx->invocation->cm_method)(ctx, ctx->in_params,
+	    ctx->out_params);
+	/* If the method is async, return immediately. */
+	if (ctx->invocation->cm_flags & CM_ASYNC) {
+		if (invoke_error != 0) {
+			/*
+			 * Invocation failed to start.
+			 */
+			net2_mutex_lock(ctx->mtx);
+			ctx->flags &= ~N2IVCTX_RUNNING;
+			ctx->flags |= NET2_IVCTX_FIN_FAIL;
+			net2_mutex_unlock(ctx->mtx);
+		}
+
+		/* Return invocation error result. */
+		return invoke_error;
+	}
+
+	/*
+	 * Method is not async, thus it completed.
+	 * Mark it as completed.
+	 */
+	net2_mutex_lock(ctx->mtx);
+	ctx->flags &= ~N2IVCTX_RUNNING;
+	if (invoke_error) {
+		ctx->flags |= NET2_IVCTX_FIN_ERROR;
+		ctx->error = invoke_error;
+	} else
+		ctx->flags |= NET2_IVCTX_FIN_OK;
+
+	assert(ctx->flags & N2IVCTX_FINISHED);
+	assert(!(ctx->flags & N2IVCTX_RUNNING));
+
+out:
+	net2_mutex_unlock(ctx->mtx);
+	return error;
+}
+
+/* Return true iff the invocation is in the running state. */
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_is_running(struct net2_invocation_ctx *ctx)
+{
+	return net2_invocation_ctx_flags(ctx) & N2IVCTX_RUNNING;
+}
+
+/* Return the finish state of the invocation. */
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_finished(struct net2_invocation_ctx *ctx)
+{
+	return net2_invocation_ctx_flags(ctx) & N2IVCTX_FINISHED;
 }

@@ -53,6 +53,8 @@ struct command_method {
 			*cm_in;
 	const struct command_param
 			*cm_out;
+	int		 cm_flags;
+#define CM_ASYNC	0x00000001	/* Asynchronous method. */
 	net2_cm_invocation
 			 cm_method;
 };
@@ -67,5 +69,20 @@ ILIAS_NET2_EXPORT
 void		 net2_invocation_ctx_cancel(struct net2_invocation_ctx*);
 ILIAS_NET2_EXPORT
 int		 net2_invocation_ctx_is_cancelled(struct net2_invocation_ctx*);
+
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_run(struct net2_invocation_ctx*);
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_fin(struct net2_invocation_ctx*, int);
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_is_running(struct net2_invocation_ctx*);
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_finished(struct net2_invocation_ctx*);
+
+#define NET2_IVCTX_FIN_UNFINISHED	0	/* Invoc hasn't finished. */
+#define NET2_IVCTX_FIN_OK		1	/* Executed succesful. */
+#define NET2_IVCTX_FIN_CANCEL		2	/* Execution cancelled. */
+#define NET2_IVCTX_FIN_ERROR		3	/* Execution failed. */
+#define NET2_IVCTX_FIN_FAIL		0xf	/* Failed to run. */
 
 #endif /* ILIAS_NET2_CP_H */
