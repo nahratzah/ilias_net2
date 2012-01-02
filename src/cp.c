@@ -392,6 +392,7 @@ net2_invocation_ctx_get_event(struct net2_invocation_ctx *ctx, int evno)
 	return ev;
 }
 
+/* Set event pointer. */
 ILIAS_NET2_EXPORT int
 net2_invocation_ctx_set_event(struct net2_invocation_ctx *ctx, int evno,
     struct event *new_ev, struct event **old_ev)
