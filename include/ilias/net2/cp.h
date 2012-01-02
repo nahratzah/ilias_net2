@@ -45,6 +45,7 @@ int net2_cp_destroy_alloc(struct net2_encdec_ctx*, const struct command_param*,
 
 struct net2_invocation_ctx;
 struct net2_objmanager;
+struct event;	/* from event2/event.h */
 typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
     void*, void*);
 
@@ -78,11 +79,20 @@ ILIAS_NET2_EXPORT
 int		 net2_invocation_ctx_is_running(struct net2_invocation_ctx*);
 ILIAS_NET2_EXPORT
 int		 net2_invocation_ctx_finished(struct net2_invocation_ctx*);
+ILIAS_NET2_EXPORT
+struct event	*net2_invocation_ctx_get_event(struct net2_invocation_ctx*,
+		    int);
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_set_event(struct net2_invocation_ctx*,
+		    int, struct event*, struct event**);
 
 #define NET2_IVCTX_FIN_UNFINISHED	0	/* Invoc hasn't finished. */
 #define NET2_IVCTX_FIN_OK		1	/* Executed succesful. */
 #define NET2_IVCTX_FIN_CANCEL		2	/* Execution cancelled. */
 #define NET2_IVCTX_FIN_ERROR		3	/* Execution failed. */
 #define NET2_IVCTX_FIN_FAIL		0xf	/* Failed to run. */
+
+#define NET2_IVCTX_ON_FINISH		0	/* Finish event. */
+#define NET2_IVCTX__NUM_EVENTS		1	/* Number of events. */
 
 #endif /* ILIAS_NET2_CP_H */

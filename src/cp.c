@@ -2,6 +2,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/obj_manager.h>
 #include <ilias/net2/mutex.h>
+#include <event2/event.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -104,6 +105,9 @@ struct net2_invocation_ctx {
 #define N2IVCTX_RUNNING			0x00000010	/* Is running. */
 #define N2IVCTX_CANCEL_REQ		0x00000020	/* Cancel requested. */
 #define N2IVCTX_FINISHED		0x0000000f	/* Finish mask. */
+
+	struct event			*event[NET2_IVCTX__NUM_EVENTS];
+							/* Events. */
 };
 
 static int
@@ -142,6 +146,21 @@ destroy(struct net2_objmanager *man, const struct command_param *cp,
 		net2_encdec_ctx_rollback(ctx);
 	net2_encdec_ctx_release(ctx);
 	return err;
+}
+
+/* Finish event, fired with cp locked. */
+static void
+ivctx_on_finish(struct net2_invocation_ctx *ctx)
+{
+	struct timeval			 now = { 0, 0 };
+
+	/* No locking: this is always called with ctx locked. */
+
+	if (ctx->event[NET2_IVCTX_ON_FINISH]) {
+		if (!event_pending(ctx->event[NET2_IVCTX_ON_FINISH],
+		    EV_TIMEOUT, NULL))
+			event_add(ctx->event[NET2_IVCTX_ON_FINISH], &now);
+	}
 }
 
 /* Retrieve flags in atomic fashion. */
@@ -270,6 +289,7 @@ net2_invocation_ctx_fin(struct net2_invocation_ctx *ctx, int how)
 
 	ctx->flags &= ~N2IVCTX_RUNNING;
 	ctx->flags |= how;
+	ivctx_on_finish(ctx); /* Fire event. */
 
 out:
 	net2_mutex_unlock(ctx->mtx);
@@ -314,6 +334,7 @@ net2_invocation_ctx_run(struct net2_invocation_ctx *ctx)
 			net2_mutex_lock(ctx->mtx);
 			ctx->flags &= ~N2IVCTX_RUNNING;
 			ctx->flags |= NET2_IVCTX_FIN_FAIL;
+			/* No fin event: invocation failure != finish. */
 			net2_mutex_unlock(ctx->mtx);
 		}
 
@@ -335,6 +356,7 @@ net2_invocation_ctx_run(struct net2_invocation_ctx *ctx)
 
 	assert(ctx->flags & N2IVCTX_FINISHED);
 	assert(!(ctx->flags & N2IVCTX_RUNNING));
+	ivctx_on_finish(ctx); /* We just declared fin. */
 
 out:
 	net2_mutex_unlock(ctx->mtx);
@@ -353,4 +375,34 @@ ILIAS_NET2_EXPORT int
 net2_invocation_ctx_finished(struct net2_invocation_ctx *ctx)
 {
 	return net2_invocation_ctx_flags(ctx) & N2IVCTX_FINISHED;
+}
+
+/* Return event pointer. */
+ILIAS_NET2_EXPORT struct event*
+net2_invocation_ctx_get_event(struct net2_invocation_ctx *ctx, int evno)
+{
+	struct event			*ev;
+
+	if (evno < 0 || evno >= NET2_IVCTX__NUM_EVENTS)
+		return NULL;
+
+	net2_mutex_lock(ctx->mtx);
+	ev = ctx->event[evno];
+	net2_mutex_unlock(ctx->mtx);
+	return ev;
+}
+
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_set_event(struct net2_invocation_ctx *ctx, int evno,
+    struct event *new_ev, struct event **old_ev)
+{
+	if (evno < 0 || evno >= NET2_IVCTX__NUM_EVENTS)
+		return -1;
+
+	net2_mutex_lock(ctx->mtx);
+	if (old_ev)
+		*old_ev = ctx->event[evno];
+	ctx->event[evno] = new_ev;
+	net2_mutex_unlock(ctx->mtx);
+	return 0;
 }
