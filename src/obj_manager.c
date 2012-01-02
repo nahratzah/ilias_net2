@@ -445,7 +445,6 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	packet->request.in_param = NULL;	/* Now owned by invocation. */
 
 	/* Ask the scheduler to accept this message. */
-	/* TODO: have the scheduler own the invocation, so it can hand it back to us when the message is to be executed. */
 	if (n2ow_receive(&g->scheduler, barrier, seq, &accept, invocation))
 		goto fail_2;
 	if (!accept) {
@@ -460,7 +459,8 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 		 */
 		error = 0;
 		goto fail_2;
-	}
+	} else
+		invocation = NULL;	/* Now owned by scheduler. */
 
 	return 0;
 
