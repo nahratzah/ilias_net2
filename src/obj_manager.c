@@ -5,6 +5,9 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/cp.h>
+#include <bsd_compat/error.h>
+#include <bsd_compat/sysexits.h>
+#include <event2/event.h>
 #include "obj_manager_proto.h"
 #include <stdlib.h>
 #include <assert.h>
@@ -130,6 +133,20 @@ static int	 accept_objman(struct net2_objmanager*,
 		    struct net2_encdec_ctx*, struct net2_objman_packet*);
 
 
+/* Run group event info. */
+struct run_group_ev {
+	struct net2_objwin_recv		*recv;
+	struct event			*self;
+	struct net2_objmanager		*m;
+	struct net2_objman_group	*g;
+};
+
+static struct event	*run_group_ev_new(struct net2_objmanager*,
+			    struct net2_objman_group*,
+			    struct net2_objwin_recv*);
+static void		 run_group_ev_free(struct run_group_ev*);
+
+
 static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
 	net2_objmanager_detach,
 	net2_objmanager_attach,
@@ -146,6 +163,7 @@ net2_objmanager_init(struct net2_objmanager *m)
 {
 	m->base.ca_conn = NULL;
 	m->base.ca_fn = &net2_objmanager_cafn;
+	m->evbase = NULL;
 	RB_INIT(&m->groups);
 	RB_INIT(&m->tx_tickets);
 	RB_INIT(&m->rx_tickets);
@@ -176,6 +194,8 @@ net2_objmanager_deinit(struct net2_objmanager *m)
 		kill_tx_ticket(ttx);
 	while ((trx = RB_ROOT(&m->rx_tickets)) != NULL)
 		kill_rx_ticket(trx);
+	if (m->evbase)
+		net2_evbase_release(m->evbase);
 	net2_pvlist_deinit(&m->pvlist);
 }
 
@@ -195,6 +215,9 @@ net2_objmanager_attach(struct net2_connection *conn,
 
 	if (net2_pvlist_add(&m->pvlist, &net2_proto, conn->n2c_version))
 		goto fail;
+
+	net2_evbase_ref(conn->n2c_evbase);
+	m->evbase = conn->n2c_evbase;
 
 	m->refcnt++;
 	net2_mutex_unlock(m->mtx);
@@ -415,6 +438,114 @@ get_group(struct net2_objmanager *m, uint32_t id, int create, int *created)
 }
 
 
+static void
+run_group_fin(int fd, short what, void *cbarg)
+{
+	struct run_group_ev		*arg;
+	struct net2_invocation_ctx	*ctx;
+	int				 error;
+	int				 fin;
+
+	arg = cbarg;
+	ctx = n2ow_data_ptr(arg->recv);
+	assert(ctx != NULL);
+
+	/* Find out how it finished. */
+	fin = net2_invocation_ctx_finished(ctx);
+	switch (fin) {
+	case NET2_IVCTX_FIN_UNFINISHED:
+		abort();	/* Programmer error. */
+		break;
+	case NET2_IVCTX_FIN_OK:
+		assert(0);	/* TODO: implement */
+		break;
+	case NET2_IVCTX_FIN_CANCEL:
+		assert(0);	/* TODO: implement */
+		break;
+	case NET2_IVCTX_FIN_ERROR:
+		assert(0);	/* TODO: implement */
+		break;
+	case NET2_IVCTX_FIN_FAIL:
+		assert(0);	/* TODO: implement */
+		break;
+	default:
+		errx(EX_SOFTWARE, "%s: "
+		    "unrecognized net2_invocation_ctx fin state: %d",
+		    __FUNCTION__, fin);
+		assert(0);	/* TODO: kill connection. */
+	}
+
+	/* Inform group scheduler of command finish. */
+	n2ow_finished(arg->recv);
+	/* Release callback data. */
+	run_group_ev_free(arg);
+}
+
+/* Run all runnable invocations in the given group. */
+static int
+run_group(struct net2_objmanager *m, struct net2_objman_group *g)
+{
+	struct net2_objwin_recv		*recv;
+	struct net2_invocation_ctx	*invocation;
+	int				 error;
+	struct event			*finish_cb;
+
+	/* Unable to run: invalid state. */
+	if (m->evbase == NULL)
+		return EINVAL;
+
+	while ((recv = n2ow_get_pending(&g->scheduler)) != NULL) {
+		finish_cb = run_group_ev_new(m, g, recv);
+		if (finish_cb == NULL) {
+			n2ow_finished(recv); /* TODO: should undo pending change. */
+			return ENOMEM;
+		}
+
+		invocation = n2ow_data_ptr(recv);
+		assert(invocation != NULL);
+
+		error = net2_invocation_ctx_run(invocation);
+		if (error != 0) {
+			n2ow_finished(recv);
+			run_group_ev_free(event_get_callback_arg(finish_cb));
+			return error;
+		}
+	}
+
+	return 0;
+}
+
+/* Create a new run group event info. */
+static struct event*
+run_group_ev_new(struct net2_objmanager *m, struct net2_objman_group *g,
+    struct net2_objwin_recv *recv)
+{
+	struct run_group_ev		*ev;
+
+	if (m->evbase == NULL)
+		return NULL;
+	if ((ev = malloc(sizeof(*ev))) == NULL)
+		return NULL;
+	ev->recv = recv;
+	ev->m = m;
+	ev->g = g;
+	ev->self = event_new(m->evbase->evbase, -1, EV_TIMEOUT,
+	    &run_group_fin, recv);
+	return ev->self;
+}
+
+/* Free a run group event info. */
+static void
+run_group_ev_free(struct run_group_ev *ev)
+{
+	if (ev == NULL)
+		return;
+
+	event_free(ev->self);
+	free(ev);
+}
+
+
 /*
  * Accept command invocation request (OBJMAN_PH_IS_REQUEST).
  *
@@ -462,6 +593,7 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	} else
 		invocation = NULL;	/* Now owned by scheduler. */
 
+	run_group(m, g);
 	return 0;
 
 fail_2:
@@ -526,6 +658,7 @@ accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 		goto fail_1;
 	}
 
+	run_group(m, g);
 	return 0;
 
 fail_1:

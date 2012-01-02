@@ -578,6 +578,13 @@ n2ow_deinit(struct net2_objwin *w)
 		kill_barrier(b, w->data_ptr_free); /* Barrier kills recv. */
 }
 
+/* Return the datapointer. */
+ILIAS_NET2_LOCAL void*
+n2ow_data_ptr(struct net2_objwin_recv *w)
+{
+	return w->data_ptr;
+}
+
 
 /*
  * Transmit side of objwin.

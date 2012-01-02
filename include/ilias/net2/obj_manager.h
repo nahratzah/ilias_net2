@@ -46,6 +46,7 @@ RB_HEAD(net2_objman_trx, net2_objman_rx_ticket);
 struct net2_objmanager {
 	struct net2_conn_acceptor
 				 base;
+	struct net2_evbase	*evbase;
 
 	int			 flags;		/* State flags. */
 	struct net2_pvlist	 pvlist;	/* Negotiated protocols. */

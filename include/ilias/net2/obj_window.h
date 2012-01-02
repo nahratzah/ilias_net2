@@ -61,6 +61,8 @@ ILIAS_NET2_LOCAL
 int	 n2ow_init(struct net2_objwin*, net2_objwin_dataptr_free);
 ILIAS_NET2_LOCAL
 void	 n2ow_deinit(struct net2_objwin*);
+ILIAS_NET2_LOCAL
+void	*n2ow_data_ptr(struct net2_objwin_recv*);
 
 /* Transmission side of objwin. */
 struct net2_objwin_stub;
