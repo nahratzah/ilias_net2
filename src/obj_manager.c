@@ -8,6 +8,7 @@
 #include "obj_manager_proto.h"
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 #define OM_ATTACHED	0x80000000	/* Objman has been attached. */
 
@@ -493,6 +494,8 @@ accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	int				 accept;
 	int				 error = -1;	/* Default: fail. */
 	int				 g_is_new;
+	int				 ow_err;
+	struct net2_invocation_ctx	*invocation;
 
 	/* Lookup group, sequence and barrier. */
 	if ((g = get_group(m, packet->request.invocation.group, 1,
@@ -502,15 +505,25 @@ accept_supersede(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	barrier = packet->request.invocation.barrier;
 
 	/* Supersede the message. */
-	if (n2ow_supersede(&g->scheduler, barrier, seq, &accept))
-		goto fail_1;
-
-	if (!accept) {
+	ow_err = n2ow_supersede(&g->scheduler, barrier, seq, &accept,
+	    (void**)&invocation);
+	switch (ow_err) {
+	case 0:
+		if (!accept) {
+			error = 0;
+			goto fail_1; /* Unaccepted -> rollback. */
+		}
+		break;
+	case EBUSY:
 		/*
-		 * TODO: check if the command is running and mark it as
-		 * cancelled, so the executing function can cease doing
-		 * work that is no longer relevant.
+		 * Inform the invocation that was cancelled.
+		 * Implementation defined if this has any effect.
 		 */
+		if (invocation != NULL)
+			net2_invocation_ctx_cancel(invocation);
+		break;
+	default:
+		goto fail_1;
 	}
 
 	return 0;

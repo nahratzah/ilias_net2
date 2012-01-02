@@ -348,12 +348,15 @@ update_wbarrier_start(struct net2_objwin *w, uint32_t barrier)
  */
 ILIAS_NET2_LOCAL int
 n2ow_supersede(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
-    int *accept)
+    int *accept, void **data_ptr)
 {
 	struct net2_objwin_recv	*r;
 	struct net2_objwin_barrier
 				*b;
 
+	/* Reset dataptr just in case. */
+	if (data_ptr != NULL)
+		*data_ptr = NULL;
 	/*
 	 * Check that the request falls within the recv window.
 	 */
@@ -384,6 +387,9 @@ n2ow_supersede(struct net2_objwin *w, uint32_t barrier, uint32_t seq,
 		TAILQ_REMOVE(&b->pending, r, barrierq);
 		r->flags |= E_SUPERSEDED;
 		TAILQ_INSERT_TAIL(&b->finished, r, barrierq);
+		/* Copy-out user-supplied data. */
+		if (data_ptr)
+			*data_ptr = r->data_ptr;
 	} else {
 		if ((b = find_or_create_barrier(w, barrier)) == NULL)
 			return ENOMEM;

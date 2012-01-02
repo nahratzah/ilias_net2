@@ -49,7 +49,7 @@ struct net2_objwin {
 
 
 ILIAS_NET2_LOCAL
-int	 n2ow_supersede(struct net2_objwin*, uint32_t, uint32_t, int*);
+int	 n2ow_supersede(struct net2_objwin*, uint32_t, uint32_t, int*, void**);
 ILIAS_NET2_LOCAL
 int	 n2ow_receive(struct net2_objwin*, uint32_t, uint32_t, int*, void*);
 ILIAS_NET2_LOCAL
