@@ -63,5 +63,9 @@ struct net2_invocation_ctx
 		    const struct command_method*, void*);
 ILIAS_NET2_EXPORT
 void		 net2_invocation_ctx_free(struct net2_invocation_ctx*);
+ILIAS_NET2_EXPORT
+void		 net2_invocation_ctx_cancel(struct net2_invocation_ctx*);
+ILIAS_NET2_EXPORT
+int		 net2_invocation_ctx_is_cancelled(struct net2_invocation_ctx*);
 
 #endif /* ILIAS_NET2_CP_H */

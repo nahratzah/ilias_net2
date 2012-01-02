@@ -1,6 +1,7 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/obj_manager.h>
+#include <ilias/net2/mutex.h>
 #include <stdlib.h>
 #include <assert.h>
 
@@ -85,12 +86,22 @@ net2_cp_destroy_alloc(struct net2_encdec_ctx *ctx,
 }
 
 
+/*
+ * Invocation context.
+ *
+ * Describes invocation method, input and output parameters.
+ */
 struct net2_invocation_ctx {
-	struct net2_objmanager		*man;
-	const struct command_method	*invocation;
-	void				*in_params;
-	void				*out_params;
-	uint32_t			 error;
+	struct net2_objmanager		*man;		/* Context. */
+	const struct command_method	*invocation;	/* Method decl. */
+	void				*in_params;	/* Input. */
+	void				*out_params;	/* Output. */
+	uint32_t			 error;		/* Error code. */
+
+	struct net2_mutex		*mtx;		/* Protect flags. */
+	int				 flags;		/* State flags. */
+#define N2IVCTX_RUNNING			0x00000001	/* Is running. */
+#define N2IVCTX_CANCEL_REQ		0x00000002	/* Cancel requested. */
 };
 
 static int
@@ -152,13 +163,18 @@ net2_invocation_ctx_new(struct net2_objmanager *man,
 	ctx->invocation = cm;
 	ctx->in_params = in_params;
 	ctx->error = 0;
+	if ((ctx->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
+	ctx->flags = 0;
 
 	/* Prepare output space. */
 	if (init(man, cm->cm_out, &ctx->out_params, NULL))
-		goto fail_1;
+		goto fail_2;
 
 	return ctx;
 
+fail_2:
+	net2_mutex_free(ctx->mtx);
 fail_1:
 	net2_objmanager_release(man);
 	free(ctx);
@@ -183,6 +199,32 @@ net2_invocation_ctx_free(struct net2_invocation_ctx *ctx)
 
 	if (ctx->man)
 		net2_objmanager_release(ctx->man);
+	net2_mutex_free(ctx->mtx);
 
 	free(ctx);
+}
+
+/*
+ * Mark invocation context as cancelled.
+ */
+ILIAS_NET2_EXPORT void
+net2_invocation_ctx_cancel(struct net2_invocation_ctx *ctx)
+{
+	net2_mutex_lock(ctx->mtx);
+	ctx->flags |= N2IVCTX_CANCEL_REQ;
+	net2_mutex_unlock(ctx->mtx);
+}
+
+/*
+ * True iff cancel was requesed.
+ */
+ILIAS_NET2_EXPORT int
+net2_invocation_ctx_is_cancelled(struct net2_invocation_ctx *ctx)
+{
+	int		 cancelled;
+
+	net2_mutex_lock(ctx->mtx);
+	cancelled = (ctx->flags & N2IVCTX_CANCEL_REQ);
+	net2_mutex_unlock(ctx->mtx);
+	return cancelled;
 }
