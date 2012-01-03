@@ -50,16 +50,18 @@ typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
     void*, void*);
 
 struct command_method {
+	const struct net2_protocol
+			*cm_protocol;	/* Protocol of request. */
 	const struct command_param
-			*cm_in;
+			*cm_in;		/* Input type. */
 	const struct command_param
-			*cm_out;
-	int		 cm_flags;
+			*cm_out;	/* Output type. */
+	int		 cm_flags;	/* Command method options. */
 #define CM_ASYNC	0x00000001	/* Asynchronous method. */
 #define CM_BARRIER_PRE	0x00000002	/* Raise barrier prior. */
 #define CM_BARRIER_POST	0x00000004	/* Raise barrier after. */
 	net2_cm_invocation
-			 cm_method;
+			 cm_method;	/* Implementation function. */
 };
 
 ILIAS_NET2_EXPORT
