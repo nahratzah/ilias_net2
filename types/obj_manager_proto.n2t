@@ -163,27 +163,30 @@ ILIAS_NET2_LOCAL int
 n2omp_decode(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
     struct net2_buffer *in)
 {
+	int				 error;
+
 	/* Decode message header. */
-	if (net2_cp_decode(c, &cp_net2_objman_proto_header, &p->mh, in, NULL))
-		return -1;
+	if ((error = net2_cp_decode(c, &cp_net2_objman_proto_header, &p->mh, in,
+	    NULL)) != 0)
+		return error;
 
 	switch ((p->mh.flags & OBJMAN_PH_IS_MASK) >> OBJMAN_PH_IS_MASK_SHIFT) {
 	case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
-		if (net2_cp_decode(c, &cp_net2_objman_request, &p->request,
-		    in, NULL))
-			return -1;
+		if ((error = net2_cp_decode(c, &cp_net2_objman_request,
+		    &p->request, in, NULL)) != 0)
+			return error;
 		break;
 
 	case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
-		if (net2_cp_decode(c, &cp_net2_objman_supersede, &p->supersede,
-		    in, NULL))
-			return -1;
+		if ((error = net2_cp_decode(c, &cp_net2_objman_supersede,
+		    &p->supersede, in, NULL)) != 0)
+			return error;
 		break;
 
 	case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
-		if (net2_cp_decode(c, &cp_net2_objman_response,
-		    &p->response, in, &p->mh))
-			return -1;
+		if ((error = net2_cp_decode(c, &cp_net2_objman_response,
+		    &p->response, in, &p->mh)) != 0)
+			return error;
 		break;
 
 	case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
@@ -191,7 +194,7 @@ n2omp_decode(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 
 	default:
 		/* Message not recognized. */
-		return -1;
+		return EINVAL;
 	}
 
 	return 0;
@@ -391,13 +394,16 @@ static int
 n2om_resp_destroy(struct net2_encdec_ctx *c, struct net2_objman_response *r,
     const struct net2_objman_proto_header *h)
 {
+	int				 error;
+
+	error = 0;
 	if (r->result) {
 		if (r->result_type == NULL)
-			return -1;
-		if (net2_cp_destroy_alloc(c, r->result_type, &r->result, NULL))
-			return -1;
+			return EINVAL;
+		error = net2_cp_destroy_alloc(c, r->result_type,
+		    &r->result, NULL);
 	}
-	return 0;
+	return error;
 }
 
 static int
@@ -477,11 +483,8 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 			    &r->result, NULL)) != 0)
 				return err;
 			if ((err = net2_cp_decode(c, r->result_type, r->result,
-			    in, NULL)) != 0) {
-				net2_cp_destroy_alloc(c, r->result_type,
-				    &r->result, NULL);
+			    in, NULL)) != 0)
 				return err;
-			}
 		}
 		break;
 	}
@@ -558,12 +561,12 @@ n2om_req_decode(struct net2_encdec_ctx *c, struct net2_objman_request *r,
 	/* Protocol lookup. */
 	if ((protocol = net2_pvlist_get_by_id(&c->ed_proto,
 	    r->invocation.proto)) == NULL)
-		return -1;
+		return ESRCH;
 
 	/* Method lookup. */
 	if ((r->method = net2_protocol_method(protocol,
 	    r->invocation.method)) == NULL)
-		return -1;
+		return ESRCH;
 	args = r->method->cm_in;
 
 	/* Decode parameters. */
@@ -574,10 +577,8 @@ n2om_req_decode(struct net2_encdec_ctx *c, struct net2_objman_request *r,
 		    NULL)) != 0)
 			return error;
 		if ((error = net2_cp_decode(c, args, r->in_param, in,
-		    NULL)) != 0) {
-			net2_cp_destroy_alloc(c, args, &r->in_param, NULL);
+		    NULL)) != 0)
 			return error;
-		}
 	}
 
 	return 0;
