@@ -49,6 +49,7 @@ struct net2_objman_tx_ticket {
 	const struct command_param
 				*result_type;	/* Type of result. */
 	void			*result;	/* Result of command. */
+	struct net2_objwin_tx	*objwin_tx;	/* Objwin data. */
 
 	struct {
 		net2_objman_return_cb	 fn;	/* Result callback. */
@@ -725,4 +726,112 @@ ILIAS_NET2_LOCAL const struct command_param*
 net2_objman_ttx_type(struct net2_objman_tx_ticket *tx)
 {
 	return tx->result_type;
+}
+
+
+static int
+n2om_input_to_buffer(struct net2_buffer **buf, struct net2_objmanager *m,
+    const struct command_method *cm, const void *input)
+{
+	int				 error;
+	struct net2_encdec_ctx		*c;
+
+	/* Allocate destination buffer. */
+	if ((*buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	/* Allocate encoding context. */
+	if ((c = net2_encdec_ctx_newobjman(m)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Encode argument. */
+	if ((error = net2_cp_encode(c, cm->cm_in, *buf, input, NULL)) != 0)
+		goto fail_2;
+
+	/* Release encoding context. */
+	net2_encdec_ctx_release(c);
+
+	return 0;
+
+fail_2:
+	net2_encdec_ctx_rollback(c);
+	net2_encdec_ctx_release(c);
+fail_1:
+	net2_buffer_free(*buf);
+fail_0:
+	*buf = NULL;
+	return error;
+}
+
+/* Invoke remote method. */
+ILIAS_NET2_EXPORT int
+net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
+    const struct net2_protocol *proto, const struct command_method *cm,
+    const void *in_params,
+    net2_objman_return_cb cb, void *cb_arg, struct net2_evbase *evbase,
+    struct net2_objman_tx_ticket **txptr)
+{
+	int				 error;
+	struct net2_buffer		*input;
+	struct net2_objman_tx_ticket	*tx;
+	int				 tx_flags;
+
+	/* Calculate objwin_stub flags. */
+	tx_flags = 0;
+	if (cm->cm_flags & CM_BARRIER_PRE)
+		tx_flags |= N2OW_TXADD_BARRIER_PRE;
+	if (cm->cm_flags & CM_BARRIER_POST)
+		tx_flags |= N2OW_TXADD_BARRIER_POST;
+
+	/*
+	 * Create a ticket.
+	 */
+	if ((tx = malloc(sizeof(*tx))) == NULL)
+		return ENOMEM;
+	/* tx->seq is undefined (chosen by transmittor */
+	tx->group = g->id;
+	tx->objman = m;
+	tx->finish_how = NET2_IVCTX_FIN_UNFINISHED;
+	tx->result_type = cm->cm_out;
+	tx->result = NULL;
+	/* tx->objwin_tx is set below. */
+	tx->cb.fn = cb;
+	tx->cb.arg = cb_arg;
+	tx->cb.ev = evbase;
+	/* TODO: make it refcounted. */
+
+	/* Calculate input. */
+	if (cm->cm_in == NULL)
+		input = NULL;
+	else if ((error = n2om_input_to_buffer(&input, m, cm, in_params)) != 0)
+		goto fail_0;
+
+	/* Expose ticket to caller. */
+	if (txptr != NULL) {
+		*txptr = tx;
+		/* TODO: increment refcount. */
+	}
+
+	/* Push ticket into transmittor. */
+	net2_mutex_lock(m->mtx);
+	if ((tx->objwin_tx = n2ow_tx_add(g->transmittor, input,
+	    tx_flags)) == NULL) {
+		net2_mutex_unlock(m->mtx);
+		error = ENOMEM;
+		goto fail_1;
+	}
+	net2_mutex_unlock(m->mtx);
+
+	return 0;
+
+fail_1:
+	net2_buffer_free(input);
+fail_0:
+	free(tx);
+	if (txptr != NULL)
+		*txptr = NULL;
+	return error;
 }

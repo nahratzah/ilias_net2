@@ -56,6 +56,8 @@ struct command_method {
 			*cm_out;
 	int		 cm_flags;
 #define CM_ASYNC	0x00000001	/* Asynchronous method. */
+#define CM_BARRIER_PRE	0x00000002	/* Raise barrier prior. */
+#define CM_BARRIER_POST	0x00000004	/* Raise barrier after. */
 	net2_cm_invocation
 			 cm_method;
 };

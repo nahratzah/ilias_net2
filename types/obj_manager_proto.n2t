@@ -44,6 +44,7 @@ struct net2_objman_request {
 	const struct command_method
 				*method;	/* Invoked method. */
 	void			*in_param;	/* Input parameters. */
+	struct net2_buffer	*in_param_buf;	/* Pre-encoded in_param. */
 };
 
 
@@ -97,7 +98,7 @@ ILIAS_NET2_LOCAL
 int	n2omp_encode_request(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*barrier*/, uint32_t /*group*/,
 	    const struct net2_protocol*, const struct command_method*,
-	    const void*);
+	    struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	n2omp_encode_response_ok(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*group*/,
@@ -205,7 +206,7 @@ ILIAS_NET2_LOCAL int
 n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
     uint32_t seq, uint32_t barrier, uint32_t group,
     const struct net2_protocol *protocol, const struct command_method *cm,
-    const void *in_param)
+    struct net2_buffer *in_param_buf)
 {
 	struct net2_objman_packet	 p;
 	struct net2_objman_request	*r;
@@ -226,7 +227,8 @@ n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 	/* Setup request data. */
 	r->method = cm;
-	r->in_param = (void*)in_param;
+	r->in_param = NULL;
+	r->in_param_buf = in_param_buf;
 
 	/* Encode protocol header. */
 	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
@@ -499,6 +501,7 @@ n2om_req_init(struct net2_encdec_ctx *c, struct net2_objman_request *r,
 {
 	r->method = NULL;
 	r->in_param = NULL;
+	r->in_param_buf = NULL;
 	return 0;
 }
 
@@ -506,12 +509,17 @@ static int
 n2om_req_destroy(struct net2_encdec_ctx *c, struct net2_objman_request *r,
     const struct net2_objman_proto_header *h)
 {
+	int			 error;
+
+	error = 0;
 	if (r->in_param != NULL && r->method != NULL &&
 	    r->method->cm_in != NULL) {
-		return net2_cp_destroy_alloc(c, r->method->cm_in, r->in_param,
+		error = net2_cp_destroy_alloc(c, r->method->cm_in, r->in_param,
 		    NULL);
 	}
-	return 0;
+	if (r->in_param_buf != NULL)
+		net2_buffer_free(r->in_param_buf);
+	return error;
 }
 
 static int
@@ -532,12 +540,17 @@ n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 	/* Encode argument. */
 	if (r->method->cm_in != NULL) {
-		if (r->in_param == NULL)
-			return EINVAL;
+		if (r->in_param_buf != NULL) {
+			if (net2_buffer_append(out, r->in_param_buf))
+				return ENOMEM;
+		} else {
+			if (r->in_param == NULL)
+				return EINVAL;
 
-		if ((error = net2_cp_encode(c, r->method->cm_in, out,
-		    r->in_param, NULL)) != 0)
-			return error;
+			if ((error = net2_cp_encode(c, r->method->cm_in, out,
+			    r->in_param, NULL)) != 0)
+				return error;
+		}
 	}
 
 	return 0;
