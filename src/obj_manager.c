@@ -231,7 +231,7 @@ net2_objmanager_accept(struct net2_conn_acceptor *self,
 
 	/* Decode all messages. */
 	while (!net2_buffer_empty(*bufptr)) {
-		if (n2omp_decode_header(ctx, &packet, *bufptr))
+		if (n2omp_decode(ctx, &packet, *bufptr))
 			goto fail_1;
 		switch ((packet.mh.flags & OBJMAN_PH_IS_MASK) >>
 		    OBJMAN_PH_IS_MASK_SHIFT) {

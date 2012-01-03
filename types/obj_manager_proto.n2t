@@ -89,7 +89,7 @@ struct net2_objman_packet {
 };
 
 ILIAS_NET2_LOCAL
-int	n2omp_decode_header(struct net2_encdec_ctx*,
+int	n2omp_decode(struct net2_encdec_ctx*,
 	    struct net2_objman_packet*, struct net2_buffer*);
 
 %%
@@ -138,7 +138,7 @@ type net2_objman_request (ctype struct net2_objman_request,
 
 /* Drain objman packet from in. */
 ILIAS_NET2_LOCAL int
-n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
+n2omp_decode(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
     struct net2_buffer *in)
 {
 	/* Decode message header. */
