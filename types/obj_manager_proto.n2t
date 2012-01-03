@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <ilias/net2/types.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/protocol.h>
 
 /*
  * Here are all the protocol messages defined that the objmanager uses to
@@ -92,6 +93,12 @@ ILIAS_NET2_LOCAL
 int	n2omp_decode(struct net2_encdec_ctx*,
 	    struct net2_objman_packet*, struct net2_buffer*);
 
+ILIAS_NET2_LOCAL
+int	n2omp_encode_request(struct net2_encdec_ctx*, struct net2_buffer*,
+	    uint32_t /*seq*/, uint32_t /*barrier*/, uint32_t /*group*/,
+	    const struct net2_protocol*, const struct command_method*,
+	    const void*);
+
 %%
 #include "obj_manager_proto.h"
 #include <ilias/net2/ctypes.h>
@@ -171,6 +178,45 @@ n2omp_decode(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 		/* Message not recognized. */
 		return -1;
 	}
+
+	return 0;
+}
+
+/* Encode a request. */
+ILIAS_NET2_LOCAL int
+n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    uint32_t seq, uint32_t barrier, uint32_t group,
+    const struct net2_protocol *protocol, const struct command_method *cm,
+    const void *in_param)
+{
+	struct net2_objman_packet	 p;
+	struct net2_objman_request	*r;
+	int				 error;
+
+	p.mh.flags = OBJMAN_PH_IS_REQUEST << OBJMAN_PH_IS_MASK_SHIFT;
+	r = &p.request;
+
+	/* Fill in invocation values. */
+	r->invocation.seq = seq;
+	r->invocation.barrier = barrier;
+	r->invocation.group = group;
+
+	if (net2_pvlist_get(&c->ed_proto, protocol, &r->invocation.proto))
+		return ESRCH;
+	if (net2_protocol_method_id(protocol, cm, &r->invocation.method))
+		return ESRCH;
+
+	/* Setup request data. */
+	r->method = cm;
+	r->in_param = (void*)in_param;
+
+	/* Encode protocol header. */
+	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
+	    &p.mh, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(c, &cp_net2_objman_request, out,
+	    &p.request, &p.mh)) != 0)
+		return error;
 
 	return 0;
 }
