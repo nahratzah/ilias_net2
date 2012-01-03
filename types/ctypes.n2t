@@ -100,6 +100,7 @@ type net2_protocol (
 #include <sys/types.h>
 #include <bsd_compat/endian.h>
 #include <ilias/net2/buffer.h>
+#include <errno.h>
 
 /* Test if the value can be read from the buffer directly. */
 static __inline void*
@@ -121,13 +122,17 @@ ILIAS_NET2_LOCAL int
 cp_uint8_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, const uint8_t *val, const void *cp_arg)
 {
-	return net2_buffer_add(out, val, sizeof(*val));
+	if (net2_buffer_add(out, val, sizeof(*val)))
+		return ENOMEM;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_uint8_decode(struct net2_encdec_ctx *c,
     uint8_t *val, struct net2_buffer *in, const void *cp_arg)
 {
-	return net2_buffer_remove(in, val, sizeof(*val)) != sizeof(*val);
+	if (net2_buffer_remove(in, val, sizeof(*val)) != sizeof(*val))
+		return EIO;
+	return 0;
 }
 
 ILIAS_NET2_LOCAL int
@@ -135,7 +140,9 @@ cp_uint16_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, const uint16_t *val, const void *cp_arg)
 {
 	uint16_t be = htobe16(*val);
-	return net2_buffer_add(out, &be, sizeof(be));
+	if (net2_buffer_add(out, &be, sizeof(be)))
+		return ENOMEM;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_uint16_decode(struct net2_encdec_ctx *c,
@@ -151,7 +158,7 @@ cp_uint16_decode(struct net2_encdec_ctx *c,
 	}
 
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
-		return -1;
+		return EIO;
 	*val = betoh16(be);
 	return 0;
 }
@@ -161,7 +168,9 @@ cp_uint32_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, const uint32_t *val, const void *cp_arg)
 {
 	uint32_t be = htobe32(*val);
-	return net2_buffer_add(out, &be, sizeof(be));
+	if (net2_buffer_add(out, &be, sizeof(be)))
+		return ENOMEM;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_uint32_decode(struct net2_encdec_ctx *c,
@@ -177,7 +186,7 @@ cp_uint32_decode(struct net2_encdec_ctx *c,
 	}
 
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
-		return -1;
+		return EIO;
 	*val = betoh32(be);
 	return 0;
 }
@@ -187,7 +196,9 @@ cp_uint64_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, const uint64_t *val, const void *cp_arg)
 {
 	uint64_t be = htobe64(*val);
-	return net2_buffer_add(out, &be, sizeof(be));
+	if (net2_buffer_add(out, &be, sizeof(be)))
+		return ENOMEM;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_uint64_decode(struct net2_encdec_ctx *c,
@@ -203,7 +214,7 @@ cp_uint64_decode(struct net2_encdec_ctx *c,
 	}
 
 	if (net2_buffer_remove(in, &be, sizeof(be)) != sizeof(be))
-		return -1;
+		return EIO;
 	*val = betoh64(be);
 	return 0;
 }
@@ -224,10 +235,11 @@ ILIAS_NET2_LOCAL int
 cp_int8_decode(struct net2_encdec_ctx *c,
     int8_t *val, struct net2_buffer *in, const void *cp_arg)
 {
-	uint8_t u;
+	uint8_t	 u;
+	int	 error;
 
-	if (net2_cp_decode(c, &cp_uint8, &u, in, NULL))
-		return -1;
+	if ((error = net2_cp_decode(c, &cp_uint8, &u, in, NULL)) != 0)
+		return error;
 	*val = u & 0x7f;
 	if (u & 0x80)
 		*val -= 0x80;
@@ -251,9 +263,10 @@ cp_int16_decode(struct net2_encdec_ctx *c,
     int16_t *val, struct net2_buffer *in, const void *cp_arg)
 {
 	uint16_t u;
+	int	 error;
 
-	if (net2_cp_decode(c, &cp_uint16, &u, in, NULL))
-		return -1;
+	if ((error = net2_cp_decode(c, &cp_uint16, &u, in, NULL)) != 0)
+		return error;
 	*val = u & 0x7fff;
 	if (u & 0x8000)
 		*val -= 0x8000;
@@ -277,9 +290,10 @@ cp_int32_decode(struct net2_encdec_ctx *c,
     int32_t *val, struct net2_buffer *in, const void *cp_arg)
 {
 	uint32_t u;
+	int	 error;
 
-	if (net2_cp_decode(c, &cp_uint32, &u, in, NULL))
-		return -1;
+	if ((error = net2_cp_decode(c, &cp_uint32, &u, in, NULL)) != 0)
+		return error;
 	*val = u & 0x7fffffff;
 	if (u & 0x80000000)
 		*val -= 0x80000000;
@@ -303,9 +317,10 @@ cp_int64_decode(struct net2_encdec_ctx *c,
     int64_t *val, struct net2_buffer *in, const void *cp_arg)
 {
 	uint64_t u;
+	int	 error;
 
-	if (net2_cp_decode(c, &cp_uint64, &u, in, NULL))
-		return -1;
+	if ((error = net2_cp_decode(c, &cp_uint64, &u, in, NULL)) != 0)
+		return error;
 	*val = u & 0x7fffffffffffffffULL;
 	if (u & 0x8000000000000000ULL)
 		*val -= 0x8000000000000000ULL;
@@ -318,7 +333,7 @@ cp_string_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, char*const*s, const void *cp_arg)
 {
 	if (*s == NULL)
-		return -1;
+		return EINVAL;
 	return net2_buffer_add(out, *s, strlen(*s) + 1);
 }
 ILIAS_NET2_LOCAL int
@@ -330,18 +345,21 @@ cp_string_decode(struct net2_encdec_ctx *c,
 	int			err = 0;
 
 	if (*s != NULL)
-		return -1;
+		return EINVAL;
 
 	if (net2_buffer_search(in, &end, &nullchar, sizeof(nullchar), NULL)) {
-		err = -1;
+		err = EIO;
 		goto out;
 	}
 
 	if ((*s = malloc(end.pos + 1)) == NULL) {
-		err = -1;
+		err = ENOMEM;
 		goto out;
 	}
-	err = net2_buffer_remove(in, *s, end.pos + 1) != end.pos + 1;
+	if (net2_buffer_remove(in, *s, end.pos + 1) != end.pos + 1)
+		err = EIO;
+	else
+		err = 0;
 
 out:
 	if (err != 0 && *s != NULL)
@@ -379,40 +397,42 @@ cp_net2_buffer32_encode(struct net2_encdec_ctx *c,
 	 */
 	sz_full = net2_buffer_length(*buf);
 	if (sz_full >= 0xffffffff)
-		goto fail;
+		return ENOMEM;
 	sz = sz_full;
-	if (net2_cp_encode(c, &cp_uint32, out, &sz, NULL))
-		goto fail;
+	if ((err = net2_cp_encode(c, &cp_uint32, out, &sz, NULL)) != 0)
+		return err;
 
 	/*
 	 * Append the buffer itself.
 	 */
-	err = net2_buffer_append(out, *buf);
-	return err;
+	if (net2_buffer_append(out, *buf))
+		return ENOMEM;
 
-fail:
-	/*
-	 * Cleanup for failure cases.
-	 */
-	return -1;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_net2_buffer32_decode(struct net2_encdec_ctx *c,
     struct net2_buffer**buf, struct net2_buffer *in, const void *cp_arg)
 {
 	uint32_t		 sz;
+	int			 err;
 
 	if (*buf != NULL)
-		return -1;
+		return EINVAL;
 
 	/* Retrieve buffer length. */
-	if (net2_cp_decode(c, &cp_uint32, &sz, in, NULL))
-		goto fail;
+	if ((err = net2_cp_decode(c, &cp_uint32, &sz, in, NULL)) != 0)
+		return err;
 
 	/* Drain in into newly allocated buffer. */
-	*buf = net2_buffer_new();
-	if (net2_buffer_remove_buffer(in, *buf, sz) != sz)
+	if ((*buf = net2_buffer_new()) == NULL) {
+		err = ENOMEM;
+		goto fail;
+	}
+	if (net2_buffer_remove_buffer(in, *buf, sz) != sz) {
+		err = EIO;
 		goto fail_copy;
+	}
 
 	return 0;
 
@@ -420,7 +440,7 @@ fail_copy:
 	net2_buffer_free(*buf);
 	*buf = NULL;
 fail:
-	return -1;
+	return err;
 }
 
 ILIAS_NET2_LOCAL int
@@ -436,40 +456,41 @@ cp_net2_buffer16_encode(struct net2_encdec_ctx *c,
 	 */
 	sz_full = net2_buffer_length(*buf);
 	if (sz_full >= 0xffff)
-		goto fail;
+		return EDOM;
 	sz = sz_full;
-	if (net2_cp_encode(c, &cp_uint16, out, &sz, NULL))
-		goto fail;
+	if ((err = net2_cp_encode(c, &cp_uint16, out, &sz, NULL)) != 0)
+		return err;
 
 	/*
 	 * Append the buffer itself.
 	 */
-	err = net2_buffer_append(out, *buf);
-	return err;
-
-fail:
-	/*
-	 * Cleanup for failure cases.
-	 */
-	return -1;
+	if (net2_buffer_append(out, *buf))
+		return ENOMEM;
+	return 0;
 }
 ILIAS_NET2_LOCAL int
 cp_net2_buffer16_decode(struct net2_encdec_ctx *c,
     struct net2_buffer**buf, struct net2_buffer *in, const void *cp_arg)
 {
 	uint16_t		 sz;
+	int			 err;
 
 	if (*buf != NULL)
-		return -1;
+		return EINVAL;
 
 	/* Retrieve buffer length. */
-	if (net2_cp_decode(c, &cp_uint16, &sz, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint16, &sz, in, NULL)) != 0)
 		goto fail;
 
 	/* Drain in into newly allocated buffer. */
-	*buf = net2_buffer_new();
-	if (net2_buffer_remove_buffer(in, *buf, sz) != sz)
+	if ((*buf = net2_buffer_new()) == NULL) {
+		err = ENOMEM;
+		goto fail;
+	}
+	if (net2_buffer_remove_buffer(in, *buf, sz) != sz) {
+		err = EIO;
 		goto fail_copy;
+	}
 
 	return 0;
 
@@ -477,7 +498,7 @@ fail_copy:
 	net2_buffer_free(*buf);
 	*buf = NULL;
 fail:
-	return -1;
+	return err;
 }
 
 ILIAS_NET2_LOCAL int
@@ -506,25 +527,28 @@ cp_null_stringlist_encode(struct net2_encdec_ctx *c,
 	struct net2_buffer	*tmp;
 	int			 err;
 
-	err = -1;
 	if ((tmp = net2_buffer_new()) == NULL)
-		return -1;
+		return ENOMEM;
 
 	/* Calculate count. */
 	count = 0;
 	for (slist = *slistptr; slist != NULL && *slist != NULL; slist++) {
-		if (++count == 0)	/* Handle overflow. */
+		if (++count == 0) {	/* Handle overflow. */
+			err = EDOM;
 			goto fail;
-		if (cp_string_encode(c, tmp, slist, cp_arg))
+		}
+		if ((err = cp_string_encode(c, tmp, slist, cp_arg)) != 0)
 			goto fail;
 	}
 
 	/* Write count to out. */
-	if (cp_uint16_encode(c, out, &count, cp_arg))
+	if ((err = cp_uint16_encode(c, out, &count, cp_arg)) != 0)
 		goto fail;
 	/* Append encoded data. */
-	if (count > 0 && net2_buffer_append(out, tmp))
+	if (count > 0 && net2_buffer_append(out, tmp)) {
+		err = ENOMEM;
 		goto fail;
+	}
 
 	err = 0;
 fail:
@@ -537,14 +561,17 @@ cp_null_stringlist_decode(struct net2_encdec_ctx *c,
 {
 	char			**slist;
 	uint16_t		 count;
+	int			 err;
 
-	if (cp_uint16_decode(c, &count, in, cp_arg))
-		return -1;
+	if ((err = cp_uint16_decode(c, &count, in, cp_arg)) != 0)
+		return err;
 	*slistptr = slist = calloc((size_t)count + 1, sizeof(*slist));
-	if (slist == NULL)
+	if (slist == NULL) {
+		err = ENOMEM;
 		goto fail;
+	}
 	while (count > 0) {
-		if (cp_string_decode(c, slist, in, cp_arg))
+		if ((err = cp_string_decode(c, slist, in, cp_arg)) != 0)
 			goto fail;
 		count--;
 		slist++;
@@ -559,7 +586,7 @@ fail:
 		free(*slistptr);
 		*slistptr = NULL;
 	}
-	return -1;
+	return err;
 }
 ILIAS_NET2_LOCAL int
 cp_null_stringlist_init(struct net2_encdec_ctx *c,
