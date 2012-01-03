@@ -72,6 +72,8 @@ struct net2_objman_response {
 	const struct command_param
 				*result_type;	/* Type of result. */
 	void			*result;	/* Decoded result. */
+	struct net2_objman_tx_ticket
+				*tx;		/* Ticket. */
 };
 
 
@@ -268,13 +270,23 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 	int				 fin_how;
 	struct net2_objman_tx_ticket	*tx;
 
-	fin_how = (h->flags & OBJMANRESP_PH_FINSTATE);
+	fin_how = r->finish_how = (h->flags & OBJMANRESP_PH_FINSTATE);
 
 	/* Handle sequence and group. */
 	if ((err = net2_cp_decode(c, &cp_uint32, &r->seq, in, NULL)) != 0)
 		return err;
 	if ((err = net2_cp_decode(c, &cp_uint32, &r->group, in, NULL)) != 0)
 		return err;
+
+	/* Require objman to look up ticket. */
+	if (c->ed_objman == NULL)
+		return EINVAL;
+
+	/* Lookup ticket. */
+	tx = r->tx = net2_objmanager_find_tx_ticket(c->ed_objman,
+	    r->seq, r->group);
+	if (tx == NULL)
+		return EFAULT;
 
 	switch (fin_how) {
 	case NET2_IVCTX_FIN_ERROR:
@@ -283,13 +295,7 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 			return err;
 		break;
 	case NET2_IVCTX_FIN_OK:
-		if (c->ed_objman == NULL)
-			return EINVAL;
-
-		if ((tx = net2_objmanager_find_tx_ticket(c->ed_objman,
-		    r->seq, r->group)) == NULL)
-			return EFAULT;
-
+		/* Handle payload for succesful invocation. */
 		r->result_type = net2_objman_ttx_type(tx);
 		if (r->result_type != NULL) {
 			if ((err = net2_cp_init_alloc(c, r->result_type,
@@ -304,7 +310,6 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 		}
 		break;
 	}
-	r->finish_how = fin_how;
 
 	return 0;
 }
