@@ -35,7 +35,6 @@ struct net2_objman_rx_ticket;
 
 RB_HEAD(net2_objman_groups, net2_objman_group);
 RB_HEAD(net2_objman_ttx, net2_objman_tx_ticket);
-RB_HEAD(net2_objman_trx, net2_objman_rx_ticket);
 
 /*
  * Object manager.
@@ -51,11 +50,9 @@ struct net2_objmanager {
 	int			 flags;		/* State flags. */
 	struct net2_pvlist	 pvlist;	/* Negotiated protocols. */
 
-	/* Local groups. */
 	struct net2_objman_groups
-				 groups;
-	struct net2_objman_ttx	 tx_tickets;
-	struct net2_objman_trx	 rx_tickets;
+				 groups;	/* Local groups. */
+	struct net2_objman_ttx	 tx_tickets;	/* Outstanding invocations. */
 
 	struct net2_mutex	*mtx;		/* Guard. */
 	size_t			 refcnt;	/* Reference counter. */

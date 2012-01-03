@@ -20,6 +20,7 @@ struct net2_objman_proto_header {
 #define OBJMAN_PH_IS_REQUEST	0x10000000	/* New request. */
 #define OBJMAN_PH_IS_RESPONSE	0x20000000	/* Response of request. */
 #define OBJMAN_PH_IS_SUPERSEDE	0x30000000	/* Superseded request. */
+#define OBJMANRESP_PH_FINSTATE	0x0000000f	/* Finish how state. */
 };
 
 /*
@@ -62,7 +63,15 @@ struct net2_objman_supersede {
  * Contains the response of an invoked message.
  */
 struct net2_objman_response {
-	/* TODO: implement. */
+	uint32_t		 seq;		/* Sequence and request ID. */
+	uint32_t		 group;		/* Main group. */
+
+	int			 finish_how;	/* How the call finished. */
+	uint32_t		 error;		/* Error code. */
+
+	const struct command_param
+				*result_type;	/* Type of result. */
+	void			*result;	/* Decoded result. */
 };
 
 
@@ -104,6 +113,14 @@ struct net2_objman_supersede (ctype struct net2_objman_supersede, protocol net2_
 	uint32		 seq;
 	uint32		 group;
 };
+
+type net2_objman_response (ctype struct net2_objman_response,
+    argument	struct net2_objman_proto_header,
+    encode	n2om_resp_encode,
+    decode	n2om_resp_decode,
+    init	n2om_resp_init,
+    destroy	n2om_resp_destroy
+);
 
 %%
 
@@ -159,6 +176,10 @@ n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 		break;
 
 	case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
+		if (net2_cp_decode(c, &cp_net2_objman_response,
+		    &p->response, in, &p->mh))
+			return -1;
+
 		return -1;	/* TODO: implement */
 
 	case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
@@ -179,4 +200,101 @@ request_fail_decode:
 	net2_cp_destroy_alloc(c, args, &p->request.in_param, NULL);
 request_fail_init:
 	return -1;
+}
+
+
+static int
+n2om_resp_init(struct net2_encdec_ctx *c, struct net2_objman_response *r,
+    const struct net2_objman_proto_header *h)
+{
+	r->result_type = NULL;
+	r->result = NULL;
+	return 0;
+}
+
+static int
+n2om_resp_destroy(struct net2_encdec_ctx *c, struct net2_objman_response *r,
+    const struct net2_objman_proto_header *h)
+{
+	if (r->result) {
+		if (r->result_type == NULL)
+			return -1;
+		if (net2_cp_destroy_alloc(c, r->result_type, &r->result, NULL))
+			return -1;
+	}
+	return 0;
+}
+
+static int
+n2om_resp_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct net2_objman_response *r,
+    const struct net2_objman_proto_header *h)
+{
+	int	err;
+	int	fin_how;
+
+	fin_how = (h->flags & OBJMANRESP_PH_FINSTATE);
+
+	/* Handle sequence and group. */
+	if ((err = net2_cp_encode(c, &cp_uint32, out, &r->seq, NULL)) != 0)
+		return err;
+	if ((err = net2_cp_encode(c, &cp_uint32, out, &r->group, NULL)) != 0)
+		return err;
+
+	switch (fin_how) {
+	case NET2_IVCTX_FIN_ERROR:
+		/* Handle error code. */
+		if ((err = net2_cp_encode(c, &cp_uint32, out, &r->error, NULL)) != 0)
+			return err;
+		break;
+	case NET2_IVCTX_FIN_OK:
+		if (r->result_type != NULL &&
+		    (err = net2_cp_encode(c, r->result_type, out, r->result, NULL)) != 0)
+			return err;
+		break;
+	}
+
+	return 0;
+}
+
+static int
+n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
+    struct net2_buffer *in,
+    const struct net2_objman_proto_header *h)
+{
+	int	err;
+	int	fin_how;
+
+	fin_how = (h->flags & OBJMANRESP_PH_FINSTATE);
+
+	/* Handle sequence and group. */
+	if ((err = net2_cp_decode(c, &cp_uint32, &r->seq, in, NULL)) != 0)
+		return err;
+	if ((err = net2_cp_decode(c, &cp_uint32, &r->group, in, NULL)) != 0)
+		return err;
+
+	switch (fin_how) {
+	case NET2_IVCTX_FIN_ERROR:
+		/* Handle error code. */
+		if ((err = net2_cp_decode(c, &cp_uint32, &r->error, in, NULL)) != 0)
+			return err;
+		break;
+	case NET2_IVCTX_FIN_OK:
+		r->result_type = ... /* lookup type in c. */
+
+		if (r->result_type != NULL) {
+			if ((err = net2_cp_init_alloc(c, r->result_type,
+			    &r->result, NULL)) != 0)
+				return err;
+			if ((err = net2_cp_decode(c, r->result_type, r->result,
+			    in, NULL)) != 0) {
+				net2_cp_destroy_alloc(c, r->result_type,
+				    &r->result, NULL);
+				return err;
+			}
+		}
+		break;
+	}
+
+	return 0;
 }

@@ -38,39 +38,23 @@ struct net2_objman_group {
  * Remote method invocation ticket (transmittor endpoint).
  */
 struct net2_objman_tx_ticket {
-	uint32_t		 id;		/* Ticket ID. */
+	uint32_t		 seq;		/* Ticket sequence. */
+	uint32_t		 group;		/* Remote group ID. */
+	struct net2_objmanager	*objman;	/* Object manager. */
 	int			 flags;		/* Flags. */
 
 	RB_ENTRY(net2_objman_tx_ticket)
 				 id_tree;	/* ID set. */
 
-	const struct command_invocation
-				*invocation;	/* Invoked command. */
-
-	struct net2_buffer	*in_params;	/* Encoded input. */
+	const struct command_param
+				*result_type;	/* Type of result. */
+	void			*result;	/* Result of command. */
 
 	struct {
 		net2_objman_return_cb	 fn;	/* Result callback. */
 		void			*arg;	/* Result callback arg. */
 		struct net2_evbase	*ev;	/* Callback evbase. */
 	}			 cb;		/* Callback spec. */
-};
-
-/*
- * Remote method invocation ticket (receiver endpoint).
- */
-struct net2_objman_rx_ticket {
-	uint32_t		 id;		/* Ticket ID. */
-	int			 flags;		/* Flags. */
-
-	RB_ENTRY(net2_objman_rx_ticket)
-				 id_tree;	/* ID set. */
-
-	const struct command_invocation
-				*invocation;	/* Invoked command. */
-
-	void			*in_params;	/* Decoded input. */
-	struct net2_buffer	*out_params;	/* Encoded output. */
 };
 
 
@@ -85,13 +69,12 @@ group_cmp(struct net2_objman_group *g1, struct net2_objman_group *g2)
 static __inline int
 ttx_cmp(struct net2_objman_tx_ticket *t1, struct net2_objman_tx_ticket *t2)
 {
-	return (t1->id < t2->id ? -1 : t1->id > t2->id);
-}
-/* Compare rx ticket on ID. */
-static __inline int
-trx_cmp(struct net2_objman_rx_ticket *t1, struct net2_objman_rx_ticket *t2)
-{
-	return (t1->id < t2->id ? -1 : t1->id > t2->id);
+	int			cmp;
+
+	cmp = (t1->group < t2->group ? -1 : t1->group > t2->group);
+	if (cmp == 0)
+		cmp = (t1->seq < t2->seq ? -1 : t1->seq > t2->seq);
+	return cmp;
 }
 
 RB_PROTOTYPE_STATIC(net2_objman_groups, net2_objman_group, tree, group_cmp);
@@ -99,8 +82,6 @@ RB_GENERATE_STATIC(net2_objman_groups, net2_objman_group, tree, group_cmp);
 
 RB_PROTOTYPE_STATIC(net2_objman_ttx, net2_objman_tx_ticket, id_tree, ttx_cmp);
 RB_GENERATE_STATIC(net2_objman_ttx, net2_objman_tx_ticket, id_tree, ttx_cmp);
-RB_PROTOTYPE_STATIC(net2_objman_trx, net2_objman_rx_ticket, id_tree, trx_cmp);
-RB_GENERATE_STATIC(net2_objman_trx, net2_objman_rx_ticket, id_tree, trx_cmp);
 
 
 static int	 net2_objmanager_attach(struct net2_connection*,
@@ -113,7 +94,6 @@ static void	 net2_objmanager_accept(struct net2_conn_acceptor*,
 static void	 kill_group(struct net2_objman_group*);
 static void	 rm_group(struct net2_objmanager*, struct net2_objman_group*);
 static void	 kill_tx_ticket(struct net2_objman_tx_ticket*);
-static void	 kill_rx_ticket(struct net2_objman_rx_ticket*);
 static struct net2_objman_group
 		*create_group(struct net2_objmanager*, uint32_t);
 static struct net2_objman_group
@@ -166,7 +146,6 @@ net2_objmanager_init(struct net2_objmanager *m)
 	m->evbase = NULL;
 	RB_INIT(&m->groups);
 	RB_INIT(&m->tx_tickets);
-	RB_INIT(&m->rx_tickets);
 	if (net2_pvlist_init(&m->pvlist))
 		goto fail_0;
 	m->refcnt = 1;
@@ -186,14 +165,11 @@ net2_objmanager_deinit(struct net2_objmanager *m)
 {
 	struct net2_objman_group	*g;
 	struct net2_objman_tx_ticket	*ttx;
-	struct net2_objman_rx_ticket	*trx;
 
 	while ((g = RB_ROOT(&m->groups)) != NULL)
 		kill_group(g);
 	while ((ttx = RB_ROOT(&m->tx_tickets)) != NULL)
 		kill_tx_ticket(ttx);
-	while ((trx = RB_ROOT(&m->rx_tickets)) != NULL)
-		kill_rx_ticket(trx);
 	if (m->evbase)
 		net2_evbase_release(m->evbase);
 	net2_pvlist_deinit(&m->pvlist);
@@ -356,20 +332,26 @@ kill_group(struct net2_objman_group *g)
 static void
 kill_tx_ticket(struct net2_objman_tx_ticket *ttx)
 {
+	struct net2_encdec_ctx	*c;
+	int			 error;
+
 	if (ttx->cb.fn != NULL)
 		assert(0); /* TODO: invoke callback with "destroyed" error. */
 
 	if (ttx->cb.ev != NULL)
 		net2_evbase_release(ttx->cb.ev);
-	net2_buffer_free(ttx->in_params);
+	if (ttx->result) {
+		c = net2_encdec_ctx_newobjman(ttx->objman);
+		if (c == NULL)
+			assert(0);	/* TODO: handle failure? */
+		error = net2_cp_destroy_alloc(c, ttx->result_type,
+		    ttx->result, NULL);
+		if (error)
+			net2_encdec_ctx_rollback(c);
+		net2_encdec_ctx_release(c);
+		assert(error == 0);	/* TODO: handle error */
+	}
 	free(ttx);
-}
-
-/* Release rx ticket. */
-static void
-kill_rx_ticket(struct net2_objman_rx_ticket *trx)
-{
-	assert(0);	/* TODO: implement this. */
 }
 
 /* Release structs held in group-scheduler. */
