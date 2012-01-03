@@ -105,6 +105,7 @@ struct net2_invocation_ctx {
 #define N2IVCTX_RUNNING			0x00000010	/* Is running. */
 #define N2IVCTX_CANCEL_REQ		0x00000020	/* Cancel requested. */
 #define N2IVCTX_FINISHED		0x0000000f	/* Finish mask. */
+#define N2IVCTX_FINISH_FIRED		0x00010000	/* Finish has fired. */
 
 	struct event			*event[NET2_IVCTX__NUM_EVENTS];
 							/* Events. */
@@ -156,10 +157,15 @@ ivctx_on_finish(struct net2_invocation_ctx *ctx)
 
 	/* No locking: this is always called with ctx locked. */
 
+	/* Fire only once. */
+	if (ctx->flags & N2IVCTX_FINISH_FIRED)
+		return;
+
 	if (ctx->event[NET2_IVCTX_ON_FINISH]) {
 		if (!event_pending(ctx->event[NET2_IVCTX_ON_FINISH],
 		    EV_TIMEOUT, NULL))
 			event_add(ctx->event[NET2_IVCTX_ON_FINISH], &now);
+		ctx->flags |= N2IVCTX_FINISH_FIRED;
 	}
 }
 
@@ -404,6 +410,9 @@ net2_invocation_ctx_set_event(struct net2_invocation_ctx *ctx, int evno,
 	if (old_ev)
 		*old_ev = ctx->event[evno];
 	ctx->event[evno] = new_ev;
+
+	if (ctx->flags & N2IVCTX_FINISHED)
+		ivctx_on_finish(ctx);
 	net2_mutex_unlock(ctx->mtx);
 	return 0;
 }
