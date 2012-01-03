@@ -67,6 +67,7 @@ struct windowheader {
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/protocol.h>
 #include <stdlib.h>
+#include <errno.h>
 %%
 struct winrange (
     ctype struct winrange,
@@ -126,51 +127,59 @@ whencode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 {
 	size_t		i;
 	uint32_t	pad = 0;
+	int		err;
 
 	if (wh->num_recv > 0 && wh->recv == NULL)
-		goto fail;
+		return EINVAL;
 	if (wh->num_lost > 0 && wh->lost == NULL)
-		goto fail;
+		return EINVAL;
 	if (wh->num_bad > 0 && wh->bad == NULL)
+		return EINVAL;
+
+	if ((err = net2_cp_encode(c, &cp_uint32, out, &wh->tx_start,
+	    NULL)) != 0)
 		goto fail;
 
-	if (net2_cp_encode(c, &cp_uint32, out, &wh->tx_start, NULL))
+	if ((err = net2_cp_encode(c, &cp_uint8, out, &wh->flags,
+	    NULL)) != 0)
 		goto fail;
-
-	if (net2_cp_encode(c, &cp_uint8, out, &wh->flags, NULL))
+	if ((err = net2_cp_encode(c, &cp_uint8, out, &wh->num_recv,
+	    NULL)) != 0)
 		goto fail;
-	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_recv, NULL))
+	if ((err = net2_cp_encode(c, &cp_uint8, out, &wh->num_lost,
+	    NULL)) != 0)
 		goto fail;
-	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_lost, NULL))
-		goto fail;
-	if (net2_cp_encode(c, &cp_uint8, out, &wh->num_bad, NULL))
+	if ((err = net2_cp_encode(c, &cp_uint8, out, &wh->num_bad,
+	    NULL)) != 0)
 		goto fail;
 
 	for (i = 0; i < wh->num_recv; i++) {
-		if (net2_cp_encode(c, &cp_winrange, out, &wh->recv[i],
-		    NULL))
+		if ((err = net2_cp_encode(c, &cp_winrange, out, &wh->recv[i],
+		    NULL)) != 0)
 			goto fail;
 	}
 
 	for (i = 0; i < wh->num_lost; i++) {
-		if (net2_cp_encode(c, &cp_winrange, out, &wh->lost[i],
-		    NULL))
+		if ((err = net2_cp_encode(c, &cp_winrange, out, &wh->lost[i],
+		    NULL)) != 0)
 			goto fail;
 	}
 
 	for (i = 0; i < wh->num_bad; i++) {
-		if (net2_cp_encode(c, &cp_uint32, out, &wh->bad[i], NULL))
+		if ((err = net2_cp_encode(c, &cp_uint32, out, &wh->bad[i],
+		    NULL)) != 0)
 			goto fail;
 	}
 	if (wh->num_bad & 0x1) {
-		if (net2_cp_encode(c, &cp_uint32, out, &pad, NULL))
+		if ((err = net2_cp_encode(c, &cp_uint32, out, &pad,
+		    NULL)) != 0)
 			goto fail;
 	}
 
 	return 0;
 
 fail:
-	return -1;
+	return err;
 }
 
 static int
@@ -179,54 +188,65 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 {
 	size_t		i;
 	uint32_t	pad;
+	int		err;
 
 	if (wh->recv != NULL || wh->lost != NULL || wh->bad != NULL)
-		return -1;
+		return EINVAL;
 
-	if (net2_cp_decode(c, &cp_uint32, &wh->tx_start, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint32, &wh->tx_start, in, NULL)) != 0)
 		goto fail;
 
-	if (net2_cp_decode(c, &cp_uint8, &wh->flags, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint8, &wh->flags, in, NULL)) != 0)
 		goto fail;
-	if (net2_cp_decode(c, &cp_uint8, &wh->num_recv, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint8, &wh->num_recv, in, NULL)) != 0)
 		goto fail;
-	if (net2_cp_decode(c, &cp_uint8, &wh->num_lost, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint8, &wh->num_lost, in, NULL)) != 0)
 		goto fail;
-	if (net2_cp_decode(c, &cp_uint8, &wh->num_bad, in, NULL))
+	if ((err = net2_cp_decode(c, &cp_uint8, &wh->num_bad, in, NULL)) != 0)
 		goto fail;
 
 	if (wh->num_recv > 0) {
 		if ((wh->recv =
-		    malloc((size_t)wh->num_recv * sizeof(*wh->recv))) == NULL)
+		    malloc((size_t)wh->num_recv * sizeof(*wh->recv))) == NULL) {
+			err = ENOMEM;
 			goto fail;
+		}
 	}
 	if (wh->num_lost > 0) {
 		if ((wh->lost =
-		    malloc((size_t)wh->num_lost * sizeof(*wh->lost))) == NULL)
+		    malloc((size_t)wh->num_lost * sizeof(*wh->lost))) == NULL) {
+			err = ENOMEM;
 			goto fail;
+		}
 	}
 	if (wh->num_bad > 0) {
 		if ((wh->bad =
-		    malloc((size_t)wh->num_bad * sizeof(*wh->bad))) == NULL)
+		    malloc((size_t)wh->num_bad * sizeof(*wh->bad))) == NULL) {
+			err = ENOMEM;
 			goto fail;
+		}
 	}
 
 	for (i = 0; i < wh->num_recv; i++) {
-		if (net2_cp_decode(c, &cp_winrange, &wh->recv[i], in, NULL))
+		if ((err = net2_cp_decode(c, &cp_winrange, &wh->recv[i], in,
+		    NULL)) != 0)
 			goto fail;
 	}
 
 	for (i = 0; i < wh->num_lost; i++) {
-		if (net2_cp_decode(c, &cp_winrange, &wh->lost[i], in, NULL))
+		if ((err = net2_cp_decode(c, &cp_winrange, &wh->lost[i], in,
+		    NULL)) != 0)
 			goto fail;
 	}
 
 	for (i = 0; i < wh->num_bad; i++) {
-		if (net2_cp_decode(c, &cp_uint32, &wh->bad[i], in, NULL))
+		if ((err = net2_cp_decode(c, &cp_uint32, &wh->bad[i], in,
+		    NULL)) != 0)
 			goto fail;
 	}
 	if (wh->num_bad & 0x1) {
-		if (net2_cp_decode(c, &cp_uint32, &pad, in, NULL))
+		if ((err = net2_cp_decode(c, &cp_uint32, &pad, in,
+		    NULL)) != 0)
 			goto fail;
 	}
 
@@ -245,5 +265,5 @@ fail:
 		free(wh->bad);
 		wh->bad = NULL;
 	}
-	return -1;
+	return err;
 }
