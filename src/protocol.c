@@ -22,6 +22,24 @@ net2_protocol_method(const struct net2_protocol *p, uint32_t mid)
 	return p->methods[mid];
 }
 
+ILIAS_NET2_EXPORT int
+net2_protocol_method_id(const struct net2_protocol *p,
+    const struct command_method *cm, uint32_t *id_ptr)
+{
+	uint32_t	id;
+
+	if (cm == NULL)
+		return -1;
+
+	for (id = 0; id < p->nummethods; id++) {
+		if (p->methods[id] == cm) {
+			*id_ptr = id;
+			return 0;
+		}
+	}
+	return -1;
+}
+
 static const struct command_param *net2_cp_array[] = {
 	&cp_uint8,
 	&cp_uint16,

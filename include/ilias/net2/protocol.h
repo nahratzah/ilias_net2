@@ -67,6 +67,10 @@ const struct net2_objtype	*net2_protocol_type(
 ILIAS_NET2_EXPORT
 const struct command_method	*net2_protocol_method(
 				    const struct net2_protocol*, uint32_t);
+ILIAS_NET2_EXPORT
+int				 net2_protocol_method_id(
+				    const struct net2_protocol*,
+				    const struct command_method*, uint32_t*);
 
 ILIAS_NET2_EXPORT
 int				 net2_pvlist_init(struct net2_pvlist*);
