@@ -99,6 +99,18 @@ int	n2omp_encode_request(struct net2_encdec_ctx*, struct net2_buffer*,
 	    const struct net2_protocol*, const struct command_method*,
 	    const void*);
 ILIAS_NET2_LOCAL
+int	n2omp_encode_response_ok(struct net2_encdec_ctx*, struct net2_buffer*,
+	    uint32_t /*seq*/, uint32_t /*group*/,
+	    const struct command_method*, const void*);
+ILIAS_NET2_LOCAL
+int	n2omp_encode_response_error(struct net2_encdec_ctx*,
+	    struct net2_buffer*, uint32_t /*seq*/, uint32_t /*group*/,
+	    uint32_t /*error*/);
+ILIAS_NET2_LOCAL
+int	n2omp_encode_response_generic(struct net2_encdec_ctx*,
+	    struct net2_buffer*, uint32_t /*seq*/, uint32_t /*group*/,
+	    int /*finish_how*/);
+ILIAS_NET2_LOCAL
 int	n2omp_encode_supersede(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*group*/);
 
@@ -196,7 +208,7 @@ n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
 	struct net2_objman_request	*r;
 	int				 error;
 
-	p.mh.flags = OBJMAN_PH_IS_REQUEST << OBJMAN_PH_IS_MASK_SHIFT;
+	p.mh.flags = OBJMAN_PH_IS_REQUEST;
 	r = &p.request;
 
 	/* Fill in invocation values. */
@@ -224,6 +236,120 @@ n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
 	return 0;
 }
 
+ILIAS_NET2_LOCAL int
+n2omp_encode_response_ok(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    uint32_t seq, uint32_t group,
+    const struct command_method *cm, const void *out_param)
+{
+	struct net2_objman_packet	 p;
+	struct net2_objman_response	*r;
+	int				 error;
+
+	if (cm == NULL)
+		return EINVAL;
+
+	p.mh.flags = OBJMAN_PH_IS_RESPONSE;
+	r = &p.response;
+
+	/* Fill in response ID. */
+	r->seq = seq;
+	r->group = group;
+	r->finish_how = NET2_IVCTX_FIN_OK;
+	r->error = 0;
+	r->result_type = cm->cm_out;
+	r->result = (void*)out_param;
+	r->tx = NULL;	/* Unused during encoding. */
+
+	/* Apply finstate to header flags. */
+	if (r->finish_how & ~OBJMANRESP_PH_FINSTATE)
+		return ERANGE;
+	p.mh.flags |= (r->finish_how & OBJMANRESP_PH_FINSTATE);
+
+	/* Encode protocol header. */
+	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
+	    &p.mh, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(c, &cp_net2_objman_response, out,
+	    r, &p.mh)) != 0)
+		return error;
+
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+n2omp_encode_response_error(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    uint32_t seq, uint32_t group, uint32_t errorcode)
+{
+	struct net2_objman_packet	 p;
+	struct net2_objman_response	*r;
+	int				 error;
+
+	p.mh.flags = OBJMAN_PH_IS_RESPONSE;
+	r = &p.response;
+
+	/* Fill in response ID. */
+	r->seq = seq;
+	r->group = group;
+	r->finish_how = NET2_IVCTX_FIN_ERROR;
+	r->error = errorcode;
+	r->result_type = NULL;
+	r->result = NULL;
+	r->tx = NULL;	/* Unused during encoding. */
+
+	/* Apply finstate to header flags. */
+	if (r->finish_how & ~OBJMANRESP_PH_FINSTATE)
+		return ERANGE;
+	p.mh.flags |= (r->finish_how & OBJMANRESP_PH_FINSTATE);
+
+	/* Encode protocol header. */
+	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
+	    &p.mh, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(c, &cp_net2_objman_response, out,
+	    r, &p.mh)) != 0)
+		return error;
+
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+n2omp_encode_response_generic(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, uint32_t seq, uint32_t group, int finish_how)
+{
+	struct net2_objman_packet	 p;
+	struct net2_objman_response	*r;
+	int				 error;
+
+	if (finish_how == NET2_IVCTX_FIN_OK ||
+	    finish_how == NET2_IVCTX_FIN_ERROR)
+		return EINVAL;
+
+	p.mh.flags = OBJMAN_PH_IS_RESPONSE;
+	r = &p.response;
+
+	/* Fill in response ID. */
+	r->seq = seq;
+	r->group = group;
+	r->finish_how = finish_how;
+	r->error = 0;
+	r->result_type = NULL;
+	r->result = NULL;
+	r->tx = NULL;	/* Unused during encoding. */
+
+	/* Apply finstate to header flags. */
+	if (r->finish_how & ~OBJMANRESP_PH_FINSTATE)
+		return ERANGE;
+	p.mh.flags |= (r->finish_how & OBJMANRESP_PH_FINSTATE);
+
+	/* Encode protocol header. */
+	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
+	    &p.mh, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(c, &cp_net2_objman_response, out,
+	    r, &p.mh)) != 0)
+		return error;
+
+	return 0;
+}
+
 /* Encode request supersede. */
 ILIAS_NET2_LOCAL int
 n2omp_encode_supersede(struct net2_encdec_ctx *c, struct net2_buffer *out,
@@ -233,7 +359,7 @@ n2omp_encode_supersede(struct net2_encdec_ctx *c, struct net2_buffer *out,
 	struct net2_objman_supersede	*s;
 	int				 error;
 
-	p.mh.flags = OBJMAN_PH_IS_SUPERSEDE << OBJMAN_PH_IS_MASK_SHIFT;
+	p.mh.flags = OBJMAN_PH_IS_SUPERSEDE;
 	s = &p.supersede;
 
 	/* Fill in supersede values. */
