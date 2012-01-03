@@ -1368,7 +1368,7 @@ create_compound_encoder(struct np_struct *s)
 		err(EX_OSERR, "fprintf");
 
 	/* Begin function body. */
-	if (fprintf(cfile, "{\n") < 0)
+	if (fprintf(cfile, "{\n\tint err = 0;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
 	if (compound_need_version(s))
@@ -1453,7 +1453,7 @@ create_compound_decoder(struct np_struct *s)
 		err(EX_OSERR, "fprintf");
 
 	/* Begin function body. */
-	if (fprintf(cfile, "{\n") < 0)
+	if (fprintf(cfile, "{\n\tint err = 0;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
 	if (compound_need_version(s))
@@ -1540,7 +1540,7 @@ create_compound_initfun(struct np_struct *s)
 		err(EX_OSERR, "fprintf");
 
 	/* Begin function body. */
-	if (fprintf(cfile, "{\n\tint err = -1;\n") < 0)
+	if (fprintf(cfile, "{\n\tint err = 0, d_err;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
 	if (compound_need_version(s))
@@ -1618,7 +1618,7 @@ create_compound_destroyfun(struct np_struct *s)
 	if (fprintf(cfile, "{\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Define error result. */
-	if (fprintf(cfile, "\tint err = 0;\n") < 0)
+	if (fprintf(cfile, "\tint err = 0, d_err;\n") < 0)
 		err(EX_OSERR, "fprintf");
 	/* Extract version. */
 	if (compound_need_version(s))
@@ -1657,9 +1657,9 @@ create_compound_encode_sm(const char *indent, struct np_structmember *sm)
 		arg_prefix = "";
 	}
 
-	if (fprintf(cfile, "%sif (net2_cp_encode(c, &cp_%s,\n"
-	    "%s    out, &val->%s, %s%s))\n"
-	    "%s\treturn -1;\n",
+	if (fprintf(cfile, "%sif ((err = net2_cp_encode(c, &cp_%s,\n"
+	    "%s    out, &val->%s, %s%s)) != 0)\n"
+	    "%s\treturn err;\n",
 	    indent, sm->npsm_type,
 	    indent, sm->npsm_name, arg_prefix, arg,
 	    indent
@@ -1683,9 +1683,9 @@ create_compound_decode_sm(const char *indent, struct np_structmember *sm)
 		arg_prefix = "";
 	}
 
-	if (fprintf(cfile, "%sif (net2_cp_decode(c, &cp_%s,\n"
-	    "%s    &val->%s, in, %s%s))\n"
-	    "%s\treturn -1;\n",
+	if (fprintf(cfile, "%sif ((err = net2_cp_decode(c, &cp_%s,\n"
+	    "%s    &val->%s, in, %s%s)) != 0)\n"
+	    "%s\treturn err;\n",
 	    indent, sm->npsm_type,
 	    indent, sm->npsm_name, arg_prefix, arg,
 	    indent
@@ -1709,7 +1709,7 @@ create_compound_init_sm(const char *indent, struct np_structmember *sm, int idx)
 		arg_prefix = "";
 	}
 
-	if (fprintf(cfile, "%sif (net2_cp_init(c, &cp_%s, &val->%s, %s%s))\n"
+	if (fprintf(cfile, "%sif ((err = net2_cp_init(c, &cp_%s, &val->%s, %s%s)) != 0)\n"
 	    "%s\tgoto fail_%d;\n",
 	    indent, sm->npsm_type, sm->npsm_name, arg_prefix, arg,
 	    indent, idx
@@ -1734,8 +1734,8 @@ create_compound_destroy_sm(const char *indent, struct np_structmember *sm)
 	}
 
 	if (fprintf(cfile,
-	    "%sif (net2_cp_destroy(c, &cp_%s, &val->%s, %s%s))\n"
-	    "%s\terr = -1;\n",
+	    "%sif ((d_err = net2_cp_destroy(c, &cp_%s, &val->%s, %s%s)) != 0 && err != 0)\n"
+	    "%s\terr = d_err;\n",
 	    indent, sm->npsm_type, sm->npsm_name, arg_prefix, arg,
 	    indent
 	    ) < 0)
