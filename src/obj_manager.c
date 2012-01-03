@@ -41,7 +41,7 @@ struct net2_objman_tx_ticket {
 	uint32_t		 seq;		/* Ticket sequence. */
 	uint32_t		 group;		/* Remote group ID. */
 	struct net2_objmanager	*objman;	/* Object manager. */
-	int			 flags;		/* Flags. */
+	int			 finish_how;	/* Finish how. */
 
 	RB_ENTRY(net2_objman_tx_ticket)
 				 id_tree;	/* ID set. */
@@ -576,7 +576,7 @@ accept_request(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 		invocation = NULL;	/* Now owned by scheduler. */
 
 	run_group(m, g);
-	return 0;
+	error = 0;
 
 fail_2:
 	if (invocation)
@@ -661,8 +661,34 @@ static int
 accept_response(struct net2_objmanager *m, struct net2_encdec_ctx *c,
     struct net2_objman_packet *packet)
 {
-	assert(0);	/* TODO: implement */
-	return 0;
+	struct net2_objman_response	*resp;
+	struct net2_objman_tx_ticket	*tx;
+	int				 error = -1;	/* Default: fail. */
+
+	tx = packet->response.tx;	/* Looked up by decoder. */
+	assert(tx != NULL);
+
+	/* Prevent duplicate delivery. */
+	if (tx->finish_how != 0) {
+		error = 0;
+		goto fail_0;
+	}
+
+	/* Claim result, unless a previous result was claimed. */
+	tx->finish_how = packet->response.finish_how;
+	tx->result = packet->response.result;
+	packet->response.result = NULL;
+
+	assert(0); /* TODO: future is done */
+
+	error = 0;
+
+fail_0:
+	if (packet->response.result) {
+		net2_cp_destroy_alloc(c, packet->response.result_type,
+		    &packet->response.result, NULL);
+	}
+	return error;
 }
 /*
  * Accept objman management message (OBJMAN_PH_IS_OBJMAN).
