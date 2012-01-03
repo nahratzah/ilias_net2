@@ -98,6 +98,9 @@ int	n2omp_encode_request(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*barrier*/, uint32_t /*group*/,
 	    const struct net2_protocol*, const struct command_method*,
 	    const void*);
+ILIAS_NET2_LOCAL
+int	n2omp_encode_supersede(struct net2_encdec_ctx*, struct net2_buffer*,
+	    uint32_t /*seq*/, uint32_t /*group*/);
 
 %%
 #include "obj_manager_proto.h"
@@ -215,7 +218,34 @@ n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
 	    &p.mh, NULL)) != 0)
 		return error;
 	if ((error = net2_cp_encode(c, &cp_net2_objman_request, out,
-	    &p.request, &p.mh)) != 0)
+	    r, &p.mh)) != 0)
+		return error;
+
+	return 0;
+}
+
+/* Encode request supersede. */
+ILIAS_NET2_LOCAL int
+n2omp_encode_supersede(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    uint32_t seq, uint32_t group)
+{
+	struct net2_objman_packet	 p;
+	struct net2_objman_supersede	*s;
+	int				 error;
+
+	p.mh.flags = OBJMAN_PH_IS_SUPERSEDE << OBJMAN_PH_IS_MASK_SHIFT;
+	s = &p.supersede;
+
+	/* Fill in supersede values. */
+	s->seq = seq;
+	s->group = group;
+
+	/* Encode protocol header. */
+	if ((error = net2_cp_encode(c, &cp_net2_objman_proto_header, out,
+	    &p.mh, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(c, &cp_net2_objman_supersede, out,
+	    s, &p.mh)) != 0)
 		return error;
 
 	return 0;
