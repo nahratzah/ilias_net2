@@ -126,6 +126,14 @@ type net2_objman_response (ctype struct net2_objman_response,
     destroy	n2om_resp_destroy
 );
 
+type net2_objman_request (ctype struct net2_objman_request,
+    argument	struct net2_objman_proto_header,
+    encode	n2om_req_encode,
+    decode	n2om_req_decode,
+    init	n2om_req_init,
+    destroy	n2om_req_destroy
+);
+
 %%
 
 /* Drain objman packet from in. */
@@ -133,44 +141,15 @@ ILIAS_NET2_LOCAL int
 n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
     struct net2_buffer *in)
 {
-	const struct net2_protocol	*protocol;
-	const struct command_param	*args;
-
 	/* Decode message header. */
 	if (net2_cp_decode(c, &cp_net2_objman_proto_header, &p->mh, in, NULL))
 		return -1;
 
 	switch ((p->mh.flags & OBJMAN_PH_IS_MASK) >> OBJMAN_PH_IS_MASK_SHIFT) {
 	case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
-		/* Decode invocation header. */
-		if (net2_cp_decode(c, &cp_net2_objman_invocation,
-		    &p->request.invocation, in, NULL))
+		if (net2_cp_decode(c, &cp_net2_objman_request, &p->request,
+		    in, NULL))
 			return -1;
-
-		/* Protocol lookup. */
-		if ((protocol = net2_pvlist_get_by_id(&c->ed_proto,
-		    p->request.invocation.proto)) == NULL)
-			return -1;
-
-		/* Method lookup. */
-		if ((p->request.method = net2_protocol_method(protocol,
-		    p->request.invocation.method)) == NULL)
-			return -1;
-		args = p->request.method->cm_in;
-
-		/* Decode parameters. */
-		if (args == NULL)
-			p->request.in_param = NULL;
-		else {
-			if (net2_cp_init_alloc(c, args, &p->request.in_param,
-			    NULL))
-				goto request_fail_init;
-			if (net2_cp_decode(c, args, p->request.in_param, in,
-			    NULL))
-				goto request_fail_decode;
-		}
-
-		/* Fully decoded. */
 		break;
 
 	case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
@@ -183,8 +162,7 @@ n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 		if (net2_cp_decode(c, &cp_net2_objman_response,
 		    &p->response, in, &p->mh))
 			return -1;
-
-		return -1;	/* TODO: implement */
+		break;
 
 	case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
 		return -1;	/* TODO: implement */
@@ -195,15 +173,6 @@ n2omp_decode_header(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 	}
 
 	return 0;
-
-
-	/*
-	 * Failure cleanup for OBJMAN_PH_IS_REQUEST case.
-	 */
-request_fail_decode:
-	net2_cp_destroy_alloc(c, args, &p->request.in_param, NULL);
-request_fail_init:
-	return -1;
 }
 
 
@@ -309,6 +278,85 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 			}
 		}
 		break;
+	}
+
+	return 0;
+}
+
+
+static int
+n2om_req_init(struct net2_encdec_ctx *c, struct net2_objman_request *r,
+    const struct net2_objman_proto_header *h)
+{
+	r->method = NULL;
+	r->in_param = NULL;
+	return 0;
+}
+
+static int
+n2om_req_destroy(struct net2_encdec_ctx *c, struct net2_objman_request *r,
+    const struct net2_objman_proto_header *h)
+{
+	if (r->in_param != NULL && r->method != NULL &&
+	    r->method->cm_in != NULL) {
+		return net2_cp_destroy_alloc(c, r->method->cm_in, r->in_param,
+		    NULL);
+	}
+	return 0;
+}
+
+static int
+n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct net2_objman_request *r,
+    const struct net2_objman_proto_header *h)
+{
+	int				 error;
+
+	if ((error = net2_cp_encode(c, &cp_net2_objman_invocation, out,
+	    &r->invocation, NULL)) != 0)
+		return error;
+
+	return -1;/* TODO: implement */
+}
+
+static int
+n2om_req_decode(struct net2_encdec_ctx *c, struct net2_objman_request *r,
+    struct net2_buffer *in, const struct net2_objman_proto_header *h)
+{
+	int				 error;
+	const struct net2_protocol	*protocol;
+	const struct command_param	*args;
+
+	if (r->in_param != NULL)
+		return EINVAL;
+
+	if ((error = net2_cp_decode(c, &cp_net2_objman_invocation,
+	    &r->invocation, in, NULL)) != 0)
+		return error;
+
+	/* Protocol lookup. */
+	if ((protocol = net2_pvlist_get_by_id(&c->ed_proto,
+	    r->invocation.proto)) == NULL)
+		return -1;
+
+	/* Method lookup. */
+	if ((r->method = net2_protocol_method(protocol,
+	    r->invocation.method)) == NULL)
+		return -1;
+	args = r->method->cm_in;
+
+	/* Decode parameters. */
+	if (args == NULL)
+		r->in_param = NULL;
+	else {
+		if ((error = net2_cp_init_alloc(c, args, &r->in_param,
+		    NULL)) != 0)
+			return error;
+		if ((error = net2_cp_decode(c, args, r->in_param, in,
+		    NULL)) != 0) {
+			net2_cp_destroy_alloc(c, args, &r->in_param, NULL);
+			return error;
+		}
 	}
 
 	return 0;
