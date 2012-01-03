@@ -94,7 +94,9 @@ int	n2omp_decode_header(struct net2_encdec_ctx*,
 #include "obj_manager_proto.h"
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/protocol.h>
+#include <ilias/net2/obj_manager.h>
 #include <stdlib.h>
+#include <errno.h>
 %%
 
 struct net2_objman_proto_header (ctype struct net2_objman_proto_header, protocol net2_proto) {
@@ -262,8 +264,9 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
     struct net2_buffer *in,
     const struct net2_objman_proto_header *h)
 {
-	int	err;
-	int	fin_how;
+	int				 err;
+	int				 fin_how;
+	struct net2_objman_tx_ticket	*tx;
 
 	fin_how = (h->flags & OBJMANRESP_PH_FINSTATE);
 
@@ -280,8 +283,14 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 			return err;
 		break;
 	case NET2_IVCTX_FIN_OK:
-		r->result_type = ... /* lookup type in c. */
+		if (c->ed_objman == NULL)
+			return EINVAL;
 
+		if ((tx = net2_objmanager_find_tx_ticket(c->ed_objman,
+		    r->seq, r->group)) == NULL)
+			return EFAULT;
+
+		r->result_type = net2_objman_ttx_type(tx);
 		if (r->result_type != NULL) {
 			if ((err = net2_cp_init_alloc(c, r->result_type,
 			    &r->result, NULL)) != 0)
@@ -295,6 +304,7 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 		}
 		break;
 	}
+	r->finish_how = fin_how;
 
 	return 0;
 }

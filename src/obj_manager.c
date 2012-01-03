@@ -676,3 +676,27 @@ accept_objman(struct net2_objmanager *m, struct net2_encdec_ctx *c,
 	assert(0);	/* TODO: implement */
 	return 0;
 }
+
+
+/* Locate tx ticket based on group and sequence. */
+ILIAS_NET2_LOCAL struct net2_objman_tx_ticket*
+net2_objmanager_find_tx_ticket(struct net2_objmanager *m,
+    uint32_t seq, uint32_t group)
+{
+	struct net2_objman_tx_ticket	*result, search;
+
+	search.seq = seq;
+	search.group = group;
+
+	net2_mutex_lock(m->mtx);
+	result = RB_FIND(net2_objman_ttx, &m->tx_tickets, &search);
+	net2_mutex_unlock(m->mtx);
+	return result;
+}
+
+/* Return the type of a tx ticket. */
+ILIAS_NET2_LOCAL const struct command_param*
+net2_objman_ttx_type(struct net2_objman_tx_ticket *tx)
+{
+	return tx->result_type;
+}

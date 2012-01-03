@@ -70,14 +70,25 @@ net2_objmanager_reduce(struct net2_objmanager *m)
 
 /* Create a new obj manager. */
 ILIAS_NET2_EXPORT
-struct net2_objmanager	*net2_objmanager_new();
+struct net2_objmanager
+		*net2_objmanager_new();
 
 /* Reference an objmanager. */
 ILIAS_NET2_EXPORT
-void			 net2_objmanager_ref(struct net2_objmanager*);
+void		 net2_objmanager_ref(struct net2_objmanager*);
 /* Release an objmanager. */
 ILIAS_NET2_EXPORT
-void			 net2_objmanager_release(struct net2_objmanager*);
+void		 net2_objmanager_release(struct net2_objmanager*);
+
+#ifdef ilias_net2_EXPORTS
+ILIAS_NET2_LOCAL
+struct net2_objman_tx_ticket*
+		 net2_objmanager_find_tx_ticket(struct net2_objmanager*,
+		    uint32_t, uint32_t);
+ILIAS_NET2_LOCAL
+const struct command_param*
+		 net2_objman_ttx_type(struct net2_objman_tx_ticket*);
+#endif /* ilias_net2_EXPORTS */
 
 #ifdef __cplusplus
 }
