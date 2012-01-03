@@ -331,7 +331,7 @@ n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 			return error;
 	}
 
-	return 0;/* TODO: implement */
+	return 0;
 }
 
 static int
