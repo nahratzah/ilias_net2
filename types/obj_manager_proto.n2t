@@ -312,11 +312,26 @@ n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 {
 	int				 error;
 
+	/* Require method to be declared. */
+	if (r->method == NULL)
+		return EINVAL;
+
+	/* Encode invocation. */
 	if ((error = net2_cp_encode(c, &cp_net2_objman_invocation, out,
 	    &r->invocation, NULL)) != 0)
 		return error;
 
-	return -1;/* TODO: implement */
+	/* Encode argument. */
+	if (r->method->cm_in != NULL) {
+		if (r->in_param == NULL)
+			return EINVAL;
+
+		if ((error = net2_cp_encode(c, r->method->cm_in, out,
+		    r->in_param, NULL)) != 0)
+			return error;
+	}
+
+	return 0;/* TODO: implement */
 }
 
 static int
