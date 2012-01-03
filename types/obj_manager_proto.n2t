@@ -97,8 +97,7 @@ int	n2omp_decode(struct net2_encdec_ctx*,
 ILIAS_NET2_LOCAL
 int	n2omp_encode_request(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*barrier*/, uint32_t /*group*/,
-	    const struct net2_protocol*, const struct command_method*,
-	    struct net2_buffer*);
+	    const struct command_method*, struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	n2omp_encode_response_ok(struct net2_encdec_ctx*, struct net2_buffer*,
 	    uint32_t /*seq*/, uint32_t /*group*/,
@@ -205,13 +204,14 @@ n2omp_decode(struct net2_encdec_ctx *c, struct net2_objman_packet *p,
 ILIAS_NET2_LOCAL int
 n2omp_encode_request(struct net2_encdec_ctx *c, struct net2_buffer *out,
     uint32_t seq, uint32_t barrier, uint32_t group,
-    const struct net2_protocol *protocol, const struct command_method *cm,
-    struct net2_buffer *in_param_buf)
+    const struct command_method *cm, struct net2_buffer *in_param_buf)
 {
 	struct net2_objman_packet	 p;
 	struct net2_objman_request	*r;
 	int				 error;
+	const struct net2_protocol	*protocol;
 
+	protocol = cm->cm_protocol;
 	p.mh.flags = OBJMAN_PH_IS_REQUEST;
 	r = &p.request;
 

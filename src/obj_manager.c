@@ -769,8 +769,7 @@ fail_0:
 /* Invoke remote method. */
 ILIAS_NET2_EXPORT int
 net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
-    const struct net2_protocol *proto, const struct command_method *cm,
-    const void *in_params,
+    const struct command_method *cm, const void *in_params,
     net2_objman_return_cb cb, void *cb_arg, struct net2_evbase *evbase,
     struct net2_objman_tx_ticket **txptr)
 {
