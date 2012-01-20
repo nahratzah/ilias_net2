@@ -20,6 +20,11 @@ add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/type_yacc.c" "${CMAKE_CU
 
 
 macro(net2type srclist n2tfile cfile hfile localprefix exportprefix hguard)
+	get_filename_component (cfile_path "${cfile}" PATH)
+	get_filename_component (hfile_path "${hfile}" PATH)
+	file (MAKE_DIRECTORY "${cfile_path}" "${hfile_path}")
+	unset (cfile_path)
+	unset (hfile_path)
 	add_custom_command (OUTPUT "${cfile}" "${hfile}"
 	    COMMAND net2type "-H${hfile}" "-G${hguard}" "-o${cfile}"
 	      "-L${localprefix}" "-E${exportprefix}" "${n2tfile}"
@@ -31,20 +36,20 @@ macro(net2type srclist n2tfile cfile hfile localprefix exportprefix hguard)
 endmacro(net2type)
 
 net2type(srcs "types/ctypes.n2t"
-    "${PROJECT_SOURCE_DIR}/src/ctypes.c"
-    "${PROJECT_SOURCE_DIR}/include/ilias/net2/ctypes.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/ctypes.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_EXPORT"
     "ILIAS_NET2_CTYPES_H")
 net2type(srcs "types/packet.n2t"
-    "${PROJECT_SOURCE_DIR}/src/packet.c"
-    "${PROJECT_SOURCE_DIR}/include/ilias/net2/packet.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/packet.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/packet.h"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_PACKET_H")
 net2type(srcs "types/handshake.n2t"
-    "${PROJECT_SOURCE_DIR}/src/handshake.c"
-    "${PROJECT_SOURCE_DIR}/include/ilias/net2/handshake.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/handshake.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/handshake.h"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_HANDSHAKE_H")
@@ -72,6 +77,7 @@ include_directories (${CMAKE_CURRENT_BINARY_DIR})
 include_directories (${bsd_compat_INCLUDE_DIRS})
 include_directories (${EVENT_INCLUDE_DIRS})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
+include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})
 
 find_package (Threads)
