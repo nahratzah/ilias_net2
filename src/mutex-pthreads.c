@@ -153,3 +153,15 @@ net2_cond_broadcast(struct net2_condition *c)
 	if ((rv = pthread_cond_broadcast(&c->n2c_impl)) != 0)
 		warnx("%s: %s", "pthread_cond_signal", strerror(rv));
 }
+
+/*
+ * Wait for condition to fire.
+ */
+ILIAS_NET2_LOCAL void
+net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
+{
+	int rv;
+
+	if ((rv = pthread_cond_wait(&c->n2c_impl, &m->n2m_impl)) != 0)
+		warnx("%s: %s", "pthread_cond_wait", strerror(rv));
+}

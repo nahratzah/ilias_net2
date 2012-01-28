@@ -24,6 +24,9 @@ ILIAS_NET2_LOCAL
 void			 net2_cond_signal(struct net2_condition*);
 ILIAS_NET2_LOCAL
 void			 net2_cond_broadcast(struct net2_condition*);
+ILIAS_NET2_LOCAL
+void			 net2_cond_wait(struct net2_condition*,
+			    struct net2_mutex*);
 #endif /* ilias_net2_EXPORTS */
 
 #endif /* ILIAS_NET2_MUTEX_H */
