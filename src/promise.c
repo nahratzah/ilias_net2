@@ -206,7 +206,7 @@ out:
 
 /* Return true iff the promise has a cancel request pending. */
 ILIAS_NET2_EXPORT int
-net2_promise_is_cancelled(struct net2_promise *p)
+net2_promise_is_cancelreq(struct net2_promise *p)
 {
 	return net2_promise_flags(p) & NET2_PROM_F_CANCEL_REQ;
 }

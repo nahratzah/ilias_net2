@@ -33,7 +33,7 @@ ILIAS_NET2_EXPORT
 int			 net2_promise_set_error(struct net2_promise*,
 			    uint32_t errcode, int flags);
 ILIAS_NET2_EXPORT
-int			 net2_promise_is_cancelled(struct net2_promise*);
+int			 net2_promise_is_cancelreq(struct net2_promise*);
 ILIAS_NET2_EXPORT
 int			 net2_promise_set_cancel(struct net2_promise*, int);
 ILIAS_NET2_EXPORT
