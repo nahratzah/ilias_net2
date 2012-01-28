@@ -2,11 +2,24 @@
 #include <bsd_compat/sysexits.h>
 #include <bsd_compat/error.h>
 #include <windows.h>
+#include <assert.h>
 
-/*
- * Note that struct net2_mutex is not defined: it is an implementation detail
- * hidden away by windows as well.
- */
+#ifndef HAVE_SYS_QUEUE_H
+#include <bsd_compat/queue.h>
+#else
+#include <sys/queue.h>
+#endif
+
+#ifndef HAVE_SYSEXITS_H
+#include <bsd_compat/sysexits.h>
+#else
+#include <sys/sysexits.h>
+#endif
+
+struct net2_mutex {
+	CRITICAL_SECTION	s;
+};
+
 
 /*
  * Allocate a new mutex.
@@ -16,9 +29,9 @@ net2_mutex_alloc()
 {
 	struct net2_mutex	*m;
 
-	m = (struct net2_mutex*)CreateMutex(NULL, FALSE, NULL);
-	if (m == NULL)
-		warnx("CreateMutex error: %d\n", GetLastError());
+	if ((m = malloc(sizeof(*m))) == NULL)
+		return NULL;
+	InitializeCriticalSection(&m->s);
 	return m;
 }
 
@@ -28,8 +41,10 @@ net2_mutex_alloc()
 ILIAS_NET2_LOCAL void
 net2_mutex_free(struct net2_mutex *m)
 {
-	if (m)
-		CloseHandle((HANDLE)m);
+	if (m) {
+		DeleteCriticalSection(&m->s);
+		free(m);
+	}
 }
 
 /*
@@ -38,19 +53,7 @@ net2_mutex_free(struct net2_mutex *m)
 ILIAS_NET2_LOCAL void
 net2_mutex_lock(struct net2_mutex *m)
 {
-	DWORD dwWaitResult;
-
-	dwWaitResult = WaitForSingleObject((HANDLE)m, INFINITE);
-	switch (dwWaitResult) {
-	case WAIT_OBJECT_0:
-		break;
-	case WAIT_ABANDONED:
-		/* Apparently someone died with the mutex locked. */
-		errx(EX_OSERR, "someone died with mutex locked");
-	default:
-		errx(EX_OSERR, "unexpected result %u from WaitForSingleObject "
-		    "waiting on mutex", (unsigned int)dwWaitResult);
-	}
+	EnterCriticalSection(&m->s);
 }
 
 /*
@@ -59,8 +62,124 @@ net2_mutex_lock(struct net2_mutex *m)
 ILIAS_NET2_LOCAL void
 net2_mutex_unlock(struct net2_mutex *m)
 {
-	DWORD rv;
+	LeaveCriticalSection(&m->s);
+}
 
-	if (!(rv = ReleaseMutex((HANDLE)m)))
-		errx(EX_OSERR, "error %u releasing mutex", (unsigned int)rv);
+
+struct net2_condition {
+	CRITICAL_SECTION	s;
+	TAILQ_HEAD(, waiter)	wq;
+};
+
+struct waiter {
+	TAILQ_ENTRY(waiter)	entry;
+	HANDLE			event;
+};
+
+/* Thread wakeup. */
+static __inline void
+wakeup(struct waiter *w)
+{
+	if (SetEvent(w->event) == 0) {
+		/* SetEvent failure. */
+		warnx("Unable to wake condition: error %u",
+		    (unsigned int)GetLastError());
+	}
+}
+
+/* Create wait object. */
+static __inline void
+init_waiter(struct waiter *w)
+{
+	/* An event that requires manual reset and is currently inactive. */
+	w->event = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+	if (w->event == NULL) {
+		/* Failed to create event. */
+		errx(EX_UNAVAILABLE, "Unable to create condition wait-event: "
+		    "error %u.", (unsigned int)GetLastError());
+	}
+}
+
+/* Destroy wait object. */
+static __inline void
+destroy_waiter(struct waiter *w)
+{
+	CloseHandle(w->event);
+}
+
+/* Create a new condition variable. */
+ILIAS_NET2_LOCAL struct net2_condition*
+net2_cond_alloc()
+{
+	struct net2_condition	*c;
+
+	if ((c = malloc(sizeof(*c))) == NULL)
+		return NULL;
+
+	InitializeCriticalSection(&c->s);
+	TAILQ_INIT(&c->wq);
+	return c;
+}
+
+/* Free a condition variable. */
+ILIAS_NET2_LOCAL void
+net2_cond_free(struct net2_condition *c)
+{
+	EnterCriticalSection(&c->s);
+	assert(TAILQ_EMPTY(&c->wq));
+	LeaveCriticalSection(&c->s);
+
+	DeleteCriticalSection(&c->s);
+}
+
+/* Wait for a condition variable to signal. */
+ILIAS_NET2_LOCAL void
+net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
+{
+	struct waiter		self;
+
+	init_waiter(&self);
+	EnterCriticalSection(&c->s);
+	LeaveCriticalSection(&m->s);	/* unlock m */
+	TAILQ_INSERT_TAIL(&c->wq, &self, entry);
+	LeaveCriticalSection(&c->s);
+	EnterCriticalSection(&m->s);	/* lock m */
+	destroy_waiter(&self);
+}
+
+/* Signal a single thread blocked on this condition variable. */
+ILIAS_NET2_LOCAL void
+net2_cond_signal(struct net2_condition *c)
+{
+	struct waiter		*qhead;
+
+	EnterCriticalSection(&c->s);
+	if ((qhead = TAILQ_FIRST(&c->wq)) == NULL)
+		goto out;
+	TAILQ_REMOVE(&c->wq, qhead, entry);
+
+	/* Wakeup qhead. */
+	wakeup(qhead);
+
+out:
+	LeaveCriticalSection(&c->s);
+}
+
+/* Signal all threads blocked on this condition variable. */
+ILIAS_NET2_LOCAL void
+net2_cond_broadcast(struct net2_condition *c)
+{
+	struct waiter		*qhead;
+
+	EnterCriticalSection(&c->s);
+
+	while ((qhead = TAILQ_FIRST(&c->wq)) != NULL) {
+		TAILQ_REMOVE(&c->wq, qhead, entry);
+
+		/* Wakeup qhead. */
+		wakeup(qhead);
+	}
+
+	LeaveCriticalSection(&c->s);
 }
