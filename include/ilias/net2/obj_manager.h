@@ -90,6 +90,15 @@ const struct command_param*
 		 net2_objman_ttx_type(struct net2_objman_tx_ticket*);
 #endif /* ilias_net2_EXPORTS */
 
+ILIAS_NET2_EXPORT
+int		 net2_objman_rmi(struct net2_objmanager *,
+		    struct net2_objman_group*,
+		    const struct command_method*, const void*,
+		    net2_objman_return_cb, void*, struct net2_evbase*,
+		    struct net2_objman_tx_ticket**);
+ILIAS_NET2_EXPORT
+void		 net2_objman_rmi_release(struct net2_objman_tx_ticket*);
+
 #ifdef __cplusplus
 }
 #endif

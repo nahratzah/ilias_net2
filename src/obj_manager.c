@@ -56,6 +56,9 @@ struct net2_objman_tx_ticket {
 		void			*arg;	/* Result callback arg. */
 		struct net2_evbase	*ev;	/* Callback evbase. */
 	}			 cb;		/* Callback spec. */
+
+	size_t			 refcnt;	/* Reference counter. */
+	struct net2_mutex	*mtx;		/* Guard. */
 };
 
 
@@ -796,11 +799,15 @@ net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
 	tx->finish_how = NET2_IVCTX_FIN_UNFINISHED;
 	tx->result_type = cm->cm_out;
 	tx->result = NULL;
-	/* tx->objwin_tx is set below. */
+	tx->objwin_tx = NULL;	/* tx->objwin_tx is set below. */
 	tx->cb.fn = cb;
 	tx->cb.arg = cb_arg;
 	tx->cb.ev = evbase;
-	/* TODO: make it refcounted. */
+	tx->refcnt = 1;
+	if ((tx->mtx = net2_mutex_alloc()) == NULL) {
+		free(tx);
+		return ENOMEM;
+	}
 
 	/* Calculate input. */
 	if (cm->cm_in == NULL)
@@ -811,7 +818,7 @@ net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
 	/* Expose ticket to caller. */
 	if (txptr != NULL) {
 		*txptr = tx;
-		/* TODO: increment refcount. */
+		tx->refcnt++;	/* No locking: not yet shared. */
 	}
 
 	/* Push ticket into transmittor. */
@@ -829,8 +836,24 @@ net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
 fail_1:
 	net2_buffer_free(input);
 fail_0:
+	net2_mutex_free(tx->mtx);
 	free(tx);
 	if (txptr != NULL)
 		*txptr = NULL;
 	return error;
+}
+
+/* Release reference to tx ticket. */
+ILIAS_NET2_EXPORT void
+net2_objman_rmi_release(struct net2_objman_tx_ticket *tx)
+{
+	int		 do_free;
+
+	net2_mutex_lock(tx->mtx);
+	assert(tx->refcnt > 0);
+	do_free = (--tx->refcnt == 0);
+	net2_mutex_unlock(tx->mtx);
+
+	if (do_free)
+		kill_tx_ticket(tx);
 }
