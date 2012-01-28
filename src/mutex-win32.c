@@ -87,6 +87,29 @@ wakeup(struct waiter *w)
 	}
 }
 
+static __inline void
+wait(struct waiter *w)
+{
+	DWORD	result;
+
+restart:
+	result = WaitForSingleObject(w->event, INFINITE);
+	switch (result) {
+	case WAIT_OBJECT_0:
+		/* We got signalled. */
+		break;
+	case WAIT_TIMEOUT:	/* Infinite timed out..? */
+		errx(EX_SOFTWARE, "condition infinite timeout expired");
+		break;
+	case WAIT_FAILED:
+		warnx("condition wait failure: error %u", (unsigned int)GetLastError());
+		goto restart;
+	case WAIT_ABANDONED:
+		errx(EX_SOFTWARE, "condition wait abandoned, but event is not a mutex");
+		break;
+	}
+}
+
 /* Create wait object. */
 static __inline void
 init_waiter(struct waiter *w)
@@ -144,6 +167,7 @@ net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 	LeaveCriticalSection(&m->s);	/* unlock m */
 	TAILQ_INSERT_TAIL(&c->wq, &self, entry);
 	LeaveCriticalSection(&c->s);
+	wait(&self);
 	EnterCriticalSection(&m->s);	/* lock m */
 	destroy_waiter(&self);
 }
