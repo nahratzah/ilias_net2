@@ -157,6 +157,7 @@ add_library (ilias_net2 SHARED
 	include/ilias/net2/mutex.h
 	include/ilias/net2/obj_manager.h
 	include/ilias/net2/obj_window.h
+	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/stream_acceptor.h
@@ -178,6 +179,7 @@ add_library (ilias_net2 SHARED
 	src/init.c
 	src/obj_manager.c
 	src/obj_window.c
+	src/promise.c
 	src/protocol.c
 	src/sockdgram.c
 	src/stream_acceptor.c
