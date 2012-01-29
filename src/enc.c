@@ -1,5 +1,5 @@
 #include <ilias/net2/enc.h>
-#include <bsd_compat.h>
+#include <bsd_compat/bsd_compat.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>

@@ -5,7 +5,7 @@
 #include <ilias/net2/types.h>
 #include <sys/types.h>
 
-#include <bsd_compat.h>
+#include <bsd_compat/bsd_compat.h>
 #ifdef HAS_QUEUE
 #include <sys/queue.h>
 #else

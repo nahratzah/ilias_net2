@@ -199,6 +199,10 @@ if (WIN32)
 	target_link_libraries (ilias_net2 Ws2_32 Iphlpapi)
 endif (WIN32)
 
+install (TARGETS ilias_net2
+	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib)
+
 
 if (BUILD_TESTING)
 	enable_testing()

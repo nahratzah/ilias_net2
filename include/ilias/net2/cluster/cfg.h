@@ -3,7 +3,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <stdint.h>
-#include <bsd_compat.h>
+#include <bsd_compat/bsd_compat.h>
 #ifdef WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>

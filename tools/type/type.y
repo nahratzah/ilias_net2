@@ -6,7 +6,7 @@
 %start program
 
 %{
-#include <bsd_compat.h>
+#include <bsd_compat/bsd_compat.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>

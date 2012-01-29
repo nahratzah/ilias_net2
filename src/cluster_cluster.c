@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <bsd_compat.h>
+#include <bsd_compat/bsd_compat.h>
 #ifdef WIN32
 #include <io.h>
 #else
