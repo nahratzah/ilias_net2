@@ -6,7 +6,7 @@
 #include <sys/types.h>
 
 #include <bsd_compat/bsd_compat.h>
-#ifdef HAS_QUEUE
+#ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
 #include <bsd_compat/queue.h>

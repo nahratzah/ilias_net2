@@ -12,7 +12,7 @@
 #include <bsd_compat/tree.h>
 #endif
 
-#ifdef HASE_SYS_QUEUE_H
+#ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
 #include <bsd_compat/queue.h>
