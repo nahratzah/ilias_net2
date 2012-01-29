@@ -191,6 +191,9 @@ add_library (ilias_net2 SHARED
 	${srcs}
 	)
 target_link_libraries (ilias_net2 bsd_compat ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
+if (Threads_FOUND)
+	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
+endif (Threads_FOUND)
 
 if (WIN32)
 	target_link_libraries (ilias_net2 Ws2_32 Iphlpapi)
