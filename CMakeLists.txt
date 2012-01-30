@@ -4,7 +4,46 @@ include (CTest)
 set (IliasNet2_VERSION_MAJOR 1)
 set (IliasNet2_VERSION_MINOR 0)
 
+#
+# Enable BSD compatibility.
+#
+find_path (bsd_compat_INCLUDE_DIRS "bsd_compat/bsd_compat.h" PATHS "${LOCALBASE}/include")
+find_library (bsd_compat_LIBS "bsd_compat" PATHS "${LOCALBASE}/lib")
+add_library (bsd_compat SHARED IMPORTED)
+set_property (TARGET bsd_compat PROPERTY IMPORTED_LOCATION "${bsd_compat_LIBS}")
+
+#
+# Lex and yacc implementation required.
+#
+add_subdirectory (tools)
+
 find_package (OpenSSL REQUIRED)
+find_package (Threads)
+
+
+
+#
+# Find libevent.
+#
+set (_event_libs event_core)
+if (Threads_FOUND)
+	list (APPEND _event_libs event_pthreads)
+else (Threads_FOUND)
+	message (WARNING "Thread library not found, not searching for libevent_pthreads")
+endif (Threads_FOUND)
+find_path (EVENT_INCLUDE_DIRS event2/event.h PATHS "${LOCALBASE}/include")
+foreach (EVENT_LIB ${_event_libs})
+	find_library (EVENT_${EVENT_LIB} ${EVENT_LIB} PATHS "${LOCALBASE}/lib")
+	if (NOT EVENT_${EVENT_LIB}-NOTFOUND)
+		list (APPEND EVENT_LIBRARIES ${EVENT_${EVENT_LIB}})
+	endif (NOT EVENT_${EVENT_LIB}-NOTFOUND)
+endforeach (EVENT_LIB)
+unset (_event_libs)
+# Inform of result.
+message (STATUS "libevent include dirs: ${EVENT_INCLUDE_DIRS}")
+message (STATUS "libevent libs: ${EVENT_LIBRARIES}")
+
+
 
 add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/type_lex.c"
 	COMMAND "${LEX}" -o${CMAKE_CURRENT_BINARY_DIR}/type_lex.c ${PROJECT_SOURCE_DIR}/tools/type/type.l
@@ -80,7 +119,6 @@ include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})
 
-find_package (Threads)
 if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
 	list (APPEND srcs src/mutex-pthreads.c)
 	list (APPEND srcs src/thread-pthreads.c)
