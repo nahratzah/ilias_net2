@@ -26,6 +26,8 @@ list (APPEND headers
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/stream_acceptor.h
 	include/ilias/net2/xchange.h
+	)
+list (APPEND cluster_headers
 	include/ilias/net2/cluster/cfg.h
 	include/ilias/net2/cluster/cluster.h
 	include/ilias/net2/cluster/socket.h
@@ -239,6 +241,7 @@ list (APPEND srcs ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 add_library (ilias_net2 SHARED
 	${srcs}
 	${headers}
+	${cluster_headers}
 	)
 target_link_libraries (ilias_net2 bsd_compat ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
 if (Threads_FOUND)
@@ -252,6 +255,8 @@ endif (WIN32)
 install (TARGETS ilias_net2
 	LIBRARY DESTINATION lib
 	ARCHIVE DESTINATION lib)
+install (FILES ${headers} DESTINATION include/ilias/net2)
+install (FILES ${cluster_headers} DESTINATION include/ilias/net2/cluster)
 
 
 if (BUILD_TESTING)
