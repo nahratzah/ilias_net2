@@ -4,6 +4,58 @@ include (CTest)
 set (IliasNet2_VERSION_MAJOR 1)
 set (IliasNet2_VERSION_MINOR 0)
 
+list (APPEND headers
+	include/ilias/net2/ilias_net2_export.h
+	include/ilias/net2/buffer.h
+	include/ilias/net2/connection.h
+	include/ilias/net2/connstats.h
+	include/ilias/net2/connwindow.h
+	include/ilias/net2/udp_connection.h
+	include/ilias/net2/context.h
+	include/ilias/net2/cp.h
+	include/ilias/net2/encdec_ctx.h
+	include/ilias/net2/evbase.h
+	include/ilias/net2/enc.h
+	include/ilias/net2/hash.h
+	include/ilias/net2/init.h
+	include/ilias/net2/mutex.h
+	include/ilias/net2/obj_manager.h
+	include/ilias/net2/obj_window.h
+	include/ilias/net2/promise.h
+	include/ilias/net2/protocol.h
+	include/ilias/net2/sockdgram.h
+	include/ilias/net2/stream_acceptor.h
+	include/ilias/net2/xchange.h
+	include/ilias/net2/cluster/cfg.h
+	include/ilias/net2/cluster/cluster.h
+	include/ilias/net2/cluster/socket.h
+	)
+list (APPEND srcs
+	src/buffer.c
+	src/connection.c
+	src/connstats.c
+	src/connwindow.c
+	src/udp_connection.c
+	src/context.c
+	src/cp.c
+	src/encdec_ctx.c
+	src/evbase.c
+	src/enc.c
+	src/hash.c
+	src/init.c
+	src/obj_manager.c
+	src/obj_window.c
+	src/promise.c
+	src/protocol.c
+	src/sockdgram.c
+	src/stream_acceptor.c
+	src/types.c
+	src/xchange.c
+	src/cluster_cfg.c
+	src/cluster_cluster.c
+	src/cluster_socket.c
+	)
+
 #
 # Enable BSD compatibility.
 #
@@ -110,6 +162,12 @@ net2type(srcs "types/obj_manager_proto.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_OBJ_MANAGER_PROTO_H")
+# Add headers generated above, that are to be published.
+list (APPEND headers
+	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
+	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/packet.h"
+	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/handshake.h"
+	)
 
 
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
@@ -176,57 +234,11 @@ check_struct_has_member ("struct sockaddr_in" "sin_len"
 
 
 configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
-list (APPEND headers ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+list (APPEND srcs ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 add_library (ilias_net2 SHARED
-	include/ilias/net2/ilias_net2_export.h
-	include/ilias/net2/buffer.h
-	include/ilias/net2/connection.h
-	include/ilias/net2/connstats.h
-	include/ilias/net2/connwindow.h
-	include/ilias/net2/udp_connection.h
-	include/ilias/net2/context.h
-	include/ilias/net2/cp.h
-	include/ilias/net2/encdec_ctx.h
-	include/ilias/net2/evbase.h
-	include/ilias/net2/enc.h
-	include/ilias/net2/hash.h
-	include/ilias/net2/init.h
-	include/ilias/net2/mutex.h
-	include/ilias/net2/obj_manager.h
-	include/ilias/net2/obj_window.h
-	include/ilias/net2/promise.h
-	include/ilias/net2/protocol.h
-	include/ilias/net2/sockdgram.h
-	include/ilias/net2/stream_acceptor.h
-	include/ilias/net2/xchange.h
-	include/ilias/net2/cluster/cfg.h
-	include/ilias/net2/cluster/cluster.h
-	include/ilias/net2/cluster/socket.h
-	src/buffer.c
-	src/connection.c
-	src/connstats.c
-	src/connwindow.c
-	src/udp_connection.c
-	src/context.c
-	src/cp.c
-	src/encdec_ctx.c
-	src/evbase.c
-	src/enc.c
-	src/hash.c
-	src/init.c
-	src/obj_manager.c
-	src/obj_window.c
-	src/promise.c
-	src/protocol.c
-	src/sockdgram.c
-	src/stream_acceptor.c
-	src/types.c
-	src/xchange.c
-	src/cluster_cfg.c
-	src/cluster_cluster.c
-	src/cluster_socket.c
 	${srcs}
+	${headers}
 	)
 target_link_libraries (ilias_net2 bsd_compat ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
 if (Threads_FOUND)
