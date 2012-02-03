@@ -1,8 +1,6 @@
 cmake_minimum_required (VERSION 2.6)
 project (IliasNet2)
 include (CTest)
-set (IliasNet2_VERSION_MAJOR 1)
-set (IliasNet2_VERSION_MINOR 0)
 
 list (APPEND headers
 	include/ilias/net2/ilias_net2_export.h
@@ -247,10 +245,11 @@ target_link_libraries (ilias_net2 bsd_compat ${EVENT_LIBRARIES} ${OPENSSL_LIBRAR
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
 endif (Threads_FOUND)
-
 if (WIN32)
 	target_link_libraries (ilias_net2 Ws2_32 Iphlpapi)
 endif (WIN32)
+set_property (TARGET ilias_net2 PROPERTY VERSION "0.0")
+set_property (TARGET ilias_net2 PROPERTY SOVERSION "0.0")
 
 install (TARGETS ilias_net2
 	LIBRARY DESTINATION lib
