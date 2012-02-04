@@ -73,7 +73,8 @@ static const struct net2_acceptor_socket_fn udp_conn_fn = {
 	net2_conn_p2p_destroy,
 	net2_conn_p2p_ready_to_send,
 	NULL,
-	NULL
+	NULL,
+	net2_conn_get_pvlist
 };
 
 /* UDP connection. */

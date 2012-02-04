@@ -108,5 +108,8 @@ void	net2_connection_recv(struct net2_connection*,
 ILIAS_NET2_EXPORT
 int	net2_conn_gather_tx(struct net2_connection*,
 	    struct net2_buffer**, size_t);
+ILIAS_NET2_EXPORT
+int	net2_conn_get_pvlist(struct net2_acceptor_socket*,
+	    struct net2_pvlist*);
 
 #endif /* ILIAS_NET2_CONNECTION_H */

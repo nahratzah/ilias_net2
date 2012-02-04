@@ -405,3 +405,14 @@ fail_0:
 	}
 	return rv;
 }
+
+/*
+ * Implementation of get_pvlist.
+ */
+ILIAS_NET2_EXPORT int
+net2_conn_get_pvlist(struct net2_acceptor_socket *c, struct net2_pvlist *pv)
+{
+	struct net2_connection	*conn = (struct net2_connection*)c;
+
+	return net2_pvlist_add(pv, &net2_proto, conn->n2c_version);
+}
