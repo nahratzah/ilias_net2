@@ -1011,7 +1011,7 @@ net2_connwindow_writebuf(struct net2_connwindow *w, struct packet_header *ph,
 	void				*tmp;
 	struct winrange			*r, **range;
 	uint8_t				*counter;
-	struct net2_encdec_ctx		*ctx;
+	struct net2_encdec_ctx		 ctx;
 	TAILQ_HEAD(, net2_cw_tx)	 txq;
 	TAILQ_HEAD(, net2_cw_rx)	 rxq;
 	struct timeval			 rx_ack_timeout, tx_bad_timeout;
