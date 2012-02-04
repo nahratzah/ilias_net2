@@ -130,7 +130,7 @@ static int
 init(struct net2_objmanager *man, const struct command_param *cp,
     void **ptr, const void *arg)
 {
-	struct net2_encdec_ctx		*ctx;
+	struct net2_encdec_ctx		 ctx;
 	int				 err;
 
 	if (cp == NULL) {
@@ -138,11 +138,11 @@ init(struct net2_objmanager *man, const struct command_param *cp,
 		return 0;
 	}
 
-	if ((ctx = net2_encdec_ctx_newobjman(man)) == NULL)
-		return -1;
-	if ((err = net2_cp_init_alloc(ctx, cp, ptr, arg)) != 0)
-		net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
+	if ((err = net2_encdec_ctx_newobjman(&ctx, man)) != 0)
+		return err;
+	if ((err = net2_cp_init_alloc(&ctx, cp, ptr, arg)) != 0)
+		net2_encdec_ctx_rollback(&ctx);
+	net2_encdec_ctx_deinit(&ctx);
 	return err;
 }
 
@@ -150,17 +150,17 @@ static int
 destroy(struct net2_objmanager *man, const struct command_param *cp,
     void **ptr, const void *arg)
 {
-	struct net2_encdec_ctx		*ctx;
+	struct net2_encdec_ctx		 ctx;
 	int				 err;
 
 	if (cp == NULL || *ptr == NULL)
 		return 0;
 
-	if ((ctx = net2_encdec_ctx_newobjman(man)) == NULL)
-		return -1;
-	if ((err = net2_cp_destroy_alloc(ctx, cp, ptr, arg)) != 0)
-		net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
+	if ((err = net2_encdec_ctx_newobjman(&ctx, man)) != 0)
+		return err;
+	if ((err = net2_cp_destroy_alloc(&ctx, cp, ptr, arg)) != 0)
+		net2_encdec_ctx_rollback(&ctx);
+	net2_encdec_ctx_deinit(&ctx);
 	return err;
 }
 

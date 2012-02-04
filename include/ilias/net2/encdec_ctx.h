@@ -47,16 +47,18 @@ struct net2_connection;
 struct net2_objmanager;
 
 ILIAS_NET2_LOCAL
-struct net2_encdec_ctx	*net2_encdec_ctx_new(struct net2_pvlist*,
+int	 net2_encdec_ctx_init(struct net2_encdec_ctx*, struct net2_pvlist*,
 			    struct net2_objmanager*);
 ILIAS_NET2_LOCAL
-void			 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
+void	 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
-void			 net2_encdec_ctx_release(struct net2_encdec_ctx*);
+void	 net2_encdec_ctx_deinit(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
-struct net2_encdec_ctx	*net2_encdec_ctx_newaccsocket(struct net2_acceptor_socket*);
+int	 net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx*,
+	    struct net2_acceptor_socket*);
 ILIAS_NET2_LOCAL
-struct net2_encdec_ctx	*net2_encdec_ctx_newobjman(struct net2_objmanager*);
+int	 net2_encdec_ctx_newobjman(struct net2_encdec_ctx*,
+	    struct net2_objmanager*);
 #endif /* ilias_net2_EXPORTS */
 
 /* Returns the protocol version from this context. */

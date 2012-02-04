@@ -938,13 +938,14 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
     struct net2_acceptor_socket *socket,
     struct net2_cw_tx *tx, int first, size_t maxlen)
 {
-	struct net2_encdec_ctx		*ctx;
+	struct net2_encdec_ctx		 ctx;
 	struct range			*r, *collide;
 	size_t				 len;
 	uint32_t			 wf_start, wf_end;
 	int				 i;
 	struct stream_packet		 data;
 	int				 is_retrans = 0;
+	int				 error;
 
 	net2_mutex_lock(sa->sendbuf_mtx);
 	data.payload = NULL;
@@ -1050,8 +1051,10 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	 * If the allocation fails, return an error code if no progress
 	 * was made.
 	 */
-	if ((r = sa_range_new(sa, wf_start, wf_end)) == NULL)
+	if ((r = sa_range_new(sa, wf_start, wf_end)) == NULL) {
+		error = ENOMEM;
 		goto fail_0;
+	}
 
 	/*
 	 * Create buffer with the selected range.
@@ -1069,22 +1072,27 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 
 	data.payload = net2_buffer_subrange(sa->sendbuf,
 	    WIN_OFF(sa, wf_start), wf_end - wf_start);
-	if (data.payload == NULL)
+	if (data.payload == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
 
 	/* Allocate buffer to store encoded packet. */
-	if ((*bufptr = net2_buffer_new()) == NULL)
+	if ((*bufptr = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
 		goto fail_2;
+	}
 
 	/* Encode stream packet. */
-	if ((ctx = net2_encdec_ctx_newaccsocket(socket)) == NULL)
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx, socket)) != 0)
 		goto fail_3;
-	if (net2_cp_encode(ctx, &cp_stream_packet, *bufptr, &data, NULL)) {
-		net2_encdec_ctx_rollback(ctx);
-		net2_encdec_ctx_release(ctx);
+	if ((error = net2_cp_encode(&ctx, &cp_stream_packet, *bufptr, &data,
+	    NULL)) != 0) {
+		net2_encdec_ctx_rollback(&ctx);
+		net2_encdec_ctx_deinit(&ctx);
 		goto fail_3;
 	}
-	net2_encdec_ctx_release(ctx);
+	net2_encdec_ctx_deinit(&ctx);
 
 	/* Fire low buffer event. */
 	if (!is_retrans && !(sa->flags & SATX_CLOSING) &&
@@ -1095,7 +1103,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/*
 	 * Register delivery callbacks.
 	 */
-	if (net2_connwindow_txcb_register(tx,
+	if (error = net2_connwindow_txcb_register(tx,
 	    net2_acceptor_socket_evbase(socket),
 	    sa_transit_timeout,
 	    sa_transit_ack,
@@ -1140,7 +1148,8 @@ fail_0:
 	 * was pushed into the connection) we let the error slide.
 	 */
 	net2_mutex_unlock(sa->sendbuf_mtx);
-	return (first ? -1 : 0);
+	assert(error != 0);
+	return (first ? error : 0);
 }
 
 
@@ -1443,25 +1452,25 @@ sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_acceptor_socket *socket,
     struct net2_buffer *in)
 {
 	struct stream_packet		 sp;
-	struct net2_encdec_ctx		*ctx;
-	int				 rv = -1;
+	struct net2_encdec_ctx		 ctx;
+	int				 rv;
 
-	if ((ctx = net2_encdec_ctx_newaccsocket(socket)) == NULL)
+	if ((rv = net2_encdec_ctx_newaccsocket(&ctx, socket)) != 0)
 		goto fail_0;
-	if (net2_cp_init(ctx, &cp_stream_packet, &sp, NULL))
+	if ((rv = net2_cp_init(&ctx, &cp_stream_packet, &sp, NULL)) != 0)
 		goto fail_1;
-	if (net2_cp_decode(ctx, &cp_stream_packet, &sp, in, NULL))
+	if ((rv = net2_cp_decode(&ctx, &cp_stream_packet, &sp, in, NULL)) != 0)
 		goto fail_2;
 
 	rv = sa_rx_recv(sa, &sp);
 
 fail_2:
-	if (net2_cp_destroy(ctx, &cp_stream_packet, &sp, NULL))
+	if (net2_cp_destroy(&ctx, &cp_stream_packet, &sp, NULL))
 		warnx("stream_packet destroy failed");
 fail_1:
 	if (rv != 0)
-		net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
+		net2_encdec_ctx_rollback(&ctx);
+	net2_encdec_ctx_deinit(&ctx);
 fail_0:
 	return rv;
 }

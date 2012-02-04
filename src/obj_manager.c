@@ -243,37 +243,37 @@ net2_objmanager_accept(struct net2_acceptor *self,
 {
 	struct net2_objmanager		*m;
 	struct net2_objman_packet	 packet;
-	struct net2_encdec_ctx		*ctx;
+	struct net2_encdec_ctx		 ctx;
 
 	m = (struct net2_objmanager*)self;
 	/* Prepare decoding context. */
-	if ((ctx = net2_encdec_ctx_newobjman(m)) != NULL)
+	if (net2_encdec_ctx_newobjman(&ctx, m) != 0)
 		goto fail_0;
 
 	/* Decode all messages. */
 	while (!net2_buffer_empty(buf)) {
-		if (n2omp_decode(ctx, &packet, buf))
+		if (n2omp_decode(&ctx, &packet, buf))
 			goto fail_1;
 		switch ((packet.mh.flags & OBJMAN_PH_IS_MASK) >>
 		    OBJMAN_PH_IS_MASK_SHIFT) {
 
 		case OBJMAN_PH_IS_REQUEST >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_request(m, ctx, &packet))
+			if (accept_request(m, &ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_SUPERSEDE >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_supersede(m, ctx, &packet))
+			if (accept_supersede(m, &ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_RESPONSE >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_response(m, ctx, &packet))
+			if (accept_response(m, &ctx, &packet))
 				goto fail_1;
 			break;
 
 		case OBJMAN_PH_IS_OBJMAN >> OBJMAN_PH_IS_MASK_SHIFT:
-			if (accept_objman(m, ctx, &packet))
+			if (accept_objman(m, &ctx, &packet))
 				goto fail_1;
 			break;
 
@@ -283,12 +283,12 @@ net2_objmanager_accept(struct net2_acceptor *self,
 	}
 
 	/* Release encoding context. */
-	net2_encdec_ctx_release(ctx);
+	net2_encdec_ctx_deinit(&ctx);
 	return;
 
 fail_1:
-	net2_encdec_ctx_rollback(ctx);
-	net2_encdec_ctx_release(ctx);
+	net2_encdec_ctx_rollback(&ctx);
+	net2_encdec_ctx_deinit(&ctx);
 fail_0:
 	/* TODO: kill connection since delivery failed. */
 	return;
@@ -352,7 +352,7 @@ kill_group(struct net2_objman_group *g)
 static void
 kill_tx_ticket(struct net2_objman_tx_ticket *ttx)
 {
-	struct net2_encdec_ctx	*c;
+	struct net2_encdec_ctx	 c;
 	int			 error;
 
 	if (ttx->cb.fn != NULL)
@@ -361,14 +361,14 @@ kill_tx_ticket(struct net2_objman_tx_ticket *ttx)
 	if (ttx->cb.ev != NULL)
 		net2_evbase_release(ttx->cb.ev);
 	if (ttx->result) {
-		c = net2_encdec_ctx_newobjman(ttx->objman);
-		if (c == NULL)
+		error = net2_encdec_ctx_newobjman(&c, ttx->objman);
+		if (error != 0)
 			assert(0);	/* TODO: handle failure? */
-		error = net2_cp_destroy_alloc(c, ttx->result_type,
+		error = net2_cp_destroy_alloc(&c, ttx->result_type,
 		    ttx->result, NULL);
 		if (error)
-			net2_encdec_ctx_rollback(c);
-		net2_encdec_ctx_release(c);
+			net2_encdec_ctx_rollback(&c);
+		net2_encdec_ctx_deinit(&c);
 		assert(error == 0);	/* TODO: handle error */
 	}
 	free(ttx);
@@ -753,7 +753,7 @@ n2om_input_to_buffer(struct net2_buffer **buf, struct net2_objmanager *m,
     const struct command_method *cm, const void *input)
 {
 	int				 error;
-	struct net2_encdec_ctx		*c;
+	struct net2_encdec_ctx		 c;
 
 	/* Allocate destination buffer. */
 	if ((*buf = net2_buffer_new()) == NULL) {
@@ -761,23 +761,21 @@ n2om_input_to_buffer(struct net2_buffer **buf, struct net2_objmanager *m,
 		goto fail_0;
 	}
 	/* Allocate encoding context. */
-	if ((c = net2_encdec_ctx_newobjman(m)) == NULL) {
-		error = ENOMEM;
+	if ((error = net2_encdec_ctx_newobjman(&c, m)) != 0)
 		goto fail_1;
-	}
 
 	/* Encode argument. */
-	if ((error = net2_cp_encode(c, cm->cm_in, *buf, input, NULL)) != 0)
+	if ((error = net2_cp_encode(&c, cm->cm_in, *buf, input, NULL)) != 0)
 		goto fail_2;
 
 	/* Release encoding context. */
-	net2_encdec_ctx_release(c);
+	net2_encdec_ctx_deinit(&c);
 
 	return 0;
 
 fail_2:
-	net2_encdec_ctx_rollback(c);
-	net2_encdec_ctx_release(c);
+	net2_encdec_ctx_rollback(&c);
+	net2_encdec_ctx_deinit(&c);
 fail_1:
 	net2_buffer_free(*buf);
 fail_0:

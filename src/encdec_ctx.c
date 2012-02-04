@@ -18,33 +18,29 @@
 #include <ilias/net2/obj_manager.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/protocol.h>
-#include <stdlib.h>
 #include <assert.h>
 
 /*
  * Allocate a new encoding/decoding context.
  */
-ILIAS_NET2_LOCAL struct net2_encdec_ctx*
-net2_encdec_ctx_new(struct net2_pvlist *pv, struct net2_objmanager *m)
+ILIAS_NET2_LOCAL int
+net2_encdec_ctx_init(struct net2_encdec_ctx *ctx, struct net2_pvlist *pv,
+    struct net2_objmanager *m)
 {
-	struct net2_encdec_ctx	*ctx;
+	int			 rv;
 
-	if ((ctx = malloc(sizeof(*ctx))) == NULL)
+	if ((rv = net2_pvlist_init(&ctx->ed_proto)) != 0)
 		goto fail_0;
-	if (net2_pvlist_init(&ctx->ed_proto))
+	if (pv != NULL && (rv = net2_pvlist_merge(&ctx->ed_proto, pv)) != 0)
 		goto fail_1;
-	if (pv != NULL && net2_pvlist_merge(&ctx->ed_proto, pv))
-		goto fail_2;
 
 	ctx->ed_objman = m;
-	return ctx;
+	return 0;
 
-fail_2:
-	net2_pvlist_deinit(&ctx->ed_proto);
 fail_1:
-	free(ctx);
+	net2_pvlist_deinit(&ctx->ed_proto);
 fail_0:
-	return NULL;
+	return rv;
 }
 
 /*
@@ -62,45 +58,46 @@ net2_encdec_ctx_rollback(struct net2_encdec_ctx *ctx)
  * This operation commits the context.
  */
 ILIAS_NET2_LOCAL void
-net2_encdec_ctx_release(struct net2_encdec_ctx *ctx)
+net2_encdec_ctx_deinit(struct net2_encdec_ctx *ctx)
 {
 	net2_pvlist_deinit(&ctx->ed_proto);
-	free(ctx);
 }
 
 /*
  * Create a new encdec_ctx from a connection.
  */
-ILIAS_NET2_LOCAL struct net2_encdec_ctx*
-net2_encdec_ctx_newaccsocket(struct net2_acceptor_socket *s)
+ILIAS_NET2_LOCAL int
+net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx *ctx,
+    struct net2_acceptor_socket *s)
 {
-	struct net2_encdec_ctx		*ctx;
 	struct net2_pvlist		 pv;
+	int				 rv;
 
-	if (s == NULL)
-		goto fail_0;
+	if (s == NULL) {
+		rv = EINVAL;
+		goto out_0;
+	}
 
-	if (net2_pvlist_init(&pv))
-		goto fail_0;
-	if (net2_acceptor_socket_pvlist(s, &pv))
-		goto fail_1;
+	if ((rv = net2_pvlist_init(&pv)) != 0)
+		goto out_0;
+	if ((rv = net2_acceptor_socket_pvlist(s, &pv)) != 0)
+		goto out_1;
+	if ((rv = net2_encdec_ctx_init(ctx, &pv, NULL)) != 0)
+		goto out_1;
+	rv = 0;
 
-	if ((ctx = net2_encdec_ctx_new(&pv, NULL)) == NULL)
-		goto fail_1;
+out_1:
 	net2_pvlist_deinit(&pv);
-	return ctx;
-
-fail_1:
-	net2_pvlist_deinit(&pv);
-fail_0:
-	return NULL;
+out_0:
+	return rv;
 }
 
 /*
  * Create a new encdec_ctx from an objmanager.
  */
-ILIAS_NET2_LOCAL struct net2_encdec_ctx*
-net2_encdec_ctx_newobjman(struct net2_objmanager *m)
+ILIAS_NET2_LOCAL int
+net2_encdec_ctx_newobjman(struct net2_encdec_ctx *ctx,
+    struct net2_objmanager *m)
 {
-	return net2_encdec_ctx_new(&m->pvlist, m);
+	return net2_encdec_ctx_init(ctx, &m->pvlist, m);
 }
