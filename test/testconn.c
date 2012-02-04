@@ -21,10 +21,10 @@
 
 struct net2_evbase	*global_evbase = NULL;
 
-void	testconn_free(struct net2_connection*);
-void	testconn_ready_to_send(struct net2_connection*);
+void	testconn_free(struct net2_acceptor_socket*);
+void	testconn_ready_to_send(struct net2_acceptor_socket*);
 
-static const struct net2_conn_functions testconn_fn = {
+static const struct net2_acceptor_socket_fn testconn_fn = {
 	0,
 	testconn_free,
 	testconn_ready_to_send
@@ -65,9 +65,9 @@ testconn(struct net2_connection **c1, struct net2_connection **c2)
 	c2_tc = testconn_1();
 	if (c1_tc == NULL || c2_tc == NULL) {
 		if (c1_tc)
-			testconn_free(&c1_tc->base_conn);
+			testconn_free(&c1_tc->base_conn.n2c_socket);
 		if (c2_tc)
-			testconn_free(&c2_tc->base_conn);
+			testconn_free(&c2_tc->base_conn.n2c_socket);
 		return -1;
 	}
 
@@ -79,18 +79,18 @@ testconn(struct net2_connection **c1, struct net2_connection **c2)
 }
 
 void
-testconn_free(struct net2_connection *cptr)
+testconn_free(struct net2_acceptor_socket *cptr)
 {
 	struct testconn		*c = (struct testconn*)cptr;
 
-	net2_connection_deinit(cptr);
+	net2_connection_deinit(&c->base_conn);
 	if (c->in)
 		free(c->in);
 	free(c);
 }
 
 void
-testconn_ready_to_send(struct net2_connection *cptr)
+testconn_ready_to_send(struct net2_acceptor_socket *cptr)
 {
 	struct testconn		*c = (struct testconn*)cptr;
 

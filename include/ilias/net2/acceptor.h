@@ -25,6 +25,7 @@ struct net2_acceptor_socket;
 struct net2_acceptor;
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 struct net2_cw_tx;	/* From ilias/net2/connwindow.h */
+struct net2_pvlist;	/* From ilias/net2/protocol.h */
 
 /* Acceptor socket function table. */
 struct net2_acceptor_socket_fn {
@@ -47,6 +48,10 @@ struct net2_acceptor_socket_fn {
 	int	(*get_transmit)(struct net2_acceptor_socket*,
 		    struct net2_buffer**,
 		    struct net2_cw_tx*, int first, size_t maxlen);
+
+	/* Acquire PVlist. */
+	int	(*get_pvlist)(struct net2_acceptor_socket*,
+		    struct net2_pvlist*);
 };
 
 /* Acceptor function table. */
@@ -72,6 +77,7 @@ struct net2_acceptor_socket {
 	const struct net2_acceptor_socket_fn
 				*fn;		/* Implementation functions. */
 	struct net2_acceptor	*acceptor;	/* Current acceptor. */
+	struct net2_evbase	*evbase;	/* Work thread. */
 };
 
 /*
@@ -88,31 +94,55 @@ struct net2_acceptor {
 
 
 ILIAS_NET2_EXPORT
-int	net2_acceptor_socket_init(struct net2_acceptor_socket*,
-	    struct net2_acceptor_socket_fn*);
+int	 net2_acceptor_socket_init(struct net2_acceptor_socket*,
+	    struct net2_evbase*, const struct net2_acceptor_socket_fn*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_socket_deinit(struct net2_acceptor_socket*);
+void	 net2_acceptor_socket_deinit(struct net2_acceptor_socket*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_socket_destroy(struct net2_acceptor_socket*);
+void	 net2_acceptor_socket_destroy(struct net2_acceptor_socket*);
 ILIAS_NET2_EXPORT
-int	net2_acceptor_attach(struct net2_acceptor_socket*,
+int	 net2_acceptor_attach(struct net2_acceptor_socket*,
 	    struct net2_acceptor*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_detach(struct net2_acceptor_socket *self);
+void	 net2_acceptor_detach(struct net2_acceptor_socket*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_socket_ready_to_send(struct net2_acceptor_socket*);
+void	 net2_acceptor_socket_ready_to_send(struct net2_acceptor_socket*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_ready_to_send(struct net2_acceptor*);
+void	 net2_acceptor_ready_to_send(struct net2_acceptor*);
 ILIAS_NET2_EXPORT
-int	net2_acceptor_get_transmit(struct net2_acceptor*, struct net2_buffer**,
+int	 net2_acceptor_get_transmit(struct net2_acceptor*, struct net2_buffer**,
 	    struct net2_cw_tx*, int, size_t);
 ILIAS_NET2_EXPORT
-int	net2_acceptor_socket_get_transmit(struct net2_acceptor_socket*,
+int	 net2_acceptor_socket_get_transmit(struct net2_acceptor_socket*,
 	    struct net2_buffer**, struct net2_cw_tx*, int, size_t);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_accept(struct net2_acceptor*, struct net2_buffer*);
+void	 net2_acceptor_accept(struct net2_acceptor*, struct net2_buffer*);
 ILIAS_NET2_EXPORT
-void	net2_acceptor_socket_accept(struct net2_acceptor_socket*,
+void	 net2_acceptor_socket_accept(struct net2_acceptor_socket*,
 	    struct net2_buffer*);
+ILIAS_NET2_EXPORT
+int	 net2_acceptor_init(struct net2_acceptor*,
+	    const struct net2_acceptor_fn*);
+ILIAS_NET2_EXPORT
+void	 net2_acceptor_deinit(struct net2_acceptor*);
+
+ILIAS_NET2_EXPORT
+int	 net2_acceptor_pvlist(struct net2_acceptor*, struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+int	 net2_acceptor_socket_pvlist(struct net2_acceptor_socket*,
+	    struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+struct net2_evbase
+	*net2_acceptor_socket_evbase(struct net2_acceptor_socket*);
+ILIAS_NET2_EXPORT
+struct net2_evbase
+	*net2_acceptor_evbase(struct net2_acceptor*);
+
+ILIAS_NET2_EXPORT
+struct net2_acceptor_socket
+	*net2_acceptor_socket(struct net2_acceptor*);
+ILIAS_NET2_EXPORT
+struct net2_acceptor
+	*net2_acceptor(struct net2_acceptor_socket*);
 
 #endif /* ILIAS_NET2_ACCEPTOR_H */

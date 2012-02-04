@@ -72,20 +72,28 @@ net2_encdec_ctx_release(struct net2_encdec_ctx *ctx)
  * Create a new encdec_ctx from a connection.
  */
 ILIAS_NET2_LOCAL struct net2_encdec_ctx*
-net2_encdec_ctx_newconn(struct net2_connection *c)
+net2_encdec_ctx_newaccsocket(struct net2_acceptor_socket *s)
 {
 	struct net2_encdec_ctx		*ctx;
+	struct net2_pvlist		 pv;
 
-	if (c == NULL)
-		return NULL;
+	if (s == NULL)
+		goto fail_0;
 
-	if ((ctx = net2_encdec_ctx_new(NULL, NULL)) == NULL)
-		return NULL;
-	if (net2_pvlist_add(&ctx->ed_proto, &net2_proto, c->n2c_version)) {
-		net2_encdec_ctx_release(ctx);
-		return NULL;
-	}
+	if (net2_pvlist_init(&pv))
+		goto fail_0;
+	if (net2_acceptor_socket_pvlist(s, &pv))
+		goto fail_1;
+
+	if ((ctx = net2_encdec_ctx_new(&pv, NULL)) == NULL)
+		goto fail_1;
+	net2_pvlist_deinit(&pv);
 	return ctx;
+
+fail_1:
+	net2_pvlist_deinit(&pv);
+fail_0:
+	return NULL;
 }
 
 /*

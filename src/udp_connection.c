@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/udp_connection.h>
 #include <ilias/net2/connection.h>
+#include <ilias/net2/acceptor.h>
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/sockdgram.h>
@@ -46,9 +47,9 @@ struct net2_conn_p2p;
 #define DEQUEUE_MAX		256
 
 ILIAS_NET2_LOCAL
-void	net2_conn_p2p_destroy(struct net2_connection*);
+void	net2_conn_p2p_destroy(struct net2_acceptor_socket*);
 ILIAS_NET2_LOCAL
-void	net2_conn_p2p_ready_to_send(struct net2_connection*);
+void	net2_conn_p2p_ready_to_send(struct net2_acceptor_socket*);
 ILIAS_NET2_LOCAL
 int	net2_conn_p2p_setev(struct net2_conn_p2p*, short);
 
@@ -67,10 +68,12 @@ void	net2_udpsock_conn_wantsend(struct net2_udpsocket*,
 	    struct net2_conn_p2p*);
 
 
-static const struct net2_conn_functions udp_conn_fn = {
+static const struct net2_acceptor_socket_fn udp_conn_fn = {
 	0,
 	net2_conn_p2p_destroy,
 	net2_conn_p2p_ready_to_send,
+	NULL,
+	NULL
 };
 
 /* UDP connection. */
@@ -359,7 +362,7 @@ net2_conn_p2p_socket_release(struct net2_udpsocket *sock)
 }
 
 ILIAS_NET2_LOCAL void
-net2_conn_p2p_destroy(struct net2_connection *cptr)
+net2_conn_p2p_destroy(struct net2_acceptor_socket *cptr)
 {
 	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
 	struct net2_udpsocket	*udpsock;
@@ -379,7 +382,7 @@ net2_conn_p2p_destroy(struct net2_connection *cptr)
 		event_del(c->np2p_ev);
 		event_free(c->np2p_ev);
 	}
-	net2_connection_deinit(cptr);
+	net2_connection_deinit(&c->np2p_conn);
 	free(cptr);
 }
 
@@ -387,7 +390,7 @@ net2_conn_p2p_destroy(struct net2_connection *cptr)
  * Mark connection as ready-to-send.
  */
 ILIAS_NET2_LOCAL void
-net2_conn_p2p_ready_to_send(struct net2_connection *cptr)
+net2_conn_p2p_ready_to_send(struct net2_acceptor_socket *cptr)
 {
 	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
 
@@ -503,16 +506,18 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 ILIAS_NET2_LOCAL int
 net2_conn_p2p_setev(struct net2_conn_p2p *c, short what)
 {
+	struct net2_evbase	*evbase;
 	int			 allocated = 1;
 	int			 want_write, have_write;
 	int			 want_read,  have_read;
 
 	assert(c->np2p_udpsock == NULL);
+	evbase = net2_acceptor_socket_evbase(&c->np2p_conn.n2c_socket);
 	want_write = (what & EV_WRITE);
 	want_read = (what & EV_READ);
 
 	if (c->np2p_ev == NULL) {
-		if ((c->np2p_ev = event_new(c->np2p_conn.n2c_evbase->evbase,
+		if ((c->np2p_ev = event_new(evbase->evbase,
 		    c->np2p_sock, what | EV_PERSIST,
 		    net2_conn_p2p_recv, c)) == NULL) {
 			warnx("event_new fail");
@@ -536,8 +541,7 @@ net2_conn_p2p_setev(struct net2_conn_p2p *c, short what)
 			warnx("event_del fail");
 			goto fail;
 		}
-		if (event_assign(c->np2p_ev,
-		    c->np2p_conn.n2c_evbase->evbase,
+		if (event_assign(c->np2p_ev, evbase->evbase,
 		    c->np2p_sock, what | EV_PERSIST,
 		    net2_conn_p2p_recv, c)) {
 			warnx("event_assign fail");

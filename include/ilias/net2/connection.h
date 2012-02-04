@@ -19,8 +19,8 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/connstats.h>
 #include <ilias/net2/connwindow.h>
+#include <ilias/net2/acceptor.h>
 
-struct net2_conn_acceptor;
 struct packet_header;
 
 /*
@@ -48,26 +48,11 @@ struct net2_conn_receive {
 				 recvq;	/* Link into connection receive list. */
 };
 
-/* Connection function table. */
-struct net2_conn_functions {
-	int	flags;			/* Connection flags. */
-#define NET2_CFLAGS_RELIABLE	0x01	/* Reliable transmission.
-					 * Each datagram will arrive
-					 * exactly once. */
-#define NET2_CFLAGS_SEQUENTIAL	0x02	/* Sequential transmission. */
-
-	/* Destructor. */
-	void	(*destroy)(struct net2_connection*);
-	/* Inform implementation that this connection has pending data. */
-	void	(*ready_to_send)(struct net2_connection*);
-};
-
 /* Basic properties of a connection. */
 struct net2_connection {
-	const struct net2_conn_functions
-				*n2c_functions;	/* Function dispatch table. */
+	struct net2_acceptor_socket
+				 n2c_socket;	/* Acceptor socket base. */
 
-	struct net2_evbase	*n2c_evbase;	/* Eventbase for connection. */
 	struct net2_ctx		*n2c_ctx;	/* Network context. */
 
 	net2_protocol_t		 n2c_version;	/* Communication protocol
@@ -101,43 +86,17 @@ struct net2_connection {
 						 * encrypted packet. */
 	}			 n2c_enc;	/* Signing algorithm. */
 
-	struct net2_conn_acceptor
-				*n2c_acceptor;	/* Datagram acceptor. */
-
 	struct net2_connwindow	 n2c_window;	/* Low level window. */
 	struct net2_connstats	 n2c_stats;	/* Connection stats. */
 
 	/* XXX more members as required. */
 };
 
-/* Connection datagram acceptor function table. */
-struct net2_conn_acceptor_fn {
-	/* Detach function. */
-	void	(*detach)(struct net2_connection*, struct net2_conn_acceptor*);
-	/* Attach function. */
-	int	(*attach)(struct net2_connection*, struct net2_conn_acceptor*);
-	/* Network datagram acceptor. */
-	void	(*accept)(struct net2_conn_acceptor*, struct packet_header*,
-		    struct net2_buffer**);
-	/* Check if the acceptor has pending transmissions. */
-	int	(*get_transmit)(struct net2_conn_acceptor*,
-		    struct net2_buffer**, struct net2_cw_tx*,
-		    int first, size_t maxlen);
-};
-
-/* Connection datagram acceptor interface. */
-struct net2_conn_acceptor {
-	const struct net2_conn_acceptor_fn
-				*ca_fn;		/* Acceptor function table. */
-	struct net2_connection	*ca_conn;	/* Connection owning this
-						 * acceptor. */
-};
-
 
 ILIAS_NET2_EXPORT
 int	net2_connection_init(struct net2_connection*,
 	    struct net2_ctx*, struct net2_evbase*,
-	    const struct net2_conn_functions*);
+	    const struct net2_acceptor_socket_fn*);
 ILIAS_NET2_EXPORT
 void	net2_connection_deinit(struct net2_connection*);
 ILIAS_NET2_EXPORT
@@ -147,15 +106,7 @@ void	net2_connection_recv(struct net2_connection*,
 	    struct net2_conn_receive*);
 
 ILIAS_NET2_EXPORT
-int	net2_conn_acceptor_attach(struct net2_connection*,
-	    struct net2_conn_acceptor*);
-ILIAS_NET2_EXPORT
-void	net2_conn_acceptor_detach(struct net2_connection*,
-	    struct net2_conn_acceptor*);
-ILIAS_NET2_EXPORT
 int	net2_conn_gather_tx(struct net2_connection*,
 	    struct net2_buffer**, size_t);
-ILIAS_NET2_EXPORT
-void	net2_conn_ready_to_send(struct net2_connection*);
 
 #endif /* ILIAS_NET2_CONNECTION_H */

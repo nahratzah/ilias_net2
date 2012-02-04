@@ -103,12 +103,12 @@ RB_PROTOTYPE_STATIC(net2_objman_ttx, net2_objman_tx_ticket, id_tree, ttx_cmp);
 RB_GENERATE_STATIC(net2_objman_ttx, net2_objman_tx_ticket, id_tree, ttx_cmp);
 
 
-static int	 net2_objmanager_attach(struct net2_connection*,
-		    struct net2_conn_acceptor *self);
-static void	 net2_objmanager_detach(struct net2_connection*,
-		    struct net2_conn_acceptor *self);
-static void	 net2_objmanager_accept(struct net2_conn_acceptor*,
-		    struct packet_header*, struct net2_buffer**);
+static int	 net2_objmanager_attach(struct net2_acceptor_socket*,
+		    struct net2_acceptor *self);
+static void	 net2_objmanager_detach(struct net2_acceptor_socket*,
+		    struct net2_acceptor *self);
+static void	 net2_objmanager_accept(struct net2_acceptor*,
+		    struct net2_buffer*);
 
 static void	 kill_group(struct net2_objman_group*);
 static void	 rm_group(struct net2_objmanager*, struct net2_objman_group*);
@@ -146,7 +146,7 @@ static struct event	*run_group_ev_new(struct net2_objmanager*,
 static void		 run_group_ev_free(struct run_group_ev*);
 
 
-static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
+static const struct net2_acceptor_fn net2_objmanager_cafn = {
 	net2_objmanager_detach,
 	net2_objmanager_attach,
 	net2_objmanager_accept,
@@ -160,20 +160,22 @@ static const struct net2_conn_acceptor_fn net2_objmanager_cafn = {
 static int
 net2_objmanager_init(struct net2_objmanager *m)
 {
-	m->base.ca_conn = NULL;
-	m->base.ca_fn = &net2_objmanager_cafn;
+	if (net2_acceptor_init(&m->base, &net2_objmanager_cafn))
+		goto fail_0;
 	m->evbase = NULL;
 	RB_INIT(&m->groups);
 	RB_INIT(&m->tx_tickets);
 	if (net2_pvlist_init(&m->pvlist))
-		goto fail_0;
+		goto fail_1;
 	m->refcnt = 1;
 	if ((m->mtx = net2_mutex_alloc()) == NULL)
-		goto fail_1;
+		goto fail_2;
 	return 0;
 
-fail_1:
+fail_2:
 	net2_pvlist_deinit(&m->pvlist);
+fail_1:
+	net2_acceptor_deinit(&m->base);
 fail_0:
 	return -1;
 }
@@ -196,8 +198,8 @@ net2_objmanager_deinit(struct net2_objmanager *m)
 
 /* Attach objmanager to connection. */
 static int
-net2_objmanager_attach(struct net2_connection *conn,
-    struct net2_conn_acceptor *self)
+net2_objmanager_attach(struct net2_acceptor_socket *sock,
+    struct net2_acceptor *self)
 {
 	struct net2_objmanager	*m;
 
@@ -208,11 +210,11 @@ net2_objmanager_attach(struct net2_connection *conn,
 		goto fail;
 	m->flags |= OM_ATTACHED;
 
-	if (net2_pvlist_add(&m->pvlist, &net2_proto, conn->n2c_version))
+	if (net2_acceptor_socket_pvlist(sock, &m->pvlist))
 		goto fail;
 
-	net2_evbase_ref(conn->n2c_evbase);
-	m->evbase = conn->n2c_evbase;
+	m->evbase = net2_acceptor_socket_evbase(sock);
+	net2_evbase_ref(m->evbase);
 
 	m->refcnt++;
 	net2_mutex_unlock(m->mtx);
@@ -225,8 +227,8 @@ fail:
 
 /* Detach objmanager from connection. */
 static void
-net2_objmanager_detach(struct net2_connection *conn,
-    struct net2_conn_acceptor *self)
+net2_objmanager_detach(struct net2_acceptor_socket *sock,
+    struct net2_acceptor *self)
 {
 	struct net2_objmanager	*m;
 
@@ -236,8 +238,8 @@ net2_objmanager_detach(struct net2_connection *conn,
 
 /* Accept incoming data from connection. */
 static void
-net2_objmanager_accept(struct net2_conn_acceptor *self,
-    struct packet_header *ph, struct net2_buffer **bufptr)
+net2_objmanager_accept(struct net2_acceptor *self,
+    struct net2_buffer *buf)
 {
 	struct net2_objmanager		*m;
 	struct net2_objman_packet	 packet;
@@ -249,8 +251,8 @@ net2_objmanager_accept(struct net2_conn_acceptor *self,
 		goto fail_0;
 
 	/* Decode all messages. */
-	while (!net2_buffer_empty(*bufptr)) {
-		if (n2omp_decode(ctx, &packet, *bufptr))
+	while (!net2_buffer_empty(buf)) {
+		if (n2omp_decode(ctx, &packet, buf))
 			goto fail_1;
 		switch ((packet.mh.flags & OBJMAN_PH_IS_MASK) >>
 		    OBJMAN_PH_IS_MASK_SHIFT) {
@@ -331,7 +333,6 @@ net2_objmanager_release(struct net2_objmanager *m)
 	do_free = (--m->refcnt == 0);
 	net2_mutex_unlock(m->mtx);
 
-	assert(m->base.ca_conn == NULL);
 	if (do_free) {
 		net2_objmanager_deinit(m);
 		free(m);

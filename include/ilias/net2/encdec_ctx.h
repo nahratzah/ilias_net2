@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+struct net2_acceptor_socket;	/* From ilias/net2/acceptor.h */
+
 /*
  * Encoding/decoding context.
  *
@@ -52,7 +54,7 @@ void			 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
 void			 net2_encdec_ctx_release(struct net2_encdec_ctx*);
 ILIAS_NET2_LOCAL
-struct net2_encdec_ctx	*net2_encdec_ctx_newconn(struct net2_connection*);
+struct net2_encdec_ctx	*net2_encdec_ctx_newaccsocket(struct net2_acceptor_socket*);
 ILIAS_NET2_LOCAL
 struct net2_encdec_ctx	*net2_encdec_ctx_newobjman(struct net2_objmanager*);
 #endif /* ilias_net2_EXPORTS */

@@ -327,9 +327,11 @@ main()
 	}
 
 	/* Attach stream to connection. */
-	if (net2_conn_acceptor_attach(c1, net2_stream_acceptor_reduce(sa1)) ||
-	    net2_conn_acceptor_attach(c2, net2_stream_acceptor_reduce(sa2))) {
-		printf("net2_conn_acceptor_attach() fail\n");
+	if (net2_acceptor_attach(&c1->n2c_socket,
+	    net2_stream_acceptor_reduce(sa1)) ||
+	    net2_acceptor_attach(&c2->n2c_socket,
+	    net2_stream_acceptor_reduce(sa2))) {
+		printf("net2_acceptor_attach() fail\n");
 		return -1;
 	}
 

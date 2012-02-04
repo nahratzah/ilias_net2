@@ -20,7 +20,7 @@
 
 #ifdef ilias_net2_EXPORTS
 
-#include <ilias/net2/connection.h>
+#include <ilias/net2/acceptor.h>
 #include <ilias/net2/protocol.h>
 #include <bsd_compat/bsd_compat.h>
 
@@ -58,8 +58,7 @@ RB_HEAD(net2_objman_ttx, net2_objman_tx_ticket);
  * Manages requests (which are remote method invocations).
  */
 struct net2_objmanager {
-	struct net2_conn_acceptor
-				 base;
+	struct net2_acceptor	 base;
 	struct net2_evbase	*evbase;
 
 	int			 flags;		/* State flags. */

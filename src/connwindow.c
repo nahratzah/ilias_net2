@@ -230,7 +230,7 @@ stallbackoff(int fd, short what, void *wptr)
 
 	if (w->cw_flags & NET2_CW_F_STALLBACKOFF) {
 		w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
-		net2_conn_ready_to_send(w->cw_conn);
+		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 }
 /* Fire a new keepalive. */
@@ -241,7 +241,7 @@ keepalive(int fd, short what, void *wptr)
 
 	if (w->cw_flags & NET2_CW_F_KEEPALIVE) {
 		w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
-		net2_conn_ready_to_send(w->cw_conn);
+		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 }
 
@@ -298,7 +298,7 @@ tx_timeout(int fd, short what, void *txptr)
 	} else if (!(tx->cwt_flags & NET2_CWTX_F_WANTBAD)) {
 		tx->cwt_flags |= NET2_CWTX_F_WANTBAD;
 		TAILQ_INSERT_TAIL(&w->cw_tx_bad, tx, cwt_entry_txbad);
-		net2_conn_ready_to_send(w->cw_conn);
+		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 }
 /*
@@ -331,7 +331,7 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	struct net2_evbase		*evbase;
 
 	c = w->cw_conn;
-	evbase = c->n2c_evbase;
+	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 
 	if ((tx = malloc(sizeof(*tx))) == NULL)
 		goto fail_0;
@@ -494,7 +494,7 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 	struct net2_evbase		*evbase;
 
 	c = w->cw_conn;
-	evbase = c->n2c_evbase;
+	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 
 	if ((rx = malloc(sizeof(*rx))) == NULL)
 		goto fail_0;
@@ -716,7 +716,7 @@ do_stalled(struct net2_connwindow *w)
 	TAILQ_INSERT_HEAD(&w->cw_rx_wantack, rx, cwr_entry_rx);
 
 	/* Ensure connection will send immediately. */
-	net2_conn_ready_to_send(w->cw_conn);
+	net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 }
 
 /* Perform window update. */
@@ -759,8 +759,10 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 		 * mark the connection as ready-to-send so the remote end
 		 * will receive its long awaited ack.
 		 */
-		if (rx->cwr_flags & NET2_CWRX_F_RECVOK)
-			net2_conn_ready_to_send(w->cw_conn);
+		if (rx->cwr_flags & NET2_CWRX_F_RECVOK) {
+			net2_acceptor_socket_ready_to_send(
+			    &w->cw_conn->n2c_socket);
+		}
 	}
 
 	/* Move the rx window up to the new starting point. */
@@ -824,6 +826,9 @@ fail:
 ILIAS_NET2_LOCAL int
 net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 {
+	struct net2_evbase	*evbase;
+
+	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 	w->cw_conn = c;
 	w->cw_tx_start = w->cw_tx_nextseq = secure_random();
 	w->cw_rx_windowsz = INITIAL_RX_WINDOW_SIZE;
@@ -835,10 +840,10 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	TAILQ_INIT(&w->cw_rx_wantack);
 	RB_INIT(&w->cw_rx_id);
 	w->cw_flags = NET2_CW_F_WANTRECV;
-	if ((w->cw_stallbackoff = evtimer_new(c->n2c_evbase->evbase,
+	if ((w->cw_stallbackoff = evtimer_new(evbase->evbase,
 	    stallbackoff, w)) == NULL)
 		goto fail_0;
-	if ((w->cw_keepalive = evtimer_new(c->n2c_evbase->evbase,
+	if ((w->cw_keepalive = evtimer_new(evbase->evbase,
 	    keepalive, w)) == NULL)
 		goto fail_1;
 
@@ -984,7 +989,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 			w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
 		if (!event_del(w->cw_stallbackoff))
 			w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
-		net2_conn_ready_to_send(w->cw_conn);
+		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 
 	return 0;

@@ -107,7 +107,7 @@ struct net2_sa_rx {
  * Stream acceptor datastructure.
  */
 struct net2_stream_acceptor {
-	struct net2_conn_acceptor	 base;		/* acceptor */
+	struct net2_acceptor		 base;		/* acceptor */
 
 	struct net2_sa_tx		 tx;		/* TX side of stream */
 	struct net2_sa_rx		 rx;		/* RX side of stream */
@@ -154,14 +154,13 @@ void	sa_on_detach(struct net2_sa_tx*);
 ILIAS_NET2_LOCAL
 void	nsa_ready_to_send(struct net2_sa_tx*);
 ILIAS_NET2_LOCAL
-int	nsa_attach(struct net2_connection*, struct net2_conn_acceptor*);
+int	nsa_attach(struct net2_acceptor_socket*, struct net2_acceptor*);
 ILIAS_NET2_LOCAL
-void	nsa_detach(struct net2_connection*, struct net2_conn_acceptor*);
+void	nsa_detach(struct net2_acceptor_socket*, struct net2_acceptor*);
 ILIAS_NET2_LOCAL
-void	nsa_accept(struct net2_conn_acceptor*, struct packet_header*,
-	    struct net2_buffer**);
+void	nsa_accept(struct net2_acceptor*, struct net2_buffer*);
 ILIAS_NET2_LOCAL
-int	nsa_get_transmit(struct net2_conn_acceptor*, struct net2_buffer**,
+int	nsa_get_transmit(struct net2_acceptor*, struct net2_buffer**,
 	    struct net2_cw_tx*, int, size_t);
 
 ILIAS_NET2_LOCAL
@@ -172,7 +171,7 @@ void	sa_tx_deinit(struct net2_sa_tx*);
 ILIAS_NET2_LOCAL
 void	sa_rx_deliver(struct net2_sa_rx*, struct net2_buffer*);
 ILIAS_NET2_LOCAL
-int	sa_rx_recvbuf(struct net2_sa_rx*, struct net2_connection*,
+int	sa_rx_recvbuf(struct net2_sa_rx*, struct net2_acceptor_socket*,
 	    struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	sa_rx_recv(struct net2_sa_rx*, struct stream_packet*);
@@ -191,7 +190,7 @@ void	sa_rx_deinit(struct net2_sa_rx*);
 
 
 /* Function dispatch table for stream acceptor. */
-static const struct net2_conn_acceptor_fn nsa_fn = {
+static const struct net2_acceptor_fn nsa_fn = {
 	&nsa_detach,
 	&nsa_attach,
 	&nsa_accept,
@@ -206,18 +205,20 @@ net2_stream_acceptor_new()
 
 	if ((nsa = malloc(sizeof(*nsa))) == NULL)
 		goto fail_0;
-	memset(&nsa->base, 0, sizeof(nsa->base));
-	nsa->base.ca_fn = &nsa_fn;
+	if (net2_acceptor_init(&nsa->base, &nsa_fn))
+		goto fail_1;
 	nsa->flags = 0;
 
 	if (sa_tx_init(&nsa->tx, &nsa_ready_to_send))
-		goto fail_1;
-	if (sa_rx_init(&nsa->rx))
 		goto fail_2;
+	if (sa_rx_init(&nsa->rx))
+		goto fail_3;
 	return nsa;
 
-fail_2:
+fail_3:
 	sa_tx_deinit(&nsa->tx);
+fail_2:
+	net2_acceptor_deinit(&nsa->base);
 fail_1:
 	free(nsa);
 fail_0:
@@ -934,7 +935,7 @@ sa_on_lowbuffer(struct net2_sa_tx *sa)
  */
 ILIAS_NET2_LOCAL int
 sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
-    struct net2_connection *conn,
+    struct net2_acceptor_socket *socket,
     struct net2_cw_tx *tx, int first, size_t maxlen)
 {
 	struct net2_encdec_ctx		*ctx;
@@ -1076,7 +1077,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 		goto fail_2;
 
 	/* Encode stream packet. */
-	if ((ctx = net2_encdec_ctx_newconn(conn)) == NULL)
+	if ((ctx = net2_encdec_ctx_newaccsocket(socket)) == NULL)
 		goto fail_3;
 	if (net2_cp_encode(ctx, &cp_stream_packet, *bufptr, &data, NULL)) {
 		net2_encdec_ctx_rollback(ctx);
@@ -1094,7 +1095,8 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/*
 	 * Register delivery callbacks.
 	 */
-	if (net2_connwindow_txcb_register(tx, conn->n2c_evbase,
+	if (net2_connwindow_txcb_register(tx,
+	    net2_acceptor_socket_evbase(socket),
 	    sa_transit_timeout,
 	    sa_transit_ack,
 	    sa_transit_nack,
@@ -1148,37 +1150,31 @@ fail_0:
 ILIAS_NET2_LOCAL void
 nsa_ready_to_send(struct net2_sa_tx *sa)
 {
-	struct net2_connection		*conn;
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = SA_TX__SA(sa);
-	conn = nsa->base.ca_conn;
-
-	if (conn != NULL)
-		net2_conn_ready_to_send(conn);
+	net2_acceptor_ready_to_send(&nsa->base);
 }
 
 /*
  * Gather transmit data.
  */
 ILIAS_NET2_LOCAL int
-nsa_get_transmit(struct net2_conn_acceptor *sa_ptr, struct net2_buffer **bufptr,
+nsa_get_transmit(struct net2_acceptor *sa_ptr, struct net2_buffer **bufptr,
     struct net2_cw_tx *tx, int first, size_t maxlen)
 {
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
-	assert(sa_ptr->ca_conn != NULL);
-
-	return sa_get_transmit(&nsa->tx, bufptr, sa_ptr->ca_conn,
-	    tx, first, maxlen);
+	return sa_get_transmit(&nsa->tx, bufptr,
+	    net2_acceptor_socket(&nsa->base), tx, first, maxlen);
 }
 
 /*
  * Attach to a connection.
  */
 ILIAS_NET2_LOCAL int
-nsa_attach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
+nsa_attach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
 
@@ -1189,7 +1185,7 @@ nsa_attach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
 	nsa->flags |= SA_ATTACHED;
 
 	if (!net2_buffer_empty(nsa->tx.sendbuf))
-		net2_conn_ready_to_send(conn);
+		net2_acceptor_ready_to_send(sa_ptr);
 	return 0;
 }
 
@@ -1197,7 +1193,7 @@ nsa_attach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
  * Detach from a connection.
  */
 ILIAS_NET2_LOCAL void
-nsa_detach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
+nsa_detach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
 
@@ -1212,14 +1208,14 @@ nsa_detach(struct net2_connection *conn, struct net2_conn_acceptor *sa_ptr)
  * Accept input from connection.
  */
 ILIAS_NET2_LOCAL void
-nsa_accept(struct net2_conn_acceptor *sa_ptr, struct packet_header *ph,
-    struct net2_buffer **bufptr)
+nsa_accept(struct net2_acceptor *sa_ptr, struct net2_buffer *buf)
 {
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
-	while (!net2_buffer_empty(*bufptr)) {
-		if (sa_rx_recvbuf(&nsa->rx, sa_ptr->ca_conn, *bufptr)) {
+	while (!net2_buffer_empty(buf)) {
+		if (sa_rx_recvbuf(&nsa->rx, net2_acceptor_socket(sa_ptr),
+		    buf)) {
 			/* TODO: kill connection, since delivery failed */
 		}
 	}
@@ -1443,14 +1439,14 @@ sa_tx_deinit(struct net2_sa_tx *sa)
  * Eat a single stream_packet from in and deliver it to the sa.
  */
 ILIAS_NET2_LOCAL int
-sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_connection *conn,
+sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_acceptor_socket *socket,
     struct net2_buffer *in)
 {
 	struct stream_packet		 sp;
 	struct net2_encdec_ctx		*ctx;
 	int				 rv = -1;
 
-	if ((ctx = net2_encdec_ctx_newconn(conn)) == NULL)
+	if ((ctx = net2_encdec_ctx_newaccsocket(socket)) == NULL)
 		goto fail_0;
 	if (net2_cp_init(ctx, &cp_stream_packet, &sp, NULL))
 		goto fail_1;

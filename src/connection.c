@@ -50,17 +50,15 @@ void		 net2_conn_handle_recv(int, short, void*);
  */
 ILIAS_NET2_EXPORT int
 net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
-    struct net2_evbase *evbase, const struct net2_conn_functions *functions)
+    struct net2_evbase *evbase,
+    const struct net2_acceptor_socket_fn *functions)
 {
 	memset(conn, 0, sizeof(*conn));
 
 	if (evbase == NULL)
 		goto fail_0;
-	net2_evbase_ref(evbase);
 	if (functions == NULL)
 		goto fail_1;
-	conn->n2c_functions = functions;
-	conn->n2c_evbase = evbase;
 	conn->n2c_ctx = ctx;
 	conn->n2c_version = 0;
 
@@ -74,10 +72,11 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	conn->n2c_enc.keylen = 0;
 	conn->n2c_enc.allow_unencrypted = 1;
 
-	conn->n2c_acceptor = NULL;
 	TAILQ_INIT(&conn->n2c_recvq);
 	conn->n2c_recvqsz = 0;
 
+	if (net2_acceptor_socket_init(&conn->n2c_socket, evbase, functions))
+		goto fail_0;
 	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
 	    &net2_conn_handle_recv, conn)) == NULL)
 		goto fail_1;
@@ -92,6 +91,8 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 
 	return 0;
 
+fail_5:
+	net2_connstats_deinit(&conn->n2c_stats);
 fail_4:
 	net2_connwindow_deinit(&conn->n2c_window);
 fail_3:
@@ -99,7 +100,7 @@ fail_3:
 fail_2:
 	event_free(conn->n2c_recv_ev);
 fail_1:
-	net2_evbase_release(evbase);
+	net2_acceptor_socket_deinit(&conn->n2c_socket);
 fail_0:
 	return -1;
 }
@@ -113,14 +114,10 @@ net2_connection_deinit(struct net2_connection *conn)
 {
 	struct net2_conn_receive	*r;
 
-	if (conn->n2c_acceptor) {
-		(*conn->n2c_acceptor->ca_fn->detach)(conn, conn->n2c_acceptor);
-		conn->n2c_acceptor = NULL;
-	}
+	net2_acceptor_socket_deinit(&conn->n2c_socket);
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
 	event_free(conn->n2c_recv_ev);
-	net2_evbase_release(conn->n2c_evbase);
 	if (conn->n2c_ctx)
 		TAILQ_REMOVE(&conn->n2c_ctx->conn, conn, n2c_ctxconns);
 	while ((r = TAILQ_FIRST(&conn->n2c_recvq)) != NULL) {
@@ -173,46 +170,10 @@ net2_connection_recv(struct net2_connection *conn,
 ILIAS_NET2_EXPORT void
 net2_connection_destroy(struct net2_connection *conn)
 {
-	assert(conn->n2c_functions->destroy);
-	(*conn->n2c_functions->destroy)(conn);
+	/* TODO: inline */
+	net2_acceptor_socket_destroy(&conn->n2c_socket);
 }
 
-
-ILIAS_NET2_EXPORT int
-net2_conn_acceptor_attach(struct net2_connection *conn,
-    struct net2_conn_acceptor *a)
-{
-	struct net2_conn_acceptor
-				*old;
-	int			 rv;
-
-	if (conn == NULL || a == NULL)
-		return -1;
-	a->ca_conn = conn;
-	old = conn->n2c_acceptor;
-	conn->n2c_acceptor = NULL;
-	rv = a->ca_fn->attach(conn, a);
-	if (rv == 0) {
-		if (old != NULL)
-			(*old->ca_fn->detach)(conn, old);
-		conn->n2c_acceptor = a;
-	} else
-		conn->n2c_acceptor = old;
-	return rv;
-}
-
-ILIAS_NET2_EXPORT void
-net2_conn_acceptor_detach(struct net2_connection *conn,
-    struct net2_conn_acceptor *a)
-{
-	if (conn == NULL || a == NULL)
-		return;
-	if (conn->n2c_acceptor != a)
-		return;
-
-	conn->n2c_acceptor = NULL;
-	(*a->ca_fn->detach)(conn, a);
-}
 
 /* Handle each received datagram in receive queue. */
 ILIAS_NET2_LOCAL void
@@ -226,7 +187,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 	int			 decode_err;
 	size_t			 wire_sz;
 
-	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL) {
+	if ((ctx = net2_encdec_ctx_newaccsocket(&c->n2c_socket)) == NULL) {
 		warn("net2_encdec_ctx fail");
 		return;
 	}
@@ -256,11 +217,6 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		case NET2_PDECODE_WINDOW:	/* Window doesn't want this. */
 			break;
 		case NET2_PDECODE_OK:
-			if (c->n2c_acceptor == NULL) {
-				warnx("c->n2c_acceptor = NULL "
-				    "-> dropping succesfully decoded datagram");
-				break;
-			}
 			if (net2_connwindow_update(&c->n2c_window, &ph,
 			    buf, wire_sz)) {
 				warnx("failed to update window "
@@ -268,8 +224,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 				/* Kill connection? */
 				break;
 			}
-			(*c->n2c_acceptor->ca_fn->accept)(c->n2c_acceptor,
-			    &ph, &buf);
+			net2_acceptor_socket_accept(&c->n2c_socket, buf);
 
 			if (net2_cp_destroy(ctx, &cp_packet_header, &ph,
 			    NULL))
@@ -319,11 +274,9 @@ net2_conn_gather_tx(struct net2_connection *c,
 	    net2_hash_gethashlen(c->n2c_sign.algorithm) -
 	    net2_enc_getoverhead(c->n2c_enc.algorithm);
 
-	if ((acceptor = c->n2c_acceptor) == NULL)
-		goto fail_0;
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((ctx = net2_encdec_ctx_newconn(c)) == NULL)
+	if ((ctx = net2_encdec_ctx_newaccsocket(&c->n2c_socket)) == NULL)
 		goto fail_1;
 
 	/* Initialize packet header. */
@@ -348,8 +301,8 @@ fill_up:
 	for (; avail > winoverhead; count++) {
 		to_add = NULL;
 		/* Get more data from acceptor. */
-		if (acceptor->ca_fn->get_transmit(acceptor, &to_add, tx,
-		    count == 0, avail - winoverhead)) {
+		if (net2_acceptor_socket_get_transmit(&c->n2c_socket,
+		    &to_add, tx, count == 0, avail - winoverhead)) {
 			warnx("acceptor get_transmit fail");
 			break;
 		}
@@ -451,15 +404,4 @@ fail_0:
 		*bptr = NULL;
 	}
 	return rv;
-}
-
-/*
- * Inform implementation that the connection has pending data
- * (i.e. needs net2_conn_gather_tx to be executed, followed by a transmit
- * of its result.
- */
-ILIAS_NET2_EXPORT void
-net2_conn_ready_to_send(struct net2_connection *c)
-{
-	c->n2c_functions->ready_to_send(c);
 }
