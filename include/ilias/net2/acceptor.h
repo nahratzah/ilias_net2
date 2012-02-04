@@ -36,6 +36,15 @@ struct net2_acceptor_socket_fn {
 #define NET2_SOCKET_SEQUENTIAL	0x02	/* Sequential delivery: each
 					 * datagram will arrive in the
 					 * order they were provided. */
+#define NET2_SOCKET_SECURE	0x10	/* Socket is secure: communication
+					 * is protected from tampering
+					 * and eavesdropping.
+					 *
+					 * This is commonly implemented by
+					 * a connection negotiating signing
+					 * and encryption, but as an
+					 * alternative, a loopback connection
+					 * could be marked as secure. */
 
 	/* Destructor. */
 	void	(*destroy)(struct net2_acceptor_socket*);
