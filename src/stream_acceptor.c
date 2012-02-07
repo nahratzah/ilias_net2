@@ -15,19 +15,26 @@
  */
 #include <ilias/net2/stream_acceptor.h>
 #include <ilias/net2/buffer.h>
-#include <ilias/net2/connection.h>
+#include <ilias/net2/acceptor.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/packet.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/error.h>
+#include <bsd_compat/bsd_compat.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <event2/event.h>
 #include "stream_packet.h"
+
+#ifdef HAVE_SYS_TREE_H
+#include <sys/tree.h>
+#else
+#include <bsd_compat/tree.h>
+#endif
 
 
 /*
