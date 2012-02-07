@@ -27,7 +27,6 @@ struct net2_cw_tx;			/* From ilias/net2/connwindow.h */
  * Performs negotiation of protocols, security properties.
  */
 struct net2_conn_negotiator {
-	struct net2_connection	*conn;		/* Connection owner. */
 	int			 flags;		/* Want options. */
 	int			 flags_have;	/* Have options. */
 #define REQUIRE_ENCRYPTION	0x00000001
@@ -66,7 +65,7 @@ struct net2_conn_negotiator {
 ILIAS_NET2_LOCAL
 int	net2_cneg_allow_payload(struct net2_conn_negotiator*, uint32_t);
 ILIAS_NET2_LOCAL
-int	net2_cneg_init(struct net2_conn_negotiator*, struct net2_connection*);
+int	net2_cneg_init(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL
 void	net2_cneg_deinit(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL

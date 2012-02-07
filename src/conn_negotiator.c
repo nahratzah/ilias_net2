@@ -14,6 +14,11 @@
 
 #define REQUIRE			(REQUIRE_ENCRYPTION | REQUIRE_SIGNING)
 
+#define CNEG_OFFSET							\
+		(size_t)(&((struct net2_connection*)0)->n2c_negotiator)
+#define CNEG_CONN(_cn)							\
+		((struct net2_connection*)((char*)(_cn) - CNEG_OFFSET))
+
 /* Set management. */
 struct net2_conn_negotiator_set {
 	int			 flags;
@@ -68,7 +73,7 @@ free_encoded_header(struct encoded_header *eh)
 static void
 cneg_ready_to_send(struct net2_conn_negotiator *cn)
 {
-	net2_acceptor_socket_ready_to_send(&cn->conn->n2c_socket);
+	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
 }
 /* Encoded header connection-ack callback. */
 static void
@@ -132,10 +137,9 @@ create_xhc_headers(struct net2_buffer **set, size_t *setsz_ptr, const char *(*na
 	int			 i, e;
 	const char		**list;
 	int			 error;
-	size_t			 list_alloc_sz;
 
 	/* Allocate the name list. */
-	if ((list = calloc(MIN(end, 1), sizeof(*list))) == NULL)
+	if ((list = calloc(MAX(end, 1), sizeof(*list))) == NULL)
 		return ENOMEM;
 
 	/* Gather all names, skipping nulls. */
@@ -413,12 +417,13 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 
 /* Initialize connection negotiator. */
 ILIAS_NET2_LOCAL int
-net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_connection *s)
+net2_cneg_init(struct net2_conn_negotiator *cn)
 {
 	int		 error;
+	struct net2_connection
+			*s = CNEG_CONN(cn);
 
 	assert(s != NULL);
-	cn->conn = s;
 
 	cn->flags = 0;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE))
@@ -517,7 +522,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		return 0;
 
 	/* Initialize locals. */
-	evbase = net2_acceptor_socket_evbase(&cn->conn->n2c_socket);
+	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
 	fini_len = net2_buffer_length(cn->headers.fini);
 	*bufptr = NULL;
 	TAILQ_INIT(&transit);

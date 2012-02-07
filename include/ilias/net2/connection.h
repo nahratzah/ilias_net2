@@ -19,6 +19,7 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/connstats.h>
 #include <ilias/net2/connwindow.h>
+#include <ilias/net2/conn_negotiator.h>
 #include <ilias/net2/acceptor.h>
 
 struct packet_header;
@@ -52,6 +53,8 @@ struct net2_conn_receive {
 struct net2_connection {
 	struct net2_acceptor_socket
 				 n2c_socket;	/* Acceptor socket base. */
+	struct net2_conn_negotiator
+				 n2c_negotiator; /* Protocol negotiator. */
 
 	struct net2_ctx		*n2c_ctx;	/* Network context. */
 

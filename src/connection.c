@@ -77,28 +77,32 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 
 	if (net2_acceptor_socket_init(&conn->n2c_socket, evbase, functions))
 		goto fail_0;
+	if (net2_cneg_init(&conn->n2c_negotiator))
+		goto fail_1;
 	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
 	    &net2_conn_handle_recv, conn)) == NULL)
-		goto fail_1;
-	if ((conn->n2c_recvmtx = net2_mutex_alloc()) == NULL)
 		goto fail_2;
-	if (net2_connwindow_init(&conn->n2c_window, conn))
+	if ((conn->n2c_recvmtx = net2_mutex_alloc()) == NULL)
 		goto fail_3;
-	if (net2_connstats_init(&conn->n2c_stats, conn))
+	if (net2_connwindow_init(&conn->n2c_window, conn))
 		goto fail_4;
+	if (net2_connstats_init(&conn->n2c_stats, conn))
+		goto fail_5;
 	if (ctx)
 		TAILQ_INSERT_TAIL(&ctx->conn, conn, n2c_ctxconns);
 
 	return 0;
 
-fail_5:
+fail_6:
 	net2_connstats_deinit(&conn->n2c_stats);
-fail_4:
+fail_5:
 	net2_connwindow_deinit(&conn->n2c_window);
-fail_3:
+fail_4:
 	net2_mutex_free(conn->n2c_recvmtx);
-fail_2:
+fail_3:
 	event_free(conn->n2c_recv_ev);
+fail_2:
+	net2_cneg_deinit(&conn->n2c_negotiator);
 fail_1:
 	net2_acceptor_socket_deinit(&conn->n2c_socket);
 fail_0:
@@ -115,6 +119,7 @@ net2_connection_deinit(struct net2_connection *conn)
 	struct net2_conn_receive	*r;
 
 	net2_acceptor_socket_deinit(&conn->n2c_socket);
+	net2_cneg_deinit(&conn->n2c_negotiator);
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
 	event_free(conn->n2c_recv_ev);
