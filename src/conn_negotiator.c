@@ -28,7 +28,9 @@
 
 #include "handshake.h"
 
-#define REQUIRE			(REQUIRE_ENCRYPTION | REQUIRE_SIGNING)
+#define REQUIRE								\
+	(NET2_CNEG_REQUIRE_ENCRYPTION | NET2_CNEG_REQUIRE_SIGNING)
+#define UNKNOWN_SIZE		((size_t)-1)
 
 #define CNEG_OFFSET							\
 		(size_t)(&((struct net2_connection*)0)->n2c_negotiator)
@@ -241,7 +243,6 @@ create_headers(struct net2_conn_negotiator *cn)
 }
 
 
-#define UNKNOWN_SIZE	((size_t)-1)
 /* Retrieve specified set. */
 static int
 set_get(struct net2_conn_negotiator *cn, size_t which_set,
@@ -371,7 +372,17 @@ set_all_done(const struct net2_conn_negotiator *cn)
 
 	return 1;
 }
-#undef UNKNOWN_SIZE
+
+/* Test if all data has been received. */
+static int
+all_done(const struct net2_conn_negotiator *cn)
+{
+	if (cn->negotiated.rcv_expected == UNKNOWN_SIZE ||
+	    cn->negotiated.rcv_expected !=
+	    net2_bitset_size(&cn->negotiated.received))
+		return 0;
+	return set_all_done(cn);
+}
 
 
 /*
@@ -405,9 +416,12 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 
 	assert(s != NULL);
 
+	cn->stage = NET2_CNEG_STAGE_PRISTINE;
 	cn->flags = cn->flags_have = 0;
-	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE))
-		cn->flags |= REQUIRE_ENCRYPTION | REQUIRE_SIGNING;
+	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE)) {
+		cn->flags |= NET2_CNEG_REQUIRE_ENCRYPTION |
+		    NET2_CNEG_REQUIRE_SIGNING;
+	}
 
 	TAILQ_INIT(&cn->sendq);
 	TAILQ_INIT(&cn->waitq);
@@ -421,6 +435,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	cn->negotiated.sets = NULL;
 	cn->negotiated.sets_count = 0;
 	net2_bitset_init(&cn->negotiated.received);
+	cn->negotiated.rcv_expected = UNKNOWN_SIZE;
 
 	return 0;
 
@@ -569,12 +584,13 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 		/* Decode header. */
 		if ((error = decode_header(&h, buf)) != 0)
 			goto fail;
-		/* Stop after decoding the last header. */
+		/* GUARD: Stop after decoding the last header. */
 		if (h.flags == F_LAST_HEADER) {
 			deinit_header(&h);
-			return 0;
+			break;
 		}
 
+		skip = 0;
 		if (h.flags & F_SET_ELEMENT) {
 			if (h.flags & F_SET_LASTELEM) {
 				if ((error = set_process_size(cn,
@@ -587,6 +603,13 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 				goto fail_wh;
 		} else {
 			i = h.flags & F_TYPEMASK;
+			/* Don't accept anything over what was published. */
+			if (cn->negotiated.rcv_expected != UNKNOWN_SIZE &&
+			    i >= cn->negotiated.rcv_expected) {
+				error = EINVAL;
+				goto fail_wh;
+			}
+
 			if (i >= net2_bitset_size(&cn->negotiated.received)) {
 				if ((error = net2_bitset_resize(
 				    &cn->negotiated.received, i + 1, 0)) != 0)
@@ -612,6 +635,13 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 			cn->negotiated.flags = mask_option(
 			    MIN(h.payload.version, net2_proto.version),
 			    h.payload.options | cn->flags);
+
+			/* Check if we don't have too many received packets. */
+			if (h.payload.num_types <
+			    net2_bitset_size(&cn->negotiated.received)) {
+				error = EINVAL;
+				goto fail_wh;
+			}
 
 			break;
 
@@ -652,7 +682,14 @@ skip:
 		deinit_header(&h);
 	}
 
-	/* UNREACHABLE */
+	if (all_done(cn)) {
+		/*
+		 * Time to choose which protocols to use and
+		 * what is to be negotiated.
+		 */
+	}
+
+	return 0;
 
 fail_wh:
 	deinit_header(&h);

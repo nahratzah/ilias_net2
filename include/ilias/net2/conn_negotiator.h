@@ -44,12 +44,13 @@ struct net2_cw_tx;			/* From ilias/net2/connwindow.h */
 struct net2_conn_negotiator {
 	int			 flags;		/* Want options. */
 	int			 flags_have;	/* Have options. */
-#define REQUIRE_ENCRYPTION	0x00000001
-#define REQUIRE_SIGNING		0x00000002
+#define NET2_CNEG_REQUIRE_ENCRYPTION	0x00000001
+#define NET2_CNEG_REQUIRE_SIGNING		0x00000002
 
 	int			 stage;		/* DFA stage. */
-#define STAGE_PRISTINE		0x00000000	/* No work done. */
-#define STAGE_PROTO_FIXATED	0x00000001	/* Nothing to do. */
+#define NET2_CNEG_STAGE_PRISTINE	0x00000000	/* No work done. */
+#define NET2_CNEG_STAGE_PROTO_FIXATED	0x00000001
+#define NET2_CNEG_STAGE_PROTO_IDLE	0xffffffff	/* Nothing to do. */
 
 	TAILQ_HEAD(, encoded_header)
 				 sendq, waitq;
