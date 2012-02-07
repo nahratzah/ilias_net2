@@ -223,6 +223,7 @@ init_header_valset(struct header *h, int seq, uint32_t value,
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
 	h->flags = which;
+	h->seq = seq;
 
 	if (!(h->flags & F_SET_ELEMENT))
 		return EINVAL;
@@ -239,6 +240,7 @@ init_header_stringset(struct header *h, int seq, const char *value,
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
 	h->flags = which;
+	h->seq = seq;
 	if (value == NULL)
 		return EINVAL;
 
