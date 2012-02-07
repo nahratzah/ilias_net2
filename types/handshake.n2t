@@ -62,6 +62,8 @@ struct header {
 
 ILIAS_NET2_LOCAL
 const struct header	header_fini;
+/* Length of header_fini on the wire. */
+#define FINI_LEN	4 /* bytes */
 
 
 ILIAS_NET2_LOCAL
