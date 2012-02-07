@@ -45,6 +45,8 @@ struct header {
 #define F__NUM_TYPES		 2
 #define F__NUM_SETTYPES		 3
 
+	uint32_t		 fin_reserved;	/* Must be zero. */
+
 	uint32_t		 seq;
 	union {
 		struct {
@@ -53,6 +55,7 @@ struct header {
 			uint16_t num_types;
 			uint16_t num_settypes;
 			uint32_t options;
+			uint32_t reserved;	/* Must be zero. */
 		};
 		char		*string;
 		uint32_t	 val;
@@ -183,6 +186,7 @@ init_header_protocol(struct header *h, uint32_t flags)
 	h->payload.num_types = F__NUM_TYPES;
 	h->payload.num_settypes = F__NUM_SETTYPES;
 	h->payload.options = flags;
+	h->payload.reserved = 0;
 	return 0;
 }
 /* Describe value header. */
@@ -293,8 +297,11 @@ cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
 	if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->flags,
 	    NULL)) != 0)
 		goto out_2;
-	if (h->flags == F_LAST_HEADER)
+	if (h->flags == F_LAST_HEADER) {
+		error = net2_cp_encode(&ctx, &cp_uint32, out, &h->fin_reserved,
+		    NULL);
 		goto out_2;
+	}
 	if (h->flags & F_SET_EMPTY)
 		goto out_2;
 	/* Encode sequence, if set element. */
@@ -320,6 +327,9 @@ cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
 			goto out_2;
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
 		    &h->payload.options, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+		    &h->payload.reserved, NULL)) != 0)
 			goto out_2;
 	} else {
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
@@ -360,8 +370,11 @@ cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 	if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->flags, in,
 	    NULL)) != 0)
 		goto out_2;
-	if (h->flags == F_LAST_HEADER)
+	if (h->flags == F_LAST_HEADER) {
+		error = net2_cp_decode(&ctx, &cp_uint32, &h->fin_reserved, in,
+		    NULL);
 		goto out_2;
+	}
 	if (h->flags & F_SET_EMPTY)
 		goto out_2;
 	/* Decode sequence, if set element. */
@@ -387,6 +400,9 @@ cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 			goto out_2;
 		if ((error = net2_cp_decode(&ctx, &cp_uint32,
 		    &h->payload.options, in, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+		    &h->payload.reserved, in, NULL)) != 0)
 			goto out_2;
 	} else {
 		if ((error = net2_cp_decode(&ctx, &cp_uint32,
@@ -424,5 +440,6 @@ cp_header_destroy(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 
 ILIAS_NET2_LOCAL const struct header	header_fini = {
 	F_LAST_HEADER,
+	0,		/* reserved */
 	/* Rest is undefined. */
 };
