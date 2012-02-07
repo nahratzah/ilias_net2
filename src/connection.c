@@ -332,6 +332,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 		}
 		net2_buffer_free(to_add);
 	}
+	if (!negotiation_ready)
+		goto write_window_buf;
 
 fill_up:
 	/*

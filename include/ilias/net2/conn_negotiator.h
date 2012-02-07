@@ -40,8 +40,6 @@ struct net2_conn_negotiator {
 		struct net2_buffer
 				**set;
 		size_t		 setsz;
-		struct net2_buffer
-				*fini;		/* No-more-headers. */
 	}			 headers;	/* Transmittable headers. */
 
 	TAILQ_HEAD(, encoded_header)

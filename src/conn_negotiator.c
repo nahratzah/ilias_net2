@@ -408,6 +408,9 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 {
 	int	require = (cn->flags & REQUIRE);
 
+	/* XXX for now, allow progress anyway */
+	return 1;
+
 	/* Check that all required options are enabled. */
 	if ((cn->flags_have & require) != require)
 		return 0;
@@ -433,7 +436,6 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	TAILQ_INIT(&cn->waitq);
 
 	cn->headers.set = NULL;
-	cn->headers.fini = NULL;
 	cn->headers.setsz = 0;
 	if ((error = create_headers(&cn->headers.set, &cn->headers.setsz, cn)) != 0)
 		goto fail_1;
@@ -455,8 +457,6 @@ fail_2:
 			net2_buffer_free(cn->headers.set[--cn->headers.setsz]);
 		free(cn->headers.set);
 	}
-	if (cn->headers.fini)
-		net2_buffer_free(cn->headers.fini);
 fail_1:
 fail_0:
 	return error;
@@ -486,8 +486,6 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			net2_buffer_free(cn->headers.set[--cn->headers.setsz]);
 		free(cn->headers.set);
 	}
-	if (cn->headers.fini)
-		net2_buffer_free(cn->headers.fini);
 
 	/* Free negotiation sets. */
 	if (cn->negotiated.sets != NULL) {
@@ -511,7 +509,6 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	struct encoded_header	*eh;
 	struct net2_buffer	*buf;
 	int			 error;
-	size_t			 fini_len;
 	TAILQ_HEAD(, encoded_header)
 				 transit;
 	struct net2_evbase	*evbase;
@@ -523,7 +520,6 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 
 	/* Initialize locals. */
 	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
-	fini_len = net2_buffer_length(cn->headers.fini);
 	*bufptr = NULL;
 	TAILQ_INIT(&transit);
 
@@ -561,7 +557,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		return ENOMEM;
 
 	/* Append closing tag. */
-	if ((error = net2_buffer_append(buf, cn->headers.fini)) != 0)
+	if ((error = encode_header(&header_fini, buf)) != 0)
 		goto fail;
 
 	/* Commit transit queue. */
