@@ -145,7 +145,7 @@ ILIAS_NET2_EXPORT const char*
 net2_hash_getname(int alg)
 {
 	if (alg < 0 || alg >= net2_hashmax)
-		return 0;
+		return NULL;
 	return hash[alg].name;
 }
 
