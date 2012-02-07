@@ -47,18 +47,20 @@ struct encoded_header {
 
 	int			 flags;
 #define EHF_NEGOTIATOR_DIED	0x00000001
-	struct net2_buffer	*buf;
+	struct header		 header;
 };
 /* Create a new encoded header from a buffer. */
 static struct encoded_header*
-mk_encoded_header(struct net2_buffer *buf)
+mk_encoded_header()
 {
 	struct encoded_header	*eh;
 
-	assert(buf != NULL);
 	if ((eh = malloc(sizeof(*eh))) == NULL)
 		return NULL;
-	eh->buf = buf;
+	if (net2_cp_init(NULL, &cp_header, &eh->header, NULL)) {
+		free(eh);
+		return NULL;
+	}
 	eh->flags = 0;
 	return eh;
 }
@@ -66,7 +68,7 @@ mk_encoded_header(struct net2_buffer *buf)
 static void
 free_encoded_header(struct encoded_header *eh)
 {
-	net2_buffer_free(eh->buf);
+	net2_cp_destroy(NULL, &cp_header, &eh->header, NULL);
 	free(eh);
 }
 /* Notify connection that we want to send data. */
@@ -131,9 +133,10 @@ destroy_cb(void *hptr, void *cnptr)
  * set must point at an array of at least end types.
  */
 static int
-create_xhc_headers(struct net2_buffer **set, size_t *setsz_ptr, const char *(*name_fn)(int), int end, uint32_t type)
+create_xhc_headers(struct net2_conn_negotiator *cn,
+    const char *(*name_fn)(int), int end, uint32_t type)
 {
-	struct header		 h;
+	struct encoded_header	*h;
 	int			 i, e;
 	const char		**list;
 	int			 error;
@@ -150,40 +153,38 @@ create_xhc_headers(struct net2_buffer **set, size_t *setsz_ptr, const char *(*na
 
 	/* Transform names into buffers. */
 	for (i = 0; i < e; i++) {
-		if ((set[i] = net2_buffer_new()) == NULL) {
-			i--;	/* Decrement i, since set[i] does not contain a buffer. */
-			goto fail_nh;
+		if ((h = mk_encoded_header()) == NULL) {
+			error = ENOMEM;
+			goto fail;
 		}
 
-		if ((error = init_header_stringset(&h, i, list[i], e - 1, type)) != 0)
-			goto fail_nh;
-		if ((error = encode_header(&h, set[i])) != 0)
+		if ((error = init_header_stringset(&h->header, i, list[i],
+		    e - 1, type)) != 0) {
+			free_encoded_header(h);
 			goto fail;
-		deinit_header(&h);
+		}
+		TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 	}
 
 	/* Handle empty set. */
 	if (e == 0) {
-		if ((set[0] = net2_buffer_new()) == NULL)
-			goto fail_nh;
-		i = e = 1;
-		if ((error = init_header_empty_set(&h, type)) != 0)
-			goto fail_nh;
-		if ((error = encode_header(&h, set[0])) != 0)
+		if ((h = mk_encoded_header()) == NULL) {
+			error = ENOMEM;
 			goto fail;
-		deinit_header(&h);
+		}
+
+		if ((error = init_header_empty_set(&h->header, type)) != 0) {
+			free_encoded_header(h);
+			goto fail;
+		}
+		TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 	}
 
-	*setsz_ptr = e;
 	free(list);
 	return 0;
 
 fail:
-	deinit_header(&h);
-fail_nh:
 	free(list);
-	while (i >= 0)
-		net2_buffer_free(set[i--]);
 	return error;
 }
 
@@ -191,78 +192,36 @@ fail_nh:
  * Create buffers with all headers.
  */
 static int
-create_headers(struct net2_buffer ***set_ptr, size_t *setsz_ptr,
-    struct net2_conn_negotiator *cn)
+create_headers(struct net2_conn_negotiator *cn)
 {
-	struct header		 h;
-	struct net2_buffer	**set;
-	size_t			 setsz, addsz;
+	struct encoded_header	*h;
 	int			 error;
-	size_t			 num_bufs;
 
-	*set_ptr = NULL;
-	*setsz_ptr = 0;
-
-	/* Require at least 1 xchange method, 1 hash method and
-	 * 1 crypt method. */
-	assert(net2_xchangemax > 0 && net2_hashmax > 0 && net2_encmax > 0);
-
-	/*
-	 * We will now generate up to:
-	 * 1		protocol header
-	 * xchangemax	xchange headers
-	 * hashmax	hash headers
-	 * encmax	crypt headers
-	 */
-	num_bufs = 1 + net2_xchangemax + net2_hashmax + net2_encmax;
-	set = calloc(num_bufs, sizeof(*set));
-	setsz = 0;
-
+	if ((h = mk_encoded_header()) == NULL)
+		return ENOMEM;
 	/* Generate protocol header. */
-	if ((error = init_header_protocol(&h, cn->flags)) != 0)
-		goto fail_nh;
-	if ((set[setsz] = net2_buffer_new()) == NULL) {
-		error = ENOMEM;
-		goto fail;
+	if ((error = init_header_protocol(&h->header, cn->flags)) != 0) {
+		free_encoded_header(h);
+		return error;
 	}
-	setsz++;
-	if ((error = encode_header(&h, (set)[setsz - 1])) != 0)
-		goto fail;
-	deinit_header(&h);
+	TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 
 	/* Gather all exchange methods into set. */
-	if ((error = create_xhc_headers(set + setsz, &addsz,
+	if ((error = create_xhc_headers(cn,
 	    &net2_xchange_getname, net2_xchangemax, F_TYPE_XCHANGE)) != 0)
-		goto fail_nh;
-	setsz += addsz;
-	assert(addsz > 0);
+		return error;
 
 	/* Gather all hash methods into set. */
-	if ((error = create_xhc_headers(set + setsz, &addsz,
+	if ((error = create_xhc_headers(cn,
 	    &net2_hash_getname, net2_hashmax, F_TYPE_HASH)) != 0)
-		goto fail_nh;
-	setsz += addsz;
-	assert(addsz > 0);
+		return error;
 
 	/* Gather all crypt methods into set. */
-	if ((error = create_xhc_headers(set + setsz, &addsz,
+	if ((error = create_xhc_headers(cn,
 	    &net2_enc_getname, net2_encmax, F_TYPE_CRYPT)) != 0)
-		goto fail_nh;
-	setsz += addsz;
-	assert(addsz > 0);
-
-	*set_ptr = set;
-	*setsz_ptr = setsz;
+		return error;
 
 	return 0;
-
-fail:
-	deinit_header(&h);
-fail_nh:	/* Fail, without initialized header. */
-	while (setsz > 0)
-		net2_buffer_free(set[--setsz]);
-	free(set);
-	return error;
 }
 
 
@@ -425,6 +384,8 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	int		 error;
 	struct net2_connection
 			*s = CNEG_CONN(cn);
+	struct encoded_header
+			*h;
 
 	assert(s != NULL);
 
@@ -435,13 +396,11 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	TAILQ_INIT(&cn->sendq);
 	TAILQ_INIT(&cn->waitq);
 
-	cn->headers.set = NULL;
-	cn->headers.setsz = 0;
-	if ((error = create_headers(&cn->headers.set, &cn->headers.setsz, cn)) != 0)
-		goto fail_1;
+	if ((error = create_headers(cn)) != 0)
+		goto fail_0;
 
 	if ((error = net2_pvlist_init(&cn->negotiated.proto)) != 0)
-		goto fail_2;
+		goto fail_0;
 
 	cn->negotiated.sets = NULL;
 	cn->negotiated.sets_count = 0;
@@ -449,16 +408,20 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 
 	return 0;
 
-fail_3:
-	net2_pvlist_deinit(&cn->negotiated.proto);
-fail_2:
-	if (cn->headers.set) {
-		while (cn->headers.setsz > 0)
-			net2_buffer_free(cn->headers.set[--cn->headers.setsz]);
-		free(cn->headers.set);
-	}
 fail_1:
+	net2_pvlist_deinit(&cn->negotiated.proto);
 fail_0:
+	/* Mark as dead, all headers on the waitq; callback will deal with
+	 * cleanup. */
+	while ((h = TAILQ_FIRST(&cn->waitq)) != NULL) {
+		h->flags |= EHF_NEGOTIATOR_DIED;
+		TAILQ_REMOVE(&cn->waitq, h, entry);
+	}
+	/* Destroy all headers on the sendq. */
+	while ((h = TAILQ_FIRST(&cn->sendq)) != NULL) {
+		TAILQ_REMOVE(&cn->sendq, h, entry);
+		free_encoded_header(h);
+	}
 	return error;
 }
 
@@ -478,13 +441,6 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	while ((h = TAILQ_FIRST(&cn->sendq)) != NULL) {
 		TAILQ_REMOVE(&cn->sendq, h, entry);
 		free_encoded_header(h);
-	}
-
-	/* Free negotiation headers. */
-	if (cn->headers.set) {
-		while (cn->headers.setsz > 0)
-			net2_buffer_free(cn->headers.set[--cn->headers.setsz]);
-		free(cn->headers.set);
 	}
 
 	/* Free negotiation sets. */
@@ -527,8 +483,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	if ((buf = net2_buffer_new()) == NULL)
 		return ENOMEM;
 
-	while ((eh = TAILQ_FIRST(&cn->sendq)) != NULL &&
-	    maxlen > net2_buffer_length(eh->buf) + FINI_LEN) {
+	while ((eh = TAILQ_FIRST(&cn->sendq)) != NULL && maxlen > FINI_LEN) {
 		/*
 		 * Store old size, so we can undo the addition of this
 		 * buffer on failure.
@@ -536,11 +491,16 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		old_sz = net2_buffer_length(buf);
 
 		/* Append this eh. */
-		error = net2_buffer_append(buf, eh->buf);
+		error = encode_header(&eh->header, buf);
 		if (error == ENOMEM)
 			break;
 		if (error != 0)
 			goto fail;
+		/* Check that the buffer doesn't exceed the maxlen. */
+		if (net2_buffer_length(buf) + FINI_LEN > maxlen) {
+			net2_buffer_truncate(buf, old_sz);
+			break;
+		}
 
 		/* Register callback. */
 		if ((error = net2_connwindow_txcb_register(tx, evbase,

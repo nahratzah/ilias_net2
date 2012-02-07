@@ -36,12 +36,6 @@ struct net2_conn_negotiator {
 #define STAGE_PRISTINE		0x00000000	/* No work done. */
 #define STAGE_PROTO_FIXATED	0x00000001	/* Nothing to do. */
 
-	struct {
-		struct net2_buffer
-				**set;
-		size_t		 setsz;
-	}			 headers;	/* Transmittable headers. */
-
 	TAILQ_HEAD(, encoded_header)
 				 sendq, waitq;
 
