@@ -38,7 +38,7 @@ int	net2_bitset_get(const struct net2_bitset*, size_t, int*);
 ILIAS_NET2_LOCAL
 int	net2_bitset_set(struct net2_bitset*, size_t, int, int*);
 ILIAS_NET2_LOCAL
-int	net2_bitset_setsize(struct net2_bitset*, size_t, int);
+int	net2_bitset_resize(struct net2_bitset*, size_t, int);
 ILIAS_NET2_LOCAL
 int	net2_bitset_allset(const struct net2_bitset*);
 ILIAS_NET2_LOCAL

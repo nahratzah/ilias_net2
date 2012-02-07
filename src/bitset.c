@@ -67,7 +67,7 @@ net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
 
 /* Change the size of the bitset. */
 ILIAS_NET2_LOCAL int
-net2_bitset_setsize(struct net2_bitset *s, size_t newsz, int new_is_set)
+net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 {
 	size_t		 need, have;
 	int		*list;
