@@ -99,6 +99,7 @@ net2_acceptor_socket_get_transmit(struct net2_acceptor_socket *s,
 		return net2_acceptor_get_transmit(s->acceptor, buf, cwtx,
 		    first, maxlen);
 	}
+	return 0;
 }
 
 /* Make acceptor process received data. */

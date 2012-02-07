@@ -16,6 +16,7 @@
 #include <ilias/net2/stream_acceptor.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/acceptor.h>
+#include <ilias/net2/connwindow.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
@@ -1114,13 +1115,13 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/*
 	 * Register delivery callbacks.
 	 */
-	if (error = net2_connwindow_txcb_register(tx,
+	if ((error = net2_connwindow_txcb_register(tx,
 	    net2_acceptor_socket_evbase(socket),
 	    sa_transit_timeout,
 	    sa_transit_ack,
 	    sa_transit_nack,
 	    sa_transit_destroy,
-	    sa, r))
+	    sa, r)) != 0)
 		goto fail_3;
 
 	/* Transmitting close, remove as pending. */

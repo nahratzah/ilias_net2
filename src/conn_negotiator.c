@@ -2,6 +2,7 @@
 #include <ilias/net2/connection.h>
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/cp.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>

@@ -76,10 +76,18 @@ int	 header_flag_supported(net2_protocol_t, uint32_t);
 
 ILIAS_NET2_LOCAL
 int	 init_header_protocol(struct header*, uint32_t);
+ILIAS_NET2_LOCAL int
+init_header_val(struct header*, uint32_t, uint32_t);
+ILIAS_NET2_LOCAL int
+init_header_string(struct header*, const char*, uint32_t);
 ILIAS_NET2_LOCAL
-int	 init_header_stringset(struct header*, int, const char*, int, int);
+int	 init_header_valset(struct header*, int, uint32_t, int,
+	    uint32_t);
 ILIAS_NET2_LOCAL
-int	 init_header_empty_set(struct header*, int);
+int	 init_header_stringset(struct header*, int, const char*, int,
+	    uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_empty_set(struct header*, uint32_t);
 ILIAS_NET2_LOCAL
 void	 deinit_header(struct header*);
 
@@ -132,11 +140,12 @@ static const net2_protocol_t	header_set_flags[] = {
 ILIAS_NET2_LOCAL uint32_t
 mask_option(net2_protocol_t pver, uint32_t option)
 {
-	int		i;
+	unsigned int	i;
 	uint32_t	supported;
 #define NUM_OPTIONS	(sizeof(options) / sizeof(options[0]))
 
 	/* Mark all supported options based on pver. */
+	supported = 0;
 	for (i = 0; i < NUM_OPTIONS; i++) {
 		if (options[i] <= pver)
 			supported |= (uint32_t)1 << i;
@@ -191,7 +200,7 @@ init_header_protocol(struct header *h, uint32_t flags)
 }
 /* Describe value header. */
 ILIAS_NET2_LOCAL int
-init_header_val(struct header *h, uint32_t value, int which)
+init_header_val(struct header *h, uint32_t value, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
@@ -204,7 +213,7 @@ init_header_val(struct header *h, uint32_t value, int which)
 }
 /* Describe string header. */
 ILIAS_NET2_LOCAL int
-init_header_string(struct header *h, const char *value, int which)
+init_header_string(struct header *h, const char *value, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
@@ -222,7 +231,7 @@ init_header_string(struct header *h, const char *value, int which)
 /* Create valset header. */
 ILIAS_NET2_LOCAL int
 init_header_valset(struct header *h, int seq, uint32_t value,
-    int max_seq, int which)
+    int max_seq, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
@@ -239,7 +248,7 @@ init_header_valset(struct header *h, int seq, uint32_t value,
 /* Create stringset header. */
 ILIAS_NET2_LOCAL int
 init_header_stringset(struct header *h, int seq, const char *value,
-    int max_seq, int which)
+    int max_seq, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
@@ -259,12 +268,13 @@ init_header_stringset(struct header *h, int seq, const char *value,
 }
 /* Create empty set. */
 ILIAS_NET2_LOCAL int
-init_header_empty_set(struct header *h, int which)
+init_header_empty_set(struct header *h, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
 	h->flags = which;
 	h->flags |= F_SET_EMPTY;
+	return 0;
 }
 /* Free resources of header. */
 ILIAS_NET2_LOCAL void
@@ -442,4 +452,6 @@ ILIAS_NET2_LOCAL const struct header	header_fini = {
 	F_LAST_HEADER,
 	0,		/* reserved */
 	/* Rest is undefined. */
+	0,
+	{}
 };

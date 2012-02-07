@@ -27,7 +27,10 @@ void	testconn_ready_to_send(struct net2_acceptor_socket*);
 static const struct net2_acceptor_socket_fn testconn_fn = {
 	0,
 	testconn_free,
-	testconn_ready_to_send
+	testconn_ready_to_send,
+	NULL,
+	NULL,
+	NULL,
 };
 
 struct testconn*
