@@ -282,14 +282,17 @@ net2_conn_gather_tx(struct net2_connection *c,
 	int				 rv = -1;
 	size_t				 winoverhead;
 	struct net2_cw_tx		*tx;
-	int				 want_payload;
+	int				 want_payload, has_payload;
 	int				 negotiation_ready;
 
+	has_payload = 0;
 	*bptr = NULL;
 	winoverhead = net2_connwindow_overhead;
 	avail = maxlen - net2_ph_overhead -
 	    net2_hash_gethashlen(c->n2c_sign.algorithm) -
 	    net2_enc_getoverhead(c->n2c_enc.algorithm);
+	if (maxlen < avail)	/* Overflow. */
+		goto fail_0;
 
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
@@ -320,7 +323,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 	 * Fetch data from negotiator.
 	 */
 	to_add = NULL;
-	if ((rv = net2_cneg_get_transmit(&c->n2c_negotiator, &to_add, tx,
+	if (avail > winoverhead &&
+	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &to_add, tx,
 	    avail - winoverhead)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
@@ -330,7 +334,9 @@ net2_conn_gather_tx(struct net2_connection *c,
 			warnx("buffer_append fail for cneg");
 			goto fail_2;
 		}
+		avail -= net2_buffer_length(to_add);
 		net2_buffer_free(to_add);
+		has_payload = 1;
 	}
 	if (!negotiation_ready)
 		goto write_window_buf;
@@ -379,6 +385,7 @@ fill_up:
 		}
 		net2_buffer_free(to_add);
 		to_add = NULL;
+		has_payload = 1;
 	}
 
 	/*
@@ -403,7 +410,7 @@ write_window_buf:
 	}
 
 	/* Nothing to send. */
-	if (count == 0 && (want_payload || net2_buffer_empty(b))) {
+	if (!has_payload && (want_payload || net2_buffer_empty(b))) {
 		/*
 		 * Undo transmission: no transmission implies rollback
 		 * instead of commit.
