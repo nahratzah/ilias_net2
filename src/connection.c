@@ -236,9 +236,9 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 					warnx("failed to process negotiation "
 					    "(%d) -> dropping succefully "
 					    "decoded datagram", error);
+					/* TODO: kill connection */
+					break;
 				}
-				/* Kill connection? */
-				break;
 			}
 			net2_acceptor_socket_accept(&c->n2c_socket, buf);
 
