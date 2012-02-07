@@ -26,6 +26,8 @@
 /* Define CONNSTATS_PRINTSTATS to periodically print statistics on the connection. */
 /* #define CONNSTATS_PRINTSTATS */
 
+#define MIN_WIRE_SZ	512 /* bytes */
+
 /*
  * An algorithm to compute the square root of an int64, using only integer math.
  * Takes 32 steps.
@@ -113,7 +115,7 @@ segment_shift(struct net2_connstats *cs)
 	cs->packets_sec = arrived / NET2_STATS_LEN;
 
 	/* Largest possible packet. */
-	cs->wire_sz = 0;
+	cs->wire_sz = MIN_WIRE_SZ;
 	for (i = 0; i < NET2_STATS_LEN; i++) {
 		if (cs->wire_sz < cs->segments[i].max_wire_sz)
 			cs->wire_sz = cs->segments[i].max_wire_sz;
@@ -244,7 +246,7 @@ net2_connstats_init(struct net2_connstats *cs, struct net2_connection *conn)
 	cs->send_for_97 = 1;
 	cs->bandwidth = 0;
 	cs->packets_sec = 0;
-	cs->wire_sz = 512; /* TODO: external constant for min packet len */
+	cs->wire_sz = MIN_WIRE_SZ;
 	cs->latency_avg = 1000;
 	cs->latency_stddev = 1000;
 
