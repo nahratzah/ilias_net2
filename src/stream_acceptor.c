@@ -1045,8 +1045,12 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	if ((sa->flags & SATX_RESEND_CLOSE) && wf_start == wf_end) {
 		assert(WIN_OFF(sa, wf_start) ==
 		    net2_buffer_length(sa->sendbuf));
-	} else
+	} else if (wf_start == wf_end) {
+		/* Window is full. */
+		goto out;
+	} else {
 		assert(WIN_OFF(sa, wf_end) > WIN_OFF(sa, wf_start));
+	}
 	assert(WIN_OFF(sa, wf_end) <= MAX_WINDOW_SIZE);
 	assert(WIN_OFF(sa, wf_end) <= net2_buffer_length(sa->sendbuf));
 	assert(wf_end - wf_start <= len);
