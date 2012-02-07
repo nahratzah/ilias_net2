@@ -7,6 +7,7 @@ list (APPEND headers
 	include/ilias/net2/acceptor.h
 	include/ilias/net2/bitset.h
 	include/ilias/net2/buffer.h
+	include/ilias/net2/conn_negotiator.h
 	include/ilias/net2/connection.h
 	include/ilias/net2/connstats.h
 	include/ilias/net2/connwindow.h
@@ -36,6 +37,7 @@ list (APPEND srcs
 	src/acceptor.c
 	src/bitset.c
 	src/buffer.c
+	src/conn_negotiator.c
 	src/connection.c
 	src/connstats.c
 	src/connwindow.c
@@ -170,7 +172,6 @@ net2type(srcs "types/obj_manager_proto.n2t"
 list (APPEND headers
 	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
 	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/packet.h"
-	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/handshake.h"
 	)
 
 
