@@ -1,0 +1,94 @@
+#include <ilias/net2/bitset.h>
+#include <stdlib.h>
+#include <errno.h>
+
+
+#define SIZE_TO_BYTES(_sz)						\
+	(((_sz) + (8 * sizeof(int)) - 1) / (8 * sizeof(int)))
+
+#define INDEX(_idx)		((_idx) / (8 * sizeof(int)))
+#define OFFSET(_idx)		((_idx) % (8 * sizeof(int)))
+
+
+/* Initialize bitset. */
+ILIAS_NET2_LOCAL void
+net2_bitset_init(struct net2_bitset *s)
+{
+	s->size = 0;
+	s->data = NULL;
+}
+
+/* Deinitialize bitset. */
+ILIAS_NET2_LOCAL void
+net2_bitset_deinit(struct net2_bitset *s)
+{
+	if (s->data)
+		free(s->data);
+}
+
+/* Read a value from the bitset. */
+ILIAS_NET2_LOCAL int
+net2_bitset_get(const struct net2_bitset *s, size_t idx, int *val)
+{
+	const int	*i;
+	int		 mask;
+
+	if (idx >= s->size)
+		return EINVAL;
+	i = s->data + INDEX(idx);
+	mask = 1 << OFFSET(idx);
+
+	if (val)
+		*val = *i & mask;
+	return 0;
+}
+
+/* Set a value in the bitset. */
+ILIAS_NET2_LOCAL int
+net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
+{
+	int		*i;
+	int		 mask;
+
+	if (idx >= s->size)
+		return EINVAL;
+	i = s->data + INDEX(idx);
+	mask = 1 << OFFSET(idx);
+
+	if (oldval)
+		*oldval = *i & mask;
+
+	if (newval)
+		*i |= mask;
+	else
+		*i &= ~mask;
+	return 0;
+}
+
+/* Change the size of the bitset. */
+ILIAS_NET2_LOCAL int
+net2_bitset_setsize(struct net2_bitset *s, size_t newsz, int new_is_set)
+{
+	size_t		 need, have;
+	int		*list;
+
+	list = s->data;
+	need = SIZE_TO_BYTES(newsz);
+	have = SIZE_TO_BYTES(s->size);
+
+	if (need != have) {
+		if ((list = realloc(s->data, need)) == NULL)
+			return ENOMEM;
+		s->data = list;
+	}
+
+	if (s->size >= newsz) {
+		/* Truncated list. */
+		s->size = newsz;
+	} else {
+		/* Grown list. */
+		for (; s->size < newsz; s->size++)
+			net2_bitset_set(s, s->size, new_is_set, NULL);
+	}
+	return 0;
+}

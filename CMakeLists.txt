@@ -5,6 +5,7 @@ include (CTest)
 list (APPEND headers
 	include/ilias/net2/ilias_net2_export.h
 	include/ilias/net2/acceptor.h
+	include/ilias/net2/bitset.h
 	include/ilias/net2/buffer.h
 	include/ilias/net2/connection.h
 	include/ilias/net2/connstats.h
@@ -33,6 +34,7 @@ list (APPEND cluster_headers
 	)
 list (APPEND srcs
 	src/acceptor.c
+	src/bitset.c
 	src/buffer.c
 	src/connection.c
 	src/connstats.c
