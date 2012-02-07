@@ -547,6 +547,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 	int			 skip;
 	int			 error;
 	size_t			 i;
+	int			 idx;
 
 	for (;;) {
 		/* Decode header. */
@@ -590,13 +591,41 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 			    &net2_proto, MIN(h.payload.version,
 			    net2_proto.version))) != 0)
 				goto fail_wh;
-			/* TODO: store number of settypes, store number of types. */
+			cn->negotiated.sets_expected = h.payload.num_settypes;
+			cn->negotiated.rcv_expected = h.payload.num_types;
+			cn->negotiated.flags = mask_option(
+			    MIN(h.payload.version, net2_proto.version),
+			    h.payload.options | cn->flags);
 
 			break;
+
 		case F_TYPE_XCHANGE:
-		case F_TYPE_HASH:
-		case F_TYPE_CRYPT:
+			idx = net2_xchange_findname(h.payload.string);
+			if (idx == -1)
+				break;
+
+			/* TODO: store this idx somewhere, do something with it. */
+
 			break;
+
+		case F_TYPE_HASH:
+			idx = net2_hash_findname(h.payload.string);
+			if (idx == -1)
+				break;
+
+			/* TODO: store this idx somewhere, do something with it. */
+
+			break;
+
+		case F_TYPE_CRYPT:
+			idx = net2_enc_findname(h.payload.string);
+			if (idx == -1)
+				break;
+
+			/* TODO: store this idx somewhere, do something with it. */
+
+			break;
+
 		default:
 			/* Decoding error. */
 			return EINVAL;
@@ -606,6 +635,8 @@ skip:
 		/* Free header. */
 		deinit_header(&h);
 	}
+
+	/* UNREACHABLE */
 
 fail_wh:
 	deinit_header(&h);

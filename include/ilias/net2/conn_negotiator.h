@@ -43,13 +43,15 @@ struct net2_conn_negotiator {
 		struct net2_pvlist
 				 proto;
 
-		size_t		 sets_expected;
-		size_t		 sets_count;
+		size_t		 sets_expected;	/* Expected sets_count. */
+		size_t		 sets_count;	/* Number of collections. */
 		struct net2_conn_negotiator_set
-				*sets;
+				*sets;		/* Collections. */
 
 		struct net2_bitset
-				 received;
+				 received;	/* Received commands. */
+		size_t		 rcv_expected;	/* Expected received size. */
+		int		 flags;		/* Negotiated flags. */
 	}			 negotiated;	/* Negotiated settings. */
 };
 
