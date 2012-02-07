@@ -77,7 +77,11 @@ net2_bitset_setsize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	have = SIZE_TO_BYTES(s->size);
 
 	if (need != have) {
-		if ((list = realloc(s->data, need)) == NULL)
+		if (need == 0) {
+			if (list != NULL)
+				free(list);
+			list = NULL;
+		} else if ((list = realloc(s->data, need)) == NULL)
 			return ENOMEM;
 		s->data = list;
 	}
@@ -91,4 +95,57 @@ net2_bitset_setsize(struct net2_bitset *s, size_t newsz, int new_is_set)
 			net2_bitset_set(s, s->size, new_is_set, NULL);
 	}
 	return 0;
+}
+
+/* Test if all bits are set. */
+ILIAS_NET2_LOCAL int
+net2_bitset_allset(const struct net2_bitset *s)
+{
+	int			 mask, test;
+	size_t			 i, index, offset;
+
+	test = ~(int)0;
+
+	/* Test all complete ints. */
+	index = INDEX(s->size);
+	offset = OFFSET(s->size);
+	for (i = 0; i + 1 < index; i++) {
+		if (s->data[i] != test)
+			return 0;
+	}
+
+	/* Test last, incomplete int. */
+	if (offset != 0) {
+		mask = (1 << offset) - 1;
+		if ((s->data[index] & mask) != (test & mask))
+			return 0;
+	}
+
+	return 1;
+}
+/* Test if all bits are clear. */
+ILIAS_NET2_LOCAL int
+net2_bitset_allclear(const struct net2_bitset *s)
+{
+	int			 mask, test;
+	size_t			 i, index, offset;
+
+	test = 0;
+
+	/* Test all complete ints. */
+	index = INDEX(s->size);
+	offset = OFFSET(s->size);
+	for (i = 0; i + 1 < index; i++) {
+		if (s->data[i] != test)
+			return 0;
+	}
+
+	/* Test last, incomplete int. */
+	if (offset != 0) {
+		mask = (1 << offset) - 1;
+		if ((s->data[index] & mask) != (test & mask))
+			return 0;
+	}
+
+	return 1;
 }
