@@ -191,6 +191,7 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 	struct net2_buffer	*buf;
 	int			 decode_err;
 	size_t			 wire_sz;
+	int			 error;
 
 	if ((net2_encdec_ctx_newaccsocket(&ctx, &c->n2c_socket)) != 0) {
 		warn("net2_encdec_ctx fail");
@@ -226,6 +227,16 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 			    buf, wire_sz)) {
 				warnx("failed to update window "
 				    "-> dropping succesfully decoded datagram");
+				/* Kill connection? */
+				break;
+			}
+			if (ph.flags & PH_HANDSHAKE) {
+				if ((error = net2_cneg_accept(&c->n2c_negotiator,
+				    buf)) != 0) {
+					warnx("failed to process negotiation "
+					    "(%d) -> dropping succefully "
+					    "decoded datagram", error);
+				}
 				/* Kill connection? */
 				break;
 			}
@@ -272,6 +283,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	size_t				 winoverhead;
 	struct net2_cw_tx		*tx;
 	int				 want_payload;
+	int				 negotiation_ready;
 
 	*bptr = NULL;
 	winoverhead = net2_connwindow_overhead;
@@ -299,10 +311,32 @@ net2_conn_gather_tx(struct net2_connection *c,
 	}
 	/* Don't add payload to stalled state: these packets are not acked. */
 	count = 0;
+	negotiation_ready = net2_cneg_allow_payload(&c->n2c_negotiator,
+	    ph.seq);
 	if (ph.flags & PH_STALLED)
 		goto write_window_buf;
 
+	/*
+	 * Fetch data from negotiator.
+	 */
+	to_add = NULL;
+	if ((rv = net2_cneg_get_transmit(&c->n2c_negotiator, &to_add, tx,
+	    avail - winoverhead)) != 0)
+		goto fail_2;	/* TODO: double check if this is correct. */
+	if (to_add != NULL) {
+		ph.flags |= PH_HANDSHAKE;
+		if (net2_buffer_append(b, to_add)) {
+			net2_buffer_free(to_add);
+			warnx("buffer_append fail for cneg");
+			goto fail_2;
+		}
+		net2_buffer_free(to_add);
+	}
+
 fill_up:
+	/*
+	 * Fetch payload data from acceptor.
+	 */
 	for (; avail > winoverhead; count++) {
 		to_add = NULL;
 		/* Get more data from acceptor. */
@@ -362,7 +396,7 @@ write_window_buf:
 		}
 		net2_buffer_free(to_add);
 		winoverhead = 0;
-		if (!(ph.flags & PH_STALLED))
+		if (negotiation_ready && !(ph.flags & PH_STALLED))
 			goto fill_up;
 	}
 

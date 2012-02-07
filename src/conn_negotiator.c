@@ -425,7 +425,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 
 	assert(s != NULL);
 
-	cn->flags = 0;
+	cn->flags = cn->flags_have = 0;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE))
 		cn->flags |= REQUIRE_ENCRYPTION | REQUIRE_SIGNING;
 
