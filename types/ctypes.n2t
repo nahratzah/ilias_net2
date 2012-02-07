@@ -77,6 +77,14 @@ type string (
 	destroy cp_string_destroy
 );
 
+type paddedstring (
+	ctype char*,
+	encode cp_paddedstring_encode,
+	decode cp_paddedstring_decode,
+	init cp_string_init,
+	destroy cp_string_destroy
+);
+
 type net2_buffer (
 	ctype struct net2_buffer*,
 	encode cp_net2_buffer32_encode,
@@ -116,6 +124,22 @@ type net2_protocol (
 #include <bsd_compat/endian.h>
 #include <ilias/net2/buffer.h>
 #include <errno.h>
+
+#include <assert.h>
+#include <stdio.h>
+
+/*
+ * By padding, we prevent for instance strings upsetting the datastructures
+ * following it.
+ */
+#define PAD		8 /* bytes */
+
+/* Pad size to multiple of PAD. */
+static __inline size_t
+padded_size(size_t len)
+{
+	return (len + PAD - 1) & ~((size_t)(PAD - 1));
+}
 
 /* Test if the value can be read from the buffer directly. */
 static __inline void*
@@ -340,6 +364,58 @@ cp_int64_decode(struct net2_encdec_ctx *c,
 	if (u & 0x8000000000000000ULL)
 		*val -= 0x8000000000000000ULL;
 	return 0;
+}
+
+
+ILIAS_NET2_LOCAL int
+cp_paddedstring_encode(struct net2_encdec_ctx *c,
+    struct net2_buffer *out, char*const*s, const void *cp_arg)
+{
+	size_t			len;
+	static const char	pad[PAD] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+	int			error;
+
+	if (*s == NULL)
+		return EINVAL;
+	len = strlen(*s) + 1;
+	if ((error = net2_buffer_add(out, *s, len)) != 0)
+		return error;
+
+	if (padded_size(len) != len)
+		return net2_buffer_add(out, &pad[0], padded_size(len) - len);
+	return 0;
+}
+ILIAS_NET2_LOCAL int
+cp_paddedstring_decode(struct net2_encdec_ctx *c,
+    char**s, struct net2_buffer *in, const void *cp_arg)
+{
+	struct net2_buffer_ptr	end;
+	const char		nullchar = '\0';
+	int			err = 0;
+	size_t			len;
+
+	if (*s != NULL)
+		return EINVAL;
+
+	if (net2_buffer_search(in, &end, &nullchar, sizeof(nullchar), NULL)) {
+		err = EIO;
+		goto out;
+	}
+
+	len = padded_size(end.pos + 1);
+	if ((*s = malloc(len)) == NULL) {
+		err = ENOMEM;
+		goto out;
+	}
+	if (net2_buffer_remove(in, *s, len) != len)
+		err = EIO;
+	else
+		err = 0;
+
+out:
+	if (err != 0 && *s != NULL)
+		free(*s);
+	return err;
 }
 
 

@@ -303,7 +303,7 @@ cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
 	}
 	/* Encode payload. */
 	if (h->flags & F_STRING) {
-		if ((error = net2_cp_encode(&ctx, &cp_string, out,
+		if ((error = net2_cp_encode(&ctx, &cp_paddedstring, out,
 		    &h->payload.string, NULL)) != 0)
 			goto out_2;
 	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
@@ -370,7 +370,7 @@ cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 	}
 	/* Decode payload. */
 	if (h->flags & F_STRING) {
-		if ((error = net2_cp_decode(&ctx, &cp_string,
+		if ((error = net2_cp_decode(&ctx, &cp_paddedstring,
 		    &h->payload.string, in, NULL)) != 0)
 			goto out_2;
 	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
