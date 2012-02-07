@@ -143,8 +143,8 @@ net2type(srcs "types/packet.n2t"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_PACKET_H")
 net2type(srcs "types/handshake.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/src/handshake.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/handshake.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/handshake.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/handshake.h"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_HANDSHAKE_H")

@@ -15,253 +15,410 @@
  */
 #include <stdint.h>
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/types.h>
 
-/* Client connect request. */
-struct net2_hshake_c_connect {
+
+/*
+ * Negotiation packets.
+ *
+ * These are kept small, so they won't span multiple packets during
+ * transmission: the conn_negotiator has no way of making a message cross
+ * a boundary.
+ *
+ * Headers may only be coded using net2_proto at version 0.
+ * Otherwise, future extensions may break backwards compatibility during
+ * the negotiation stage, making it impossible to achieve a connection.
+ */
+struct header {
 	uint32_t		 flags;
+#define F_TYPEMASK		 0x00000fffU
+#define F_TYPE_PVER		 0x00000000U
+#define F_TYPE_XCHANGE		(0x00000000U | F_SET_ELEMENT)
+#define F_TYPE_HASH		(0x00000001U | F_SET_ELEMENT)
+#define F_TYPE_CRYPT		(0x00000002U | F_SET_ELEMENT)
+#define F_SET_ELEMENT		 0x00000800U
+#define F_SET_LASTELEM		 0x00001000U
+#define F_SET_EMPTY		 0x00002000U
+#define F_STRING		 0x00010000U
+#define F_LAST_HEADER		 0xffffffffU
+
+#define F__NUM_TYPES		 2
+#define F__NUM_SETTYPES		 3
+
 	uint32_t		 seq;
-	uint16_t		 resend;
-
-	char			**xchange;
-	char			**enc;
-	char			**hash;
+	union {
+		struct {
+			net2_protocol_t
+				 version;
+			uint16_t num_types;
+			uint16_t num_settypes;
+			uint32_t options;
+		};
+		char		*string;
+		uint32_t	 val;
+	}			 payload;
 };
 
-/* Server connect response. */
-struct net2_hshake_s_connect_reply {
-	uint32_t		 flags;
-	uint32_t		 seq;
-	uint16_t		 client_resend;
-	uint16_t		 resend;
-
-	uint16_t		 error;
-	char			*xchange;
-	char			*enc;
-	char			*sign;
-	char			*hash;
-};
 
 ILIAS_NET2_LOCAL
-int		 net2_client_handshake1_init(struct net2_hshake_c_connect*);
-ILIAS_NET2_LOCAL
-void		 net2_client_handshake1_deinit(struct net2_hshake_c_connect*);
-ILIAS_NET2_LOCAL
-int		 net2_server_handshake1_init(
-		    struct net2_hshake_s_connect_reply*,
-		    struct net2_hshake_c_connect*, int);
-ILIAS_NET2_LOCAL
-void		 net2_server_handshake1_deinit(
-		    struct net2_hshake_s_connect_reply*);
+const struct header	header_fini;
 
-#define NET2_HS_OK		0	/* No error. */
-#define NET2_HS_SELECT		1	/* Failed to select encryption,
-					 * hash or enc implementation. */
+
+ILIAS_NET2_LOCAL
+uint32_t mask_option(net2_protocol_t, uint32_t);
+ILIAS_NET2_LOCAL
+int	 header_flag_supported(net2_protocol_t, uint32_t);
+
+ILIAS_NET2_LOCAL
+int	 init_header_protocol(struct header*, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_stringset(struct header*, int, const char*, int, int);
+ILIAS_NET2_LOCAL
+int	 init_header_empty_set(struct header*, int);
+ILIAS_NET2_LOCAL
+void	 deinit_header(struct header*);
 
 
 %%
-#include <ilias/net2/handshake.h>
-#include <ilias/net2/ctypes.h>
-#include <ilias/net2/protocol.h>
-%%
-
-struct net2_hshake_c_connect (ctype struct net2_hshake_c_connect, protocol net2_proto) {
-	uint32			 seq;
-	uint16			 resend;
-	null_stringlist		 enc;
-	null_stringlist		 hash;
-};
-
-struct net2_hshake_s_connect_reply (ctype struct net2_hshake_s_connect_reply, protocol net2_proto) {
-	uint32			 seq;
-	uint32			 client_resend;
-	uint32			 resend;
-	uint16			 error;
-	string			 enc;
-	string			 sign;
-	string			 hash;
-};
-
-%%
-#include <ilias/net2/xchange.h>
-#include <ilias/net2/hash.h>
-#include <ilias/net2/enc.h>
-#include <bsd_compat/secure_random.h>
-#include <bsd_compat/error.h>
+#include "handshake.h"
 #include <stdlib.h>
 #include <string.h>
+#include <ilias/net2/ctypes.h>
+%%
+
+
+type header (
+	ctype struct header,
+	encode cp_header_encode,
+	decode cp_header_decode,
+	init cp_header_init,
+	destroy cp_header_destroy
+);
+
+
+%%
+/* Describe for each option which protocol version first supported it. */
+static const net2_protocol_t	options[] = {
+	/* ENCRYPTION */	 0,
+	/* SIGNING */		 0,
+};
 
 /*
- * Allocate a client handshake.
- * Fills in the supported hash and encryption schemes.
+ * Describe for each header payload type at which protocol version it was
+ * first supported.
  */
-ILIAS_NET2_LOCAL int
-net2_client_handshake1_init(struct net2_hshake_c_connect *c)
+static const net2_protocol_t	header_flags[] = {
+	/* PVER */		 0,
+};
+/*
+ * Describe for each header set payload type at which protocol version it was
+ * first supported.
+ */
+static const net2_protocol_t	header_set_flags[] = {
+	/* XCHANGE */		 0,
+	/* HASH */		 0,
+	/* CRYPT */		 0,
+};
+
+
+/*
+ * Mask options to only include those supported at a given protocol version.
+ */
+ILIAS_NET2_LOCAL uint32_t
+mask_option(net2_protocol_t pver, uint32_t option)
 {
-	size_t				 hashcount, enccount, xchangecount;
-	char				**p;
-	int				 i;
-	const char			*name;
+	int		i;
+	uint32_t	supported;
+#define NUM_OPTIONS	(sizeof(options) / sizeof(options[0]))
 
-	xchangecount = hashcount = enccount = 0;
-	c->seq = secure_random();
-	c->resend = 0;
-	c->xchange = c->hash = c->enc = NULL;
-
-	/* Fill in all hashes. */
-	for (i = 0, p = NULL; i < net2_hashmax; i++) {
-		if ((name = net2_hash_getname(i)) == NULL)
-			continue;
-
-		p = realloc(c->hash, (++hashcount + 1) * sizeof(*p));
-		if (p == NULL)
-			goto fail;
-		c->hash = p;
-		if ((p[hashcount - 1] = strdup(name)) == NULL)
-			goto fail;
-		p[hashcount] = NULL;
+	/* Mark all supported options based on pver. */
+	for (i = 0; i < NUM_OPTIONS; i++) {
+		if (options[i] <= pver)
+			supported |= (uint32_t)1 << i;
 	}
-	/* Fill in all encodings. */
-	for (i = 0, p = NULL; i < net2_encmax; i++) {
-		if ((name = net2_enc_getname(i)) == NULL)
-			continue;
+#undef NUM_OPTIONS
 
-		p = realloc(c->enc, (++enccount + 1) * sizeof(*p));
-		if (p == NULL)
-			goto fail;
-		c->enc = p;
-		if ((p[enccount - 1] = strdup(name)) == NULL)
-			goto fail;
-		p[enccount] = NULL;
-	}
-	/* Fill in all xchange keys; nil method is non-functional. */
-	for (i = 1, p = NULL; i < net2_xchangemax; i++) {
-		if ((name = net2_xchange_getname(i)) == NULL)
-			continue;
-
-		p = realloc(c->enc, (++xchangecount + 1) * sizeof(*p));
-		if (p == NULL)
-			goto fail;
-		c->xchange = p;
-		if ((p[xchangecount - 1] = strdup(name)) == NULL)
-			goto fail;
-		p[xchangecount] = NULL;
-	}
-
-	return 0;
-
-fail:
-	net2_client_handshake1_deinit(c);
-	return -1;
+	return option & supported;
 }
 
 /*
- * Free the client handshake.
+ * Test if a certain header flag is supported.
  */
-ILIAS_NET2_LOCAL void
-net2_client_handshake1_deinit(struct net2_hshake_c_connect *c)
-{
-	char				**p;
-
-	for (p = c->xchange; p != NULL && *p != NULL; p++)
-		free(*p);
-	for (p = c->hash; p != NULL && *p != NULL; p++)
-		free(*p);
-	for (p = c->enc; p != NULL && *p != NULL; p++)
-		free(*p);
-	if (c->xchange != NULL)
-		free(c->xchange);
-	if (c->hash != NULL)
-		free(c->hash);
-	if (c->enc != NULL)
-		free(c->enc);
-	c->xchange = NULL;
-	c->hash = NULL;
-	c->enc = NULL;
-}
-
-/* Create a server handshake1 reply, based on client request. */
 ILIAS_NET2_LOCAL int
-net2_server_handshake1_init(struct net2_hshake_s_connect_reply *r,
-    struct net2_hshake_c_connect *client, int error)
+header_flag_supported(net2_protocol_t pver, uint32_t hflag)
 {
-	int			 sign, hash, enc;
-	char			**p;
-	int			 p_idx;
-	size_t			 p_keylen;
+	uint32_t	 type;
+	const net2_protocol_t
+			*collection;
+	size_t		 coll_size;
 
-	sign = hash = enc = 0;	/* No sign/hash/enc selected. */
-
-	/* Select sign and hash implementation. */
-	for (p = client->hash; p != NULL && *p != NULL; p++) {
-		p_idx = net2_hash_findname(*p);
-		if (p_idx == -1)
-			continue;
-
-		p_keylen = net2_hash_getkeylen(p_idx);
-		if (p_keylen == 0) {
-			if (net2_hash_getkeylen(hash) >= p_keylen)
-				hash = p_idx;
-		} else {
-			if (net2_hash_getkeylen(enc) >= p_keylen)
-				sign = p_idx;
-		}
+	type = hflag & F_TYPEMASK;
+	if (hflag & F_SET_ELEMENT) {
+		collection = header_set_flags;
+		coll_size = sizeof(header_set_flags) /
+		    sizeof(header_set_flags[0]);
+		type &= ~F_SET_ELEMENT;
+	} else {
+		collection = header_flags;
+		coll_size = sizeof(header_flags) /
+		    sizeof(header_flags[0]);
 	}
 
-	/* Select enc implementation. */
-	for (p = client->hash; p != NULL && *p != NULL; p++) {
-		p_idx = net2_hash_findname(*p);
-		if (p_idx == -1)
-			continue;
+	if (type >= coll_size)
+		return 0;
+	if (collection[type] > pver)
+		return 0;
+	return 1;
+}
 
-		p_keylen = net2_hash_getkeylen(p_idx);
-		if (net2_enc_getkeylen(enc) <= p_keylen ||
-		    net2_enc_getivlen(enc) == 0)
-			enc = p_idx;
-	}
 
-	if (sign == 0 || hash == 0) {
-		const char	*which =
-		    (sign == 0 && hash == 0 ? "hash and sign" :
-		    (sign == 0 ? "sign" : "hash"));
-
-		warnx("client has no supported %s implementation",
-		    which);
-	}
-	if (enc == 0)
-		warnx("client has no supported enc implementation");
-	if ((sign == 0 || hash == 0 || enc == 0) && error == 0)
-		error = NET2_HS_SELECT;
-
-	/* Allocate storage. */
-	r->seq = secure_random();
-	r->client_resend = client->resend;
-	r->resend = 0;
-	r->error = error;
-	r->enc = strdup(net2_enc_getname(enc));
-	r->sign = strdup(net2_hash_getname(sign));
-	r->hash = strdup(net2_hash_getname(hash));
-
-	if (r->enc == NULL || r->sign == NULL || r->hash == NULL)
-		goto fail;
-
+/* Create protocol header. */
+ILIAS_NET2_LOCAL int
+init_header_protocol(struct header *h, uint32_t flags)
+{
+	h->flags = F_TYPE_PVER;
+	h->payload.version = net2_proto.version;
+	h->payload.num_types = F__NUM_TYPES;
+	h->payload.num_settypes = F__NUM_SETTYPES;
+	h->payload.options = flags;
 	return 0;
-
-fail:
-	net2_server_handshake1_deinit(r);
-	return -1;
 }
-
-/* Release resources used by net2_hshake_s_connect_reply. */
-ILIAS_NET2_LOCAL void
-net2_server_handshake1_deinit(struct net2_hshake_s_connect_reply *r)
+/* Describe value header. */
+ILIAS_NET2_LOCAL int
+init_header_val(struct header *h, uint32_t value, int which)
 {
-	if (r->enc)
-		free(r->enc);
-	if (r->sign)
-		free(r->sign);
-	if (r->hash)
-		free(r->hash);
-	r->enc = NULL;
-	r->sign = NULL;
-	r->hash = NULL;
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	h->payload.val = value;
+	return 0;
 }
+/* Describe string header. */
+ILIAS_NET2_LOCAL int
+init_header_string(struct header *h, const char *value, int which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	if (value == NULL)
+		return EINVAL;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	if ((h->payload.string = strdup(value)) == NULL)
+		return ENOMEM;
+	h->flags |= F_STRING;
+	return 0;
+}
+/* Create valset header. */
+ILIAS_NET2_LOCAL int
+init_header_valset(struct header *h, int seq, uint32_t value,
+    int max_seq, int which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	h->payload.val = value;
+	return 0;
+}
+/* Create stringset header. */
+ILIAS_NET2_LOCAL int
+init_header_stringset(struct header *h, int seq, const char *value,
+    int max_seq, int which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	if (value == NULL)
+		return EINVAL;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	if ((h->payload.string = strdup(value)) == NULL)
+		return ENOMEM;
+	h->flags |= F_STRING;
+	return 0;
+}
+/* Create empty set. */
+ILIAS_NET2_LOCAL int
+init_header_empty_set(struct header *h, int which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	h->flags |= F_SET_EMPTY;
+}
+/* Free resources of header. */
+ILIAS_NET2_LOCAL void
+deinit_header(struct header *h)
+{
+	if (h->flags == F_LAST_HEADER)
+		return;
+	if (h->flags & F_STRING)
+		free(h->payload.string);
+}
+
+/* Encode header. */
+static int
+cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
+    const struct header *h, const void *arg)
+{
+	struct net2_encdec_ctx	 ctx;
+	struct net2_pvlist	 pv;
+	int			 error;
+
+	/* Initialize ctx. */
+	if ((error = net2_pvlist_init(&pv)) != 0)
+		goto out_0;
+	if ((error = net2_pvlist_add(&pv, &net2_proto, 0)) != 0)
+		goto out_1;
+	if ((error = net2_encdec_ctx_init(&ctx, NULL, NULL)) != 0)
+		goto out_2;
+
+	/* Encode flags. */
+	if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->flags,
+	    NULL)) != 0)
+		goto out_2;
+	if (h->flags == F_LAST_HEADER)
+		goto out_2;
+	if (h->flags & F_SET_EMPTY)
+		goto out_2;
+	/* Encode sequence, if set element. */
+	if (h->flags & F_SET_ELEMENT) {
+		if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->seq,
+		    NULL)) != 0)
+			goto out_2;
+	}
+	/* Encode payload. */
+	if (h->flags & F_STRING) {
+		if ((error = net2_cp_encode(&ctx, &cp_string, out,
+		    &h->payload.string, NULL)) != 0)
+			goto out_2;
+	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+		if ((error = net2_cp_encode(&ctx, &cp_net2_protocol, out,
+		    &h->payload.version, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_encode(&ctx, &cp_uint16, out,
+		    &h->payload.num_types, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_encode(&ctx, &cp_uint16, out,
+		    &h->payload.num_settypes, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+		    &h->payload.options, NULL)) != 0)
+			goto out_2;
+	} else {
+		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+		    &h->payload.val, NULL)) != 0)
+			goto out_2;
+	}
+
+	error = 0;
+
+out_2:
+	net2_encdec_ctx_deinit(&ctx);
+out_1:
+	net2_pvlist_deinit(&pv);
+out_0:
+	return error;
+}
+
+/* Decode header. */
+static int
+cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
+    struct net2_buffer *in, const void *arg)
+{
+	struct net2_encdec_ctx	 ctx;
+	struct net2_pvlist	 pv;
+	int			 error;
+
+	memset(h, 0, sizeof(*h));
+
+	/* Initialize ctx. */
+	if ((error = net2_pvlist_init(&pv)) != 0)
+		goto out_0;
+	if ((error = net2_pvlist_add(&pv, &net2_proto, 0)) != 0)
+		goto out_1;
+	if ((error = net2_encdec_ctx_init(&ctx, NULL, NULL)) != 0)
+		goto out_2;
+
+	/* Decode flags. */
+	if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->flags, in,
+	    NULL)) != 0)
+		goto out_2;
+	if (h->flags == F_LAST_HEADER)
+		goto out_2;
+	if (h->flags & F_SET_EMPTY)
+		goto out_2;
+	/* Decode sequence, if set element. */
+	if (h->flags & F_SET_ELEMENT) {
+		if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->seq, in,
+		    NULL)) != 0)
+			goto out_2;
+	}
+	/* Decode payload. */
+	if (h->flags & F_STRING) {
+		if ((error = net2_cp_decode(&ctx, &cp_string,
+		    &h->payload.string, in, NULL)) != 0)
+			goto out_2;
+	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+		if ((error = net2_cp_decode(&ctx, &cp_net2_protocol,
+		    &h->payload.version, in, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_decode(&ctx, &cp_uint16,
+		    &h->payload.num_types, in, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_decode(&ctx, &cp_uint16,
+		    &h->payload.num_settypes, in, NULL)) != 0)
+			goto out_2;
+		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+		    &h->payload.options, in, NULL)) != 0)
+			goto out_2;
+	} else {
+		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+		    &h->payload.val, in, NULL)) != 0)
+			goto out_2;
+	}
+
+	error = 0;
+
+out_2:
+	net2_encdec_ctx_deinit(&ctx);
+out_1:
+	net2_pvlist_deinit(&pv);
+out_0:
+	return error;
+}
+
+/* Initialize header. */
+static int
+cp_header_init(struct net2_encdec_ctx *ignored_ctx, struct header *h,
+    const void *arg)
+{
+	memset(h, 0, sizeof(*h));
+	return 0;
+}
+/* Destroy header. */
+static int
+cp_header_destroy(struct net2_encdec_ctx *ignored_ctx, struct header *h,
+    const void *arg)
+{
+	deinit_header(h);
+	return 0;
+}
+
+
+ILIAS_NET2_LOCAL const struct header	header_fini = {
+	F_LAST_HEADER,
+	/* Rest is undefined. */
+};
