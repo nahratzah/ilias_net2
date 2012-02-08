@@ -490,6 +490,99 @@ xchange_cmp(const void *a_ptr, const void *b_ptr)
 
 
 /*
+ * Calculate the conclusion of the pristine stage in negotiation.
+ */
+static int
+cneg_conclude_pristine(struct net2_conn_negotiator *cn)
+{
+	int		error = 0;
+
+	/*
+	 * Time to choose which protocols to use and
+	 * what is to be negotiated.
+	 *
+	 * First, sort the protocols.
+	 */
+	qsort(cn->hash.supported, cn->hash.num_supported,
+	    sizeof(int), hash_cmp);
+	qsort(cn->enc.supported, cn->enc.num_supported,
+	    sizeof(int), enc_cmp);
+	qsort(cn->xchange.supported, cn->xchange.num_supported,
+	    sizeof(int), xchange_cmp);
+
+	/* We require at least 1 supported hash, enc and xchange. */
+	if (cn->hash.num_supported == 0 ||
+	    cn->enc.num_supported == 0 ||
+	    cn->xchange.num_supported == 0) {
+		error = ENODEV;
+		goto fail;
+	}
+
+	/*
+	 * Always select the best key exchange mechanism.
+	 */
+	cn->tx_xchange =
+	    cn->xchange.supported[cn->xchange.num_supported - 1];
+
+	/* Select encryption algorithm. */
+	if (!(cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
+		/*
+		 * Select the weakest encryption algorithm.
+		 * This usually is enc[0]: nil.
+		 */
+		cn->tx_enc = cn->enc.supported[0];
+	} else {
+		/*
+		 * Select the best encryption algorithm.
+		 */
+		cn->tx_enc =
+		    cn->enc.supported[cn->enc.num_supported - 1];
+	}
+
+	/* Select hashing algorithm. */
+	if (!(cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
+		/*
+		 * Select the weakest signing algorithm.
+		 * This usually is hash[0]: nil.
+		 */
+		cn->tx_hash = cn->enc.supported[0];
+	} else {
+		/*
+		 * Select the best signing algorithm.
+		 */
+		cn->tx_hash =
+		    cn->hash.supported[cn->hash.num_supported - 1];
+	}
+
+	/*
+	 * If we require signing, ensure we don't select
+	 * the nil algorithm.
+	 */
+	if (cn->tx_hash == 0 &&
+	    (cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
+		error = ENODEV;
+		goto fail;
+	}
+	/*
+	 * If we require encryption, ensure we don't select
+	 * the nil algorithm.
+	 */
+	if (cn->tx_enc == 0 &&
+	    (cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
+		error = ENODEV;
+		goto fail;
+	}
+
+	/* Go to next stage. */
+	cn->stage = NET2_CNEG_STAGE_KEY_EXCHANGE;
+	cneg_ready_to_send(cn);
+
+fail:
+	return error;
+}
+
+
+/*
  * True iff the connection is ready and sufficiently secure
  * to allow payload to cross.
  */
@@ -746,6 +839,16 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 				goto fail_wh;
 			cn->negotiated.sets_expected = h.payload.num_settypes;
 			cn->negotiated.rcv_expected = h.payload.num_types;
+
+			/*
+			 * Combine all flags:
+			 * if any side requires a feature, both sides require
+			 * it.
+			 * 
+			 * Features are always activated, unless:
+			 * - the feature is not supported on either side,
+			 * - the feature is not requested by either side.
+			 */
 			cn->negotiated.flags = mask_option(
 			    MIN(h.payload.version, net2_proto.version),
 			    h.payload.options | cn->flags);
@@ -805,86 +908,12 @@ skip:
 		deinit_header(&h);
 	}
 
-	if (all_done(cn)) {
-		/*
-		 * Time to choose which protocols to use and
-		 * what is to be negotiated.
-		 *
-		 * First, sort the protocols.
-		 */
-		qsort(cn->hash.supported, cn->hash.num_supported,
-		    sizeof(int), hash_cmp);
-		qsort(cn->enc.supported, cn->enc.num_supported,
-		    sizeof(int), enc_cmp);
-		qsort(cn->xchange.supported, cn->xchange.num_supported,
-		    sizeof(int), xchange_cmp);
-
-		/* We require at least 1 supported hash, enc and xchange. */
-		if (cn->hash.num_supported == 0 ||
-		    cn->enc.num_supported == 0 ||
-		    cn->xchange.num_supported == 0) {
-			error = ENODEV;
+	/*
+	 * Handle conclusion of pristine (exchange) stage.
+	 */
+	if (cn->stage == NET2_CNEG_STAGE_PRISTINE && all_done(cn)) {
+		if ((error = cneg_conclude_pristine(cn)) != 0)
 			goto fail;
-		}
-
-		/*
-		 * Always select the best key exchange mechanism.
-		 */
-		cn->tx_xchange =
-		    cn->xchange.supported[cn->xchange.num_supported - 1];
-
-		/* Select encryption algorithm. */
-		if (!(cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
-			/*
-			 * Select the weakest encryption algorithm.
-			 * This usually is enc[0]: nil.
-			 */
-			cn->tx_enc = cn->enc.supported[0];
-		} else {
-			/*
-			 * Select the best encryption algorithm.
-			 */
-			cn->tx_enc =
-			    cn->enc.supported[cn->enc.num_supported - 1];
-		}
-
-		/* Select hashing algorithm. */
-		if (!(cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
-			/*
-			 * Select the weakest signing algorithm.
-			 * This usually is hash[0]: nil.
-			 */
-			cn->tx_hash = cn->enc.supported[0];
-		} else {
-			/*
-			 * Select the best signing algorithm.
-			 */
-			cn->tx_hash =
-			    cn->hash.supported[cn->hash.num_supported - 1];
-		}
-
-		/*
-		 * If we require signing, ensure we don't select
-		 * the nil algorithm.
-		 */
-		if (cn->tx_hash == 0 &&
-		    (cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
-			error = ENODEV;
-			goto fail;
-		}
-		/*
-		 * If we require encryption, ensure we don't select
-		 * the nil algorithm.
-		 */
-		if (cn->tx_enc == 0 &&
-		    (cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
-			error = ENODEV;
-			goto fail;
-		}
-
-		/* Go to next stage. */
-		cn->stage = NET2_CNEG_STAGE_KEY_EXCHANGE;
-		cneg_ready_to_send(cn);
 	}
 
 	return 0;
