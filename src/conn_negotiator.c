@@ -806,8 +806,6 @@ skip:
 	}
 
 	if (all_done(cn)) {
-		size_t		i;
-
 		/*
 		 * Time to choose which protocols to use and
 		 * what is to be negotiated.
@@ -821,26 +819,72 @@ skip:
 		qsort(cn->xchange.supported, cn->xchange.num_supported,
 		    sizeof(int), xchange_cmp);
 
-		printf("Hashes (%llu): ", (unsigned long long)cn->hash.num_supported);
-		for (i = 0; i < cn->hash.num_supported; i++) {
-			printf("%s%s", (i == 0 ? "" : ", "),
-			    net2_hash_getname(cn->hash.supported[i]));
+		/* We require at least 1 supported hash, enc and xchange. */
+		if (cn->hash.num_supported == 0 ||
+		    cn->enc.num_supported == 0 ||
+		    cn->xchange.num_supported == 0) {
+			error = ENODEV;
+			goto fail;
 		}
-		printf("\n");
 
-		printf("Enc (%llu): ", (unsigned long long)cn->enc.num_supported);
-		for (i = 0; i < cn->enc.num_supported; i++) {
-			printf("%s%s", (i == 0 ? "" : ", "),
-			    net2_enc_getname(cn->enc.supported[i]));
-		}
-		printf("\n");
+		/*
+		 * Always select the best key exchange mechanism.
+		 */
+		cn->tx_xchange =
+		    cn->xchange.supported[cn->xchange.num_supported - 1];
 
-		printf("Xchange (%llu): ", (unsigned long long)cn->xchange.num_supported);
-		for (i = 0; i < cn->xchange.num_supported; i++) {
-			printf("%s%s", (i == 0 ? "" : ", "),
-			    net2_xchange_getname(cn->xchange.supported[i]));
+		/* Select encryption algorithm. */
+		if (!(cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
+			/*
+			 * Select the weakest encryption algorithm.
+			 * This usually is enc[0]: nil.
+			 */
+			cn->tx_enc = cn->enc.supported[0];
+		} else {
+			/*
+			 * Select the best encryption algorithm.
+			 */
+			cn->tx_enc =
+			    cn->enc.supported[cn->enc.num_supported - 1];
 		}
-		printf("\n");
+
+		/* Select hashing algorithm. */
+		if (!(cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
+			/*
+			 * Select the weakest signing algorithm.
+			 * This usually is hash[0]: nil.
+			 */
+			cn->tx_hash = cn->enc.supported[0];
+		} else {
+			/*
+			 * Select the best signing algorithm.
+			 */
+			cn->tx_hash =
+			    cn->hash.supported[cn->hash.num_supported - 1];
+		}
+
+		/*
+		 * If we require signing, ensure we don't select
+		 * the nil algorithm.
+		 */
+		if (cn->tx_hash == 0 &&
+		    (cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
+			error = ENODEV;
+			goto fail;
+		}
+		/*
+		 * If we require encryption, ensure we don't select
+		 * the nil algorithm.
+		 */
+		if (cn->tx_enc == 0 &&
+		    (cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
+			error = ENODEV;
+			goto fail;
+		}
+
+		/* Go to next stage. */
+		cn->stage = NET2_CNEG_STAGE_KEY_EXCHANGE;
+		cneg_ready_to_send(cn);
 	}
 
 	return 0;

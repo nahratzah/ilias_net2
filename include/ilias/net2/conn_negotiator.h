@@ -49,7 +49,7 @@ struct net2_conn_negotiator {
 
 	int			 stage;		/* DFA stage. */
 #define NET2_CNEG_STAGE_PRISTINE	0x00000000	/* No work done. */
-#define NET2_CNEG_STAGE_PROTO_FIXATED	0x00000001
+#define NET2_CNEG_STAGE_KEY_EXCHANGE	0x00000001	/* Exchanging keys. */
 #define NET2_CNEG_STAGE_PROTO_IDLE	0xffffffff	/* Nothing to do. */
 
 	TAILQ_HEAD(, encoded_header)
@@ -76,6 +76,10 @@ struct net2_conn_negotiator {
 	}			 hash,		/* Supported hashes. */
 				 enc,		/* Supported encoders. */
 				 xchange;	/* Supported xchange. */
+
+	int			 tx_enc;	/* Selected enc for tx. */
+	int			 tx_hash;	/* Selected hash for tx. */
+	int			 tx_xchange;	/* Selected xchange for tx. */
 };
 
 
