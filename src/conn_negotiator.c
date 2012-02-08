@@ -489,6 +489,88 @@ xchange_cmp(const void *a_ptr, const void *b_ptr)
 }
 
 
+/* Apply information in header to negotiator. */
+static int
+cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
+{
+	int		error;
+	int		idx;
+
+	switch (h->flags & F_TYPEMASK) {
+	case F_TYPE_PVER:
+		if ((error = net2_pvlist_add(&cn->negotiated.proto,
+		    &net2_proto, MIN(h->payload.version,
+		    net2_proto.version))) != 0)
+			return error;
+		cn->negotiated.sets_expected = h->payload.num_settypes;
+		cn->negotiated.rcv_expected = h->payload.num_types;
+
+		/*
+		 * Combine all flags:
+		 * if any side requires a feature, both sides require
+		 * it.
+		 * 
+		 * Features are always activated, unless:
+		 * - the feature is not supported on either side,
+		 * - the feature is not requested by either side.
+		 */
+		cn->negotiated.flags = mask_option(
+		    MIN(h->payload.version, net2_proto.version),
+		    h->payload.options | cn->flags);
+
+		/* Check if we don't have too many received packets. */
+		if (h->payload.num_types <
+		    net2_bitset_size(&cn->negotiated.received))
+			return EINVAL;
+
+		break;
+
+	case F_TYPE_XCHANGE:
+		idx = net2_xchange_findname(h->payload.string);
+		if (idx == -1)
+			break;
+
+		/* Store this idx. */
+		if ((error = intlist_add(&cn->xchange.supported,
+		    &cn->xchange.num_supported, idx)) != 0)
+			return error;
+
+		break;
+
+	case F_TYPE_HASH:
+		idx = net2_hash_findname(h->payload.string);
+		if (idx == -1)
+			break;
+
+		/* Store this idx. */
+		if ((error = intlist_add(&cn->hash.supported,
+		    &cn->hash.num_supported, idx)) != 0)
+			return error;
+
+		break;
+
+	case F_TYPE_CRYPT:
+		idx = net2_enc_findname(h->payload.string);
+		if (idx == -1)
+			break;
+
+		/* Store this idx. */
+		if ((error = intlist_add(&cn->enc.supported,
+		    &cn->enc.num_supported, idx)) != 0)
+			return error;
+
+		break;
+
+	default:
+		/*
+		 * Unrecognized headers are allowed and silently ignored.
+		 */
+		break;
+	}
+
+	return 0;
+}
+
 /*
  * Calculate the conclusion of the pristine stage in negotiation.
  */
@@ -785,7 +867,6 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 	int			 skip;
 	int			 error;
 	size_t			 i;
-	int			 idx;
 
 	for (;;) {
 		/* Decode header. */
@@ -828,80 +909,11 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 				goto fail_wh;
 		}
 
-		if (skip)
-			goto skip;
-
-		switch (h.flags & F_TYPEMASK) {
-		case F_TYPE_PVER:
-			if ((error = net2_pvlist_add(&cn->negotiated.proto,
-			    &net2_proto, MIN(h.payload.version,
-			    net2_proto.version))) != 0)
+		if (!skip) {
+			if ((error = cneg_apply_header(cn, &h)) != 0)
 				goto fail_wh;
-			cn->negotiated.sets_expected = h.payload.num_settypes;
-			cn->negotiated.rcv_expected = h.payload.num_types;
-
-			/*
-			 * Combine all flags:
-			 * if any side requires a feature, both sides require
-			 * it.
-			 * 
-			 * Features are always activated, unless:
-			 * - the feature is not supported on either side,
-			 * - the feature is not requested by either side.
-			 */
-			cn->negotiated.flags = mask_option(
-			    MIN(h.payload.version, net2_proto.version),
-			    h.payload.options | cn->flags);
-
-			/* Check if we don't have too many received packets. */
-			if (h.payload.num_types <
-			    net2_bitset_size(&cn->negotiated.received)) {
-				error = EINVAL;
-				goto fail_wh;
-			}
-
-			break;
-
-		case F_TYPE_XCHANGE:
-			idx = net2_xchange_findname(h.payload.string);
-			if (idx == -1)
-				break;
-
-			/* Store this idx. */
-			if ((error = intlist_add(&cn->xchange.supported,
-			    &cn->xchange.num_supported, idx)) != 0)
-				goto fail_wh;
-
-			break;
-
-		case F_TYPE_HASH:
-			idx = net2_hash_findname(h.payload.string);
-			if (idx == -1)
-				break;
-
-			/* Store this idx. */
-			if ((error = intlist_add(&cn->hash.supported,
-			    &cn->hash.num_supported, idx)) != 0)
-				goto fail_wh;
-
-			break;
-
-		case F_TYPE_CRYPT:
-			idx = net2_enc_findname(h.payload.string);
-			if (idx == -1)
-				break;
-
-			/* Store this idx. */
-			if ((error = intlist_add(&cn->enc.supported,
-			    &cn->enc.num_supported, idx)) != 0)
-				goto fail_wh;
-
-			break;
-
-		default:
-			/* Decoding error. */
-			return EINVAL;
 		}
+
 
 skip:
 		/* Free header. */
