@@ -55,8 +55,8 @@ net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
 	i = s->data + INDEX(idx);
 	mask = 1 << OFFSET(idx);
 
-	if (oldval)
-		*oldval = *i & mask;
+	if (oldval != NULL)
+		*oldval = (*i) & mask;
 
 	if (newval)
 		*i |= mask;
@@ -72,16 +72,19 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	size_t		 need, have;
 	int		*list;
 
+	if (newsz == 0) {
+		free(s->data);
+		s->data = NULL;
+		s->size = 0;
+		return 0;
+	}
+
 	list = s->data;
 	need = SIZE_TO_BYTES(newsz);
 	have = SIZE_TO_BYTES(s->size);
 
 	if (need != have) {
-		if (need == 0) {
-			if (list != NULL)
-				free(list);
-			list = NULL;
-		} else if ((list = realloc(s->data, need)) == NULL)
+		if ((list = realloc(list, need)) == NULL)
 			return ENOMEM;
 		s->data = list;
 	}
@@ -91,8 +94,10 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 		s->size = newsz;
 	} else {
 		/* Grown list. */
-		for (; s->size < newsz; s->size++)
-			net2_bitset_set(s, s->size, new_is_set, NULL);
+		while (s->size < newsz) {
+			s->size++;
+			net2_bitset_set(s, s->size - 1, new_is_set, NULL);
+		}
 	}
 	return 0;
 }
