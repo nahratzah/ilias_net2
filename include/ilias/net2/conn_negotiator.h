@@ -69,6 +69,13 @@ struct net2_conn_negotiator {
 		size_t		 rcv_expected;	/* Expected received size. */
 		int		 flags;		/* Negotiated flags. */
 	}			 negotiated;	/* Negotiated settings. */
+
+	struct {
+		int		*supported;	/* Algorithm set. */
+		size_t		 num_supported;	/* # supported. */
+	}			 hash,		/* Supported hashes. */
+				 enc,		/* Supported encoders. */
+				 xchange;	/* Supported xchange. */
 };
 
 

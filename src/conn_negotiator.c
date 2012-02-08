@@ -28,6 +28,8 @@
 
 #include "handshake.h"
 
+#include <stdio.h>	/* DEBUG */
+
 #define REQUIRE								\
 	(NET2_CNEG_REQUIRE_ENCRYPTION | NET2_CNEG_REQUIRE_SIGNING)
 #define UNKNOWN_SIZE		((size_t)-1)
@@ -385,6 +387,108 @@ all_done(const struct net2_conn_negotiator *cn)
 }
 
 
+/* Append a value to the given int list. */
+static int
+intlist_add(int **list, size_t *sz, int val)
+{
+	int		*nl;
+	size_t		 newsz;
+
+	newsz = *sz + 1;
+	nl = realloc(*list, newsz * sizeof(int));
+	if (nl == NULL)
+		return ENOMEM;
+	*list = nl;
+
+	nl[(*sz)++] = val;
+	return 0;
+}
+
+
+/*
+ * Compare hash algorithms.
+ * Best algorithm compares higher.
+ */
+static int
+hash_cmp(const void *a_ptr, const void *b_ptr)
+{
+	int		a, b;
+	size_t		a_keylen, b_keylen;
+	size_t		a_hashlen, b_hashlen;
+	int		cmp;
+
+	a = *(int*)a_ptr;
+	b = *(int*)b_ptr;
+
+	/* Choose largest key. */
+	a_keylen = net2_hash_getkeylen(a);
+	b_keylen = net2_hash_getkeylen(b);
+	cmp = (a_keylen < b_keylen ? -1 : a_keylen > b_keylen);
+	if (cmp != 0)
+		return cmp;
+
+	/* Choose largest hash. */
+	a_hashlen = net2_hash_gethashlen(a);
+	b_hashlen = net2_hash_gethashlen(b);
+	cmp = (a_hashlen < b_hashlen ? -1 : a_hashlen > b_hashlen);
+	return cmp;
+}
+/*
+ * Compare encryption algorithms.
+ * Best algorithm compares higher.
+ */
+static int
+enc_cmp(const void *a_ptr, const void *b_ptr)
+{
+	int		a, b;
+	size_t		a_keylen, b_keylen;
+	size_t		a_ivlen, b_ivlen;
+	size_t		a_overhead, b_overhead;
+	int		cmp;
+
+	a = *(int*)a_ptr;
+	b = *(int*)b_ptr;
+
+	/* Choose largest key. */
+	a_keylen = net2_enc_getkeylen(a);
+	b_keylen = net2_enc_getkeylen(b);
+	cmp = (a_keylen < b_keylen ? -1 : a_keylen > b_keylen);
+	if (cmp != 0)
+		return cmp;
+
+	/* Choose largest IV. */
+	a_ivlen = net2_enc_getivlen(a);
+	b_ivlen = net2_enc_getivlen(b);
+	cmp = (a_ivlen < b_ivlen ? -1 : a_ivlen > b_ivlen);
+	if (cmp != 0)
+		return cmp;
+
+	/* Choose smallest overhead. */
+	a_overhead = net2_enc_getoverhead(a);
+	b_overhead = net2_enc_getoverhead(b);
+	cmp = (a_overhead > b_overhead ? -1 : a_overhead < b_overhead);
+	return cmp;
+}
+/*
+ * Compare xchange algorithms.
+ */
+static int
+xchange_cmp(const void *a_ptr, const void *b_ptr)
+{
+	int		a, b;
+
+	a = *(int*)a_ptr;
+	b = *(int*)b_ptr;
+
+	/*
+	 * No useful parameters to base our sort on.
+	 * Sort by ID, assuming that better algorithms will be appended
+	 * to the full set.
+	 */
+	return (a < b ? -1 : a > b);
+}
+
+
 /*
  * True iff the connection is ready and sufficiently secure
  * to allow payload to cross.
@@ -437,6 +541,13 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	net2_bitset_init(&cn->negotiated.received);
 	cn->negotiated.rcv_expected = UNKNOWN_SIZE;
 
+	cn->hash.supported = NULL;
+	cn->hash.num_supported = 0;
+	cn->enc.supported = NULL;
+	cn->enc.num_supported = 0;
+	cn->xchange.supported = NULL;
+	cn->xchange.num_supported = 0;
+
 	return 0;
 
 fail_1:
@@ -485,6 +596,9 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
 	net2_bitset_deinit(&cn->negotiated.received);
+	free(cn->hash.supported);
+	free(cn->enc.supported);
+	free(cn->xchange.supported);
 	return;
 }
 
@@ -650,7 +764,10 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 			if (idx == -1)
 				break;
 
-			/* TODO: store this idx somewhere, do something with it. */
+			/* Store this idx. */
+			if ((error = intlist_add(&cn->xchange.supported,
+			    &cn->xchange.num_supported, idx)) != 0)
+				goto fail_wh;
 
 			break;
 
@@ -659,7 +776,10 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 			if (idx == -1)
 				break;
 
-			/* TODO: store this idx somewhere, do something with it. */
+			/* Store this idx. */
+			if ((error = intlist_add(&cn->hash.supported,
+			    &cn->hash.num_supported, idx)) != 0)
+				goto fail_wh;
 
 			break;
 
@@ -668,7 +788,10 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
 			if (idx == -1)
 				break;
 
-			/* TODO: store this idx somewhere, do something with it. */
+			/* Store this idx. */
+			if ((error = intlist_add(&cn->enc.supported,
+			    &cn->enc.num_supported, idx)) != 0)
+				goto fail_wh;
 
 			break;
 
@@ -683,10 +806,41 @@ skip:
 	}
 
 	if (all_done(cn)) {
+		size_t		i;
+
 		/*
 		 * Time to choose which protocols to use and
 		 * what is to be negotiated.
+		 *
+		 * First, sort the protocols.
 		 */
+		qsort(cn->hash.supported, cn->hash.num_supported,
+		    sizeof(int), hash_cmp);
+		qsort(cn->enc.supported, cn->enc.num_supported,
+		    sizeof(int), enc_cmp);
+		qsort(cn->xchange.supported, cn->xchange.num_supported,
+		    sizeof(int), xchange_cmp);
+
+		printf("Hashes (%llu): ", (unsigned long long)cn->hash.num_supported);
+		for (i = 0; i < cn->hash.num_supported; i++) {
+			printf("%s%s", (i == 0 ? "" : ", "),
+			    net2_hash_getname(cn->hash.supported[i]));
+		}
+		printf("\n");
+
+		printf("Enc (%llu): ", (unsigned long long)cn->enc.num_supported);
+		for (i = 0; i < cn->enc.num_supported; i++) {
+			printf("%s%s", (i == 0 ? "" : ", "),
+			    net2_enc_getname(cn->enc.supported[i]));
+		}
+		printf("\n");
+
+		printf("Xchange (%llu): ", (unsigned long long)cn->xchange.num_supported);
+		for (i = 0; i < cn->xchange.num_supported; i++) {
+			printf("%s%s", (i == 0 ? "" : ", "),
+			    net2_xchange_getname(cn->xchange.supported[i]));
+		}
+		printf("\n");
 	}
 
 	return 0;
