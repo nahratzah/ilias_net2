@@ -42,9 +42,6 @@ struct header {
 #define F_STRING		 0x00010000U
 #define F_LAST_HEADER		 0xffffffffU
 
-#define F__NUM_TYPES		 2
-#define F__NUM_SETTYPES		 3
-
 	uint32_t		 fin_reserved;	/* Must be zero. */
 
 	uint32_t		 seq;
@@ -192,8 +189,10 @@ init_header_protocol(struct header *h, uint32_t flags)
 {
 	h->flags = F_TYPE_PVER;
 	h->payload.version = net2_proto.version;
-	h->payload.num_types = F__NUM_TYPES;
-	h->payload.num_settypes = F__NUM_SETTYPES;
+	h->payload.num_types =
+	    sizeof(header_flags) / sizeof(header_flags[0]);
+	h->payload.num_settypes =
+	    sizeof(header_set_flags) / sizeof(header_set_flags[0]);
 	h->payload.options = flags;
 	h->payload.reserved = 0;
 	return 0;
