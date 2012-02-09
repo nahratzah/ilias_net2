@@ -74,6 +74,9 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	TAILQ_INIT(&conn->n2c_recvq);
 	conn->n2c_recvqsz = 0;
 
+	conn->n2c_stealth_bytes = 0;
+	conn->n2c_stealth = 0;
+
 	if (net2_acceptor_socket_init(&conn->n2c_socket, evbase, functions))
 		goto fail_0;
 	if (net2_cneg_init(&conn->n2c_negotiator))
@@ -219,9 +222,15 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 			break;
 		case NET2_PDECODE_BAD:		/* Ignore bad packet. */
 		case NET2_PDECODE_UNSAFE:	/* Ignore unsafe packet. */
+			break;
 		case NET2_PDECODE_WINDOW:	/* Window doesn't want this. */
+			c->n2c_stealth_bytes += wire_sz;
+			c->n2c_stealth |= NET2_CONN_STEALTH_SEND_OK;
 			break;
 		case NET2_PDECODE_OK:
+			c->n2c_stealth_bytes += wire_sz;
+			c->n2c_stealth |= NET2_CONN_STEALTH_SEND_OK;
+
 			if (net2_connwindow_update(&c->n2c_window, &ph,
 			    buf, wire_sz)) {
 				warnx("failed to update window "
@@ -283,9 +292,22 @@ net2_conn_gather_tx(struct net2_connection *c,
 	struct net2_cw_tx		*tx;
 	int				 want_payload, has_payload;
 	int				 negotiation_ready;
+	int				 stealth;
 
 	has_payload = 0;
 	*bptr = NULL;
+	stealth = 0;
+
+	/* Check if stealth mode allows transmission. */
+	if ((c->n2c_stealth &
+	    (NET2_CONN_STEALTH_ENABLED | NET2_CONN_STEALTH_UNSTEALTH)) ==
+	    NET2_CONN_STEALTH_ENABLED) {
+		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK))
+			goto fail_0;
+		maxlen = MIN(c->n2c_stealth_bytes, maxlen);
+		stealth = 1;
+	}
+
 	winoverhead = net2_connwindow_overhead;
 	avail = maxlen - net2_ph_overhead -
 	    net2_hash_gethashlen(c->n2c_sign.algorithm) -
@@ -313,8 +335,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 	}
 	/* Don't add payload to stalled state: these packets are not acked. */
 	count = 0;
-	negotiation_ready = net2_cneg_allow_payload(&c->n2c_negotiator,
-	    ph.seq);
+	negotiation_ready = !stealth &&
+	    net2_cneg_allow_payload(&c->n2c_negotiator, ph.seq);
 	if (ph.flags & PH_STALLED)
 		goto write_window_buf;
 
@@ -430,6 +452,9 @@ write_window_buf:
 
 	/* Succes!. */
 	rv = 0;
+	/* Deduct from stealth allowance. */
+	c->n2c_stealth_bytes -= MIN(c->n2c_stealth_bytes, net2_buffer_length(*bptr));
+	c->n2c_stealth &= ~NET2_CONN_STEALTH_SEND_OK;
 
 fail_2:
 	if (tx != NULL) {
@@ -462,4 +487,26 @@ net2_conn_get_pvlist(struct net2_acceptor_socket *c, struct net2_pvlist *pv)
 	struct net2_connection	*conn = (struct net2_connection*)c;
 
 	return net2_cneg_pvlist(&conn->n2c_negotiator, pv);
+}
+
+/*
+ * Enable stealth modus.
+ *
+ * When stealth modus is enabled, communication will be reduced so that
+ * an attacker attempting to use this machine as a deflector, will need
+ * to send at least as much data as is being deflected towards the real
+ * target.
+ *
+ * - Whenever a packet is received, the code may send exactly one outgoing
+ *   packet.
+ * - The total number of transmitted bytes will be limited to the number
+ *   of received bytes.
+ *
+ * Once the negotiation has been completed, the stealth mode is disabled
+ * and the communication will happen unimpeded.
+ */
+ILIAS_NET2_EXPORT void
+net2_conn_set_stealth(struct net2_connection *c)
+{
+	c->n2c_stealth |= NET2_CONN_STEALTH_ENABLED;
 }

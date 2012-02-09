@@ -257,6 +257,7 @@ main()
 		printf("net2_conn_p2p_create_fd() fail\n");
 		return -1;
 	}
+	net2_conn_set_stealth(c2);
 
 	/* Create stream. */
 	sa1 = net2_stream_acceptor_new();

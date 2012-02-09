@@ -932,6 +932,9 @@ skip:
 	if (cn->stage == NET2_CNEG_STAGE_PRISTINE && all_done(cn)) {
 		if ((error = cneg_conclude_pristine(cn)) != 0)
 			goto fail;
+
+		/* Disengage stealth (TODO: move down once more states are added. */
+		CNEG_CONN(cn)->n2c_stealth |= NET2_CONN_STEALTH_UNSTEALTH;
 	}
 
 	return 0;

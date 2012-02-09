@@ -89,6 +89,12 @@ struct net2_connection {
 	struct net2_connwindow	 n2c_window;	/* Low level window. */
 	struct net2_connstats	 n2c_stats;	/* Connection stats. */
 
+	size_t			 n2c_stealth_bytes; /* Bytes received. */
+	int			 n2c_stealth;	/* Stealth state flags. */
+#define NET2_CONN_STEALTH_ENABLED	0x00000001	/* Enable stealth. */
+#define NET2_CONN_STEALTH_UNSTEALTH	0x00000002	/* Disengaged. */
+#define NET2_CONN_STEALTH_SEND_OK	0x00000004	/* Can send. */
+
 	/* XXX more members as required. */
 };
 
@@ -111,5 +117,7 @@ int	net2_conn_gather_tx(struct net2_connection*,
 ILIAS_NET2_EXPORT
 int	net2_conn_get_pvlist(struct net2_acceptor_socket*,
 	    struct net2_pvlist*);
+ILIAS_NET2_EXPORT
+void	net2_conn_set_stealth(struct net2_connection*);
 
 #endif /* ILIAS_NET2_CONNECTION_H */
