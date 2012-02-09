@@ -94,6 +94,7 @@ struct net2_connection {
 #define NET2_CONN_STEALTH_ENABLED	0x00000001	/* Enable stealth. */
 #define NET2_CONN_STEALTH_UNSTEALTH	0x00000002	/* Disengaged. */
 #define NET2_CONN_STEALTH_SEND_OK	0x00000004	/* Can send. */
+#define NET2_CONN_STEALTH_WANTSEND	0x00000008	/* Want-to-send. */
 
 	/* XXX more members as required. */
 };

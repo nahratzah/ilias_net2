@@ -226,10 +226,20 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		case NET2_PDECODE_WINDOW:	/* Window doesn't want this. */
 			c->n2c_stealth_bytes += wire_sz;
 			c->n2c_stealth |= NET2_CONN_STEALTH_SEND_OK;
+			if (c->n2c_stealth & (NET2_CONN_STEALTH_WANTSEND |
+			    NET2_CONN_STEALTH_ENABLED)) {
+				net2_acceptor_socket_ready_to_send(
+				    &c->n2c_socket);
+			}
 			break;
 		case NET2_PDECODE_OK:
 			c->n2c_stealth_bytes += wire_sz;
 			c->n2c_stealth |= NET2_CONN_STEALTH_SEND_OK;
+			if (c->n2c_stealth & (NET2_CONN_STEALTH_WANTSEND |
+			    NET2_CONN_STEALTH_ENABLED)) {
+				net2_acceptor_socket_ready_to_send(
+				    &c->n2c_socket);
+			}
 
 			if (net2_connwindow_update(&c->n2c_window, &ph,
 			    buf, wire_sz)) {
@@ -302,6 +312,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	if ((c->n2c_stealth &
 	    (NET2_CONN_STEALTH_ENABLED | NET2_CONN_STEALTH_UNSTEALTH)) ==
 	    NET2_CONN_STEALTH_ENABLED) {
+		c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
 		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK))
 			goto fail_0;
 		maxlen = MIN(c->n2c_stealth_bytes, maxlen);
@@ -455,6 +466,7 @@ write_window_buf:
 	/* Deduct from stealth allowance. */
 	c->n2c_stealth_bytes -= MIN(c->n2c_stealth_bytes, net2_buffer_length(*bptr));
 	c->n2c_stealth &= ~NET2_CONN_STEALTH_SEND_OK;
+	c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
 
 fail_2:
 	if (tx != NULL) {
