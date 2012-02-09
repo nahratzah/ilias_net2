@@ -673,6 +673,12 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 {
 	int	require = (cn->flags & REQUIRE);
 
+	/* Check that stage is sufficient to transmit. */
+	switch (cn->stage) {
+	case NET2_CNEG_STAGE_PRISTINE:
+		return 0;
+	}
+
 	/* XXX for now, allow progress anyway */
 	return 1;
 
@@ -934,4 +940,10 @@ fail_wh:
 	deinit_header(&h);
 fail:
 	return error;
+}
+
+ILIAS_NET2_LOCAL int
+net2_cneg_pvlist(struct net2_conn_negotiator *cn, struct net2_pvlist *pv)
+{
+	return net2_pvlist_merge(pv, &cn->negotiated.proto);
 }

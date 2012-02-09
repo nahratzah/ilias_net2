@@ -60,7 +60,6 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	if (functions == NULL)
 		goto fail_1;
 	conn->n2c_ctx = ctx;
-	conn->n2c_version = 0;
 
 	conn->n2c_sign.algorithm = 0;
 	conn->n2c_sign.key = NULL;
@@ -462,5 +461,5 @@ net2_conn_get_pvlist(struct net2_acceptor_socket *c, struct net2_pvlist *pv)
 {
 	struct net2_connection	*conn = (struct net2_connection*)c;
 
-	return net2_pvlist_add(pv, &net2_proto, conn->n2c_version);
+	return net2_cneg_pvlist(&conn->n2c_negotiator, pv);
 }

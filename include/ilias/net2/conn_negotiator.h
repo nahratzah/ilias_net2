@@ -94,5 +94,7 @@ int	net2_cneg_get_transmit(struct net2_conn_negotiator*, struct net2_buffer**,
 	    struct net2_cw_tx*, size_t);
 ILIAS_NET2_LOCAL
 int	net2_cneg_accept(struct net2_conn_negotiator*, struct net2_buffer*);
+ILIAS_NET2_LOCAL
+int	net2_cneg_pvlist(struct net2_conn_negotiator*, struct net2_pvlist*);
 
 #endif /* ILIAS_NET2_CONN_NEGOTIATOR_H */

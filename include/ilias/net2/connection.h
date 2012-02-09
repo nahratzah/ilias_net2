@@ -58,9 +58,6 @@ struct net2_connection {
 
 	struct net2_ctx		*n2c_ctx;	/* Network context. */
 
-	net2_protocol_t		 n2c_version;	/* Communication protocol
-						 * version. */
-
 	TAILQ_ENTRY(net2_connection)
 				 n2c_ctxconns;	/* Link into context. */
 
