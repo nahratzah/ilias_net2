@@ -248,15 +248,13 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 				/* Kill connection? */
 				break;
 			}
-			if (ph.flags & PH_HANDSHAKE) {
-				if ((error = net2_cneg_accept(&c->n2c_negotiator,
-				    buf)) != 0) {
-					warnx("failed to process negotiation "
-					    "(%d) -> dropping succefully "
-					    "decoded datagram", error);
-					/* TODO: kill connection */
-					break;
-				}
+			if ((error = net2_cneg_accept(&c->n2c_negotiator, &ph,
+			    buf)) != 0) {
+				warnx("failed to process negotiation "
+				    "(%d) -> dropping succefully "
+				    "decoded datagram", error);
+				/* TODO: kill connection */
+				break;
 			}
 			net2_acceptor_socket_accept(&c->n2c_socket, buf);
 
@@ -356,11 +354,10 @@ net2_conn_gather_tx(struct net2_connection *c,
 	 */
 	to_add = NULL;
 	if (avail > winoverhead &&
-	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &to_add, tx,
+	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &ph, &to_add, tx,
 	    avail - winoverhead)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
-		ph.flags |= PH_HANDSHAKE;
 		if (net2_buffer_append(b, to_add)) {
 			net2_buffer_free(to_add);
 			warnx("buffer_append fail for cneg");

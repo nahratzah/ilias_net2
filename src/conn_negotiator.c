@@ -18,6 +18,7 @@
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/cp.h>
+#include <ilias/net2/packet.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>
@@ -786,6 +787,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 /* Get connection negotiator transmission. */
 ILIAS_NET2_LOCAL int
 net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
+    struct packet_header* ph,
     struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen)
 {
 	struct encoded_header	*eh;
@@ -840,7 +842,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		TAILQ_INSERT_TAIL(&transit, eh, entry);
 	}
 	if (TAILQ_EMPTY(&transit))
-		return ENOMEM;
+		return 0;
 
 	/* Append closing tag. */
 	if ((error = encode_header(&header_fini, buf)) != 0)
@@ -851,6 +853,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		TAILQ_REMOVE(&transit, eh, entry);
 		TAILQ_INSERT_TAIL(&cn->waitq, eh, entry);
 	}
+	ph->flags |= PH_HANDSHAKE;
 
 	*bufptr = buf;
 	return 0;
@@ -867,12 +870,17 @@ fail:
  * Accept packets.
  */
 ILIAS_NET2_LOCAL int
-net2_cneg_accept(struct net2_conn_negotiator *cn, struct net2_buffer *buf)
+net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
+    struct net2_buffer *buf)
 {
 	struct header		 h;
 	int			 skip;
 	int			 error;
 	size_t			 i;
+
+	/* Only decode if negotiation data is present. */
+	if (!(ph->flags & PH_HANDSHAKE))
+		return 0;
 
 	for (;;) {
 		/* Decode header. */

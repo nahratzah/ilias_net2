@@ -35,6 +35,7 @@ struct net2_buffer;			/* From ilias/net2/buffer.h */
 struct encoded_header;			/* Internal. */
 struct net2_conn_negotiator_set;	/* Internal. */
 struct net2_cw_tx;			/* From ilias/net2/connwindow.h */
+struct packet_header;			/* From ilias/net2/packet.h */
 
 /*
  * Connection negotiator module.
@@ -90,10 +91,12 @@ int	net2_cneg_init(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL
 void	net2_cneg_deinit(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL
-int	net2_cneg_get_transmit(struct net2_conn_negotiator*, struct net2_buffer**,
-	    struct net2_cw_tx*, size_t);
+int	net2_cneg_get_transmit(struct net2_conn_negotiator*,
+	    struct packet_header*, struct net2_buffer**, struct net2_cw_tx*,
+	    size_t);
 ILIAS_NET2_LOCAL
-int	net2_cneg_accept(struct net2_conn_negotiator*, struct net2_buffer*);
+int	net2_cneg_accept(struct net2_conn_negotiator*, struct packet_header*,
+	    struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	net2_cneg_pvlist(struct net2_conn_negotiator*, struct net2_pvlist*);
 
