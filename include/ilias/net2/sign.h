@@ -38,6 +38,8 @@ int			 net2_signctx_validate(struct net2_sign_ctx*,
 ILIAS_NET2_EXPORT
 const char		*net2_signctx_name(struct net2_sign_ctx*);
 
+extern ILIAS_NET2_EXPORT const int net2_sign_ecdsa;
+
 
 #ifdef __cplusplus
 }

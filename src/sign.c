@@ -276,3 +276,6 @@ ecdsa_validate_fn(struct net2_sign_ctx *s, const struct net2_buffer *sig,
 	/* Only reachable in case of error. */
 	return 0;
 }
+
+/* Index of ECDSA algorithm. */
+ILIAS_NET2_EXPORT const int net2_sign_ecdsa = 0;

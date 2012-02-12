@@ -24,6 +24,7 @@ list (APPEND headers
 	include/ilias/net2/obj_window.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
+	include/ilias/net2/sign.h
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/stream_acceptor.h
 	include/ilias/net2/xchange.h
@@ -53,6 +54,7 @@ list (APPEND srcs
 	src/obj_window.c
 	src/promise.c
 	src/protocol.c
+	src/sign.c
 	src/sockdgram.c
 	src/stream_acceptor.c
 	src/types.c
@@ -310,6 +312,14 @@ if (BUILD_TESTING)
 	target_link_libraries (test_hash ilias_net2 bsd_compat
 	    ${EVENT_LIBRARIES})
 	add_test(NAME test_hash COMMAND test_hash)
+
+	# Signature tests.
+	add_executable (test_sign
+		test/sign.c
+		)
+	target_link_libraries (test_sign ilias_net2 bsd_compat
+	    ${EVENT_LIBRARIES})
+	add_test(NAME test_sign COMMAND test_sign)
 
 	# Encryption/decryption tests.
 	add_executable (test_enc
