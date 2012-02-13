@@ -20,6 +20,7 @@
 #include <string.h>
 #include <event2/buffer.h>
 #include <bsd_compat/error.h>
+#include <bsd_compat/sysexits.h>
 
 #ifdef WIN32
 #include <malloc.h>
@@ -220,6 +221,39 @@ net2_hashctx_update(struct net2_hash_ctx *ctx, const void *data, size_t len)
 
 	if (fn->update_fn != NULL)
 		return (*fn->update_fn)(ctx, data, len);
+	return 0;
+}
+
+/* Add data that is to be hashed, from the specified buffer. */
+ILIAS_NET2_EXPORT int
+net2_hashctx_updatebuf(struct net2_hash_ctx *ctx,
+    const struct net2_buffer *buf)
+{
+	struct iovec		*iov;
+	size_t			 iovcount;
+	size_t			 buflen;
+	int			 error;
+
+	if ((buflen = net2_buffer_length(buf)) == 0)
+		return 0;
+
+	iovcount = net2_buffer_peek(buf, buflen, NULL, 0);
+	iov = alloca(iovcount * sizeof(*iov));
+	if (net2_buffer_peek(buf, buflen, iov, iovcount) != iovcount) {
+		errx(EX_SOFTWARE, "net2_hashctx_updatebuf: "
+		    "iovcount changed between calls");
+	}
+
+	while (iovcount > 0) {
+		error = net2_hashctx_update(ctx, iov->iov_base, iov->iov_len);
+		if (error != 0)
+			return error;
+
+		/* Next. */
+		iov++;
+		iovcount--;
+	}
+
 	return 0;
 }
 
