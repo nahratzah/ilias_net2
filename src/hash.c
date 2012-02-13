@@ -309,28 +309,13 @@ net2_hashctx_hashbuf(int alg, const void *key, size_t keylen,
     struct net2_buffer *buf)
 {
 	struct net2_hash_ctx	*ctx;
-	struct iovec		*iov;
-	size_t			 buflen;
-	int			 iovlen;
-
-	/* Set up IO vectors. */
-	if (buf == NULL)
-		return NULL;
-	buflen = net2_buffer_length(buf);
-	iovlen = net2_buffer_peek(buf, buflen, NULL, 0);
-	if (iovlen == -1)
-		return NULL;
-	iov = alloca(iovlen * sizeof(*iov));
-	net2_buffer_peek(buf, buflen, iov, iovlen);
 
 	/* Create hash context. */
 	if ((ctx = net2_hashctx_new(alg, key, keylen)) == NULL)
 		return NULL;
 	/* Update hash context with buffer data. */
-	for (; iovlen > 0; iovlen--, iov++) {
-		if (net2_hashctx_update(ctx, iov->iov_base, iov->iov_len))
-			goto fail;
-	}
+	if (net2_hashctx_updatebuf(ctx, buf))
+		goto fail;
 	/* Return calculated hash. */
 	return net2_hashctx_finalfree(ctx);
 
