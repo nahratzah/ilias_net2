@@ -306,7 +306,7 @@ net2_hashctx_finalfree(struct net2_hash_ctx *ctx)
 /* Calculate the hash of a single buffer. */
 ILIAS_NET2_EXPORT struct net2_buffer*
 net2_hashctx_hashbuf(int alg, const void *key, size_t keylen,
-    struct net2_buffer *buf)
+    const struct net2_buffer *buf)
 {
 	struct net2_hash_ctx	*ctx;
 

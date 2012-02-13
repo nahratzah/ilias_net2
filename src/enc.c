@@ -266,7 +266,7 @@ net2_encctx_finalfree(struct net2_enc_ctx *ctx)
 
 ILIAS_NET2_EXPORT struct net2_buffer*
 net2_encctx_encbuf(int alg, const void *key, size_t keylen,
-    const void *iv, size_t ivlen, int direction, struct net2_buffer *buf)
+    const void *iv, size_t ivlen, int direction, const struct net2_buffer *buf)
 {
 	struct net2_enc_ctx	*ctx;
 

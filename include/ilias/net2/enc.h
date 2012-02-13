@@ -58,7 +58,8 @@ struct net2_buffer	*net2_encctx_finalfree(struct net2_enc_ctx*);
 
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_encctx_encbuf(int, const void*, size_t,
-			    const void*, size_t, int, struct net2_buffer*);
+			    const void*, size_t, int,
+			    const struct net2_buffer*);
 
 #ifdef __cplusplus
 }

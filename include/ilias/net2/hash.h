@@ -55,7 +55,7 @@ struct net2_buffer	*net2_hashctx_finalfree(struct net2_hash_ctx*);
 
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_hashctx_hashbuf(int, const void*, size_t,
-			    struct net2_buffer*);
+			    const struct net2_buffer*);
 
 #ifdef __cplusplus
 }
