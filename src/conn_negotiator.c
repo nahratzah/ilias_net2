@@ -112,6 +112,8 @@ ack_cb(void *hptr, void *cnptr)
 		return;
 	}
 
+	if (h->header.flags == F_TYPE_PVER)
+		cn->pver_acknowledged = 1;
 	TAILQ_REMOVE(&cn->waitq, h, entry);
 	free_encoded_header(h);
 	if (TAILQ_EMPTY(&cn->waitq))
@@ -617,6 +619,14 @@ cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 	int		error = 0;
 
 	/*
+	 * Connection is not sufficiently ready to transmit the next batch.
+	 * Both ends must have received the protocol version, so the next
+	 * stage will be able to take advantage of the negotiated protocol.
+	 */
+	if (!cn->pver_acknowledged)
+		return 0;
+
+	/*
 	 * Time to choose which protocols to use and
 	 * what is to be negotiated.
 	 *
@@ -742,6 +752,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 
 	cn->stage = NET2_CNEG_STAGE_PRISTINE;
 	cn->flags = cn->flags_have = 0;
+	cn->pver_acknowledged = 0;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE)) {
 		cn->flags |= NET2_CNEG_REQUIRE_ENCRYPTION |
 		    NET2_CNEG_REQUIRE_SIGNING;
@@ -921,7 +932,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 
 	/* Only decode if negotiation data is present. */
 	if (!(ph->flags & PH_HANDSHAKE))
-		return 0;
+		goto stage_only;
 
 	for (;;) {
 		/* Decode header. */
@@ -975,6 +986,7 @@ skip:
 		deinit_header(&h);
 	}
 
+stage_only:
 	/*
 	 * Handle conclusion of pristine (exchange) stage.
 	 */

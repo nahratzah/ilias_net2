@@ -53,6 +53,10 @@ struct net2_conn_negotiator {
 #define NET2_CNEG_STAGE_KEY_EXCHANGE	0x00000001	/* Exchanging keys. */
 #define NET2_CNEG_STAGE_PROTO_IDLE	0xffffffff	/* Nothing to do. */
 
+	int			 pver_acknowledged;
+						/* True iff pver was received
+						 * by remote endpoint. */
+
 	TAILQ_HEAD(, encoded_header)
 				 sendq, waitq;
 

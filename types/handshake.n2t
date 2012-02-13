@@ -16,6 +16,16 @@
 #include <stdint.h>
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/types.h>
+#include "signature.h"
+
+
+/*
+ * Key exchange with optional host signature.
+ */
+struct key_exchange {
+	struct net2_buffer	*payload;
+	struct net2_signature	 signature;
+};
 
 
 /*
@@ -41,6 +51,18 @@ struct header {
 #define F_SET_LASTELEM		 0x00001000U
 #define F_SET_EMPTY		 0x00002000U
 #define F_STRING		 0x00010000U
+
+/*
+ * Special key exchange bits.
+ * Use the TYPEMASK to find out which key this is.
+ * Use the sequence to find out which message sequence this is.
+ */
+#define F_XCHANGE		 0x10000000U
+#define F_XCHANGE_SIGNATURE	 0x20000000U
+#define F_XCHANGE_HASH_TYPE	 0x00000000U
+#define F_XCHANGE_ENC_TYPE	 0x00000001U
+
+/* Indicates the end of a connection negotiation. */
 #define F_LAST_HEADER		 0xffffffffU
 
 	uint32_t		 fin_reserved;	/* Must be zero. */
@@ -57,6 +79,8 @@ struct header {
 		};
 		char		*string;
 		uint32_t	 val;
+		struct key_exchange
+				 key_exchange;
 	}			 payload;
 };
 
@@ -283,13 +307,17 @@ deinit_header(struct header *h)
 {
 	if (h->flags == F_LAST_HEADER)
 		return;
+	if (h->flags & F_XCHANGE)
+		net2_buffer_free(h->payload.key_exchange.payload);
+	if (h->flags & F_XCHANGE_SIGNATURE)
+		net2_signature_deinit(&h->payload.key_exchange.signature);
 	if (h->flags & F_STRING)
 		free(h->payload.string);
 }
 
 /* Encode header. */
 static int
-cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
+cp_header_encode(struct net2_encdec_ctx *proto_ctx, struct net2_buffer *out,
     const struct header *h, const void *arg)
 {
 	struct net2_encdec_ctx	 ctx;
@@ -316,7 +344,7 @@ cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
 	if (h->flags & F_SET_EMPTY)
 		goto out_2;
 	/* Encode sequence, if set element. */
-	if (h->flags & F_SET_ELEMENT) {
+	if (h->flags & (F_SET_ELEMENT | F_XCHANGE)) {
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->seq,
 		    NULL)) != 0)
 			goto out_2;
@@ -326,6 +354,17 @@ cp_header_encode(struct net2_encdec_ctx *ignored_ctx, struct net2_buffer *out,
 		if ((error = net2_cp_encode(&ctx, &cp_paddedstring, out,
 		    &h->payload.string, NULL)) != 0)
 			goto out_2;
+	} else if (h->flags & F_XCHANGE) {
+		if ((error = net2_cp_encode(proto_ctx,
+		    &cp_short_net2_buffer, out,
+		    &h->payload.key_exchange.payload, NULL)) != 0)
+			goto out_2;
+		if (h->flags & F_XCHANGE_SIGNATURE) {
+			if ((error = net2_cp_encode(proto_ctx,
+			    &cp_net2_signature, out,
+			    &h->payload.key_exchange.signature, NULL)) != 0)
+				goto out_2;
+		}
 	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
 		if ((error = net2_cp_encode(&ctx, &cp_net2_protocol, out,
 		    &h->payload.version, NULL)) != 0)
@@ -360,7 +399,7 @@ out_0:
 
 /* Decode header. */
 static int
-cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
+cp_header_decode(struct net2_encdec_ctx *proto_ctx, struct header *h,
     struct net2_buffer *in, const void *arg)
 {
 	struct net2_encdec_ctx	 ctx;
@@ -386,19 +425,34 @@ cp_header_decode(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 		    NULL);
 		goto out_2;
 	}
+
+	/* Set handling. */
 	if (h->flags & F_SET_EMPTY)
 		goto out_2;
 	/* Decode sequence, if set element. */
-	if (h->flags & F_SET_ELEMENT) {
+	if (h->flags & (F_SET_ELEMENT | F_XCHANGE)) {
 		if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->seq, in,
 		    NULL)) != 0)
 			goto out_2;
 	}
+
 	/* Decode payload. */
 	if (h->flags & F_STRING) {
 		if ((error = net2_cp_decode(&ctx, &cp_paddedstring,
 		    &h->payload.string, in, NULL)) != 0)
 			goto out_2;
+	} else if (h->flags & F_XCHANGE) {
+		if ((error = net2_cp_decode(proto_ctx,
+		    &cp_short_net2_buffer,
+		    &h->payload.key_exchange.payload, in, NULL)) != 0)
+			goto out_2;
+		if (h->flags & F_XCHANGE_SIGNATURE) {
+			if ((error = net2_cp_decode(proto_ctx,
+			    &cp_net2_signature,
+			    &h->payload.key_exchange.signature,
+			    in, NULL)) != 0)
+				goto out_2;
+		}
 	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
 		if ((error = net2_cp_decode(&ctx, &cp_net2_protocol,
 		    &h->payload.version, in, NULL)) != 0)
