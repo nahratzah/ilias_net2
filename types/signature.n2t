@@ -49,7 +49,6 @@ net2_signature_create(struct net2_signature *s,
 {
 	int			 error;
 	struct net2_buffer	*hash;
-	struct net2_hash_ctx	*hctx;
 	const char		*hash_name;
 
 	if (s == NULL || to_sign == NULL || sign == NULL)
@@ -75,22 +74,15 @@ net2_signature_create(struct net2_signature *s,
 	}
 
 	/* Calculate the hash of to_sign. */
-	if ((hctx = net2_hashctx_new(hash_alg, NULL, 0)) == NULL) {
-		error = EINVAL;
-		goto fail_3;
-	}
-	if ((error = net2_hashctx_updatebuf(hctx, to_sign)) != 0)
-		goto fail_4;
-	hash = net2_hashctx_finalfree(hctx);
-	hctx = NULL;
+	hash = net2_hashctx_hashbuf(hash_alg, NULL, 0, to_sign);
 	if (hash == NULL) {
 		error = ENOMEM;
-		goto fail_4;
+		goto fail_3;
 	}
 
 	/* Calculate hash signature. */
 	if ((error = net2_signctx_sign(sign, hash, s->data)) != 0)
-		goto fail_5;
+		goto fail_4;
 
 	/* Cleanup hash, since we don't need it anymore. */
 	net2_buffer_free(hash);
@@ -99,11 +91,8 @@ net2_signature_create(struct net2_signature *s,
 	return 0;
 
 
-fail_5:
-	net2_buffer_free(hash);
 fail_4:
-	if (hctx != NULL)
-		net2_hashctx_free(hctx);
+	net2_buffer_free(hash);
 fail_3:
 	net2_buffer_free(s->data);
 fail_2:
@@ -125,7 +114,6 @@ net2_signature_validate(struct net2_signature *s,
 {
 	int			 error;
 	int			 hash_alg;
-	struct net2_hash_ctx	*hctx = NULL;
 	struct net2_buffer	*hash = NULL;
 	size_t			 i;
 
@@ -143,14 +131,7 @@ net2_signature_validate(struct net2_signature *s,
 		error = EOPNOTSUPP;
 		goto fail_0;
 	}
-	if ((hctx = net2_hashctx_new(hash_alg, NULL, 0)) == NULL) {
-		error = ENOMEM;
-		goto fail_0;
-	}
-	if ((error = net2_hashctx_updatebuf(hctx, to_sign)) != 0)
-		goto fail_0;
-	hash = net2_hashctx_finalfree(hctx);
-	hctx = NULL;
+	hash = net2_hashctx_hashbuf(hash_alg, NULL, 0, to_sign);
 	if (hash == NULL) {
 		error = ENOMEM;
 		goto fail_0;
@@ -180,8 +161,6 @@ net2_signature_validate(struct net2_signature *s,
 fail_0:
 	if (hash != NULL)
 		net2_buffer_free(hash);
-	if (hctx != NULL)
-		net2_hashctx_free(hctx);
 	return error;
 }
 
