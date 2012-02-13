@@ -191,6 +191,12 @@ net2type(srcs "types/obj_manager_proto.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_OBJ_MANAGER_PROTO_H")
+net2type(srcs "types/signature.n2t"
+    "${CMAKE_CURRENT_BINARY_DIR}/signature.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/signature.h"
+    "static"
+    "ILIAS_NET2_LOCAL"
+    "ILIAS_NET2_SIGNATURE_H")
 # Add headers generated above, that are to be published.
 list (APPEND headers
 	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
