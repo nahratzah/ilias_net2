@@ -269,29 +269,14 @@ net2_encctx_encbuf(int alg, const void *key, size_t keylen,
     const void *iv, size_t ivlen, int direction, struct net2_buffer *buf)
 {
 	struct net2_enc_ctx	*ctx;
-	struct iovec		*iov;
-	size_t			 buflen;
-	int			 iovlen;
-
-	/* Set up IO vectors. */
-	if (buf == NULL)
-		return NULL;
-	buflen = net2_buffer_length(buf);
-	iovlen = net2_buffer_peek(buf, buflen, NULL, 0);
-	if (iovlen == -1)
-		return NULL;
-	iov = alloca(iovlen * sizeof(*iov));
-	net2_buffer_peek(buf, buflen, iov, iovlen);
 
 	/* Create enc context. */
 	if ((ctx = net2_encctx_new(alg, key, keylen, iv, ivlen, direction)) ==
 	    NULL)
 		return NULL;
 	/* Update enc context with buffer data. */
-	for (; iovlen > 0; iovlen--, iov++) {
-		if (net2_encctx_update(ctx, iov->iov_base, iov->iov_len))
-			goto fail;
-	}
+	if (net2_encctx_updatebuf(ctx, buf))
+		goto fail;
 	/* Return calculated enc. */
 	return net2_encctx_finalfree(ctx);
 
