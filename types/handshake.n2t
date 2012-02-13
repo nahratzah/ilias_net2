@@ -36,6 +36,7 @@ struct header {
 #define F_TYPE_XCHANGE		(0x00000000U | F_SET_ELEMENT)
 #define F_TYPE_HASH		(0x00000001U | F_SET_ELEMENT)
 #define F_TYPE_CRYPT		(0x00000002U | F_SET_ELEMENT)
+#define F_TYPE_SIGN		(0x00000003U | F_SET_ELEMENT)
 #define F_SET_ELEMENT		 0x00000800U
 #define F_SET_LASTELEM		 0x00001000U
 #define F_SET_EMPTY		 0x00002000U
@@ -128,6 +129,7 @@ static const net2_protocol_t	header_set_flags[] = {
 	/* XCHANGE */		 0,
 	/* HASH */		 0,
 	/* CRYPT */		 0,
+	/* SIGN */		 0,
 };
 
 

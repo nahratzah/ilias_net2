@@ -28,6 +28,7 @@
 #include <ilias/net2/xchange.h>
 
 #include "handshake.h"
+#include "signature.h"
 
 #include <stdio.h>	/* DEBUG */
 
@@ -240,6 +241,11 @@ create_headers(struct net2_conn_negotiator *cn)
 	/* Gather all crypt methods into set. */
 	if ((error = create_xhc_headers(cn,
 	    &net2_enc_getname, net2_encmax, F_TYPE_CRYPT)) != 0)
+		return error;
+
+	/* Gather all signature methods into set. */
+	if ((error = create_xhc_headers(cn,
+	    &net2_sign_getname, net2_signmax, F_TYPE_SIGN)) != 0)
 		return error;
 
 	return 0;
@@ -558,6 +564,18 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		/* Store this idx. */
 		if ((error = intlist_add(&cn->enc.supported,
 		    &cn->enc.num_supported, idx)) != 0)
+			return error;
+
+		break;
+
+	case F_TYPE_SIGN:
+		idx = net2_sign_findname(h->payload.string);
+		if (idx == -1)
+			break;
+
+		/* Store this idx. */
+		if ((error = intlist_add(&cn->sign.supported,
+		    &cn->sign.num_supported, idx)) != 0)
 			return error;
 
 		break;

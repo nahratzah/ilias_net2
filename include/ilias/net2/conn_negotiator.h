@@ -76,7 +76,8 @@ struct net2_conn_negotiator {
 		size_t		 num_supported;	/* # supported. */
 	}			 hash,		/* Supported hashes. */
 				 enc,		/* Supported encoders. */
-				 xchange;	/* Supported xchange. */
+				 xchange,	/* Supported xchange. */
+				 sign;		/* Supported signatures. */
 
 	int			 tx_enc;	/* Selected enc for tx. */
 	int			 tx_hash;	/* Selected hash for tx. */
