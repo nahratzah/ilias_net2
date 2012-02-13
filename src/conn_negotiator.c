@@ -494,6 +494,24 @@ xchange_cmp(const void *a_ptr, const void *b_ptr)
 	 */
 	return (a < b ? -1 : a > b);
 }
+/*
+ * Compare signature algorithms.
+ */
+static int
+sign_cmp(const void *a_ptr, const void *b_ptr)
+{
+	int		a, b;
+
+	a = *(int*)a_ptr;
+	b = *(int*)b_ptr;
+
+	/*
+	 * No useful parameters to base our sort on.
+	 * Sort by ID, assuming that better algorithms will be appended
+	 * to the full set.
+	 */
+	return (a < b ? -1 : a > b);
+}
 
 
 /* Apply information in header to negotiator. */
@@ -610,6 +628,8 @@ cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 	    sizeof(int), enc_cmp);
 	qsort(cn->xchange.supported, cn->xchange.num_supported,
 	    sizeof(int), xchange_cmp);
+	qsort(cn->sign.supported, cn->sign.num_supported,
+	    sizeof(int), sign_cmp);
 
 	/* We require at least 1 supported hash, enc and xchange. */
 	if (cn->hash.num_supported == 0 ||
