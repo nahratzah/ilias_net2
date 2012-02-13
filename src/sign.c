@@ -1,5 +1,6 @@
 #include <ilias/net2/sign.h>
 #include <errno.h>
+#include <string.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/bio.h>
@@ -65,6 +66,23 @@ net2_sign_getname(int alg)
 	if (alg < 0 || alg >= net2_signmax)
 		return NULL;
 	return sign[alg].name;
+}
+
+/* Find signature algorithm by name. */
+ILIAS_NET2_EXPORT int
+net2_sign_findname(const char *name)
+{
+	int			 i;
+
+	if (name == NULL)
+		return -1;
+
+	for (i = 0; i < net2_signmax; i++) {
+		if (sign[i].name != NULL && strcmp(sign[i].name, name) == 0)
+			return i;
+	}
+
+	return -1;
 }
 
 /* Create a new instance, based on a known public key. */

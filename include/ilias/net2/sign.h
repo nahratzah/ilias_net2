@@ -19,6 +19,8 @@ ILIAS_NET2_EXPORT
 size_t			 net2_sign_getsignlen(int);
 ILIAS_NET2_EXPORT
 const char		*net2_sign_getname(int);
+ILIAS_NET2_EXPORT
+int			 net2_sign_findname(const char*);
 
 ILIAS_NET2_EXPORT
 struct net2_sign_ctx	*net2_signctx_pubnew(int, const void*, size_t);
