@@ -747,6 +747,8 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 	cn->enc.num_supported = 0;
 	cn->xchange.supported = NULL;
 	cn->xchange.num_supported = 0;
+	cn->sign.supported = NULL;
+	cn->sign.num_supported = 0;
 
 	return 0;
 
@@ -799,6 +801,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	free(cn->hash.supported);
 	free(cn->enc.supported);
 	free(cn->xchange.supported);
+	free(cn->sign.supported);
 	return;
 }
 
