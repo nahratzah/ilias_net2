@@ -33,6 +33,7 @@
 
 struct net2_mutex {
 	CRITICAL_SECTION	s;
+	volatile int		locks;
 };
 
 
@@ -47,6 +48,7 @@ net2_mutex_alloc()
 	if ((m = malloc(sizeof(*m))) == NULL)
 		return NULL;
 	InitializeCriticalSection(&m->s);
+	m->locks = 0;
 	return m;
 }
 
@@ -69,6 +71,8 @@ ILIAS_NET2_LOCAL void
 net2_mutex_lock(struct net2_mutex *m)
 {
 	EnterCriticalSection(&m->s);
+	assert(m->locks == 0);	/* ilias_net2 does not do recursive locking. */
+	m->locks++;
 }
 
 /*
@@ -77,6 +81,7 @@ net2_mutex_lock(struct net2_mutex *m)
 ILIAS_NET2_LOCAL void
 net2_mutex_unlock(struct net2_mutex *m)
 {
+	assert(m->locks > 0);
 	LeaveCriticalSection(&m->s);
 }
 
@@ -176,14 +181,28 @@ ILIAS_NET2_LOCAL void
 net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 {
 	struct waiter		self;
+	int			locks, i;
+
+	assert(m->locks > 0);
 
 	init_waiter(&self);
 	EnterCriticalSection(&c->s);
-	LeaveCriticalSection(&m->s);	/* unlock m */
+
+	/* Unlock m. */
+	locks = m->locks;
+	for (i = 0; i < locks; i++)
+		LeaveCriticalSection(&m->s);
+	m->locks = 0;
+
 	TAILQ_INSERT_TAIL(&c->wq, &self, entry);
 	LeaveCriticalSection(&c->s);
 	wait(&self);
-	EnterCriticalSection(&m->s);	/* lock m */
+
+	/* Relock m. */
+	for (i = 0; i < locks; i++)
+		EnterCriticalSection(&m->s);
+	m->locks = locks;
+
 	destroy_waiter(&self);
 }
 
