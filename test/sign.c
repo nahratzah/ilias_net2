@@ -32,7 +32,7 @@ int
 main()
 {
 	struct net2_sign_ctx	*priv, *pub;
-	struct net2_buffer	*msg, *badmsg, *sig;
+	struct net2_buffer	*msg, *badmsg, *sig, *sig2;
 	uint32_t		 v;
 	int			 error;
 	char			*hex;
@@ -59,6 +59,8 @@ main()
 		errx(1, "Failed to allocate message buffer.");
 	if ((sig = net2_buffer_new()) == NULL)
 		errx(1, "Failed to allocate signature buffer.");
+	if ((sig2 = net2_buffer_new()) == NULL)
+		errx(1, "Failed to allocate signature 2 buffer.");
 	if ((badmsg = net2_buffer_new()) == NULL)
 		errx(1, "Failed to allocate bad message buffer.");
 
@@ -83,6 +85,25 @@ main()
 	else {
 		fail++;
 		warnx("Signature is invalid (expected: valid)");
+	}
+
+	/* Generate signature again (to see if it's different). */
+	if ((error = net2_signctx_sign(priv, msg, sig2)) != 0)
+		errx(2, "Sign operation failed, error %d", error);
+	printf("Signature (hex): %s\n", hex = net2_buffer_hex(sig2));
+	free(hex);
+	/* Validate signature again. */
+	error = net2_signctx_validate(priv, sig2, msg);
+	if (error)
+		printf("Signature 2 is valid\n");
+	else {
+		fail++;
+		warnx("Signature 2 is invalid (expected: valid)");
+	}
+	/* Ensure it is different. */
+	if (net2_buffer_cmp(sig, sig2) == 0) {
+		fail++;
+		warnx("Signature 2 is the same as first signature (this may happen only rarely, but is probably a bug!)");
 	}
 
 	/*
