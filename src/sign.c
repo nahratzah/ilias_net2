@@ -2,6 +2,8 @@
 #include <errno.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
+#include <openssl/bio.h>
+#include <openssl/pem.h>
 
 
 /* ECDSA algorithm. */
@@ -149,27 +151,136 @@ net2_signctx_name(struct net2_sign_ctx *s)
 }
 
 
+/*
+ * Read PEM encoded private key.
+ */
+static int
+read_privkey_PEM(EC_KEY **k, const void *key, size_t keylen,
+    const char *passphrase)
+{
+	BIO		*bio;
+	int		 error;
+	EVP_PKEY	*pk;
+
+	if (k == NULL)
+		return EINVAL;
+	*k = NULL;
+
+	/* Create a BIO for the key. */
+	if ((bio = BIO_new_mem_buf((void*)key, keylen)) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+	/* Read the PEM file. */
+	if ((pk = PEM_read_bio_PrivateKey(bio, NULL, NULL,
+	    (void*)passphrase)) == NULL) {
+		error = EIO;
+		goto fail_1;
+	}
+
+	/* Ensure this really is a EC key. */
+	if (pk->type != EVP_PKEY_EC) {
+		error = EINVAL;
+		goto fail_2;
+	}
+
+	/* Assign EC key. */
+	*k = EVP_PKEY_get1_EC_KEY(pk);
+
+	/* Key validation. */
+	if (!EC_KEY_check_key(*k)) {
+		error = EINVAL;
+		goto fail_3;
+	}
+
+	/* Succes. */
+	error = 0;
+
+fail_3:
+	if (error != 0) {
+		EC_KEY_free(*k);
+		*k = NULL;
+	}
+fail_2:
+	EVP_PKEY_free(pk);
+fail_1:
+	BIO_free(bio);
+fail_0:
+	return error;
+}
+
+/*
+ * Read PEM encoded public key.
+ */
+static int
+read_pubkey_PEM(EC_KEY **k, const void *key, size_t keylen,
+    const char *passphrase)
+{
+	BIO		*bio;
+	int		 error;
+	EVP_PKEY	*pk;
+
+	if (k == NULL)
+		return EINVAL;
+	*k = NULL;
+
+	/* Create a BIO for the key. */
+	if ((bio = BIO_new_mem_buf((void*)key, keylen)) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+	/* Read the PEM file. */
+	if ((pk = PEM_read_bio_PUBKEY(bio, NULL, NULL,
+	    (void*)passphrase)) == NULL) {
+		error = EIO;
+		goto fail_1;
+	}
+
+	/* Ensure this really is a EC key. */
+	if (pk->type != EVP_PKEY_EC) {
+		error = EINVAL;
+		goto fail_2;
+	}
+
+	/* Assign EC key. */
+	*k = EVP_PKEY_get1_EC_KEY(pk);
+
+	/* Key validation. */
+	if (!EC_KEY_check_key(*k)) {
+		error = EINVAL;
+		goto fail_3;
+	}
+
+	/* Succes. */
+	error = 0;
+
+fail_3:
+	if (error != 0) {
+		EC_KEY_free(*k);
+		*k = NULL;
+	}
+fail_2:
+	EVP_PKEY_free(pk);
+fail_1:
+	BIO_free(bio);
+fail_0:
+	return error;
+}
+
+
 /* Read public key. */
 static int
 ecdsa_initpub_fn(struct net2_sign_ctx *s, const void *key, size_t keylen)
 {
-	const unsigned char	*openssl_key = key;
-
-	if ((s->impl.eckey = d2i_ECParameters(NULL,
-	    &openssl_key, keylen)) == NULL)
-		return -1;	/* Failed to decode or allocate. */
-	return 0;
+	return read_pubkey_PEM(&s->impl.eckey, key, keylen, NULL);
 }
 /* Read private key. */
 static int
 ecdsa_initpriv_fn(struct net2_sign_ctx *s, const void *key, size_t keylen)
 {
-	const unsigned char	*openssl_key = key;
-
-	if ((s->impl.eckey = d2i_ECPrivateKey(NULL,
-	    &openssl_key, keylen)) == NULL)
-		return -1;	/* Failed to decode or allocate. */
-	return 0;
+	return read_privkey_PEM(&s->impl.eckey, key, keylen, NULL);
 }
 /* Destroy key. */
 static void
@@ -177,6 +288,7 @@ ecdsa_destroy_fn(struct net2_sign_ctx *s)
 {
 	if (s->impl.eckey)
 		EC_KEY_free(s->impl.eckey);
+	s->impl.eckey = NULL;
 }
 /* The max message that can be signed using this algorithm. */
 static size_t
