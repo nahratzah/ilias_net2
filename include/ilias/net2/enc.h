@@ -49,6 +49,9 @@ ILIAS_NET2_EXPORT
 int			 net2_encctx_update(struct net2_enc_ctx*,
 			    const void*, size_t);
 ILIAS_NET2_EXPORT
+int			 net2_encctx_updatebuf(struct net2_enc_ctx*,
+			    const struct net2_buffer*);
+ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_encctx_final(struct net2_enc_ctx*);
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_encctx_finalfree(struct net2_enc_ctx*);
