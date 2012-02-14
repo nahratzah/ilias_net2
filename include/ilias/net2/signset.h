@@ -27,6 +27,10 @@
 #include <bsd_compat/tree.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 
 /* Element in the signature set. */
@@ -55,5 +59,9 @@ struct net2_sign_ctx
 ILIAS_NET2_EXPORT
 int	 net2_signset_insert(struct net2_signset *s,
 	    struct net2_sign_ctx *key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ILIAS_NET2_SIGNSET_H */
