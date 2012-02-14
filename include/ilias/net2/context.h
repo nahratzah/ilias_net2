@@ -17,29 +17,14 @@
 #define ILIAS_NET2_CONTEXT_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <ilias/net2/sign.h>
+#include <ilias/net2/signset.h>
 #include <ilias/net2/types.h>
 #include <sys/types.h>
-
-#include <bsd_compat/bsd_compat.h>
-#ifdef HAVE_SYS_QUEUE_H
-#include <sys/queue.h>
-#else
-#include <bsd_compat/queue.h>
-#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
-/*
- * List of signatures for a host.
- */
-struct net2_ctx_signatures {
-	struct net2_sign_ctx	**signatures;
-	size_t			 count;
-};
 
 /*
  * Network context.
@@ -49,8 +34,7 @@ struct net2_ctx_signatures {
  * - signatures for remote host
  */
 struct net2_ctx {
-	struct net2_ctx_signatures
-				 local_signs,	/* Signatures for localhost. */
+	struct net2_signset	 local_signs,	/* Signatures for localhost. */
 				 remote_signs;	/* Signatures for remote. */
 };
 

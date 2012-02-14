@@ -14,50 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/context.h>
-#include <ilias/net2/protocol.h>
+#include <ilias/net2/sign.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
 #include <bsd_compat/error.h>
-
-
-/* Initialize signature collection. */
-static void
-signatures_init(struct net2_ctx_signatures *s)
-{
-	s->signatures = NULL;
-	s->count = 0;
-}
-
-/* Destroy signature collection. */
-static void
-signatures_deinit(struct net2_ctx_signatures *s)
-{
-	while (s->count > 0)
-		net2_signctx_free(s->signatures[--s->count]);
-	free(s->signatures);
-}
-
-/* Append signature to collection. */
-static int
-signatures_append(struct net2_ctx_signatures *s, struct net2_sign_ctx *sign)
-{
-	struct net2_sign_ctx	**list;
-
-	/* Protect against overflow. */
-	if ((s->count + 1) > SIZE_MAX / sizeof(*list))
-		return ENOMEM;
-
-	/* Prepare storage space. */
-	list = s->signatures;
-	if ((list = realloc(list, sizeof(*list) * (s->count + 1))) == NULL)
-		return ENOMEM;
-	s->signatures = list;
-
-	s->signatures[s->count] = sign;
-	s->count++;
-	return 0;
-}
 
 
 /*
@@ -68,8 +29,8 @@ signatures_append(struct net2_ctx_signatures *s, struct net2_sign_ctx *sign)
 ILIAS_NET2_EXPORT int
 net2_ctx_init(struct net2_ctx *ctx)
 {
-	signatures_init(&ctx->local_signs);
-	signatures_init(&ctx->remote_signs);
+	net2_signset_init(&ctx->local_signs);
+	net2_signset_init(&ctx->remote_signs);
 	return 0;
 }
 
@@ -79,8 +40,8 @@ net2_ctx_init(struct net2_ctx *ctx)
 ILIAS_NET2_EXPORT void
 net2_ctx_destroy(struct net2_ctx *ctx)
 {
-	signatures_deinit(&ctx->local_signs);
-	signatures_deinit(&ctx->remote_signs);
+	net2_signset_deinit(&ctx->local_signs);
+	net2_signset_deinit(&ctx->remote_signs);
 	return;
 }
 
@@ -94,7 +55,7 @@ net2_ctx_add_local_signature(struct net2_ctx *ctx, int alg,
 
 	if ((sign = net2_signctx_privnew(alg, key, keylen)) == NULL)
 		return EINVAL;
-	if ((error = signatures_append(&ctx->local_signs, sign)) != 0) {
+	if ((error = net2_signset_insert(&ctx->local_signs, sign)) != 0) {
 		net2_signctx_free(sign);
 		return error;
 	}
@@ -111,7 +72,7 @@ net2_ctx_add_remote_signature(struct net2_ctx *ctx, int alg,
 
 	if ((sign = net2_signctx_pubnew(alg, key, keylen)) == NULL)
 		return EINVAL;
-	if ((error = signatures_append(&ctx->remote_signs, sign)) != 0) {
+	if ((error = net2_signset_insert(&ctx->remote_signs, sign)) != 0) {
 		net2_signctx_free(sign);
 		return error;
 	}
