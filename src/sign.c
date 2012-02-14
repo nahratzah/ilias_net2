@@ -248,6 +248,16 @@ read_privkey_PEM(EC_KEY **k, const void *key, size_t keylen,
 		goto fail_3;
 	}
 
+	/*
+	 * Precompute multiples of the generator, to accelerate further EC_KEY
+	 * operations.
+	 * Failure is not an issue, since in that case, the operations will
+	 * simply be slightly slower, but they won't fail.
+	 *
+	 * Hence: ignore success/error return.
+	 */
+	EC_KEY_precompute_mult(*k, NULL);
+
 	/* Succes. */
 	error = 0;
 
