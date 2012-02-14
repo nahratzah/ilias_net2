@@ -31,6 +31,9 @@ static int	ecdsa_sign_fn(struct net2_sign_ctx*,
 		    const struct net2_buffer*, struct net2_buffer*);
 static int	ecdsa_validate_fn(struct net2_sign_ctx*,
 		    const struct net2_buffer*, const struct net2_buffer*);
+#define		ecdsa_clone_fn		eckey_clone_fn
+
+static int	eckey_clone_fn(struct net2_sign_ctx*, struct net2_sign_ctx*);
 
 /* Function table. */
 struct sign_fn {
@@ -43,6 +46,7 @@ struct sign_fn {
 		    struct net2_buffer*);
 	int	(*validate_fn)(struct net2_sign_ctx*,
 		    const struct net2_buffer*, const struct net2_buffer*);
+	int	(*clone_fn)(struct net2_sign_ctx*, struct net2_sign_ctx*);
 };
 
 #define SIGN_FN(_namestr, _name)					\
@@ -53,7 +57,8 @@ struct sign_fn {
 		_name##_destroy_fn,					\
 		_name##_maxmsglen_fn,					\
 		_name##_sign_fn,					\
-		_name##_validate_fn					\
+		_name##_validate_fn,					\
+		_name##_clone_fn					\
 	}
 
 /* Signature definitions. */
@@ -181,6 +186,22 @@ ILIAS_NET2_EXPORT const char*
 net2_signctx_name(struct net2_sign_ctx *s)
 {
 	return s->fn->name;
+}
+
+ILIAS_NET2_EXPORT struct net2_sign_ctx*
+net2_signctx_clone(struct net2_sign_ctx *orig)
+{
+	struct net2_sign_ctx	*dest;
+
+	if ((dest = malloc(sizeof(*dest))) == NULL)
+		return NULL;
+	dest->fn = orig->fn;
+
+	if ((*dest->fn->clone_fn)(dest, orig) != 0) {
+		free(dest);
+		return NULL;
+	}
+	return dest;
 }
 
 
@@ -419,6 +440,17 @@ ecdsa_validate_fn(struct net2_sign_ctx *s, const struct net2_buffer *sig,
 	}
 
 	/* Only reachable in case of error. */
+	return 0;
+}
+
+/* Clone a ECDSA key. */
+static int
+eckey_clone_fn(struct net2_sign_ctx *dest, struct net2_sign_ctx *orig)
+{
+	if (!EC_KEY_up_ref(orig->impl.eckey))
+		return -1;
+
+	dest->impl.eckey = orig->impl.eckey;
 	return 0;
 }
 

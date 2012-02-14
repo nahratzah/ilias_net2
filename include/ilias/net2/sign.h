@@ -55,6 +55,9 @@ int			 net2_signctx_validate(struct net2_sign_ctx*,
 ILIAS_NET2_EXPORT
 const char		*net2_signctx_name(struct net2_sign_ctx*);
 
+ILIAS_NET2_EXPORT
+struct net2_sign_ctx	*net2_signctx_clone(struct net2_sign_ctx*);
+
 extern ILIAS_NET2_EXPORT const int net2_sign_ecdsa;
 
 

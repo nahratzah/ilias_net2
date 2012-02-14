@@ -44,10 +44,9 @@ struct net2_ctx_signatures {
 /*
  * Network context.
  *
- * Network context setup happens before connections are built.
- * The network context module is not thread-safe.
- *
- * For each protocol, exactly one instance of net2_ctx is required.
+ * A network context describes properties of the connection.
+ * - signatures for this host
+ * - signatures for remote host
  */
 struct net2_ctx {
 	struct net2_ctx_signatures
