@@ -66,6 +66,9 @@ ILIAS_NET2_EXPORT
 int	net2_ctx_add_remote_signature(struct net2_ctx*, int,
 	    const void*, size_t);
 
+#define net2_ctx_local_signcount(s)	((const size_t)(s)->local_signs.count)
+#define net2_ctx_remote_signcount(s)	((const size_t)(s)->remote_signs.count)
+
 #ifdef __cplusplus
 }
 #endif
