@@ -25,6 +25,7 @@ list (APPEND headers
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/sign.h
+	include/ilias/net2/signset.h
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/stream_acceptor.h
 	include/ilias/net2/xchange.h
@@ -55,6 +56,7 @@ list (APPEND srcs
 	src/promise.c
 	src/protocol.c
 	src/sign.c
+	src/signset.c
 	src/sockdgram.c
 	src/stream_acceptor.c
 	src/types.c
