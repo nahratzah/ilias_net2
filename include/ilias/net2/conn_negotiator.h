@@ -46,7 +46,7 @@ struct net2_conn_negotiator {
 	int			 flags;		/* Want options. */
 	int			 flags_have;	/* Have options. */
 #define NET2_CNEG_REQUIRE_ENCRYPTION	0x00000001
-#define NET2_CNEG_REQUIRE_SIGNING		0x00000002
+#define NET2_CNEG_REQUIRE_SIGNING	0x00000002
 
 	int			 stage;		/* DFA stage. */
 #define NET2_CNEG_STAGE_PRISTINE	0x00000000	/* No work done. */
