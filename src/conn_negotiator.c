@@ -73,6 +73,7 @@ struct encoded_header {
 	int			 flags;
 #define EHF_NEGOTIATOR_DIED	0x00000001
 	struct header		 header;
+	struct net2_buffer	*buf;
 };
 /* Create a new encoded header from a buffer. */
 static struct encoded_header*
@@ -87,6 +88,7 @@ mk_encoded_header()
 		return NULL;
 	}
 	eh->flags = 0;
+	eh->buf = NULL;
 	return eh;
 }
 /* Free an encoded header. */
@@ -94,6 +96,8 @@ static void
 free_encoded_header(struct encoded_header *eh)
 {
 	net2_cp_destroy(NULL, &cp_header, &eh->header, NULL);
+	if (eh->buf)
+		net2_buffer_free(eh->buf);
 	free(eh);
 }
 /* Notify connection that we want to send data. */
@@ -846,7 +850,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
     struct packet_header* ph,
     struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen)
 {
-	struct encoded_header	*eh;
+	struct encoded_header	*eh, *eh_next;
 	struct net2_buffer	*buf;
 	int			 error;
 	TAILQ_HEAD(, encoded_header)
@@ -873,24 +877,37 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		return error;
 	}
 
-	while ((eh = TAILQ_FIRST(&cn->sendq)) != NULL && maxlen > FINI_LEN) {
+	for (eh = TAILQ_FIRST(&cn->sendq); eh != NULL; eh = eh_next) {
+		eh_next = TAILQ_NEXT(eh, entry);	/* Next header. */
+
+		/* Cache encoded header. */
+		if (eh->buf == NULL) {
+			if ((eh->buf = net2_buffer_new()) == NULL)
+				break;
+
+			error = encode_header(&ctx, &eh->header, eh->buf);
+			if (error != 0) {
+				net2_buffer_free(eh->buf);
+				if (error == ENOMEM)
+					break;
+				else
+					goto fail;
+			}
+		}
+
 		/*
 		 * Store old size, so we can undo the addition of this
 		 * buffer on failure.
 		 */
 		old_sz = net2_buffer_length(buf);
 
+		/* Test if the header will fit in available space. */
+		if (old_sz + net2_buffer_length(eh->buf) + FINI_LEN > maxlen)
+			continue;
+
 		/* Append this eh. */
-		error = encode_header(&ctx, &eh->header, buf);
-		if (error == ENOMEM)
+		if (net2_buffer_append(buf, eh->buf))
 			break;
-		if (error != 0)
-			goto fail;
-		/* Check that the buffer doesn't exceed the maxlen. */
-		if (net2_buffer_length(buf) + FINI_LEN > maxlen) {
-			net2_buffer_truncate(buf, old_sz);
-			break;
-		}
 
 		/* Register callback. */
 		if ((error = net2_connwindow_txcb_register(tx, evbase,
