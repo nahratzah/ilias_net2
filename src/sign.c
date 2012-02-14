@@ -23,6 +23,13 @@
 #include <openssl/pem.h>
 #include <assert.h>
 
+#include <bsd_compat/bsd_compat.h>
+#ifdef HAS_SHA2
+#include <sha2.h>
+#else
+#include <bsd_compat/sha2.h>
+#endif
+
 
 /* ECDSA algorithm. */
 static int	 ecdsa_initpub_fn(struct net2_sign_ctx*, const void*, size_t);
@@ -89,6 +96,8 @@ struct net2_sign_ctx {
 				*eckey_pub;
 		};
 	}			 impl;
+
+	struct net2_buffer	*fingerprint;
 };
 
 
@@ -130,6 +139,7 @@ net2_signctx_pubnew(int alg, const void *key, size_t keylen)
 	if ((s = malloc(sizeof(*s))) == NULL)
 		return NULL;
 	s->fn = &sign[alg];
+	s->fingerprint = NULL;
 	if ((*s->fn->initpub_fn)(s, key, keylen) != 0) {
 		free(s);
 		return NULL;
@@ -149,6 +159,7 @@ net2_signctx_privnew(int alg, const void *key, size_t keylen)
 	if ((s = malloc(sizeof(*s))) == NULL)
 		return NULL;
 	s->fn = &sign[alg];
+	s->fingerprint = NULL;
 	if ((*s->fn->initpriv_fn)(s, key, keylen) != 0) {
 		free(s);
 		return NULL;
@@ -162,6 +173,8 @@ net2_signctx_free(struct net2_sign_ctx *s)
 {
 	if (s != NULL) {
 		(*s->fn->destroy_fn)(s);
+		if (s->fingerprint != NULL)
+			net2_buffer_free(s->fingerprint);
 		free(s);
 	}
 }
@@ -215,6 +228,13 @@ net2_signctx_clone(struct net2_sign_ctx *orig)
 		free(dest);
 		return NULL;
 	}
+
+	/* Copy fingerprint cache. */
+	if (orig->fingerprint != NULL)
+		dest->fingerprint = net2_buffer_copy(orig->fingerprint);
+	else
+		dest->fingerprint = NULL;
+
 	return dest;
 }
 
@@ -223,6 +243,74 @@ ILIAS_NET2_EXPORT struct net2_buffer*
 net2_signctx_pubkey(struct net2_sign_ctx *s)
 {
 	return (*s->fn->pubkey_fn)(s);
+}
+
+/*
+ * Calculate the public key fingerprint.
+ * This is the SHA256 hash of the public key.
+ */
+ILIAS_NET2_EXPORT struct net2_buffer*
+net2_signctx_fingerprint(struct net2_sign_ctx *s)
+{
+	struct iovec	*iov, out;
+	size_t		 iovcount, outcount;
+	size_t		 pklen;
+	SHA2_CTX	 sha2;
+	struct net2_buffer
+			*pk, *buf;
+
+	/* Use cached value. */
+	if (s->fingerprint != NULL)
+		return net2_buffer_copy(s->fingerprint);
+
+	/* Read public key. */
+	if ((pk = net2_signctx_pubkey(s)) == NULL)
+		return NULL;
+	pklen = net2_buffer_length(pk);
+
+	/* Prepare output space. */
+	if ((buf = net2_buffer_new()) == NULL) {
+		net2_buffer_free(pk);
+		return NULL;
+	}
+	outcount = 1;
+	if (net2_buffer_reserve_space(buf, SHA256_DIGEST_LENGTH,
+	    &out, &outcount))
+		goto fail;
+	assert(outcount == 1 && out.iov_len >= SHA256_DIGEST_LENGTH);
+	out.iov_len = SHA256_DIGEST_LENGTH;
+
+	/* Load iovs. */
+	iovcount = net2_buffer_peek(pk, pklen, NULL, 0);
+	if (iovcount == 0 || SIZE_MAX / sizeof(*iov) < iovcount)
+		goto fail;
+	iov = alloca(sizeof(*iov) * iovcount);
+	if (net2_buffer_peek(pk, pklen, iov, iovcount) != iovcount)
+		goto fail;
+
+	/* Checksum calculation. */
+	SHA256Init(&sha2);
+	while (iovcount > 0) {
+		SHA256Update(&sha2, iov->iov_base, iov->iov_len);
+
+		iovcount--;
+		iov++;
+	}
+
+	/* Store checksum result in allocated space. */
+	SHA256Final(out.iov_base, &sha2);
+	if (net2_buffer_commit_space(buf, &out, 1))
+		goto fail;
+
+	/* Cleanup and return. */
+	net2_buffer_free(pk);
+	s->fingerprint = net2_buffer_copy(buf);	/* Cache. */
+	return buf;
+
+fail:
+	net2_buffer_free(buf);
+	net2_buffer_free(pk);
+	return NULL;
 }
 
 

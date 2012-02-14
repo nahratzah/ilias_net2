@@ -59,6 +59,8 @@ ILIAS_NET2_EXPORT
 struct net2_sign_ctx	*net2_signctx_clone(struct net2_sign_ctx*);
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_signctx_pubkey(struct net2_sign_ctx*);
+ILIAS_NET2_EXPORT
+struct net2_buffer	*net2_signctx_fingerprint(struct net2_sign_ctx*);
 
 extern ILIAS_NET2_EXPORT const int net2_sign_ecdsa;
 
