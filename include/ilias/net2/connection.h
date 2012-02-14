@@ -56,8 +56,6 @@ struct net2_connection {
 	struct net2_conn_negotiator
 				 n2c_negotiator; /* Protocol negotiator. */
 
-	struct net2_ctx		*n2c_ctx;	/* Network context. */
-
 	struct net2_mutex	*n2c_recvmtx;	/* Protect recvq. */
 	TAILQ_HEAD(, net2_conn_receive)
 				 n2c_recvq;	/* List of received data. */

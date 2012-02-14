@@ -59,7 +59,6 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 		goto fail_0;
 	if (functions == NULL)
 		goto fail_1;
-	conn->n2c_ctx = ctx;
 
 	conn->n2c_sign.algorithm = 0;
 	conn->n2c_sign.key = NULL;
@@ -79,7 +78,7 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 
 	if (net2_acceptor_socket_init(&conn->n2c_socket, evbase, functions))
 		goto fail_0;
-	if (net2_cneg_init(&conn->n2c_negotiator))
+	if (net2_cneg_init(&conn->n2c_negotiator, ctx))
 		goto fail_1;
 	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
 	    &net2_conn_handle_recv, conn)) == NULL)

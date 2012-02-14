@@ -56,6 +56,7 @@ struct net2_conn_negotiator {
 	int			 pver_acknowledged;
 						/* True iff pver was received
 						 * by remote endpoint. */
+	struct net2_ctx		*context;	/* Network metadata. */
 
 	TAILQ_HEAD(, encoded_header)
 				 sendq, waitq;
@@ -92,7 +93,7 @@ struct net2_conn_negotiator {
 ILIAS_NET2_LOCAL
 int	net2_cneg_allow_payload(struct net2_conn_negotiator*, uint32_t);
 ILIAS_NET2_LOCAL
-int	net2_cneg_init(struct net2_conn_negotiator*);
+int	net2_cneg_init(struct net2_conn_negotiator*, struct net2_ctx*);
 ILIAS_NET2_LOCAL
 void	net2_cneg_deinit(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL

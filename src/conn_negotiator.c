@@ -743,7 +743,7 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 
 /* Initialize connection negotiator. */
 ILIAS_NET2_LOCAL int
-net2_cneg_init(struct net2_conn_negotiator *cn)
+net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 {
 	int		 error;
 	struct net2_connection
@@ -753,6 +753,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn)
 
 	assert(s != NULL);
 
+	cn->context = context;
 	cn->stage = NET2_CNEG_STAGE_PRISTINE;
 	cn->flags = cn->flags_have = 0;
 	cn->pver_acknowledged = 0;
