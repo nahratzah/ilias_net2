@@ -19,21 +19,27 @@
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/bio.h>
+#include <openssl/bn.h>
 #include <openssl/pem.h>
+#include <assert.h>
 
 
 /* ECDSA algorithm. */
-static int	ecdsa_initpub_fn(struct net2_sign_ctx*, const void*, size_t);
-static int	ecdsa_initpriv_fn(struct net2_sign_ctx*, const void*, size_t);
-static void	ecdsa_destroy_fn(struct net2_sign_ctx*);
-static size_t	ecdsa_maxmsglen_fn(struct net2_sign_ctx*);
-static int	ecdsa_sign_fn(struct net2_sign_ctx*,
+static int	 ecdsa_initpub_fn(struct net2_sign_ctx*, const void*, size_t);
+static int	 ecdsa_initpriv_fn(struct net2_sign_ctx*, const void*, size_t);
+static size_t	 ecdsa_maxmsglen_fn(struct net2_sign_ctx*);
+static int	 ecdsa_sign_fn(struct net2_sign_ctx*,
 		    const struct net2_buffer*, struct net2_buffer*);
-static int	ecdsa_validate_fn(struct net2_sign_ctx*,
+static int	 ecdsa_validate_fn(struct net2_sign_ctx*,
 		    const struct net2_buffer*, const struct net2_buffer*);
-#define		ecdsa_clone_fn		eckey_clone_fn
+#define		 ecdsa_destroy_fn	eckey_destroy_fn
+#define		 ecdsa_pubkey_fn	eckey_pubkey_fn
+#define		 ecdsa_clone_fn		eckey_clone_fn
 
-static int	eckey_clone_fn(struct net2_sign_ctx*, struct net2_sign_ctx*);
+static int	 eckey_clone_fn(struct net2_sign_ctx*, struct net2_sign_ctx*);
+static struct net2_buffer
+		*eckey_pubkey_fn(struct net2_sign_ctx*);
+static void	 eckey_destroy_fn(struct net2_sign_ctx*);
 
 /* Function table. */
 struct sign_fn {
@@ -47,6 +53,8 @@ struct sign_fn {
 	int	(*validate_fn)(struct net2_sign_ctx*,
 		    const struct net2_buffer*, const struct net2_buffer*);
 	int	(*clone_fn)(struct net2_sign_ctx*, struct net2_sign_ctx*);
+	struct net2_buffer*
+		(*pubkey_fn)(struct net2_sign_ctx*);
 };
 
 #define SIGN_FN(_namestr, _name)					\
@@ -58,7 +66,8 @@ struct sign_fn {
 		_name##_maxmsglen_fn,					\
 		_name##_sign_fn,					\
 		_name##_validate_fn,					\
-		_name##_clone_fn					\
+		_name##_clone_fn,					\
+		_name##_pubkey_fn					\
 	}
 
 /* Signature definitions. */
@@ -74,7 +83,11 @@ struct net2_sign_ctx {
 	const struct sign_fn	*fn;
 
 	union {
-		EC_KEY		*eckey;
+		struct {
+			EC_KEY	*eckey;
+			struct net2_buffer
+				*eckey_pub;
+		};
 	}			 impl;
 };
 
@@ -188,6 +201,7 @@ net2_signctx_name(struct net2_sign_ctx *s)
 	return s->fn->name;
 }
 
+/* Duplicate the key. */
 ILIAS_NET2_EXPORT struct net2_sign_ctx*
 net2_signctx_clone(struct net2_sign_ctx *orig)
 {
@@ -202,6 +216,13 @@ net2_signctx_clone(struct net2_sign_ctx *orig)
 		return NULL;
 	}
 	return dest;
+}
+
+/* Provide public key in binary encoding. */
+ILIAS_NET2_EXPORT struct net2_buffer*
+net2_signctx_pubkey(struct net2_sign_ctx *s)
+{
+	return (*s->fn->pubkey_fn)(s);
 }
 
 
@@ -338,21 +359,15 @@ fail_0:
 static int
 ecdsa_initpub_fn(struct net2_sign_ctx *s, const void *key, size_t keylen)
 {
+	s->impl.eckey_pub = NULL;
 	return read_pubkey_PEM(&s->impl.eckey, key, keylen, NULL);
 }
 /* Read private key. */
 static int
 ecdsa_initpriv_fn(struct net2_sign_ctx *s, const void *key, size_t keylen)
 {
+	s->impl.eckey_pub = NULL;
 	return read_privkey_PEM(&s->impl.eckey, key, keylen, NULL);
-}
-/* Destroy key. */
-static void
-ecdsa_destroy_fn(struct net2_sign_ctx *s)
-{
-	if (s->impl.eckey)
-		EC_KEY_free(s->impl.eckey);
-	s->impl.eckey = NULL;
 }
 /* The max message that can be signed using this algorithm. */
 static size_t
@@ -461,7 +476,83 @@ eckey_clone_fn(struct net2_sign_ctx *dest, struct net2_sign_ctx *orig)
 		return -1;
 
 	dest->impl.eckey = orig->impl.eckey;
+	if (orig->impl.eckey_pub != NULL)
+		dest->impl.eckey_pub = net2_buffer_copy(orig->impl.eckey_pub);
+	else
+		dest->impl.eckey_pub = NULL;
 	return 0;
+}
+/* Encode a public key into a binary blob. */
+static struct net2_buffer*
+eckey_pubkey_fn(struct net2_sign_ctx *s)
+{
+	const EC_GROUP		*curve;
+	const EC_POINT		*point;
+	BN_CTX			*bnctx;
+	struct net2_buffer	*buf;
+	size_t			 len;
+	struct iovec		 iov;
+	size_t			 iovlen;
+
+	/* Return cached copy. */
+	if (s->impl.eckey_pub != NULL)
+		return net2_buffer_copy(s->impl.eckey_pub);
+
+	buf = NULL;
+	bnctx = NULL;
+
+	/* Fetch curve and public key point. */
+	curve = EC_KEY_get0_group(s->impl.eckey);
+	point = EC_KEY_get0_public_key(s->impl.eckey);
+	if (curve == NULL || point == NULL)
+		goto fail;
+
+	/* Determine size. */
+	if ((bnctx = BN_CTX_new()) == NULL)
+		goto fail;
+	len = EC_POINT_point2oct(curve, point, POINT_CONVERSION_UNCOMPRESSED,
+	    NULL, 0, bnctx);
+	/* 0-length public key, is that legal? */
+	if (len == 0)
+		goto fail;
+
+	/* Allocate. */
+	if ((buf = net2_buffer_new()) == NULL)
+		goto fail;
+	iovlen = 1;
+	if (net2_buffer_reserve_space(buf, len, &iov, &iovlen))
+		goto fail;
+	assert(iovlen == 1 && iov.iov_len >= len);
+
+	/* Convert. */
+	if (EC_POINT_point2oct(curve, point, POINT_CONVERSION_UNCOMPRESSED,
+	    iov.iov_base, len, bnctx) != len)
+		goto fail;
+	iov.iov_len = len;
+	if (net2_buffer_commit_space(buf, &iov, 1))
+		goto fail;
+
+	BN_CTX_free(bnctx);
+	s->impl.eckey_pub = net2_buffer_copy(buf);	/* Cache value. */
+	return buf;
+
+fail:
+	if (bnctx != NULL)
+		BN_CTX_free(bnctx);
+	if (buf != NULL)
+		net2_buffer_free(buf);
+	return NULL;
+}
+/* Destroy key. */
+static void
+eckey_destroy_fn(struct net2_sign_ctx *s)
+{
+	if (s->impl.eckey_pub != NULL)
+		net2_buffer_free(s->impl.eckey_pub);
+	if (s->impl.eckey)
+		EC_KEY_free(s->impl.eckey);
+	s->impl.eckey = NULL;
+	s->impl.eckey_pub = NULL;
 }
 
 /* Index of ECDSA algorithm. */

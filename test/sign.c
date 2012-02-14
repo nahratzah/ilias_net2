@@ -94,7 +94,7 @@ main()
 	free(hex);
 
 	/* Validate signature. */
-	error = net2_signctx_validate(priv, sig, msg);
+	error = net2_signctx_validate(pub, sig, msg);
 	if (error)
 		printf("Signature is valid\n");
 	else {
@@ -108,7 +108,7 @@ main()
 	printf("Signature (hex): %s\n", hex = net2_buffer_hex(sig2));
 	free(hex);
 	/* Validate signature again. */
-	error = net2_signctx_validate(priv, sig2, msg);
+	error = net2_signctx_validate(pub, sig2, msg);
 	if (error)
 		printf("Signature 2 is valid\n");
 	else {
@@ -118,7 +118,8 @@ main()
 	/* Ensure it is different. */
 	if (net2_buffer_cmp(sig, sig2) == 0) {
 		fail++;
-		warnx("Signature 2 is the same as first signature (this may happen only rarely, but is probably a bug!)");
+		warnx("Signature 2 is the same as first signature "
+		    "(this may happen only rarely, but is probably a bug!)");
 	}
 
 	/*
@@ -135,13 +136,46 @@ main()
 	    net2_buffer_length(msg) - sizeof(v)));
 
 	/* Test tampered buffer. */
-	error = net2_signctx_validate(priv, sig, badmsg);
+	error = net2_signctx_validate(pub, sig, badmsg);
 	if (!error)
 		printf("Signature is invalid\n");
 	else {
 		fail++;
 		warnx("Signature is valid (expected: invalid)");
 	}
+
+	/* Test public key extraction. */
+	{
+		struct net2_buffer	*priv_pk, *pub_pk;
+
+		priv_pk = net2_signctx_pubkey(priv);
+		pub_pk = net2_signctx_pubkey(pub);
+		if (priv_pk == NULL || pub_pk == NULL) {
+			fail++;
+			warnx("Public key extraction failed "
+			    "(priv_pk=%p, pub_pk=%p).", priv_pk, pub_pk);
+			goto skip_pubkey;
+		}
+
+		printf("Public keys\npriv: %s\npub:  %s\n",
+		    net2_buffer_hex(priv_pk), net2_buffer_hex(pub_pk));
+
+		if (net2_buffer_length(priv_pk) == 0 ||
+		    net2_buffer_length(pub_pk) == 0) {
+			fail++;
+			warnx("Public key length 0: "
+			    "(priv_pk: %llu bytes, pub_pk: %llu bytes).",
+			    (unsigned long long)net2_buffer_length(priv_pk),
+			    (unsigned long long)net2_buffer_length(pub_pk));
+		}
+
+		if (net2_buffer_cmp(priv_pk, pub_pk) != 0) {
+			fail++;
+			warnx("Public key for priv and pub mismatch");
+		}
+
+	}
+skip_pubkey:
 
 	/* Done. */
 	return fail;
