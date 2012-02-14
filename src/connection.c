@@ -90,8 +90,6 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 		goto fail_4;
 	if (net2_connstats_init(&conn->n2c_stats, conn))
 		goto fail_5;
-	if (ctx)
-		TAILQ_INSERT_TAIL(&ctx->conn, conn, n2c_ctxconns);
 
 	return 0;
 
@@ -125,8 +123,6 @@ net2_connection_deinit(struct net2_connection *conn)
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
 	event_free(conn->n2c_recv_ev);
-	if (conn->n2c_ctx)
-		TAILQ_REMOVE(&conn->n2c_ctx->conn, conn, n2c_ctxconns);
 	while ((r = TAILQ_FIRST(&conn->n2c_recvq)) != NULL) {
 		TAILQ_REMOVE(&conn->n2c_recvq, r, recvq);
 		if (r->buf)

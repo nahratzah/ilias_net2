@@ -17,6 +17,7 @@
 #define ILIAS_NET2_CONTEXT_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/sign.h>
 #include <ilias/net2/types.h>
 #include <sys/types.h>
 
@@ -31,6 +32,15 @@
 extern "C" {
 #endif
 
+
+/*
+ * List of signatures for a host.
+ */
+struct net2_ctx_signatures {
+	struct net2_sign_ctx	**signatures;
+	size_t			 count;
+};
+
 /*
  * Network context.
  *
@@ -40,20 +50,21 @@ extern "C" {
  * For each protocol, exactly one instance of net2_ctx is required.
  */
 struct net2_ctx {
-	/** Protocol in use. */
-	const struct net2_protocol	*protocol;
-	/* Protocol implementation version. */
-	net2_protocol_t			 version;
-#define NET2_CTX_NEGOTIATE		 0xffffffff
-	/* All connections in the same cluster. */
-	TAILQ_HEAD(, net2_connection)	 conn;
+	struct net2_ctx_signatures
+				 local_signs,	/* Signatures for localhost. */
+				 remote_signs;	/* Signatures for remote. */
 };
 
 ILIAS_NET2_EXPORT
-void			 net2_ctx_init(struct net2_ctx*,
-			    const struct net2_protocol*);
+int	net2_ctx_init(struct net2_ctx*);
 ILIAS_NET2_EXPORT
-void			 net2_ctx_destroy(struct net2_ctx*);
+void	net2_ctx_destroy(struct net2_ctx*);
+ILIAS_NET2_EXPORT
+int	net2_ctx_add_local_signature(struct net2_ctx*, int,
+	    const void*, size_t);
+ILIAS_NET2_EXPORT
+int	net2_ctx_add_remote_signature(struct net2_ctx*, int,
+	    const void*, size_t);
 
 #ifdef __cplusplus
 }

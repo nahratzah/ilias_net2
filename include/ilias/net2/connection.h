@@ -58,9 +58,6 @@ struct net2_connection {
 
 	struct net2_ctx		*n2c_ctx;	/* Network context. */
 
-	TAILQ_ENTRY(net2_connection)
-				 n2c_ctxconns;	/* Link into context. */
-
 	struct net2_mutex	*n2c_recvmtx;	/* Protect recvq. */
 	TAILQ_HEAD(, net2_conn_receive)
 				 n2c_recvq;	/* List of received data. */

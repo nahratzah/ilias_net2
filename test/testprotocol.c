@@ -47,7 +47,10 @@ test_ctx()
 
 	if ((ctx = malloc(sizeof(*ctx))) == NULL)
 		return NULL;
-	net2_ctx_init(ctx, &test_protocol);
+	if (net2_ctx_init(ctx) != 0) {
+		free(ctx);
+		return NULL;
+	}
 	return ctx;
 }
 
