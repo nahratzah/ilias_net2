@@ -25,6 +25,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif
+#include <event2/util.h>
 
 
 #ifdef ilias_net2_EXPORTS
@@ -33,15 +34,15 @@ struct net2_conn_receive;
 struct net2_buffer;
 
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_recv(int, struct net2_conn_receive**,
+int	net2_sockdgram_recv(evutil_socket_t, struct net2_conn_receive**,
 	    struct sockaddr*, socklen_t*);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_send(int, struct net2_connection*,
+int	net2_sockdgram_send(evutil_socket_t, struct net2_connection*,
 	    struct net2_buffer*, struct sockaddr*, socklen_t);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_nonblock(int);
+int	net2_sockdgram_nonblock(evutil_socket_t);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_dnf(int);
+int	net2_sockdgram_dnf(evutil_socket_t);
 #endif /* ilias_net2_EXPORTS */
 
 

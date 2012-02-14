@@ -25,12 +25,13 @@
 #else
 #include <sys/socket.h>
 #endif
+#include <event2/util.h>
 
 struct net2_udpsocket;
 
 ILIAS_NET2_EXPORT
 struct net2_connection	*net2_conn_p2p_create_fd(struct net2_ctx*,
-			    struct net2_evbase*, int,
+			    struct net2_evbase*, evutil_socket_t,
 			    struct sockaddr*, socklen_t);
 ILIAS_NET2_EXPORT
 struct net2_connection	*net2_conn_p2p_create(struct net2_ctx*,

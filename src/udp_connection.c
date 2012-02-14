@@ -102,7 +102,7 @@ RB_HEAD(net2_udpsocket_conns, net2_conn_p2p);
  * its connection queue becomes empty.
  */
 struct net2_udpsocket {
-	int			 sock;		/* Socket. */
+	evutil_socket_t		 sock;		/* Socket. */
 	size_t			 refcnt;	/* Reference counter. */
 	struct net2_mutex	*guard;		/* Protect against races. */
 	struct event		*ev;		/* Send/receive event. */
@@ -182,7 +182,7 @@ RB_GENERATE_STATIC(net2_udpsocket_conns, net2_conn_p2p, np2p_socktree,
  */
 ILIAS_NET2_EXPORT struct net2_connection*
 net2_conn_p2p_create_fd(struct net2_ctx *ctx,
-    struct net2_evbase *evbase, int sock,
+    struct net2_evbase *evbase, evutil_socket_t sock,
     struct sockaddr *remote, socklen_t remotelen)
 {
 	struct net2_conn_p2p	*c;
@@ -284,7 +284,7 @@ ILIAS_NET2_EXPORT struct net2_udpsocket*
 net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
     socklen_t bindaddrlen)
 {
-	int			 fd = -1;
+	evutil_socket_t		 fd = -1;
 	int			 saved_errno;
 	struct net2_udpsocket	*rv;
 
