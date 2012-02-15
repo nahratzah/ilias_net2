@@ -20,6 +20,7 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/protocol.h>
 #include <ilias/net2/bitset.h>
+#include <ilias/net2/signset.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -82,7 +83,8 @@ struct net2_conn_negotiator {
 	}			 hash,		/* Supported hashes. */
 				 enc,		/* Supported encoders. */
 				 xchange,	/* Supported xchange. */
-				 sign;		/* Supported signatures. */
+				 sign;		/* Supported sign. */
+	struct net2_signset	 remote_signs;	/* Known remote signatures. */
 
 	int			 tx_enc;	/* Selected enc for tx. */
 	int			 tx_hash;	/* Selected hash for tx. */

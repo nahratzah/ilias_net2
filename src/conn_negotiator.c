@@ -600,8 +600,10 @@ sign_cmp(const void *a_ptr, const void *b_ptr)
 static int
 cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 {
-	int		error;
-	int		idx;
+	int		 error;
+	int		 idx;
+	struct net2_sign_ctx
+			*signature;
 
 	switch (h->flags & F_TYPEMASK) {
 	case F_TYPE_PVER:
@@ -689,6 +691,30 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		if ((error = intlist_add(&cn->sign.supported,
 		    &cn->sign.num_supported, idx)) != 0)
 			return error;
+
+		break;
+
+	case F_TYPE_SIGNATURE:
+		if ((h->flags & FT_MASK) != FT_BUFFER)
+			return EINVAL;
+		if (cn->context == NULL)
+			break;
+
+		/* Find signature. */
+		if ((signature = net2_signset_find(
+		    &cn->context->remote_signs, h->payload.buf)) == NULL)
+			break;
+
+		/* Clone signature. */
+		if ((signature = net2_signctx_clone(signature)) == NULL)
+			return ENOMEM;
+
+		/* Insert into known set. */
+		if ((error = net2_signset_insert(&cn->remote_signs,
+		    signature)) != 0) {
+			net2_signctx_free(signature);
+			return error;
+		}
 
 		break;
 
@@ -873,10 +899,13 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	cn->xchange.num_supported = 0;
 	cn->sign.supported = NULL;
 	cn->sign.num_supported = 0;
+	if ((error = net2_signset_init(&cn->remote_signs)) != 0)
+		goto fail_1;
 
 	return 0;
 
 fail_1:
+	net2_bitset_deinit(&cn->negotiated.received);
 	net2_pvlist_deinit(&cn->negotiated.proto);
 fail_0:
 	/* Mark as dead, all headers on the waitq; callback will deal with
@@ -922,6 +951,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
 	net2_bitset_deinit(&cn->negotiated.received);
+	net2_signset_deinit(&cn->remote_signs);
 	free(cn->hash.supported);
 	free(cn->enc.supported);
 	free(cn->xchange.supported);
