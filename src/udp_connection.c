@@ -465,7 +465,6 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 			return;
 		}
 
-		wire_sz = net2_buffer_length(buf);
 		rv = net2_sockdgram_send(sock, &c->np2p_conn, buf,
 		    c->np2p_remote, c->np2p_remotelen);
 		net2_buffer_free(buf);
@@ -499,7 +498,7 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 			break;
 		default:
 			errx(EX_SOFTWARE, "net2_sockdgram_send "
-			    "unexpected response %d");
+			    "unexpected response %d", rv);
 		}
 	}
 }
@@ -578,6 +577,9 @@ net2_udpsocket_recv(int sock, short what, void *udps_ptr)
 	socklen_t		 fromlen;
 	struct net2_conn_p2p	*c, search;
 	int			 dequeued;
+	size_t			 wire_sz;
+	struct net2_buffer	*buf;
+	int			 rv;
 
 	assert(udps->sock == sock);
 
@@ -619,8 +621,103 @@ net2_udpsocket_recv(int sock, short what, void *udps_ptr)
 	}
 
 	/*
-	 * TODO: invoke write callback
+	 * Invoke write callback
 	 */
+	if (what & EV_WRITE) {
+retry_tx:
+		net2_mutex_lock(udps->guard);	/* LOCK */
+
+		if ((c = TAILQ_FIRST(&udps->wantwrite)) == NULL)
+			goto empty_sendq;	/* Shouldn't happen. */
+
+		/* Remove c from writeq. */
+		TAILQ_REMOVE(&udps->wantwrite, c, np2p_wantwriteq);
+		c->np2p_flags &= ~NP2P_F_SENDQ;
+
+		net2_mutex_unlock(udps->guard);	/* UNLOCK */
+
+		wire_sz = c->np2p_conn.n2c_stats.wire_sz;
+		if (secure_random_uniform(16) == 0) {
+			if (c->np2p_conn.n2c_stats.over_sz == 0)
+				wire_sz *= 2;
+			else {
+				/*
+				 * Take the average between largest ack and
+				 * smallest nack.
+				 */
+				wire_sz += c->np2p_conn.n2c_stats.over_sz;
+				wire_sz /= 2;
+			}
+		}
+
+		buf = NULL;
+		if (net2_conn_gather_tx(&c->np2p_conn, &buf, wire_sz)) {
+			/* TODO: kill connection */
+			return;
+		}
+		if (buf == NULL) {
+			/* Nothing to transmit, try another connection. */
+			goto retry_tx;
+		}
+
+		rv = net2_sockdgram_send(sock, &c->np2p_conn, buf,
+		    c->np2p_remote, c->np2p_remotelen);
+		net2_buffer_free(buf);
+		switch (rv) {
+		case NET2_CONNFAIL_OK:
+			break;
+		case NET2_CONNFAIL_CLOSE:
+			/* TODO kill connection */
+			break;
+		case NET2_CONNFAIL_TOOBIG:
+			/* TODO: figure out what to do here,
+			 * better yet, try to avoid it */
+			break;
+		case NET2_CONNFAIL_BAD:
+			/* TODO kill connection */
+			break;
+		case NET2_CONNFAIL_OS:
+			/*
+			 * Drop packet and let retransmission logic deal
+			 * with it.
+			 */
+			break;
+		case NET2_CONNFAIL_IO:
+			/* Drop packet. */
+			break;
+		case NET2_CONNFAIL_RESOURCE:
+			/*
+			 * Out of memory... maybe kill this connection to make
+			 * room? Or find a sacrificial goat somewhere...
+			 */
+			break;
+		default:
+			errx(EX_SOFTWARE, "net2_sockdgram_send "
+			    "unexpected response %d", rv);
+		}
+
+		net2_mutex_lock(udps->guard);	/* LOCK */
+
+		/* Put c back on the sendq, if it hasn't done so itself. */
+		if (c != NULL && !(c->np2p_flags & NP2P_F_SENDQ)) {
+			c->np2p_flags |= NP2P_F_SENDQ;
+			TAILQ_INSERT_TAIL(&udps->wantwrite, c, np2p_wantwriteq);
+		}
+
+		/* Test if we still have pending writes. */
+		if (TAILQ_EMPTY(&udps->wantwrite)) {
+empty_sendq:
+			if (event_del(udps->ev))
+				errx(EX_UNAVAILABLE, "event_del fail");
+			if (event_assign(udps->ev, udps->evbase->evbase, sock,
+			    EV_READ|EV_PERSIST, &net2_udpsocket_recv, udps))
+				warnx("event_assign fail");
+			if (event_add(udps->ev, NULL))
+				warnx("event_add fail");
+		}
+
+		net2_mutex_unlock(udps->guard);	/* UNLOCK */
+	}
 }
 
 /* Unlock socket and remove it if it has no references. */
