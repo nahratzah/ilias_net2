@@ -153,3 +153,46 @@ net2_signset_insert(struct net2_signset *s, struct net2_sign_ctx *key)
 
 	return 0;
 }
+
+ILIAS_NET2_EXPORT int
+net2_signset_all_fingerprints(struct net2_signset *s,
+    struct net2_buffer***listptr, size_t *countptr)
+{
+	struct net2_signset_entry
+				*e;
+	struct net2_buffer	**list, **newlist;
+	size_t			 count;
+	int			 error;
+
+	if (s == NULL || listptr == NULL || countptr == NULL)
+		return EINVAL;
+
+	count = 0;
+	list = NULL;
+	RB_FOREACH(e, net2_signset_tree, &s->data) {
+		newlist = realloc(list, sizeof(*list) * (count + 1));
+		if (newlist == NULL) {
+			error = ENOMEM;
+			goto fail;
+		}
+		list = newlist;
+
+		if ((list[count] = net2_signctx_fingerprint(e->key)) == NULL) {
+			error = ENOMEM;
+			goto fail;
+		}
+		count++;
+	}
+
+	*listptr = list;
+	*countptr = count;
+	return 0;
+
+fail:
+	while (count > 0)
+		net2_buffer_free(list[--count]);
+	free(list);
+	*countptr = 0;
+	*listptr = NULL;
+	return error;
+}

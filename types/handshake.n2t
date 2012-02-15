@@ -47,20 +47,14 @@ struct header {
 #define F_TYPE_HASH		(0x00000001U | F_SET_ELEMENT)
 #define F_TYPE_CRYPT		(0x00000002U | F_SET_ELEMENT)
 #define F_TYPE_SIGN		(0x00000003U | F_SET_ELEMENT)
+#define F_TYPE_SIGNATURE	(0x00000004U | F_SET_ELEMENT)
 #define F_SET_ELEMENT		 0x00000800U
 #define F_SET_LASTELEM		 0x00001000U
 #define F_SET_EMPTY		 0x00002000U
-#define F_STRING		 0x00010000U
-
-/*
- * Special key exchange bits.
- * Use the TYPEMASK to find out which key this is.
- * Use the sequence to find out which message sequence this is.
- */
-#define F_XCHANGE		 0x10000000U
-#define F_XCHANGE_SIGNATURE	 0x20000000U
-#define F_XCHANGE_HASH_TYPE	 0x00000000U
-#define F_XCHANGE_ENC_TYPE	 0x00000001U
+#define FT_MASK			 0x000f0000U
+#define FT_INT			 0x00000000U
+#define FT_STRING		 0x00010000U
+#define FT_BUFFER		 0x00020000U
 
 /* Indicates the end of a connection negotiation. */
 #define F_LAST_HEADER		 0xffffffffU
@@ -78,9 +72,9 @@ struct header {
 			uint32_t reserved;	/* Must be zero. */
 		};
 		char		*string;
+		struct net2_buffer
+				*buf;
 		uint32_t	 val;
-		struct key_exchange
-				 key_exchange;
 	}			 payload;
 };
 
@@ -103,10 +97,15 @@ init_header_val(struct header*, uint32_t, uint32_t);
 ILIAS_NET2_LOCAL int
 init_header_string(struct header*, const char*, uint32_t);
 ILIAS_NET2_LOCAL
+int	 init_header_buf(struct header*, struct net2_buffer*, uint32_t);
+ILIAS_NET2_LOCAL
 int	 init_header_valset(struct header*, int, uint32_t, int,
 	    uint32_t);
 ILIAS_NET2_LOCAL
 int	 init_header_stringset(struct header*, int, const char*, int,
+	    uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_bufset(struct header*, int, struct net2_buffer*, int,
 	    uint32_t);
 ILIAS_NET2_LOCAL
 int	 init_header_empty_set(struct header*, uint32_t);
@@ -154,6 +153,7 @@ static const net2_protocol_t	header_set_flags[] = {
 	/* HASH */		 0,
 	/* CRYPT */		 0,
 	/* SIGN */		 0,
+	/* SIGNATURE */		 0,
 };
 
 
@@ -234,6 +234,7 @@ init_header_val(struct header *h, uint32_t value, uint32_t which)
 	if (h->flags & F_SET_ELEMENT)
 		return EINVAL;
 	h->payload.val = value;
+	h->flags |= FT_INT;
 	return 0;
 }
 /* Describe string header. */
@@ -250,7 +251,22 @@ init_header_string(struct header *h, const char *value, uint32_t which)
 		return EINVAL;
 	if ((h->payload.string = strdup(value)) == NULL)
 		return ENOMEM;
-	h->flags |= F_STRING;
+	h->flags |= FT_STRING;
+	return 0;
+}
+/* Describe buffer header. */
+ILIAS_NET2_LOCAL int
+init_header_buf(struct header *h, struct net2_buffer *value, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	if ((h->payload.buf = net2_buffer_copy(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_BUFFER;
 	return 0;
 }
 /* Create valset header. */
@@ -268,6 +284,7 @@ init_header_valset(struct header *h, int seq, uint32_t value,
 	if (seq == max_seq)
 		h->flags |= F_SET_LASTELEM;
 	h->payload.val = value;
+	h->flags |= FT_INT;
 	return 0;
 }
 /* Create stringset header. */
@@ -288,7 +305,26 @@ init_header_stringset(struct header *h, int seq, const char *value,
 		h->flags |= F_SET_LASTELEM;
 	if ((h->payload.string = strdup(value)) == NULL)
 		return ENOMEM;
-	h->flags |= F_STRING;
+	h->flags |= FT_STRING;
+	return 0;
+}
+/* Describe bufferset header. */
+ILIAS_NET2_LOCAL int
+init_header_bufset(struct header *h, int seq, struct net2_buffer *value,
+    int max_seq, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	h->seq = seq;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	if ((h->payload.buf = net2_buffer_copy(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_BUFFER;
 	return 0;
 }
 /* Create empty set. */
@@ -307,12 +343,21 @@ deinit_header(struct header *h)
 {
 	if (h->flags == F_LAST_HEADER)
 		return;
-	if (h->flags & F_XCHANGE)
-		net2_buffer_free(h->payload.key_exchange.payload);
-	if (h->flags & F_XCHANGE_SIGNATURE)
-		net2_signature_deinit(&h->payload.key_exchange.signature);
-	if (h->flags & F_STRING)
+
+	switch (h->flags & FT_MASK) {
+	case FT_INT:
+		/* Nothing. */
+		break;
+	case FT_STRING:
 		free(h->payload.string);
+		break;
+	case FT_BUFFER:
+		free(h->payload.buf);
+		break;
+	default:
+		/* Ignore (might be incorrect received packet?). */
+		break;
+	}
 }
 
 /* Encode header. */
@@ -341,31 +386,24 @@ cp_header_encode(struct net2_encdec_ctx *proto_ctx, struct net2_buffer *out,
 		    NULL);
 		goto out_2;
 	}
-	if (h->flags & F_SET_EMPTY)
+	if (h->flags & F_SET_EMPTY) {
+		error = 0;
 		goto out_2;
+	}
 	/* Encode sequence, if set element. */
-	if (h->flags & (F_SET_ELEMENT | F_XCHANGE)) {
+	if (h->flags & F_SET_ELEMENT) {
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->seq,
 		    NULL)) != 0)
 			goto out_2;
 	}
-	/* Encode payload. */
-	if (h->flags & F_STRING) {
-		if ((error = net2_cp_encode(&ctx, &cp_paddedstring, out,
-		    &h->payload.string, NULL)) != 0)
+
+	/* Encode protocol version. */
+	if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+		if (h->flags != F_TYPE_PVER) {
+			error = EINVAL;
 			goto out_2;
-	} else if (h->flags & F_XCHANGE) {
-		if ((error = net2_cp_encode(proto_ctx,
-		    &cp_short_net2_buffer, out,
-		    &h->payload.key_exchange.payload, NULL)) != 0)
-			goto out_2;
-		if (h->flags & F_XCHANGE_SIGNATURE) {
-			if ((error = net2_cp_encode(proto_ctx,
-			    &cp_net2_signature, out,
-			    &h->payload.key_exchange.signature, NULL)) != 0)
-				goto out_2;
 		}
-	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+
 		if ((error = net2_cp_encode(&ctx, &cp_net2_protocol, out,
 		    &h->payload.version, NULL)) != 0)
 			goto out_2;
@@ -381,10 +419,31 @@ cp_header_encode(struct net2_encdec_ctx *proto_ctx, struct net2_buffer *out,
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
 		    &h->payload.reserved, NULL)) != 0)
 			goto out_2;
-	} else {
+
+		error = 0;
+		goto out_2;
+	}
+
+	/* Encode payload. */
+	switch (h->flags & FT_MASK) {
+	case FT_INT:
 		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
 		    &h->payload.val, NULL)) != 0)
 			goto out_2;
+		break;
+	case FT_STRING:
+		if ((error = net2_cp_encode(&ctx, &cp_paddedstring, out,
+		    &h->payload.string, NULL)) != 0)
+			goto out_2;
+		break;
+	case FT_BUFFER:
+		if ((error = net2_cp_encode(&ctx, &cp_short_net2_buffer, out,
+		    &h->payload.buf, NULL)) != 0)
+			goto out_2;
+		break;
+	default:
+		error = EINVAL;
+		goto out_2;
 	}
 
 	error = 0;
@@ -427,33 +486,24 @@ cp_header_decode(struct net2_encdec_ctx *proto_ctx, struct header *h,
 	}
 
 	/* Set handling. */
-	if (h->flags & F_SET_EMPTY)
+	if (h->flags & F_SET_EMPTY) {
+		error = 0;
 		goto out_2;
+	}
 	/* Decode sequence, if set element. */
-	if (h->flags & (F_SET_ELEMENT | F_XCHANGE)) {
+	if (h->flags & F_SET_ELEMENT) {
 		if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->seq, in,
 		    NULL)) != 0)
 			goto out_2;
 	}
 
-	/* Decode payload. */
-	if (h->flags & F_STRING) {
-		if ((error = net2_cp_decode(&ctx, &cp_paddedstring,
-		    &h->payload.string, in, NULL)) != 0)
+	/* Decode protocol version. */
+	if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+		if (h->flags != F_TYPE_PVER) {
+			error = EINVAL;
 			goto out_2;
-	} else if (h->flags & F_XCHANGE) {
-		if ((error = net2_cp_decode(proto_ctx,
-		    &cp_short_net2_buffer,
-		    &h->payload.key_exchange.payload, in, NULL)) != 0)
-			goto out_2;
-		if (h->flags & F_XCHANGE_SIGNATURE) {
-			if ((error = net2_cp_decode(proto_ctx,
-			    &cp_net2_signature,
-			    &h->payload.key_exchange.signature,
-			    in, NULL)) != 0)
-				goto out_2;
 		}
-	} else if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+
 		if ((error = net2_cp_decode(&ctx, &cp_net2_protocol,
 		    &h->payload.version, in, NULL)) != 0)
 			goto out_2;
@@ -469,10 +519,31 @@ cp_header_decode(struct net2_encdec_ctx *proto_ctx, struct header *h,
 		if ((error = net2_cp_decode(&ctx, &cp_uint32,
 		    &h->payload.reserved, in, NULL)) != 0)
 			goto out_2;
-	} else {
+
+		error = 0;
+		goto out_2;
+	}
+
+	/* Decode payload. */
+	switch (h->flags & FT_MASK) {
+	case FT_INT:
 		if ((error = net2_cp_decode(&ctx, &cp_uint32,
 		    &h->payload.val, in, NULL)) != 0)
 			goto out_2;
+		break;
+	case FT_STRING:
+		if ((error = net2_cp_decode(&ctx, &cp_paddedstring,
+		    &h->payload.string, in, NULL)) != 0)
+			goto out_2;
+		break;
+	case FT_BUFFER:
+		if ((error = net2_cp_decode(&ctx, &cp_short_net2_buffer,
+		    &h->payload.buf, in, NULL)) != 0)
+			goto out_2;
+		break;
+	default:
+		error = EINVAL;
+		goto out_2;
 	}
 
 	error = 0;

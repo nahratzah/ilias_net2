@@ -20,6 +20,7 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/encdec_ctx.h>
+#include <ilias/net2/context.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>
@@ -30,8 +31,6 @@
 
 #include "handshake.h"
 #include "signature.h"
-
-#include <stdio.h>	/* DEBUG */
 
 #define REQUIRE								\
 	(NET2_CNEG_REQUIRE_ENCRYPTION | NET2_CNEG_REQUIRE_SIGNING)
@@ -220,6 +219,68 @@ fail:
 }
 
 /*
+ * Encode fingerprints into headers.
+ */
+static int
+create_fingerprint_headers(struct net2_conn_negotiator *cn)
+{
+	struct encoded_header	*h;
+	size_t			 i, e;
+	struct net2_buffer	**list;
+	int			 error;
+
+	list = NULL;
+	e = 0;
+	/* Gather all fingerprints. */
+	if (cn->context != NULL) {
+		if ((error = net2_signset_all_fingerprints(
+		    &cn->context->local_signs, &list, &e)) != 0)
+			goto fail;
+	}
+
+	/* Add all fingerprints. */
+	for (i = 0; i < e; i++) {
+		if ((h = mk_encoded_header()) == NULL) {
+			error = ENOMEM;
+			goto fail;
+		}
+
+		if ((error = init_header_bufset(&h->header, i, list[i], e - 1,
+		    F_TYPE_SIGNATURE)) != 0) {
+			free_encoded_header(h);
+			goto fail;
+		}
+		TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
+	}
+
+	/* Handle empty set. */
+	if (e == 0) {
+		if ((h = mk_encoded_header()) == NULL) {
+			error = ENOMEM;
+			goto fail;
+		}
+
+		if ((error = init_header_empty_set(&h->header,
+		    F_TYPE_SIGNATURE)) != 0) {
+			free_encoded_header(h);
+			goto fail;
+		}
+		TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
+	}
+
+	/* Succes. */
+	error = 0;
+
+fail:
+	if (list != NULL) {
+		while (e > 0)
+			net2_buffer_free(list[--e]);
+		free(list);
+	}
+	return error;
+}
+
+/*
  * Create buffers with all headers.
  */
 static int
@@ -227,35 +288,47 @@ create_headers(struct net2_conn_negotiator *cn)
 {
 	struct encoded_header	*h;
 	int			 error;
+	uint16_t		 num_types;
+	uint16_t		 num_settypes;
 
 	if ((h = mk_encoded_header()) == NULL)
 		return ENOMEM;
-	/* Generate protocol header. */
+	/* TYPE[0]: Generate protocol header. */
 	if ((error = init_header_protocol(&h->header, cn->flags)) != 0) {
 		free_encoded_header(h);
 		return error;
 	}
+	num_types = h->header.payload.num_types;
+	num_settypes = h->header.payload.num_settypes;
 	TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 
-	/* Gather all exchange methods into set. */
+	assert(1 == num_types);
+
+	/* SET[0]: Gather all exchange methods into set. */
 	if ((error = create_xhc_headers(cn,
 	    &net2_xchange_getname, net2_xchangemax, F_TYPE_XCHANGE)) != 0)
 		return error;
 
-	/* Gather all hash methods into set. */
+	/* SET[1]: Gather all hash methods into set. */
 	if ((error = create_xhc_headers(cn,
 	    &net2_hash_getname, net2_hashmax, F_TYPE_HASH)) != 0)
 		return error;
 
-	/* Gather all crypt methods into set. */
+	/* SET[2]: Gather all crypt methods into set. */
 	if ((error = create_xhc_headers(cn,
 	    &net2_enc_getname, net2_encmax, F_TYPE_CRYPT)) != 0)
 		return error;
 
-	/* Gather all signature methods into set. */
+	/* SET[3]: Gather all signature methods into set. */
 	if ((error = create_xhc_headers(cn,
 	    &net2_sign_getname, net2_signmax, F_TYPE_SIGN)) != 0)
 		return error;
+
+	/* SET[4]: Gather all fingerprints for localhost. */
+	if ((error = create_fingerprint_headers(cn)) != 0)
+		return error;
+
+	assert(5 == num_settypes);
 
 	return 0;
 }
@@ -560,6 +633,9 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		break;
 
 	case F_TYPE_XCHANGE:
+		if ((h->flags & FT_MASK) != FT_STRING)
+			return EINVAL;
+
 		idx = net2_xchange_findname(h->payload.string);
 		if (idx == -1)
 			break;
@@ -572,6 +648,9 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		break;
 
 	case F_TYPE_HASH:
+		if ((h->flags & FT_MASK) != FT_STRING)
+			return EINVAL;
+
 		idx = net2_hash_findname(h->payload.string);
 		if (idx == -1)
 			break;
@@ -584,6 +663,9 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		break;
 
 	case F_TYPE_CRYPT:
+		if ((h->flags & FT_MASK) != FT_STRING)
+			return EINVAL;
+
 		idx = net2_enc_findname(h->payload.string);
 		if (idx == -1)
 			break;
@@ -596,6 +678,9 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		break;
 
 	case F_TYPE_SIGN:
+		if ((h->flags & FT_MASK) != FT_STRING)
+			return EINVAL;
+
 		idx = net2_sign_findname(h->payload.string);
 		if (idx == -1)
 			break;
@@ -980,7 +1065,12 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		}
 
 		skip = 0;
-		if (h.flags & F_SET_ELEMENT) {
+		if (h.flags & F_SET_EMPTY) {
+			if ((error = set_process_size(cn, h.flags & F_TYPEMASK,
+			    0)) != 0)
+				goto fail_wh;
+			skip = 1;
+		} else if (h.flags & F_SET_ELEMENT) {
 			if (h.flags & F_SET_LASTELEM) {
 				if ((error = set_process_size(cn,
 				    h.flags & F_TYPEMASK,

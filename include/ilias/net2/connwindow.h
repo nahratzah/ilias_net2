@@ -38,6 +38,8 @@ extern "C" {
 
 /* Recommended minimum space for connwindow data. */
 extern ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead;
+/* Minimum window size that is able to make progress. */
+extern ILIAS_NET2_LOCAL const size_t net2_connwindow_min_overhead;
 
 /*
  * Connection window delivery callback.

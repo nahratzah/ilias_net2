@@ -306,18 +306,34 @@ net2_conn_gather_tx(struct net2_connection *c,
 	    (NET2_CONN_STEALTH_ENABLED | NET2_CONN_STEALTH_UNSTEALTH)) ==
 	    NET2_CONN_STEALTH_ENABLED) {
 		c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
-		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK))
+		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK)) {
+			rv = 0;
 			goto fail_0;
+		}
 		maxlen = MIN(c->n2c_stealth_bytes, maxlen);
 		stealth = 1;
 	}
 
-	winoverhead = net2_connwindow_overhead;
+	/*
+	 * Clamp winoverhead if stealth:
+	 * otherwise the window update might gobble up the entire packet.
+	 */
+	if (stealth)
+		winoverhead = net2_connwindow_min_overhead;
+	else
+		winoverhead = net2_connwindow_overhead;
+
 	avail = maxlen - net2_ph_overhead -
 	    net2_hash_gethashlen(c->n2c_sign.algorithm) -
 	    net2_enc_getoverhead(c->n2c_enc.algorithm);
 	if (maxlen < avail)	/* Overflow. */
 		goto fail_0;
+	/* Reduce small packet transmission. */
+	if (stealth && avail < 128) {
+		c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
+		rv = 0;
+		goto fail_0;
+	}
 
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;

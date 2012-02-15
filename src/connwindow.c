@@ -194,6 +194,12 @@ struct net2_cw_rx {
  * Provide more and we'll happily eat it though.
  */
 ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead = 128;
+/*
+ * Minimum amount of space that must be available for the window to be able to
+ * make any progress.
+ */
+ILIAS_NET2_LOCAL const size_t net2_connwindow_min_overhead =
+    WINDOWHEADER_MINSIZE + WINDOWHEADER_RANGE_SIZE;
 
 static inline int
 tx_cmp(struct net2_cw_tx *tx1, struct net2_cw_tx *tx2)
