@@ -36,6 +36,9 @@ extern "C" {
 struct net2_ctx {
 	struct net2_signset	 local_signs,	/* Signatures for localhost. */
 				 remote_signs;	/* Signatures for remote. */
+	int			 remote_min;	/* Minimum number of signatures
+						 * that the remote must provide
+						 * succesfully. */
 };
 
 ILIAS_NET2_EXPORT

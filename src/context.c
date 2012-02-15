@@ -31,6 +31,7 @@ net2_ctx_init(struct net2_ctx *ctx)
 {
 	net2_signset_init(&ctx->local_signs);
 	net2_signset_init(&ctx->remote_signs);
+	ctx->remote_min = 0;
 	return 0;
 }
 
@@ -76,5 +77,8 @@ net2_ctx_add_remote_signature(struct net2_ctx *ctx, int alg,
 		net2_signctx_free(sign);
 		return error;
 	}
+
+	if (ctx->remote_min == 0)
+		ctx->remote_min = 1;
 	return 0;
 }
