@@ -210,6 +210,10 @@ net2_conn_handle_recv(int fd, short what, void *cptr)
 		buf = r->buf;
 		r->buf = NULL;
 		wire_sz = net2_buffer_length(buf);
+
+		/* Record receival. */
+		net2_connstats_record_recv(&c->n2c_stats, wire_sz);
+
 		decode_err = net2_packet_decode(c, &ctx, &ph, &buf, 1);
 		switch (decode_err) {
 		case NET2_PDECODE_RESOURCE:
@@ -475,6 +479,10 @@ write_window_buf:
 	c->n2c_stealth_bytes -= MIN(c->n2c_stealth_bytes, net2_buffer_length(*bptr));
 	c->n2c_stealth &= ~NET2_CONN_STEALTH_SEND_OK;
 	c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
+
+	/* Record transmission. */
+	net2_connstats_record_transmit(&c->n2c_stats,
+	    net2_buffer_length(*bptr));
 
 fail_2:
 	if (tx != NULL) {

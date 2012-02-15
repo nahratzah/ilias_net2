@@ -432,11 +432,6 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 			/* GUARD */
 			if (r == NULL)
 				break;
-			if (r->buf != NULL) {
-				net2_connstats_record_recv(
-				    &c->np2p_conn.n2c_stats,
-				    net2_buffer_length(r->buf));
-			}
 			net2_connection_recv(&c->np2p_conn, r);
 		}
 	}
@@ -476,9 +471,6 @@ net2_conn_p2p_recv(int sock, short what, void *cptr)
 		net2_buffer_free(buf);
 		switch (rv) {
 		case NET2_CONNFAIL_OK:
-			/* Record transmission. */
-			net2_connstats_record_transmit(&c->np2p_conn.n2c_stats,
-			    wire_sz);
 			break;
 		case NET2_CONNFAIL_CLOSE:
 			/* TODO kill connection */
@@ -613,14 +605,9 @@ net2_udpsocket_recv(int sock, short what, void *udps_ptr)
 			    &search);
 
 			/* Deliver data to connection. */
-			if (c != NULL) {
-				if (r->buf != NULL) {
-					net2_connstats_record_recv(
-					    &c->np2p_conn.n2c_stats,
-					    net2_buffer_length(r->buf));
-				}
+			if (c != NULL)
 				net2_connection_recv(&c->np2p_conn, r);
-			} else {
+			else {
 				/* Unrecognized connection. */
 				/* TODO: implement new connection callback */
 				if (r->buf)
