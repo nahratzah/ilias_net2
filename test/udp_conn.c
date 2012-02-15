@@ -407,6 +407,19 @@ main()
 		fail++;
 	}
 
+	/* Dump C1 stats. */
+	printf("%2s: Sent:     %16llu bytes in %12llu packets\n"
+	    "    Received: %16llu bytes in %12llu packets\n",
+	    "C1",
+	    c1->n2c_stats.tx_bytes, c1->n2c_stats.tx_packets,
+	    c1->n2c_stats.rx_bytes, c1->n2c_stats.rx_packets);
+	/* Dump C2 stats. */
+	printf("%2s: Sent:     %16llu bytes in %12llu packets\n"
+	    "    Received: %16llu bytes in %12llu packets\n",
+	    "C2",
+	    c2->n2c_stats.tx_bytes, c2->n2c_stats.tx_packets,
+	    c2->n2c_stats.rx_bytes, c2->n2c_stats.rx_packets);
+
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
 	net2_stream_acceptor_destroy(sa1);
