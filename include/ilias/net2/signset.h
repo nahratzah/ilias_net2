@@ -45,6 +45,7 @@ struct net2_signset_entry {
 struct net2_signset {
 	RB_HEAD(net2_signset_tree, net2_signset_entry)
 				 data;
+	size_t			 size;
 };
 
 
