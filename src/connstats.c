@@ -250,6 +250,9 @@ net2_connstats_init(struct net2_connstats *cs, struct net2_connection *conn)
 	cs->latency_avg = 1000;
 	cs->latency_stddev = 1000;
 
+	cs->tx_packets = cs->rx_packets = 0;
+	cs->tx_bytes = cs->rx_bytes = 0;
+
 	tv_clock_gettime(CLOCK_MONOTONIC, &cs->last_update);
 
 	return 0;
@@ -341,4 +344,20 @@ net2_connstats_timeout(struct net2_connstats *cs, struct timeval *tv,
 	v = (l_avg + (l_stddev * (int64_t)d)) * (int64_t)n;
 	tv->tv_usec = v % 1000000;
 	tv->tv_sec = v / 1000000;
+}
+
+/* Record that a packet with wire_sz bytes has been transmitted. */
+ILIAS_NET2_LOCAL void
+net2_connstats_record_transmit(struct net2_connstats *cs, size_t wire_sz)
+{
+	cs->tx_packets++;
+	cs->tx_bytes += wire_sz;
+}
+
+/* Record that a packet with wire_sz bytes has been received. */
+ILIAS_NET2_LOCAL void
+net2_connstats_record_recv(struct net2_connstats *cs, size_t wire_sz)
+{
+	cs->rx_packets++;
+	cs->rx_bytes += wire_sz;
 }

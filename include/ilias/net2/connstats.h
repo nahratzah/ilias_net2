@@ -69,6 +69,11 @@ struct net2_connstats {
 	uint32_t		 over_sz;	/* Too many bytes. */
 	uint64_t		 latency_avg;	/* Average latency. */
 	uint64_t		 latency_stddev; /* Latency std deviation. */
+
+	uint64_t		 tx_packets;	/* # packets sent. */
+	uint64_t		 tx_bytes;	/* # bytes sent. */
+	uint64_t		 rx_packets;	/* # packets received. */
+	uint64_t		 rx_bytes;	/* # bytes received. */
 };
 
 
@@ -85,6 +90,10 @@ void	net2_connstats_tx_datapoint(struct net2_connstats*, struct timeval*,
 ILIAS_NET2_LOCAL
 void	net2_connstats_timeout(struct net2_connstats*, struct timeval*,
 	    int, int);
+ILIAS_NET2_LOCAL
+void	net2_connstats_record_transmit(struct net2_connstats*, size_t wire_sz);
+ILIAS_NET2_LOCAL
+void	net2_connstats_record_recv(struct net2_connstats*, size_t wire_sz);
 
 #endif /* ilias_net2_EXPORTS */
 
