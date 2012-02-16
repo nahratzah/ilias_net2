@@ -63,6 +63,7 @@ int	 net2_signset_insert(struct net2_signset *s,
 ILIAS_NET2_EXPORT
 int	 net2_signset_all_fingerprints(struct net2_signset*,
 	    struct net2_buffer***, size_t*);
+#define	 net2_signset_size(s)	((const size_t)(s)->size)
 
 #ifdef __cplusplus
 }
