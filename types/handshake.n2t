@@ -48,6 +48,7 @@ struct header {
 #define F_TYPE_CRYPT		(0x00000002U | F_SET_ELEMENT)
 #define F_TYPE_SIGN		(0x00000003U | F_SET_ELEMENT)
 #define F_TYPE_SIGNATURE	(0x00000004U | F_SET_ELEMENT)
+#define F_TYPE_SIGNATURE_ACCEPT	(0x00000005U | F_SET_ELEMENT)
 #define F_SET_ELEMENT		 0x00000800U
 #define F_SET_LASTELEM		 0x00001000U
 #define F_SET_EMPTY		 0x00002000U
@@ -55,6 +56,7 @@ struct header {
 #define FT_INT			 0x00000000U
 #define FT_STRING		 0x00010000U
 #define FT_BUFFER		 0x00020000U
+#define F_POETRY		 0x80000000U
 
 /* Indicates the end of a connection negotiation. */
 #define F_LAST_HEADER		 0xffffffffU
@@ -112,6 +114,13 @@ int	 init_header_empty_set(struct header*, uint32_t);
 ILIAS_NET2_LOCAL
 void	 deinit_header(struct header*);
 
+ILIAS_NET2_LOCAL
+int	 net2_init_poetry();
+ILIAS_NET2_LOCAL
+void	 net2_destroy_poetry();
+ILIAS_NET2_LOCAL
+int	 net2_add_poetry(struct net2_buffer*, size_t);
+
 
 %%
 #include "handshake.h"
@@ -154,6 +163,7 @@ static const net2_protocol_t	header_set_flags[] = {
 	/* CRYPT */		 0,
 	/* SIGN */		 0,
 	/* SIGNATURE */		 0,
+	/* SIGNATURE_ACCEPT */	 0,
 };
 
 
@@ -333,6 +343,8 @@ init_header_empty_set(struct header *h, uint32_t which)
 {
 	if ((which & F_TYPEMASK) != which)
 		return EINVAL;
+	if (!(which & F_SET_ELEMENT))
+		return EINVAL;
 	h->flags = which;
 	h->flags |= F_SET_EMPTY;
 	return 0;
@@ -398,7 +410,7 @@ cp_header_encode(struct net2_encdec_ctx *proto_ctx, struct net2_buffer *out,
 	}
 
 	/* Encode protocol version. */
-	if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+	if (h->flags == F_TYPE_PVER) {
 		if (h->flags != F_TYPE_PVER) {
 			error = EINVAL;
 			goto out_2;
@@ -498,7 +510,7 @@ cp_header_decode(struct net2_encdec_ctx *proto_ctx, struct header *h,
 	}
 
 	/* Decode protocol version. */
-	if ((h->flags & F_TYPEMASK) == F_TYPE_PVER) {
+	if (h->flags == F_TYPE_PVER) {
 		if (h->flags != F_TYPE_PVER) {
 			error = EINVAL;
 			goto out_2;
@@ -581,3 +593,74 @@ ILIAS_NET2_LOCAL const struct header	header_fini = {
 	0,
 	{}
 };
+
+
+/*
+ * Poetry, added to negotiation packets to provide stealthed remote with
+ * extra data.
+ */
+static struct iovec	poetry_buf = { NULL, 0 };
+
+ILIAS_NET2_LOCAL int
+net2_init_poetry()
+{
+	struct net2_buffer	*out;
+	struct header		 h;
+	int			 error;
+
+	if (poetry_buf.iov_base != NULL)
+		return EINVAL;
+
+	memset(&h, 0, sizeof(h));
+	h.flags = F_POETRY | FT_STRING;
+	h.payload.string = "They that can give up essential liberty "
+	    "to obtain a little temporary safety deserve "
+	    "neither liberty nor safety. -- Benjamin Franklin";
+
+	if ((out = net2_buffer_new()) == NULL)
+		return ENOMEM;
+	if ((error = net2_cp_encode(NULL, &cp_header, out, &h, NULL)) != 0) {
+		net2_buffer_free(out);
+		return error;
+	}
+
+	poetry_buf.iov_len = net2_buffer_length(out);
+	if ((poetry_buf.iov_base = malloc(poetry_buf.iov_len)) == NULL) {
+		net2_buffer_free(out);
+		return ENOMEM;
+	}
+	if (net2_buffer_copyout(out, poetry_buf.iov_base,
+	    poetry_buf.iov_len) != poetry_buf.iov_len) {
+		net2_buffer_free(out);
+		free(poetry_buf.iov_base);
+		poetry_buf.iov_base = NULL;
+		poetry_buf.iov_len = 0;
+		return EINVAL;
+	}
+
+	net2_buffer_free(out);
+	return 0;
+}
+ILIAS_NET2_LOCAL void
+net2_destroy_poetry()
+{
+	free(poetry_buf.iov_base);
+	poetry_buf.iov_base = NULL;
+	poetry_buf.iov_len = 0;
+}
+ILIAS_NET2_LOCAL int
+net2_add_poetry(struct net2_buffer *b, size_t len)
+{
+	if (b == NULL)
+		return EINVAL;
+	if (poetry_buf.iov_len == 0 || poetry_buf.iov_len > len)
+		return 0;
+	if (net2_buffer_add(b, poetry_buf.iov_base, poetry_buf.iov_len))
+		return ENOMEM;
+#if 0
+	if (net2_buffer_add_reference(b, poetry_buf.iov_base, poetry_buf.iov_len,
+	    NULL, NULL))
+		return ENOMEM;
+#endif
+	return 0;
+}

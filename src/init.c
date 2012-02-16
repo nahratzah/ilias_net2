@@ -21,6 +21,8 @@
 #include <Winsock2.h>
 #endif
 
+#include "handshake.h"
+
 ILIAS_NET2_EXPORT void
 net2_init()
 {
@@ -39,11 +41,15 @@ net2_init()
 		    "upgrade your windows.", major, minor);
 	}
 #endif
+
+	net2_init_poetry();
 }
 
 ILIAS_NET2_EXPORT void
 net2_cleanup()
 {
+	net2_destroy_poetry();
+
 #ifdef WIN32
 	WSACleanup();
 #endif
