@@ -36,7 +36,7 @@ extern "C" {
 struct net2_ctx {
 	struct net2_signset	 local_signs,	/* Signatures for localhost. */
 				 remote_signs;	/* Signatures for remote. */
-	int			 remote_min;	/* Minimum number of signatures
+	size_t			 remote_min;	/* Minimum number of signatures
 						 * that the remote must provide
 						 * succesfully. */
 };
@@ -52,8 +52,8 @@ ILIAS_NET2_EXPORT
 int	net2_ctx_add_remote_signature(struct net2_ctx*, int,
 	    const void*, size_t);
 
-#define net2_ctx_local_signcount(s)	((const size_t)(s)->local_signs.count)
-#define net2_ctx_remote_signcount(s)	((const size_t)(s)->remote_signs.count)
+#define net2_ctx_local_signcount(s)	(net2_signset_size(&(s)->local_signs))
+#define net2_ctx_remote_signcount(s)	(net2_signset_size(&(s)->remote_signs))
 
 #ifdef __cplusplus
 }
