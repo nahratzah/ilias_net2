@@ -304,15 +304,12 @@ net2_conn_gather_tx(struct net2_connection *c,
 	    NET2_CONN_STEALTH_ENABLED) {
 		c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
 		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK)) {
-			fprintf(stderr, "%p: Aborting transmission: under stealth.\n", c);
 			rv = 0;
 			goto fail_0;
 		}
 		maxlen = MIN(c->n2c_stealth_bytes, maxlen);
 		stealth = 1;
-		fprintf(stderr, "%p: Transmitting under stealth.\n", c);
-	} else if (c->n2c_stealth & NET2_CONN_STEALTH_ENABLED)
-		fprintf(stderr, "%p: Transmitting, after leaving stealth.\n", c);
+	}
 
 	/*
 	 * Clamp winoverhead if stealth:
