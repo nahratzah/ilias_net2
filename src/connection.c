@@ -150,8 +150,6 @@ ILIAS_NET2_EXPORT void
 net2_connection_recv(struct net2_connection *conn,
     struct net2_conn_receive *r)
 {
-	struct timeval now = { 0, 0 };
-
 	/* Argument validation. */
 	assert(r != NULL && conn != NULL);
 
@@ -159,12 +157,7 @@ net2_connection_recv(struct net2_connection *conn,
 	TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
 	conn->n2c_recvqsz++;
 
-	if (!event_pending(conn->n2c_recv_ev, EV_TIMEOUT, NULL)) {
-		if (event_add(conn->n2c_recv_ev, &now)) {
-			warnx("event_add fail");
-			/* TODO: kill connection */
-		}
-	}
+	event_active(conn->n2c_recv_ev, 0, 0);
 	net2_mutex_unlock(conn->n2c_recvmtx);
 }
 
@@ -179,7 +172,7 @@ net2_connection_destroy(struct net2_connection *conn)
 
 /* Handle each received datagram in receive queue. */
 ILIAS_NET2_LOCAL void
-net2_conn_handle_recv(int fd, short what, void *cptr)
+net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
 {
 	struct net2_connection	*c = cptr;
 	struct net2_conn_receive*r;
@@ -311,12 +304,15 @@ net2_conn_gather_tx(struct net2_connection *c,
 	    NET2_CONN_STEALTH_ENABLED) {
 		c->n2c_stealth |= NET2_CONN_STEALTH_WANTSEND;
 		if (!(c->n2c_stealth & NET2_CONN_STEALTH_SEND_OK)) {
+			fprintf(stderr, "%p: Aborting transmission: under stealth.\n", c);
 			rv = 0;
 			goto fail_0;
 		}
 		maxlen = MIN(c->n2c_stealth_bytes, maxlen);
 		stealth = 1;
-	}
+		fprintf(stderr, "%p: Transmitting under stealth.\n", c);
+	} else if (c->n2c_stealth & NET2_CONN_STEALTH_ENABLED)
+		fprintf(stderr, "%p: Transmitting, after leaving stealth.\n", c);
 
 	/*
 	 * Clamp winoverhead if stealth:
