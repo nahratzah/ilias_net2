@@ -1095,8 +1095,16 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		TAILQ_INSERT_TAIL(&transit, eh, entry);
 	}
 
-	/* Add poetry. */
-	if (!stealth && net2_buffer_length(buf) + FINI_LEN <= maxlen) {
+	/*
+	 * Add poetry.
+	 *
+	 * We don't add poetry while under stealth.
+	 * Also, we don't add poetry once we allow payload to happen.
+	 */
+	if (net2_cneg_allow_payload(cn, ph->seq))
+		assert(!stealth);
+	if (!stealth && !net2_cneg_allow_payload(cn, ph->seq) &&
+	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
 		/*
 		 * Only add poetry on:
 		 * - packets with negotiation data, or
