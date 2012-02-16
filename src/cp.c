@@ -168,8 +168,6 @@ destroy(struct net2_objmanager *man, const struct command_param *cp,
 static void
 ivctx_on_finish(struct net2_invocation_ctx *ctx)
 {
-	struct timeval			 now = { 0, 0 };
-
 	/* No locking: this is always called with ctx locked. */
 
 	/* Fire only once. */
@@ -177,9 +175,7 @@ ivctx_on_finish(struct net2_invocation_ctx *ctx)
 		return;
 
 	if (ctx->event[NET2_IVCTX_ON_FINISH]) {
-		if (!event_pending(ctx->event[NET2_IVCTX_ON_FINISH],
-		    EV_TIMEOUT, NULL))
-			event_add(ctx->event[NET2_IVCTX_ON_FINISH], &now);
+		event_active(ctx->event[NET2_IVCTX_ON_FINISH], 0, 0);
 		ctx->flags |= N2IVCTX_FINISH_FIRED;
 	}
 }

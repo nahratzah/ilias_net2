@@ -665,12 +665,8 @@ RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 void
 n2ow_stub_ready_to_send(struct net2_objwin_stub *w)
 {
-	struct timeval now = { 0, 0 };
-
-	if (w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND] != NULL &&
-	    !event_pending(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND],
-	    EV_TIMEOUT, NULL))
-		event_add(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND], &now);
+	if (w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND] != NULL)
+		event_active(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND], 0, 0);
 }
 
 /* Initialize stub. */

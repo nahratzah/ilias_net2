@@ -918,19 +918,14 @@ sa_on_finish(struct net2_sa_tx *sa)
 ILIAS_NET2_LOCAL void
 sa_on_lowbuffer(struct net2_sa_tx *sa)
 {
-	struct timeval now = { 0, 0 };
-
 	/*
 	 * No locking: this event is always invoked from within a locked
 	 * context (sa_get_transmit).
 	 */
 
 	if (!(sa->flags & SATX_LOWBUFFER_FIRED)) {
-		if (sa->event[NET2_SATX_ON_LOWBUFFER]) {
-			if (!event_pending(sa->event[NET2_SATX_ON_LOWBUFFER],
-			    EV_TIMEOUT, NULL))
-				event_add(sa->event[NET2_SATX_ON_LOWBUFFER],
-				    &now);
+		if (sa->event[NET2_SATX_ON_LOWBUFFER] != NULL) {
+			event_active(sa->event[NET2_SATX_ON_LOWBUFFER], 0, 0);
 		}
 		sa->flags |= SATX_LOWBUFFER_FIRED;
 	}
@@ -1693,15 +1688,10 @@ sa_rx_deliver(struct net2_sa_rx *sa, struct net2_buffer *b)
 ILIAS_NET2_LOCAL void
 sa_rx_on_recv(struct net2_sa_rx *sa)
 {
-	struct timeval			 now = { 0, 0 };
-
 	/* No locking: this is always called with recvbuf_mtx locked. */
 
-	if (sa->event[NET2_SARX_ON_RECV]) {
-		if (!event_pending(sa->event[NET2_SARX_ON_RECV],
-		    EV_TIMEOUT, NULL))
-			event_add(sa->event[NET2_SARX_ON_RECV], &now);
-	}
+	if (sa->event[NET2_SARX_ON_RECV] != NULL)
+		event_active(sa->event[NET2_SARX_ON_RECV], 0, 0);
 }
 
 /* Fire on_finish event. */
