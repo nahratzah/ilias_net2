@@ -24,6 +24,8 @@
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
 
+#include <stdio.h>	/* DEBUG */
+
 
 #ifndef NDEBUG
 /* Invariant check. */
@@ -61,6 +63,18 @@ struct net2_buffer_segment_impl {
 	/* Data after segment. */
 };
 
+/* Data alignment of net2_buffer_segment_impl. */
+#define DATA_ALIGN			 				\
+	(MAX(MAX(sizeof(void*), sizeof(unsigned long long)), 8))
+/*
+ * sizeof(struct net2_buffer_segment_impl)
+ *
+ * This value is chosen in such a way that the DATA_ALIGN constraint is met.
+ */
+#define NET2_BUFSEGMENT_IMPL_SZ						\
+	((sizeof(struct net2_buffer_segment_impl) + DATA_ALIGN - 1) &	\
+	 ~((size_t)DATA_ALIGN - 1))
+
 /* Memory reference data. */
 struct reference {
 	void				*release_arg;
@@ -75,18 +89,18 @@ get_reference(struct net2_buffer_segment_impl *s)
 	void				*p;
 
 	assert(s->flags & BUF_REFERENCE);
-	p = (uint8_t*)s + sizeof(*s);
+	p = (uint8_t*)s + NET2_BUFSEGMENT_IMPL_SZ;
 	return p;
 }
 
 #define SEGMENT_SZ(datasz)						\
-	(sizeof(struct net2_buffer_segment_impl) + (datasz))
+	(NET2_BUFSEGMENT_IMPL_SZ + (datasz))
 
 /*
- * Allocate multiples of 256 byte, to reduce the number of required
+ * Allocate multiples of 32 byte, to reduce the number of required
  * reallocations.
- * */
-#define NET2_BUFFER_ALIGN	((size_t)8)
+ */
+#define NET2_BUFFER_ALIGN	((size_t)64)
 #define NET2_BUFFER_FRAGMENT	((size_t)1024*1024)
 
 /* Allocate a new segment impl with the given length. */
@@ -95,6 +109,10 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 {
 	struct net2_buffer_segment_impl	*s;
 	size_t				 require, want, have;
+
+	/* Ensure that net2_buffer_segment_impl is a multiple of 8 bytes. */
+	fprintf(stderr, "net2_buffer_segment_impl size = %zu bytes; define size = %zu bytes\n", sizeof(*s), NET2_BUFSEGMENT_IMPL_SZ);
+	assert((NET2_BUFSEGMENT_IMPL_SZ & ((size_t)DATA_ALIGN - 1)) == 0);
 
 	if (len < datlen)
 		goto fail_0;
@@ -112,11 +130,11 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 	if ((s->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
 	s->refcnt = 1;
-	s->len = have - sizeof(*s);
+	s->len = have - NET2_BUFSEGMENT_IMPL_SZ;
 	s->use = datlen;
 	s->flags = BUF_STD;
 	if (data)
-		memcpy((uint8_t*)s + sizeof(*s), data, datlen);
+		memcpy((uint8_t*)s + NET2_BUFSEGMENT_IMPL_SZ, data, datlen);
 	return s;
 
 fail_1:
@@ -135,7 +153,7 @@ segment_impl_newref(void *data, size_t len, void (*release)(void*), void *releas
 	if (len == 0)
 		goto fail_0;
 
-	if ((s = malloc(sizeof(*s) + sizeof(*r))) == NULL)
+	if ((s = malloc(NET2_BUFSEGMENT_IMPL_SZ + sizeof(*r))) == NULL)
 		goto fail_0;
 	if ((s->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
@@ -221,7 +239,7 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 			} else
 				have = want;
 			*sptr = s = tmp;
-			s->len = have - sizeof(*s);
+			s->len = have - NET2_BUFSEGMENT_IMPL_SZ;
 			s->use += add;
 			rv = 0;
 		}
@@ -249,7 +267,7 @@ segment_impl_append(struct net2_buffer_segment_impl **sptr,
 		return rv;
 	}
 
-	memcpy((uint8_t*)s + sizeof(*s) + off, data, len);
+	memcpy((uint8_t*)s + NET2_BUFSEGMENT_IMPL_SZ + off, data, len);
 	net2_mutex_unlock(s->mtx);
 	return 0;
 }
@@ -285,7 +303,7 @@ segment_impl_reserve(struct net2_buffer_segment_impl **sptr,
 		goto fail_0;
 	s = *sptr;
 
-	iov->iov_base = (uint8_t*)s + sizeof(*s) + off;
+	iov->iov_base = (uint8_t*)s + NET2_BUFSEGMENT_IMPL_SZ + off;
 	iov->iov_len = grow;
 	rv = 0;
 
@@ -360,7 +378,7 @@ segment_getptr(struct net2_buffer_segment *s)
 		r = get_reference(s->data);
 		p = r->data;
 	} else if (s->data->flags & BUF_STD)
-		p = (uint8_t*)s->data + sizeof(*s->data);
+		p = (uint8_t*)s->data + NET2_BUFSEGMENT_IMPL_SZ;
 	else {
 		errx(EX_SOFTWARE, "unrecognized buffer segment: flags=0x%x",
 		    s->data->flags);
