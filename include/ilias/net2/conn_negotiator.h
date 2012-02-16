@@ -101,7 +101,7 @@ void	net2_cneg_deinit(struct net2_conn_negotiator*);
 ILIAS_NET2_LOCAL
 int	net2_cneg_get_transmit(struct net2_conn_negotiator*,
 	    struct packet_header*, struct net2_buffer**, struct net2_cw_tx*,
-	    size_t);
+	    size_t, int, int);
 ILIAS_NET2_LOCAL
 int	net2_cneg_accept(struct net2_conn_negotiator*, struct packet_header*,
 	    struct net2_buffer*);

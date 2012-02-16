@@ -47,6 +47,8 @@ struct net2_conn_negotiator_set {
 #define SET_F_ALLDONE		0x00000001
 	struct net2_bitset	 data;
 	size_t			 expected_size;
+
+	int	(*callback_complete)(struct net2_conn_negotiator*);
 };
 
 
@@ -62,6 +64,11 @@ decode_header(struct net2_encdec_ctx *ctx, struct header *h,
 {
 	return net2_cp_decode(ctx, &cp_header, h, in, NULL);
 }
+
+
+static int	set_get(struct net2_conn_negotiator*, size_t,
+		    struct net2_conn_negotiator_set**);
+static int	cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
 
 /* Queue encoded headers. */
@@ -222,7 +229,8 @@ fail:
  * Encode fingerprints into headers.
  */
 static int
-create_fingerprint_headers(struct net2_conn_negotiator *cn)
+create_fingerprint_headers(struct net2_conn_negotiator *cn, struct net2_signset *s,
+    uint32_t which)
 {
 	struct encoded_header	*h;
 	size_t			 i, e;
@@ -232,9 +240,9 @@ create_fingerprint_headers(struct net2_conn_negotiator *cn)
 	list = NULL;
 	e = 0;
 	/* Gather all fingerprints. */
-	if (cn->context != NULL) {
+	if (s != NULL) {
 		if ((error = net2_signset_all_fingerprints(
-		    &cn->context->local_signs, &list, &e)) != 0)
+		    s, &list, &e)) != 0)
 			goto fail;
 	}
 
@@ -246,7 +254,7 @@ create_fingerprint_headers(struct net2_conn_negotiator *cn)
 		}
 
 		if ((error = init_header_bufset(&h->header, i, list[i], e - 1,
-		    F_TYPE_SIGNATURE)) != 0) {
+		    which)) != 0) {
 			free_encoded_header(h);
 			goto fail;
 		}
@@ -261,7 +269,7 @@ create_fingerprint_headers(struct net2_conn_negotiator *cn)
 		}
 
 		if ((error = init_header_empty_set(&h->header,
-		    F_TYPE_SIGNATURE)) != 0) {
+		    which)) != 0) {
 			free_encoded_header(h);
 			goto fail;
 		}
@@ -290,6 +298,8 @@ create_headers(struct net2_conn_negotiator *cn)
 	int			 error;
 	uint16_t		 num_types;
 	uint16_t		 num_settypes;
+	struct net2_conn_negotiator_set
+				*set4;
 
 	if ((h = mk_encoded_header()) == NULL)
 		return ENOMEM;
@@ -325,10 +335,17 @@ create_headers(struct net2_conn_negotiator *cn)
 		return error;
 
 	/* SET[4]: Gather all fingerprints for localhost. */
-	if ((error = create_fingerprint_headers(cn)) != 0)
+	if ((error = create_fingerprint_headers(cn,
+	    (cn->context == NULL ? NULL : &cn->context->local_signs),
+	    F_TYPE_SIGNATURE)) != 0)
 		return error;
 
-	assert(5 == num_settypes);
+	/* SET[5]: Done when remote host completes SET[4] transmission. */
+	if ((error = set_get(cn, F_TYPE_SIGNATURE, &set4)) != 0)
+		return error;
+	set4->callback_complete = &cneg_prepare_key_exchange;
+
+	assert(6 == num_settypes);
 
 	return 0;
 }
@@ -358,9 +375,13 @@ set_get(struct net2_conn_negotiator *cn, size_t which_set,
 
 		while (cn->negotiated.sets_count <= which_set) {
 			list[cn->negotiated.sets_count].flags = 0;
+			list[cn->negotiated.sets_count].callback_complete =
+			    NULL;
 			list[cn->negotiated.sets_count].expected_size =
 			    UNKNOWN_SIZE;
-			net2_bitset_init(&list[cn->negotiated.sets_count].data);
+			net2_bitset_init(
+			    &list[cn->negotiated.sets_count].data);
+
 			cn->negotiated.sets_count++;
 		}
 	}
@@ -419,7 +440,40 @@ set_process_size(struct net2_conn_negotiator *cn, uint32_t which_set,
 		return EINVAL;
 	/* Assign. */
 	list->expected_size = sz;
+
 	return 0;
+}
+/* Test if a set is complete. */
+static int
+set_done(struct net2_conn_negotiator_set *s)
+{
+	if (s == NULL)
+		return 0;
+
+	/*
+	 * Use cached set_done check.
+	 */
+	if (s->flags & SET_F_ALLDONE)
+		return 1;
+
+	/*
+	 * Only sets with a known size can be complete.
+	 */
+	if (s->expected_size == UNKNOWN_SIZE ||
+	    s->expected_size != net2_bitset_size(&s->data))
+		return 0;
+
+	/*
+	 * Test if all bits are set.
+	 */
+	if (!net2_bitset_allset(&s->data))
+		return 0;
+
+	/*
+	 * Set is complete, store for future reference.
+	 */
+	s->flags |= SET_F_ALLDONE;
+	return 1;
 }
 /* Test if all sets are complete. */
 static int
@@ -440,25 +494,8 @@ set_all_done(const struct net2_conn_negotiator *cn)
 	 * (this test is very fast).
 	 */
 	for (list = cn->negotiated.sets; list != last; list++) {
-		if (list->expected_size == UNKNOWN_SIZE)
+		if (!set_done(list))
 			return 0;
-		if (list->expected_size != net2_bitset_size(&list->data))
-			return 0;
-	}
-
-	/*
-	 * Now, check that each set has their bits set.
-	 */
-	for (list = cn->negotiated.sets; list != last; list++) {
-		/* Already checked. */
-		if (list->flags & SET_F_ALLDONE)
-			continue;
-
-		if (!net2_bitset_allset(&list->data))
-			return 0;
-
-		/* This set passed, exclude it from future checks. */
-		list->flags |= SET_F_ALLDONE;
 	}
 
 	return 1;
@@ -700,6 +737,12 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		if (cn->context == NULL)
 			break;
 
+		/*
+		 * If we have sufficient signatures, skip the remainder.
+		 */
+		if (net2_signset_size(&cn->remote_signs) == cn->context->remote_min)
+			break;
+
 		/* Find signature. */
 		if ((signature = net2_signset_find(
 		    &cn->context->remote_signs, h->payload.buf)) == NULL)
@@ -830,6 +873,21 @@ fail:
 	return error;
 }
 
+/*
+ * Decide which signatures are required to sign the key exchange.
+ */
+static int
+cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
+{
+	int			 error;
+
+	if ((error = create_fingerprint_headers(cn, &cn->remote_signs,
+	    F_TYPE_SIGNATURE_ACCEPT)) != 0)
+		return error;
+	cneg_ready_to_send(cn);
+	return 0;
+}
+
 
 /*
  * True iff the connection is ready and sufficiently secure
@@ -877,6 +935,11 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 		    NET2_CNEG_REQUIRE_SIGNING;
 	}
 
+	cn->negotiated.sets = NULL;
+	cn->negotiated.sets_count = 0;
+	net2_bitset_init(&cn->negotiated.received);
+	cn->negotiated.rcv_expected = UNKNOWN_SIZE;
+
 	TAILQ_INIT(&cn->sendq);
 	TAILQ_INIT(&cn->waitq);
 
@@ -885,11 +948,6 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 
 	if ((error = net2_pvlist_init(&cn->negotiated.proto)) != 0)
 		goto fail_0;
-
-	cn->negotiated.sets = NULL;
-	cn->negotiated.sets_count = 0;
-	net2_bitset_init(&cn->negotiated.received);
-	cn->negotiated.rcv_expected = UNKNOWN_SIZE;
 
 	cn->hash.supported = NULL;
 	cn->hash.num_supported = 0;
@@ -963,7 +1021,8 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 ILIAS_NET2_LOCAL int
 net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
     struct packet_header* ph,
-    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen)
+    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    int stealth, int want_payload)
 {
 	struct encoded_header	*eh, *eh_next;
 	struct net2_buffer	*buf;
@@ -1035,6 +1094,21 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		TAILQ_REMOVE(&cn->sendq, eh, entry);
 		TAILQ_INSERT_TAIL(&transit, eh, entry);
 	}
+
+	/* Add poetry. */
+	if (!stealth && net2_buffer_length(buf) + FINI_LEN <= maxlen) {
+		/*
+		 * Only add poetry on:
+		 * - packets with negotiation data, or
+		 * - keepalive packets
+		 */
+		if (!(want_payload && TAILQ_EMPTY(&transit))) {
+			/* Ignore failure: this is optional and ignored. */
+			net2_add_poetry(buf, maxlen - FINI_LEN -
+			    net2_buffer_length(buf));
+		}
+	}
+
 	if (TAILQ_EMPTY(&transit)) {
 		net2_encdec_ctx_deinit(&ctx);
 		net2_buffer_free(buf);
@@ -1076,6 +1150,8 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	int			 error;
 	size_t			 i;
 	struct net2_encdec_ctx	 ctx;
+	struct net2_conn_negotiator_set
+				*nset;
 
 	/* Only decode if negotiation data is present. */
 	if (!(ph->flags & PH_HANDSHAKE))
@@ -1095,10 +1171,24 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		}
 
 		skip = 0;
+		if (h.flags == F_POETRY)
+			goto skip;
+
 		if (h.flags & F_SET_EMPTY) {
 			if ((error = set_process_size(cn, h.flags & F_TYPEMASK,
 			    0)) != 0)
 				goto fail_wh;
+			if ((error = set_get(cn, h.flags & F_TYPEMASK,
+			    &nset)) != 0)
+				goto fail_wh;
+
+			/* Invoke callback for empty set. */
+			if (nset->callback_complete != NULL) {
+				error = (*nset->callback_complete)(cn);
+				nset->callback_complete = NULL;
+				if (error)
+					goto fail_wh;
+			}
 			skip = 1;
 		} else if (h.flags & F_SET_ELEMENT) {
 			if (h.flags & F_SET_LASTELEM) {
@@ -1133,6 +1223,21 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		if (!skip) {
 			if ((error = cneg_apply_header(cn, &h)) != 0)
 				goto fail_wh;
+
+			/* Invoke set completion callback. */
+			if (h.flags & F_SET_ELEMENT) {
+				if ((error = set_get(cn, h.flags & F_TYPEMASK,
+				    &nset)) != 0)
+					goto fail_wh;
+
+				if (nset->callback_complete != NULL &&
+				    set_done(nset)) {
+					error = (*nset->callback_complete)(cn);
+					nset->callback_complete = NULL;
+					if (error)
+						goto fail_wh;
+				}
+			}
 		}
 
 

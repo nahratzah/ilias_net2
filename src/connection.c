@@ -370,7 +370,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	to_add = NULL;
 	if (avail > winoverhead &&
 	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &ph, &to_add, tx,
-	    avail - winoverhead)) != 0)
+	    avail - winoverhead, stealth, want_payload)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
 		if (net2_buffer_append(b, to_add)) {
