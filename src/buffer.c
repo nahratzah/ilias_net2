@@ -24,8 +24,6 @@
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
 
-#include <stdio.h>	/* DEBUG */
-
 
 #ifndef NDEBUG
 /* Invariant check. */
@@ -111,7 +109,6 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 	size_t				 require, want, have;
 
 	/* Ensure that net2_buffer_segment_impl is a multiple of 8 bytes. */
-	fprintf(stderr, "net2_buffer_segment_impl size = %zu bytes; define size = %zu bytes\n", sizeof(*s), NET2_BUFSEGMENT_IMPL_SZ);
 	assert((NET2_BUFSEGMENT_IMPL_SZ & ((size_t)DATA_ALIGN - 1)) == 0);
 
 	if (len < datlen)
