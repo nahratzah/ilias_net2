@@ -219,6 +219,7 @@ main()
 	int			 thread_running = 0;
 
 	/* Initializing libevent. */
+	event_enable_debug_mode();
 #ifdef WIN32
 	if (evthread_use_windows_threads()) {
 		fprintf(stderr, "unable to set up windows threading "
