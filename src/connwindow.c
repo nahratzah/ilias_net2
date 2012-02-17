@@ -530,11 +530,13 @@ get_recv(struct net2_connwindow *w, uint32_t seq, int stalled)
 {
 	struct net2_cw_rx		*found, search, *collide;
 	uint32_t			 first_seq;
-	struct timeval			 timeout;
+	struct timeval			 timeout_lost, timeout_ack;
 
-	/* Initialize timeout to missed recv timeout. */
-	net2_connstats_timeout(&w->cw_conn->n2c_stats, &timeout,
+	/* Initialize timeout_lost to missed recv timeout. */
+	net2_connstats_timeout(&w->cw_conn->n2c_stats, &timeout_lost,
 	    TIMEOUT_RX_LOST);
+	timeout_ack.tv_sec = 0;
+	timeout_ack.tv_usec = 1000;
 
 	search.cwr_seq = seq;
 	found = RB_FIND(net2_cw_recvs, &w->cw_rx_id, &search);
@@ -559,7 +561,16 @@ get_recv(struct net2_connwindow *w, uint32_t seq, int stalled)
 			goto fail_1;
 		/* Mark it for timeout, unless its the requested ID. */
 		if (first_seq != seq) {
-			if (evtimer_add(found->cwr_timeout, &timeout)) {
+			if (evtimer_add(found->cwr_timeout, &timeout_lost)) {
+				rx_free(found);
+				goto fail_1;
+			}
+		} else {
+			/*
+			 * Work around a libevent bug: event_del requires an
+			 * added event despite what the documentation says.
+			 */
+			if (evtimer_add(found->cwr_timeout, &timeout_ack)) {
 				rx_free(found);
 				goto fail_1;
 			}
@@ -980,7 +991,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		fix_txstart(w);
 	}
 
-	if (ph->flags & (PH_STALLED | PH_PAYLOAD)) {
+	if (ph->flags & (PH_STALLED | PH_PAYLOAD | PH_HANDSHAKE)) {
 		if (!event_del(w->cw_keepalive))
 			w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
 		if (!event_del(w->cw_stallbackoff))
