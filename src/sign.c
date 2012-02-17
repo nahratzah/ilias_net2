@@ -475,7 +475,7 @@ ecdsa_sign_fn(struct net2_sign_ctx *s, const struct net2_buffer *in,
 {
 	void		*inbuf;
 	size_t		 insz;
-	int		 outsz;
+	unsigned int	 outsz;
 	struct iovec	 iov;
 	size_t		 iovcount;
 
