@@ -367,6 +367,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
 		if (net2_buffer_append(b, to_add)) {
+			rv = ENOMEM;
 			net2_buffer_free(to_add);
 			warnx("buffer_append fail for cneg");
 			goto fail_2;
@@ -375,8 +376,13 @@ net2_conn_gather_tx(struct net2_connection *c,
 		net2_buffer_free(to_add);
 		has_payload = 1;
 	}
-	if (!negotiation_ready)
+	if (!negotiation_ready) {
+		if (want_payload && !has_payload) {
+			rv = 0; /* Not an error, just no data to read. */
+			goto fail_2;
+		}
 		goto write_window_buf;
+	}
 
 fill_up:
 	/*
