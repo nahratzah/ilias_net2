@@ -1142,7 +1142,8 @@ skip:			/* All goto skip continue here. */
 		 * ranges.
 		 */
 		for (i = 0; i < *counter; i++) {
-			if (rx->cwr_seq - (*range)[i].first <= (*range)[i].last)
+			if (rx->cwr_seq - (*range)[i].first <=
+			    (*range)[i].last - (*range)[i].first)
 				goto skip;
 		}
 
