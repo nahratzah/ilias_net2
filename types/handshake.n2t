@@ -138,6 +138,17 @@ type header (
 	destroy cp_header_destroy
 );
 
+struct pver_header_content (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	net2_protocol	payload.version;
+	uint16		payload.num_types;
+	uint16		payload.num_settypes;
+	uint32		payload.options;
+	uint32		payload.reserved;
+};
+
 
 %%
 /* Describe for each option which protocol version first supported it. */
@@ -406,20 +417,8 @@ cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
 			goto out;
 		}
 
-		if ((error = net2_cp_encode(ctx, &cp_net2_protocol, out,
-		    &h->payload.version, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_encode(ctx, &cp_uint16, out,
-		    &h->payload.num_types, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_encode(ctx, &cp_uint16, out,
-		    &h->payload.num_settypes, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
-		    &h->payload.options, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
-		    &h->payload.reserved, NULL)) != 0)
+		if ((error = net2_cp_encode(ctx, &cp_pver_header_content, out,
+		    h, NULL)) != 0)
 			goto out;
 
 		error = 0;
@@ -492,20 +491,8 @@ cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
 			goto out;
 		}
 
-		if ((error = net2_cp_decode(ctx, &cp_net2_protocol,
-		    &h->payload.version, in, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_decode(ctx, &cp_uint16,
-		    &h->payload.num_types, in, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_decode(ctx, &cp_uint16,
-		    &h->payload.num_settypes, in, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_decode(ctx, &cp_uint32,
-		    &h->payload.options, in, NULL)) != 0)
-			goto out;
-		if ((error = net2_cp_decode(ctx, &cp_uint32,
-		    &h->payload.reserved, in, NULL)) != 0)
+		if ((error = net2_cp_decode(ctx, &cp_pver_header_content,
+		    h, in, NULL)) != 0)
 			goto out;
 
 		error = 0;
