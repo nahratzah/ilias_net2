@@ -37,6 +37,10 @@
 #endif
 
 
+/* Enable for additional connwindow debugging. */
+/* #define CONNWINDOW_DEBUG */
+
+
 /* State transitions per packet:
  *
  * When a packet is sent, a new net2_cw_tx struct is created.
@@ -150,6 +154,10 @@ struct net2_cw_tx {
 #define NET2_CWTX_F_WANTBAD	0x00000001	/* Want loss transmission. */
 #define NET2_CWTX_F_SENTBAD	0x00000002	/* Sent loss transmission. */
 #define NET2_CWTX_F_TIMEDOUT	0x00000004	/* Timeout cb invoked. */
+#define NET2_CWTX_F_ALLOC	0x80000000	/* Debug: created using new. */
+#define NET2_CWTX_F_ON_TREE	0x40000000	/* Debug: in ID set. */
+
+#define NET2_CWTX_QUEUEMASK	(NET2_CWTX_F_WANTBAD | NET2_CWTX_F_ON_TREE)
 	int		 cwt_stalled;		/* No payload, no callbacks. */
 };
 
@@ -179,7 +187,10 @@ struct net2_cw_rx {
 #define NET2_CWRX_F_LOST	0x00000002	/* Packet loss was received. */
 #define NET2_CWRX_F_ACKED	0x00000010	/* Packet ack/nack sent. */
 #define NET2_CWRX_F_WANTACK	0x00000020	/* Packet ack/nack wanted. */
+#define NET2_CWRX_F_ALLOC	0x80000000	/* Debug: created using new. */
+#define NET2_CWRX_F_ON_TREE	0x40000000	/* Debug: in ID set. */
 
+#define NET2_CWRX_QUEUEMASK	(NET2_CWRX_F_WANTACK | NET2_CWRX_F_ON_TREE)
 #define NET2_CWRX_RCVMASK	(NET2_CWRX_F_RECVOK|NET2_CWRX_F_LOST)
 };
 
@@ -215,6 +226,166 @@ RB_PROTOTYPE_STATIC(net2_cw_transmits, net2_cw_tx, cwt_entry_id, tx_cmp);
 RB_PROTOTYPE_STATIC(net2_cw_recvs, net2_cw_rx, cwr_entry_id, rx_cmp);
 RB_GENERATE_STATIC(net2_cw_transmits, net2_cw_tx, cwt_entry_id, tx_cmp);
 RB_GENERATE_STATIC(net2_cw_recvs, net2_cw_rx, cwr_entry_id, rx_cmp);
+
+
+#ifdef CONNWINDOW_DEBUG
+/* Returns true iff the rx is on the wantack queue. */
+static int
+cw_rx_wantack_findme(struct net2_connwindow *w, struct net2_cw_rx *rx)
+{
+	struct net2_cw_rx	*iter;
+
+	TAILQ_FOREACH(iter, &w->cw_rx_wantack, cwr_entry_rx) {
+		if (iter == rx)
+			return 1;
+	}
+	return 0;
+}
+#endif
+/* Insert rx on the head/tail of the queue. */
+static __inline void
+cw_rx_wantack_insert(struct net2_connwindow *w, struct net2_cw_rx *rx,
+    int head)
+{
+	assert(rx->cwr_owner == w);
+	assert(!(rx->cwr_flags & NET2_CWRX_F_WANTACK));
+#ifdef CONNWINDOW_DEBUG
+	assert(!cw_rx_wantack_findme(w, rx));
+#endif
+
+	if (head)
+		TAILQ_INSERT_HEAD(&w->cw_rx_wantack, rx, cwr_entry_rx);
+	else
+		TAILQ_INSERT_TAIL(&w->cw_rx_wantack, rx, cwr_entry_rx);
+	rx->cwr_flags |= NET2_CWRX_F_WANTACK;
+}
+/* Remove rx from queue. */
+static __inline void
+cw_rx_wantack_remove(struct net2_connwindow *w, struct net2_cw_rx *rx)
+{
+	assert(rx->cwr_owner == w);
+	assert(rx->cwr_flags & NET2_CWRX_F_WANTACK);
+#ifdef CONNWINDOW_DEBUG
+	assert(cw_rx_wantack_findme(w, rx));
+#endif
+
+	TAILQ_REMOVE(&w->cw_rx_wantack, rx, cwr_entry_rx);
+	rx->cwr_flags &= ~NET2_CWRX_F_WANTACK;
+}
+
+#ifdef CONNWINDOW_DEBUG
+/* Returns true iff the tx is on the wantbad queue. */
+static int
+cw_tx_wantbad_findme(struct net2_connwindow *w, struct net2_cw_tx *tx)
+{
+	struct net2_cw_tx	*iter;
+
+	TAILQ_FOREACH(iter, &w->cw_tx_bad, cwt_entry_txbad) {
+		if (iter == tx)
+			return 1;
+	}
+	return 0;
+}
+#endif
+/* Insert tx on the tail of the queue. */
+static __inline void
+cw_tx_wantbad_insert(struct net2_connwindow *w, struct net2_cw_tx *tx,
+    int head)
+{
+	assert(tx->cwt_owner == w);
+	assert(!(tx->cwt_flags & NET2_CWTX_F_WANTBAD));
+#ifdef CONNWINDOW_DEBUG
+	assert(!cw_tx_wantbad_findme(w, tx));
+#endif
+
+	if (head)
+		TAILQ_INSERT_HEAD(&w->cw_tx_bad, tx, cwt_entry_txbad);
+	else
+		TAILQ_INSERT_TAIL(&w->cw_tx_bad, tx, cwt_entry_txbad);
+	tx->cwt_flags |= NET2_CWTX_F_WANTBAD;
+}
+/* Remove tx from the queue. */
+static __inline void
+cw_tx_wantbad_remove(struct net2_connwindow *w, struct net2_cw_tx *tx)
+{
+	assert(tx->cwt_owner == w);
+	assert(tx->cwt_flags & NET2_CWTX_F_WANTBAD);
+#ifdef CONNWINDOW_DEBUG
+	assert(cw_tx_wantbad_findme(w, tx));
+#endif
+
+	TAILQ_REMOVE(&w->cw_tx_bad, tx, cwt_entry_txbad);
+	tx->cwt_flags &= ~NET2_CWTX_F_WANTBAD;
+}
+
+
+/* Tree insert of received data. */
+static __inline struct net2_cw_rx*
+cw_recvs_insert(struct net2_connwindow *w, struct net2_cw_rx *rx, int fail_ok)
+{
+	struct net2_cw_rx	*collide;
+
+	assert(rx->cwr_owner == w);
+	assert(!(rx->cwr_flags & NET2_CWRX_F_ON_TREE));
+	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
+	collide = RB_INSERT(net2_cw_recvs, &w->cw_rx_id, rx);
+	assert(fail_ok || collide == NULL);
+	assert(collide != rx);
+	if (collide == NULL)
+		rx->cwr_flags |= NET2_CWRX_F_ON_TREE;
+	return collide;
+}
+/* Tree removal of received data. */
+static __inline void
+cw_recvs_remove(struct net2_connwindow *w, struct net2_cw_rx *rx)
+{
+	struct net2_cw_rx	*removed;
+
+	assert(rx->cwr_owner == w);
+	assert(rx->cwr_flags & NET2_CWRX_F_ON_TREE);
+	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
+#ifdef CONNWINDOW_DEBUG
+	assert(RB_FIND(net2_cw_recvs, &w->cw_rx_id, rx) == rx);
+#endif
+	removed = RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, rx);
+	assert(removed == rx);
+	rx->cwr_flags &= ~NET2_CWRX_F_ON_TREE;
+}
+
+
+/* Tree insert of transmit data. */
+static __inline struct net2_cw_tx*
+cw_transmits_insert(struct net2_connwindow *w, struct net2_cw_tx *tx, int fail_ok)
+{
+	struct net2_cw_tx	*collide;
+
+	assert(tx->cwt_owner == w);
+	assert(!(tx->cwt_flags & NET2_CWTX_F_ON_TREE));
+	assert(tx->cwt_flags & NET2_CWTX_F_ALLOC);
+	collide = RB_INSERT(net2_cw_transmits, &w->cw_tx_id, tx);
+	assert(fail_ok || collide == NULL);
+	assert(collide != tx);
+	if (collide == NULL)
+		tx->cwt_flags |= NET2_CWTX_F_ON_TREE;
+	return collide;
+}
+/* Tree removal of received data. */
+static __inline void
+cw_transmits_remove(struct net2_connwindow *w, struct net2_cw_tx *tx)
+{
+	struct net2_cw_tx	*removed;
+
+	assert(tx->cwt_owner == w);
+	assert(tx->cwt_flags & NET2_CWTX_F_ON_TREE);
+	assert(tx->cwt_flags & NET2_CWTX_F_ALLOC);
+#ifdef CONNWINDOW_DEBUG
+	assert(RB_FIND(net2_cw_transmits, &w->cw_tx_id, tx) == tx);
+#endif
+	removed = RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
+	assert(removed == tx);
+	tx->cwt_flags &= ~NET2_CWTX_F_ON_TREE;
+}
+
 
 /* Set the stalled flag, depending on the transmission window. */
 static inline void
@@ -290,8 +461,7 @@ tx_timeout(int fd, short what, void *txptr)
 		    TIMEOUT_TX_BAD);
 		event_add(tx->cwt_timeout, &next_timeout);
 	} else if (!(tx->cwt_flags & NET2_CWTX_F_WANTBAD)) {
-		tx->cwt_flags |= NET2_CWTX_F_WANTBAD;
-		TAILQ_INSERT_TAIL(&w->cw_tx_bad, tx, cwt_entry_txbad);
+		cw_tx_wantbad_insert(w, tx, 0);
 		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 }
@@ -311,10 +481,8 @@ rx_timeout(int fd, short what, void *rxptr)
 	if ((rx->cwr_flags & NET2_CWRX_RCVMASK) == 0)
 		rx->cwr_flags |= NET2_CWRX_F_LOST;
 	/* Request ack transmission. */
-	if ((rx->cwr_flags & NET2_CWRX_F_WANTACK) == 0) {
-		rx->cwr_flags |= NET2_CWRX_F_WANTACK;
-		TAILQ_INSERT_TAIL(&w->cw_rx_wantack, rx, cwr_entry_rx);
-	}
+	if ((rx->cwr_flags & NET2_CWRX_F_WANTACK) == 0)
+		cw_rx_wantack_insert(w, rx, 0);
 }
 
 static struct net2_cw_tx*
@@ -336,7 +504,7 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	if ((tx->cwt_timeout = evtimer_new(evbase->evbase, tx_timeout, tx)) ==
 	    NULL)
 		goto fail_1;
-	tx->cwt_flags = 0;
+	tx->cwt_flags = NET2_CWTX_F_ALLOC;
 	tx->cwt_stalled = 0;
 
 	return tx;
@@ -471,6 +639,8 @@ tx_free(struct net2_cw_tx *tx)
 {
 	struct net2_cw_transmit_cb	*cb;
 
+	assert(tx->cwt_flags & NET2_CWTX_F_ALLOC);
+	assert(!(tx->cwt_flags & NET2_CWTX_QUEUEMASK));
 	event_free(tx->cwt_timeout);
 	while ((cb = TAILQ_FIRST(&tx->cwt_cbq)) != NULL) {
 		TAILQ_REMOVE(&tx->cwt_cbq, cb, entry);
@@ -495,7 +665,7 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 	rx->cwr_owner = w;
 	rx->cwr_seq = seq;
 	rx->cwr_wire_sz = 0;	/* No idea. */
-	rx->cwr_flags = 0;
+	rx->cwr_flags = NET2_CWRX_F_ALLOC;
 	if ((rx->cwr_timeout = evtimer_new(evbase->evbase, rx_timeout, rx)) ==
 	    NULL)
 		goto fail_1;
@@ -509,11 +679,15 @@ fail_0:
 }
 
 static void
-rx_free(struct net2_cw_rx *rx)
+rx_free(struct net2_cw_rx *rx, const char *file, int line)
 {
+	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
+	fprintf(stderr, "%s:%d rx->cwr_flags = 0x%x\n", file, line, rx->cwr_flags);
+	assert(!(rx->cwr_flags & NET2_CWRX_QUEUEMASK));
 	event_free(rx->cwr_timeout);
 	free(rx);
 }
+#define rx_free(x)	rx_free((x), __FILE__, __LINE__)
 
 
 /*
@@ -576,8 +750,7 @@ get_recv(struct net2_connwindow *w, uint32_t seq, int stalled)
 			}
 		}
 		/* Push into the recv set. */
-		collide = RB_INSERT(net2_cw_recvs, &w->cw_rx_id, found);
-		assert(collide == NULL);
+		cw_recvs_insert(w, found, 0);
 
 		/* Proceed to next sequence. */
 		first_seq++;
@@ -593,7 +766,7 @@ fail_1:
 		search.cwr_seq = first_seq;
 		found = RB_FIND(net2_cw_recvs, &w->cw_rx_id, &search);
 		if (found) {
-			RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, found);
+			cw_recvs_remove(w, found);
 			rx_free(found);
 		}
 	}
@@ -622,16 +795,13 @@ do_transmit_ack(struct net2_connwindow *w, uint32_t first, uint32_t last,
 		/* Skip already acked entries. */
 		if (tx == NULL)
 			continue;
-		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
+		cw_transmits_remove(w, tx);
 		/* We're performing work. */
 		did_nothing = 0;
 
 		/* Packet ack implies no longer wanting BAD transmit */
-		if (tx->cwt_flags & NET2_CWTX_F_WANTBAD) {
-			tx->cwt_flags &= ~NET2_CWTX_F_WANTBAD;
-			TAILQ_REMOVE(&w->cw_tx_bad, tx,
-			    cwt_entry_txbad);
-		}
+		if (tx->cwt_flags & NET2_CWTX_F_WANTBAD)
+			cw_tx_wantbad_remove(w, tx);
 
 		/* Update statistics. */
 		add_statistic(w, &tx->cwt_timestamp,
@@ -711,14 +881,14 @@ do_stalled(struct net2_connwindow *w)
 	 * move it to the front.
 	 */
 	if (rx->cwr_flags & NET2_CWRX_F_WANTACK)
-		TAILQ_REMOVE(&w->cw_rx_wantack, rx, cwr_entry_rx);
+		cw_rx_wantack_remove(w, rx);
 	else if ((rx->cwr_flags & NET2_CWRX_RCVMASK) == 0) {
 		/* Mark as lost if it hadn't been marked already. */
-		rx->cwr_flags |= (NET2_CWRX_F_LOST | NET2_CWRX_F_WANTACK);
+		rx->cwr_flags |= NET2_CWRX_F_LOST;
 	}
 
 	/* Put on the front of the WANTACK queue. */
-	TAILQ_INSERT_HEAD(&w->cw_rx_wantack, rx, cwr_entry_rx);
+	cw_rx_wantack_insert(w, rx, 1);
 
 	/* Ensure connection will send immediately. */
 	net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
@@ -752,10 +922,8 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 		if (!(rx->cwr_flags & NET2_CWRX_RCVMASK))
 			rx->cwr_flags |= NET2_CWRX_F_LOST;
 		/* Enqueue the packet for acknowledgement. */
-		if (!(rx->cwr_flags & NET2_CWRX_F_WANTACK)) {
-			rx->cwr_flags |= NET2_CWRX_F_WANTACK;
-			TAILQ_INSERT_TAIL(&w->cw_rx_wantack, rx, cwr_entry_rx);
-		}
+		if (!(rx->cwr_flags & NET2_CWRX_F_WANTACK))
+			cw_rx_wantack_insert(w, rx, 0);
 		/* No need for timing out on not receiving this. */
 		event_del(rx->cwr_timeout);
 
@@ -780,7 +948,7 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 		rx_search.cwr_seq = w->cw_rx_start;
 		rx = RB_FIND(net2_cw_recvs, &w->cw_rx_id, &rx_search);
 		if (rx != NULL)
-			RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, rx);
+			cw_recvs_remove(w, rx);
 
 		/*
 		 * rx must exist: window cannot continue unless all packets
@@ -795,7 +963,7 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 
 		/* Remove from WANTACK queue. */
 		if (rx->cwr_flags & NET2_CWRX_F_WANTACK)
-			TAILQ_REMOVE(&w->cw_rx_wantack, rx, cwr_entry_rx);
+			cw_rx_wantack_remove(w, rx);
 
 		rx_free(rx);
 	}
@@ -868,11 +1036,15 @@ net2_connwindow_deinit(struct net2_connwindow *w)
 	struct net2_cw_tx		*tx;
 
 	while ((rx = RB_ROOT(&w->cw_rx_id)) != NULL) {
-		RB_REMOVE(net2_cw_recvs, &w->cw_rx_id, rx);
+		if (rx->cwr_flags & NET2_CWRX_F_WANTACK)
+			cw_rx_wantack_remove(w, rx);
+		cw_recvs_remove(w, rx);
 		rx_free(rx);
 	}
 	while ((tx = RB_ROOT(&w->cw_tx_id)) != NULL) {
-		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
+		if (tx->cwt_flags & NET2_CWTX_F_WANTBAD)
+			cw_tx_wantbad_remove(w, tx);
+		cw_transmits_remove(w, tx);
 		tx_free(tx);
 	}
 	event_free(w->cw_stallbackoff);
@@ -973,8 +1145,8 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		 * to the to-be-acked queue.
 		 */
 		rx->cwr_wire_sz = wire_sz;
-		rx->cwr_flags |= (NET2_CWRX_F_RECVOK | NET2_CWRX_F_WANTACK);
-		TAILQ_INSERT_TAIL(&w->cw_rx_wantack, rx, cwr_entry_rx);
+		rx->cwr_flags |= NET2_CWRX_F_RECVOK;
+		cw_rx_wantack_insert(w, rx, 0);
 	}
 
 	if (ph->flags & PH_WINUPDATE) {
@@ -1109,7 +1281,7 @@ net2_connwindow_writebuf(struct net2_connwindow *w, struct packet_header *ph,
 		wh.num_bad++;
 		maxbad--;
 
-		TAILQ_REMOVE(&w->cw_tx_bad, tx, cwt_entry_txbad);
+		cw_tx_wantbad_remove(w, tx);
 		TAILQ_INSERT_TAIL(&txq, tx, cwt_entry_txbad);
 	}
 	/* Update required space. */
@@ -1176,6 +1348,8 @@ skip:			/* All goto skip continue here. */
 		/* Initially, both first and last are equal. */
 		r->first = r->last = rx->cwr_seq;
 
+		assert(RB_FIND(net2_cw_recvs, &w->cw_rx_id, rx) == rx);
+
 		/* Extend range backwards. */
 		for (rxi = RB_PREV(net2_cw_recvs, &w->cw_rx_id, rx);
 		    rxi != NULL && rxi->cwr_seq == r->first - 1 &&
@@ -1185,8 +1359,7 @@ skip:			/* All goto skip continue here. */
 			r->first--;
 
 			if (rxi->cwr_flags & NET2_CWRX_F_WANTACK) {
-				TAILQ_REMOVE(&w->cw_rx_wantack, rxi,
-				    cwr_entry_rx);
+				cw_rx_wantack_remove(w, rxi);
 				TAILQ_INSERT_TAIL(&rxq, rxi, cwr_entry_rx);
 			}
 		}
@@ -1200,8 +1373,7 @@ skip:			/* All goto skip continue here. */
 			r->last++;
 
 			if (rxi->cwr_flags & NET2_CWRX_F_WANTACK) {
-				TAILQ_REMOVE(&w->cw_rx_wantack, rxi,
-				    cwr_entry_rx);
+				cw_rx_wantack_remove(w, rxi);
 				TAILQ_INSERT_TAIL(&rxq, rxi, cwr_entry_rx);
 			}
 		}
@@ -1213,7 +1385,7 @@ skip:			/* All goto skip continue here. */
 		rx_next = TAILQ_NEXT(rx, cwr_entry_rx);
 
 		/* Now that rx_next is certain not to be changed, move it. */
-		TAILQ_REMOVE(&w->cw_rx_wantack, rx, cwr_entry_rx);
+		cw_rx_wantack_remove(w, rx);
 		TAILQ_INSERT_TAIL(&rxq, rx, cwr_entry_rx);
 	}
 
@@ -1240,17 +1412,18 @@ skip:			/* All goto skip continue here. */
 
 	/* Unwant all rx. */
 	TAILQ_FOREACH(rx, &rxq, cwr_entry_rx) {
-		rx->cwr_flags &= ~NET2_CWRX_F_WANTACK;
+		assert(!(rx->cwr_flags & NET2_CWRX_F_WANTACK));
 		rx->cwr_flags |= NET2_CWRX_F_ACKED;
-		event_del(rx->cwr_timeout);
+		if (evtimer_pending(rx->cwr_timeout, NULL))
+			event_del(rx->cwr_timeout);
 		if (event_add(rx->cwr_timeout, &rx_ack_timeout))
 			warnx("event_add fail, window may misbehave...");
 	}
 	/* Unwant all tx. */
 	TAILQ_FOREACH(tx, &txq, cwt_entry_txbad) {
-		tx->cwt_flags &= ~NET2_CWTX_F_WANTBAD;
 		tx->cwt_flags |= NET2_CWTX_F_SENTBAD;
-		event_del(tx->cwt_timeout);
+		if (evtimer_pending(tx->cwt_timeout, NULL))
+			event_del(tx->cwt_timeout);
 		if (event_add(tx->cwt_timeout, &tx_bad_timeout))
 			warnx("event_add fail, window may misbehave...");
 	}
@@ -1273,11 +1446,11 @@ fail_1:
 	/* Move all tx and rx back into their queues; order will change. */
 	while ((rx = TAILQ_FIRST(&rxq)) != NULL) {
 		TAILQ_REMOVE(&rxq, rx, cwr_entry_rx);
-		TAILQ_INSERT_HEAD(&w->cw_rx_wantack, rx, cwr_entry_rx);
+		cw_rx_wantack_insert(w, rx, 1);
 	}
 	while ((tx = TAILQ_FIRST(&txq)) != NULL) {
 		TAILQ_REMOVE(&txq, tx, cwt_entry_txbad);
-		TAILQ_INSERT_HEAD(&w->cw_tx_bad, tx, cwt_entry_txbad);
+		cw_tx_wantbad_insert(w, tx, 1);
 	}
 
 fail_0:
@@ -1313,7 +1486,7 @@ net2_connwindow_tx_prepare(struct net2_connwindow *w,
 		ph->flags |= PH_STALLED;
 		tx->cwt_stalled = 1;
 	} else {
-		if (RB_INSERT(net2_cw_transmits, &w->cw_tx_id, tx) != NULL)
+		if (cw_transmits_insert(w, tx, 1))
 			goto fail_1;
 		w->cw_tx_nextseq++;
 	}
@@ -1400,7 +1573,7 @@ net2_connwindow_tx_rollback(struct net2_cw_tx *tx)
 		tx_free(tx);
 	} else if (w->cw_tx_nextseq - 1 == tx->cwt_seq) {
 		w->cw_tx_nextseq--;
-		RB_REMOVE(net2_cw_transmits, &w->cw_tx_id, tx);
+		cw_transmits_remove(w, tx);
 		tx_free(tx);
 	} else {
 		/*
@@ -1408,8 +1581,8 @@ net2_connwindow_tx_rollback(struct net2_cw_tx *tx)
 		 * We also set the timeout flag, so the tx_timeout code
 		 * skips its first timeout handling.
 		 */
-		tx->cwt_flags |= NET2_CWTX_F_WANTBAD | NET2_CWTX_F_TIMEDOUT;
-		TAILQ_INSERT_TAIL(&w->cw_tx_bad, tx, cwt_entry_txbad);
+		tx->cwt_flags |= NET2_CWTX_F_TIMEDOUT;
+		cw_tx_wantbad_insert(w, tx, 0);
 	}
 }
 
