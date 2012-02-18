@@ -33,6 +33,8 @@ static void	DH_destroy_fn(struct net2_xchange_ctx*);
 static int	DH_export_fn(struct net2_xchange_ctx*, struct net2_buffer*);
 static int	DH_import_fn(struct net2_xchange_ctx*, struct net2_buffer*);
 static int	DH_final_fn(struct net2_xchange_ctx*, struct net2_buffer*);
+static int	DH_clone_fn(struct net2_xchange_ctx*,
+		    const struct net2_xchange_ctx*);
 
 struct net2_xchange_fn {
 	const char	*name;
@@ -41,6 +43,8 @@ struct net2_xchange_fn {
 	int	(*export)(struct net2_xchange_ctx*, struct net2_buffer*);
 	int	(*import)(struct net2_xchange_ctx*, struct net2_buffer*);
 	int	(*final)(struct net2_xchange_ctx*, struct net2_buffer*);
+	int	(*clone)(struct net2_xchange_ctx*,
+		    const struct net2_xchange_ctx*);
 };
 
 #define XCHANGE_FN(_namestr, _name)					\
@@ -50,11 +54,12 @@ struct net2_xchange_fn {
 		_name##_destroy_fn,					\
 		_name##_export_fn,					\
 		_name##_import_fn,					\
-		_name##_final_fn					\
+		_name##_final_fn,					\
+		_name##_clone_fn					\
 	}
 
 static const struct net2_xchange_fn xchange[] = {
-	{ "nil", NIL_init_fn, NULL, NULL, NULL, NULL },
+	{ "nil", NIL_init_fn, NULL, NULL, NULL, NULL, NULL },
 	XCHANGE_FN("dh", DH)
 };
 
@@ -199,6 +204,32 @@ net2_xchangectx_finalfree(struct net2_xchange_ctx *x)
 	b = net2_xchangectx_final(x);
 	net2_xchangectx_free(x);
 	return b;
+}
+
+/*
+ * Clone the xchange.
+ *
+ * The new xchange will be as if the original net2_xchangectx_prepare
+ * function had been called with the same arguments.
+ */
+ILIAS_NET2_EXPORT struct net2_xchange_ctx*
+net2_xchangectx_clone(const struct net2_xchange_ctx *x)
+{
+	struct net2_xchange_ctx	*dst;
+	int			 error;
+
+	if ((dst = malloc(sizeof(*dst))) == NULL)
+		return NULL;
+	dst->fn = x->fn;
+	dst->flags = x->flags;
+	dst->scratch = NULL;
+
+	if ((error = (*dst->fn->clone)(dst, x)) != 0) {
+		free(dst);
+		return NULL;
+	}
+
+	return dst;
 }
 
 
@@ -450,4 +481,12 @@ DH_final_fn(struct net2_xchange_ctx *x, struct net2_buffer *privkey)
 fail:
 	print_ssl_errors();
 	return -1;
+}
+/* Clone the import parameters. */
+static int
+DH_clone_fn(struct net2_xchange_ctx *dest, const struct net2_xchange_ctx *orig)
+{
+	if ((dest->impl.dh = DHparams_dup(orig->impl.dh)) == NULL)
+		return ENOMEM;
+	return 0;
 }

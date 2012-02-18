@@ -58,6 +58,8 @@ ILIAS_NET2_EXPORT
 void			 net2_xchangectx_free(struct net2_xchange_ctx*);
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_xchangectx_finalfree(struct net2_xchange_ctx*);
+ILIAS_NET2_EXPORT
+struct net2_xchange_ctx	*net2_xchangectx_clone(const struct net2_xchange_ctx*);
 
 
 #ifdef __cplusplus
