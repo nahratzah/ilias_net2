@@ -53,7 +53,7 @@ struct net2_conn_negotiator_set {
 
 
 static __inline int
-encode_header(const struct header *h, struct net2_buffer *out)
+encode_header(struct net2_buffer *out, const struct header *h)
 {
 	return net2_cp_encode(&net2_encdec_proto0, &cp_header, out, h, NULL);
 }
@@ -670,7 +670,7 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 	int		 error;
 	int		 idx;
 	struct net2_sign_ctx
-			*signature;
+			*signature, **siglist;
 
 	switch (h->flags & F_TYPEMASK) {
 	case F_TYPE_PVER:
@@ -788,6 +788,42 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 			net2_signctx_free(signature);
 			return error;
 		}
+
+		break;
+
+	case F_TYPE_SIGNATURE_ACCEPT:
+		if ((h->flags & FT_MASK) != FT_BUFFER)
+			return EINVAL;
+		if (cn->context == NULL)
+			return EINVAL;	/* TODO: put error header on the wire. */
+
+		/* Find signature. */
+		if ((signature = net2_signset_find(
+		    &cn->context->local_signs, h->payload.buf)) == NULL)
+			return EINVAL;	/* I didn't publish that... */
+
+		/* Insert into to-sign set. */
+		if (cn->signature_list.size <= h->seq) {
+			/* Prevent overflow. */
+			if (SIZE_MAX / sizeof(*cn->signature_list.signatures) <
+			    (size_t)h->seq + 1)
+				return ENOMEM;
+
+			/* Resize the signature list. */
+			if ((siglist = realloc(cn->signature_list.signatures,
+			    ((size_t)h->seq + 1) *
+			    sizeof(*cn->signature_list.signatures))) == NULL)
+				return ENOMEM;
+			cn->signature_list.signatures = siglist;
+			/* Initialize new members to NULL. */
+			while (cn->signature_list.size <= h->seq)
+				siglist[cn->signature_list.size++] = NULL;
+		}
+
+		/* Clone signature. */
+		if ((cn->signature_list.signatures[h->seq] =
+		    net2_signctx_clone(signature)) == NULL)
+			return ENOMEM;
 
 		break;
 
@@ -965,6 +1001,8 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 		    NET2_CNEG_REQUIRE_SIGNING;
 	}
 
+	cn->signature_list.signatures = NULL;
+	cn->signature_list.size = 0;
 	cn->negotiated.sets = NULL;
 	cn->negotiated.sets_count = 0;
 	net2_bitset_init(&cn->negotiated.received);
@@ -1015,6 +1053,7 @@ ILIAS_NET2_LOCAL void
 net2_cneg_deinit(struct net2_conn_negotiator *cn)
 {
 	struct encoded_header	*h;
+	size_t			 i;
 
 	/* Mark as dead, all headers on the waitq; callback will deal with
 	 * cleanup. */
@@ -1035,6 +1074,19 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			    --cn->negotiated.sets_count].data);
 		}
 		free(cn->negotiated.sets);
+	}
+
+	/* Free signatures used to identify this host. */
+	if (cn->signature_list.signatures != NULL) {
+		for (i = 0; i < cn->signature_list.size; i++) {
+			if (cn->signature_list.signatures[i] == NULL)
+				continue;
+			net2_signctx_free(cn->signature_list.signatures[i]);
+		}
+
+		free(cn->signature_list.signatures);
+		cn->signature_list.signatures = NULL;
+		cn->signature_list.size = 0;
 	}
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
@@ -1083,7 +1135,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 			if ((eh->buf = net2_buffer_new()) == NULL)
 				break;
 
-			error = encode_header(&eh->header, eh->buf);
+			error = encode_header(eh->buf, &eh->header);
 			if (error != 0) {
 				net2_buffer_free(eh->buf);
 				if (error == ENOMEM)
@@ -1147,7 +1199,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	}
 
 	/* Append closing tag. */
-	if ((error = encode_header(&header_fini, buf)) != 0)
+	if ((error = encode_header(buf, &header_fini)) != 0)
 		goto fail;
 
 	/* Commit transit queue. */

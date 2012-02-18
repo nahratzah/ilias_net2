@@ -86,6 +86,15 @@ struct net2_conn_negotiator {
 				 sign;		/* Supported sign. */
 	struct net2_signset	 remote_signs;	/* Known remote signatures. */
 
+	struct {
+		struct net2_sign_ctx
+				**signatures;	/* Signatures. */
+		size_t		 size;		/* Signature count. */
+	}			 signature_list; /* Signatures that must be
+						  * used to sign messages.
+						  * Order is significant and
+						  * decided by remote host. */
+
 	int			 tx_enc;	/* Selected enc for tx. */
 	int			 tx_hash;	/* Selected hash for tx. */
 	int			 tx_xchange;	/* Selected xchange for tx. */
