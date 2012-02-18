@@ -422,12 +422,6 @@ keepalive(int fd, short what, void *wptr)
 	}
 }
 
-static __inline int
-cw_edctx(struct net2_encdec_ctx *ctx, struct net2_connwindow *cw)
-{
-	return net2_encdec_ctx_newaccsocket(ctx, &cw->cw_conn->n2c_socket);
-}
-
 
 static void	tx_cb_timeout(struct net2_cw_transmit_cb*);
 static void	tx_cb_ack(struct net2_cw_transmit_cb*);
@@ -1111,7 +1105,6 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
     struct net2_buffer *buf, size_t wire_sz)
 {
 	struct net2_cw_rx		*rx;
-	struct net2_encdec_ctx		 ctx;
 	struct windowheader		 wh;
 	int				 ph_needdestroy = 0;
 	int				 rv;
@@ -1119,13 +1112,12 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	assert(net2_connwindow_accept(w, ph));
 
 	if ((ph->flags & PH_WINUPDATE) != 0) {
-		if ((rv = cw_edctx(&ctx, w)) != 0)
-			goto fail_0;
-		if ((rv = net2_cp_init(&ctx, &cp_windowheader, &wh, NULL)) != 0)
+		if ((rv = net2_cp_init(&net2_encdec_proto0, &cp_windowheader,
+		    &wh, NULL)) != 0)
 			goto fail_0;
 		ph_needdestroy = 1;
-		if ((rv = net2_cp_decode(&ctx, &cp_windowheader, &wh, buf,
-		    NULL)) != 0)
+		if ((rv = net2_cp_decode(&net2_encdec_proto0, &cp_windowheader,
+		    &wh, buf, NULL)) != 0)
 			goto fail_0;
 
 		if ((w->cw_flags & NET2_CW_F_WANTRECV) != 0) {
@@ -1154,10 +1146,9 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 			goto fail_0;
 
 		ph_needdestroy = 0;
-		if ((rv = net2_cp_destroy(&ctx, &cp_windowheader, &wh,
-		    NULL)) != 0)
+		if ((rv = net2_cp_destroy(&net2_encdec_proto0,
+		    &cp_windowheader, &wh, NULL)) != 0)
 			goto fail_0;
-		net2_encdec_ctx_deinit(&ctx);
 
 		/* Update start of tx window. */
 		fix_txstart(w);
@@ -1174,11 +1165,9 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	return 0;
 
 fail_0:
-	if (ph_needdestroy)
-		net2_cp_destroy(&ctx, &cp_windowheader, &wh, NULL);
-	if ((ph->flags & PH_WINUPDATE) != 0) {
-		net2_encdec_ctx_rollback(&ctx);
-		net2_encdec_ctx_deinit(&ctx);
+	if (ph_needdestroy) {
+		net2_cp_destroy(&net2_encdec_proto0, &cp_windowheader, &wh,
+		    NULL);
 	}
 	return rv;
 }
@@ -1200,7 +1189,6 @@ net2_connwindow_writebuf(struct net2_connwindow *w, struct packet_header *ph,
 	void				*tmp;
 	struct winrange			*r, **range;
 	uint8_t				*counter;
-	struct net2_encdec_ctx		 ctx;
 	TAILQ_HEAD(, net2_cw_tx)	 txq;
 	TAILQ_HEAD(, net2_cw_rx)	 rxq;
 	struct timeval			 rx_ack_timeout, tx_bad_timeout;
@@ -1393,14 +1381,10 @@ skip:			/* All goto skip continue here. */
 	 * We now have a valid window.
 	 * Encode it into a buffer.
 	 */
-	if (cw_edctx(&ctx, w) != 0)
+	if (net2_cp_encode(&net2_encdec_proto0, &cp_windowheader, buf, &wh,
+	    NULL) != 0)
 		goto fail_1;
-	if (net2_cp_encode(&ctx, &cp_windowheader, buf, &wh, NULL) != 0)
-		goto fail_2;
 	assert(net2_buffer_length(buf) <= avail);
-
-	/* Release encoding context. */
-	net2_encdec_ctx_deinit(&ctx);
 
 	/* Release resources in window. */
 	if (wh.bad)
@@ -1432,9 +1416,6 @@ skip:			/* All goto skip continue here. */
 	ph->flags |= PH_WINUPDATE;
 	return buf;
 
-fail_2:
-	net2_encdec_ctx_rollback(&ctx);
-	net2_encdec_ctx_deinit(&ctx);
 fail_1:
 	if (wh.bad)
 		free(wh.bad);

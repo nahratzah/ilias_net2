@@ -53,16 +53,14 @@ struct net2_conn_negotiator_set {
 
 
 static __inline int
-encode_header(struct net2_encdec_ctx *ctx, const struct header *h,
-    struct net2_buffer *out)
+encode_header(const struct header *h, struct net2_buffer *out)
 {
-	return net2_cp_encode(ctx, &cp_header, out, h, NULL);
+	return net2_cp_encode(&net2_encdec_proto0, &cp_header, out, h, NULL);
 }
 static __inline int
-decode_header(struct net2_encdec_ctx *ctx, struct header *h,
-    struct net2_buffer *in)
+decode_header(struct header *h, struct net2_buffer *in)
 {
-	return net2_cp_decode(ctx, &cp_header, h, in, NULL);
+	return net2_cp_decode(&net2_encdec_proto0, &cp_header, h, in, NULL);
 }
 
 /* Notify connection that we want to send data. */
@@ -1063,7 +1061,6 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 				 transit;
 	struct net2_evbase	*evbase;
 	size_t			 old_sz;
-	struct net2_encdec_ctx	 ctx;
 
 	/* If nothing to send, return without data. */
 	if (TAILQ_EMPTY(&cn->sendq))
@@ -1077,11 +1074,6 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	/* Create buffer. */
 	if ((buf = net2_buffer_new()) == NULL)
 		return ENOMEM;
-	/* Create encoding context. */
-	if ((error = net2_encdec_ctx_init(&ctx, &cn->negotiated.proto, NULL)) != 0) {
-		net2_buffer_free(buf);
-		return error;
-	}
 
 	for (eh = TAILQ_FIRST(&cn->sendq); eh != NULL; eh = eh_next) {
 		eh_next = TAILQ_NEXT(eh, entry);	/* Next header. */
@@ -1091,7 +1083,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 			if ((eh->buf = net2_buffer_new()) == NULL)
 				break;
 
-			error = encode_header(&ctx, &eh->header, eh->buf);
+			error = encode_header(&eh->header, eh->buf);
 			if (error != 0) {
 				net2_buffer_free(eh->buf);
 				if (error == ENOMEM)
@@ -1150,13 +1142,12 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	}
 
 	if (TAILQ_EMPTY(&transit)) {
-		net2_encdec_ctx_deinit(&ctx);
 		net2_buffer_free(buf);
 		return 0;
 	}
 
 	/* Append closing tag. */
-	if ((error = encode_header(&ctx, &header_fini, buf)) != 0)
+	if ((error = encode_header(&header_fini, buf)) != 0)
 		goto fail;
 
 	/* Commit transit queue. */
@@ -1170,7 +1161,6 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 	return 0;
 
 fail:
-	net2_encdec_ctx_deinit(&ctx);
 	net2_buffer_free(buf);
 	/* Undo putting transit packets on queue. */
 	while ((eh = TAILQ_FIRST(&transit)) != NULL)
@@ -1189,7 +1179,6 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	int			 skip;
 	int			 error;
 	size_t			 i;
-	struct net2_encdec_ctx	 ctx;
 	struct net2_conn_negotiator_set
 				*nset;
 
@@ -1197,12 +1186,9 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	if (!(ph->flags & PH_HANDSHAKE))
 		goto stage_only;
 
-	if ((error = net2_encdec_ctx_init(&ctx, &cn->negotiated.proto, NULL)) != 0)
-		goto fail_no_ctx;
-
 	for (;;) {
 		/* Decode header. */
-		if ((error = decode_header(&ctx, &h, buf)) != 0)
+		if ((error = decode_header(&h, buf)) != 0)
 			goto fail;
 		/* GUARD: Stop after decoding the last header. */
 		if (h.flags == F_LAST_HEADER) {
@@ -1286,8 +1272,6 @@ skip:
 		deinit_header(&h);
 	}
 
-	net2_encdec_ctx_deinit(&ctx);
-
 stage_only:
 	/*
 	 * Handle conclusion of pristine (exchange) stage.
@@ -1305,8 +1289,6 @@ stage_only:
 fail_wh:
 	deinit_header(&h);
 fail:
-	net2_encdec_ctx_deinit(&ctx);
-fail_no_ctx:
 	return error;
 }
 

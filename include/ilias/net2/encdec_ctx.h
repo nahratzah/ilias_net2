@@ -58,6 +58,9 @@ int	 net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx*,
 ILIAS_NET2_LOCAL
 int	 net2_encdec_ctx_newobjman(struct net2_encdec_ctx*,
 	    struct net2_objmanager*);
+
+
+extern ILIAS_NET2_LOCAL struct net2_encdec_ctx net2_encdec_proto0;
 #endif /* BUILDING_ILIAS_NET2 */
 
 /* Returns the protocol version from this context. */

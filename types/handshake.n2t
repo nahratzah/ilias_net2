@@ -374,197 +374,169 @@ deinit_header(struct header *h)
 
 /* Encode header. */
 static int
-cp_header_encode(struct net2_encdec_ctx *proto_ctx, struct net2_buffer *out,
+cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
     const struct header *h, const void *arg)
 {
-	struct net2_encdec_ctx	 ctx;
-	struct net2_pvlist	 pv;
 	int			 error;
 
-	/* Initialize ctx. */
-	if ((error = net2_pvlist_init(&pv)) != 0)
-		goto out_0;
-	if ((error = net2_pvlist_add(&pv, &net2_proto, 0)) != 0)
-		goto out_1;
-	if ((error = net2_encdec_ctx_init(&ctx, NULL, NULL)) != 0)
-		goto out_2;
-
 	/* Encode flags. */
-	if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->flags,
+	if ((error = net2_cp_encode(ctx, &cp_uint32, out, &h->flags,
 	    NULL)) != 0)
-		goto out_2;
+		goto out;
 	if (h->flags == F_LAST_HEADER) {
-		error = net2_cp_encode(&ctx, &cp_uint32, out, &h->fin_reserved,
+		error = net2_cp_encode(ctx, &cp_uint32, out, &h->fin_reserved,
 		    NULL);
-		goto out_2;
+		goto out;
 	}
 	if (h->flags & F_SET_EMPTY) {
 		error = 0;
-		goto out_2;
+		goto out;
 	}
 	/* Encode sequence, if set element. */
 	if (h->flags & F_SET_ELEMENT) {
-		if ((error = net2_cp_encode(&ctx, &cp_uint32, out, &h->seq,
+		if ((error = net2_cp_encode(ctx, &cp_uint32, out, &h->seq,
 		    NULL)) != 0)
-			goto out_2;
+			goto out;
 	}
 
 	/* Encode protocol version. */
 	if (h->flags == F_TYPE_PVER) {
 		if (h->flags != F_TYPE_PVER) {
 			error = EINVAL;
-			goto out_2;
+			goto out;
 		}
 
-		if ((error = net2_cp_encode(&ctx, &cp_net2_protocol, out,
+		if ((error = net2_cp_encode(ctx, &cp_net2_protocol, out,
 		    &h->payload.version, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_encode(&ctx, &cp_uint16, out,
+			goto out;
+		if ((error = net2_cp_encode(ctx, &cp_uint16, out,
 		    &h->payload.num_types, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_encode(&ctx, &cp_uint16, out,
+			goto out;
+		if ((error = net2_cp_encode(ctx, &cp_uint16, out,
 		    &h->payload.num_settypes, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+			goto out;
+		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
 		    &h->payload.options, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+			goto out;
+		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
 		    &h->payload.reserved, NULL)) != 0)
-			goto out_2;
+			goto out;
 
 		error = 0;
-		goto out_2;
+		goto out;
 	}
 
 	/* Encode payload. */
 	switch (h->flags & FT_MASK) {
 	case FT_INT:
-		if ((error = net2_cp_encode(&ctx, &cp_uint32, out,
+		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
 		    &h->payload.val, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	case FT_STRING:
-		if ((error = net2_cp_encode(&ctx, &cp_paddedstring, out,
+		if ((error = net2_cp_encode(ctx, &cp_paddedstring, out,
 		    &h->payload.string, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	case FT_BUFFER:
-		if ((error = net2_cp_encode(&ctx, &cp_short_net2_buffer, out,
+		if ((error = net2_cp_encode(ctx, &cp_short_net2_buffer, out,
 		    &h->payload.buf, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	default:
 		error = EINVAL;
-		goto out_2;
+		goto out;
 	}
 
 	error = 0;
 
-out_2:
-	net2_encdec_ctx_deinit(&ctx);
-out_1:
-	net2_pvlist_deinit(&pv);
-out_0:
+out:
 	return error;
 }
 
 /* Decode header. */
 static int
-cp_header_decode(struct net2_encdec_ctx *proto_ctx, struct header *h,
+cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
     struct net2_buffer *in, const void *arg)
 {
-	struct net2_encdec_ctx	 ctx;
-	struct net2_pvlist	 pv;
 	int			 error;
 
 	memset(h, 0, sizeof(*h));
 
-	/* Initialize ctx. */
-	if ((error = net2_pvlist_init(&pv)) != 0)
-		goto out_0;
-	if ((error = net2_pvlist_add(&pv, &net2_proto, 0)) != 0)
-		goto out_1;
-	if ((error = net2_encdec_ctx_init(&ctx, NULL, NULL)) != 0)
-		goto out_2;
-
 	/* Decode flags. */
-	if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->flags, in,
+	if ((error = net2_cp_decode(ctx, &cp_uint32, &h->flags, in,
 	    NULL)) != 0)
-		goto out_2;
+		goto out;
 	if (h->flags == F_LAST_HEADER) {
-		error = net2_cp_decode(&ctx, &cp_uint32, &h->fin_reserved, in,
+		error = net2_cp_decode(ctx, &cp_uint32, &h->fin_reserved, in,
 		    NULL);
-		goto out_2;
+		goto out;
 	}
 
 	/* Set handling. */
 	if (h->flags & F_SET_EMPTY) {
 		error = 0;
-		goto out_2;
+		goto out;
 	}
 	/* Decode sequence, if set element. */
 	if (h->flags & F_SET_ELEMENT) {
-		if ((error = net2_cp_decode(&ctx, &cp_uint32, &h->seq, in,
+		if ((error = net2_cp_decode(ctx, &cp_uint32, &h->seq, in,
 		    NULL)) != 0)
-			goto out_2;
+			goto out;
 	}
 
 	/* Decode protocol version. */
 	if (h->flags == F_TYPE_PVER) {
 		if (h->flags != F_TYPE_PVER) {
 			error = EINVAL;
-			goto out_2;
+			goto out;
 		}
 
-		if ((error = net2_cp_decode(&ctx, &cp_net2_protocol,
+		if ((error = net2_cp_decode(ctx, &cp_net2_protocol,
 		    &h->payload.version, in, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_decode(&ctx, &cp_uint16,
+			goto out;
+		if ((error = net2_cp_decode(ctx, &cp_uint16,
 		    &h->payload.num_types, in, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_decode(&ctx, &cp_uint16,
+			goto out;
+		if ((error = net2_cp_decode(ctx, &cp_uint16,
 		    &h->payload.num_settypes, in, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+			goto out;
+		if ((error = net2_cp_decode(ctx, &cp_uint32,
 		    &h->payload.options, in, NULL)) != 0)
-			goto out_2;
-		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+			goto out;
+		if ((error = net2_cp_decode(ctx, &cp_uint32,
 		    &h->payload.reserved, in, NULL)) != 0)
-			goto out_2;
+			goto out;
 
 		error = 0;
-		goto out_2;
+		goto out;
 	}
 
 	/* Decode payload. */
 	switch (h->flags & FT_MASK) {
 	case FT_INT:
-		if ((error = net2_cp_decode(&ctx, &cp_uint32,
+		if ((error = net2_cp_decode(ctx, &cp_uint32,
 		    &h->payload.val, in, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	case FT_STRING:
-		if ((error = net2_cp_decode(&ctx, &cp_paddedstring,
+		if ((error = net2_cp_decode(ctx, &cp_paddedstring,
 		    &h->payload.string, in, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	case FT_BUFFER:
-		if ((error = net2_cp_decode(&ctx, &cp_short_net2_buffer,
+		if ((error = net2_cp_decode(ctx, &cp_short_net2_buffer,
 		    &h->payload.buf, in, NULL)) != 0)
-			goto out_2;
+			goto out;
 		break;
 	default:
 		error = EINVAL;
-		goto out_2;
+		goto out;
 	}
 
 	error = 0;
 
-out_2:
-	net2_encdec_ctx_deinit(&ctx);
-out_1:
-	net2_pvlist_deinit(&pv);
-out_0:
+out:
 	return error;
 }
 

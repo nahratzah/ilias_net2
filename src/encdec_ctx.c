@@ -29,6 +29,7 @@ net2_encdec_ctx_init(struct net2_encdec_ctx *ctx, struct net2_pvlist *pv,
 {
 	int			 rv;
 
+	assert(ctx != &net2_encdec_proto0);
 	if ((rv = net2_pvlist_init(&ctx->ed_proto)) != 0)
 		goto fail_0;
 	if (pv != NULL && (rv = net2_pvlist_merge(&ctx->ed_proto, pv)) != 0)
@@ -49,6 +50,7 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_encdec_ctx_rollback(struct net2_encdec_ctx *ctx)
 {
+	assert(ctx != &net2_encdec_proto0);
 	return;
 }
 
@@ -60,6 +62,7 @@ net2_encdec_ctx_rollback(struct net2_encdec_ctx *ctx)
 ILIAS_NET2_LOCAL void
 net2_encdec_ctx_deinit(struct net2_encdec_ctx *ctx)
 {
+	assert(ctx != &net2_encdec_proto0);
 	net2_pvlist_deinit(&ctx->ed_proto);
 }
 
@@ -101,3 +104,16 @@ net2_encdec_ctx_newobjman(struct net2_encdec_ctx *ctx,
 {
 	return net2_encdec_ctx_init(ctx, &m->pvlist, m);
 }
+
+
+/* List, containing the net2_proto at version 0. */
+static struct net2_proto_version proto0_list[] = {
+	{ &net2_proto, 0 },
+};
+
+/* Encdec context with net2_proto at version 0. */
+ILIAS_NET2_LOCAL
+struct net2_encdec_ctx net2_encdec_proto0 = {
+	{ proto0_list, sizeof(proto0_list) / sizeof(proto0_list[0]) },
+	NULL,
+};

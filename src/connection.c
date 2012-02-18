@@ -177,16 +177,10 @@ net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
 	struct net2_connection	*c = cptr;
 	struct net2_conn_receive*r;
 	struct packet_header	 ph;
-	struct net2_encdec_ctx	 ctx;
 	struct net2_buffer	*buf;
 	int			 decode_err;
 	size_t			 wire_sz;
 	int			 error;
-
-	if ((net2_encdec_ctx_newaccsocket(&ctx, &c->n2c_socket)) != 0) {
-		warn("net2_encdec_ctx fail");
-		return;
-	}
 
 	net2_mutex_lock(c->n2c_recvmtx);
 	while ((r = TAILQ_FIRST(&c->n2c_recvq)) != NULL) {
@@ -207,7 +201,8 @@ net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
 		/* Record receival. */
 		net2_connstats_record_recv(&c->n2c_stats, wire_sz);
 
-		decode_err = net2_packet_decode(c, &ctx, &ph, &buf, 1);
+		decode_err = net2_packet_decode(c, &net2_encdec_proto0, &ph,
+		    &buf, 1);
 		switch (decode_err) {
 		case NET2_PDECODE_RESOURCE:
 			warnx("insufficient resources to process packet");
@@ -250,8 +245,8 @@ net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
 			}
 			net2_acceptor_socket_accept(&c->n2c_socket, buf);
 
-			if (net2_cp_destroy(&ctx, &cp_packet_header, &ph,
-			    NULL))
+			if (net2_cp_destroy(&net2_encdec_proto0,
+			    &cp_packet_header, &ph, NULL))
 				warnx("net2_cp_destroy fail");
 			break;
 		default:
@@ -266,8 +261,6 @@ release:
 		net2_mutex_lock(c->n2c_recvmtx);
 	}
 	net2_mutex_unlock(c->n2c_recvmtx);
-
-	net2_encdec_ctx_deinit(&ctx);
 }
 
 /*
@@ -286,7 +279,6 @@ net2_conn_gather_tx(struct net2_connection *c,
 	struct net2_buffer		*b, *to_add;
 	struct net2_conn_acceptor	*acceptor;
 	size_t				 count;
-	struct net2_encdec_ctx		 ctx;
 	int				 rv = -1;
 	size_t				 winoverhead;
 	struct net2_cw_tx		*tx;
@@ -334,8 +326,6 @@ net2_conn_gather_tx(struct net2_connection *c,
 
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((net2_encdec_ctx_newaccsocket(&ctx, &c->n2c_socket)) != 0)
-		goto fail_1;
 
 	/* Initialize packet header. */
 	ph.flags = 0;
@@ -346,7 +336,6 @@ net2_conn_gather_tx(struct net2_connection *c,
 	/* Fill in ph.seq and acquire a transmission context. */
 	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph,
 	    &want_payload)) == NULL) {
-		net2_encdec_ctx_rollback(&ctx);
 		rv = 0;
 		goto fail_2;
 	}
@@ -460,7 +449,6 @@ write_window_buf:
 		 */
 		net2_connwindow_tx_rollback(tx);
 		tx = NULL;
-		net2_encdec_ctx_rollback(&ctx);
 
 		rv = 0;
 		goto fail_2;	/* not a failure: rv has been set to 0. */
@@ -469,7 +457,7 @@ write_window_buf:
 	if (count > 0)
 		ph.flags |= PH_PAYLOAD;
 
-	if (net2_packet_encode(c, &ctx, &ph, bptr, b))
+	if (net2_packet_encode(c, &net2_encdec_proto0, &ph, bptr, b))
 		goto fail_2;
 
 	/* Succes!. */
@@ -491,9 +479,6 @@ fail_2:
 		} else
 			net2_connwindow_tx_rollback(tx);
 	}
-	if (rv != 0)
-		net2_encdec_ctx_rollback(&ctx);
-	net2_encdec_ctx_deinit(&ctx);
 fail_1:
 	if (b != NULL)
 		net2_buffer_free(b);
