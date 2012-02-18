@@ -325,6 +325,15 @@ identifier_chain: identifier
 				strcat(strcat($$, "."), $3);
 				free($3);
 			}
+		| identifier_chain '->' identifier
+			{
+				$$ = realloc($1, strlen($1) + 1 + strlen($3) + 1);
+				if ($$ == NULL)
+					err(EX_OSERR, "realloc");
+
+				strcat(strcat($$, "->"), $3);
+				free($3);
+			}
 		;
 number		: NUMBER
 			{
@@ -535,7 +544,7 @@ d_smemberlist	: /* empty */
 				TAILQ_INSERT_TAIL($$, $2, npsm_q);
 			}
 		;
-d_smember	: identifier opt_pointer opt_argument identifier d_smember_opts ';'
+d_smember	: identifier opt_pointer opt_argument identifier_chain d_smember_opts ';'
 			{
 				$$ = malloc(sizeof(*$$));
 				$$->npsm_name = $4;
