@@ -32,6 +32,8 @@ net2_ctx_init(struct net2_ctx *ctx)
 	net2_signset_init(&ctx->local_signs);
 	net2_signset_init(&ctx->remote_signs);
 	ctx->remote_min = 0;
+	ctx->xchange_factory = NULL;
+	ctx->xchange_factory_arg = NULL;
 	return 0;
 }
 
@@ -81,4 +83,15 @@ net2_ctx_add_remote_signature(struct net2_ctx *ctx, int alg,
 	if (ctx->remote_min == 0)
 		ctx->remote_min = 1;
 	return 0;
+}
+
+/* Retrieve a promise of a new exchange context with the given algorithm. */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_ctx_get_xchange(struct net2_ctx *ctx, int alg, size_t keylen)
+{
+	if (ctx->xchange_factory != NULL) {
+		return (*ctx->xchange_factory)(alg, keylen,
+		    ctx->xchange_factory_arg);
+	}
+	return NULL;
 }

@@ -39,6 +39,10 @@ struct net2_ctx {
 	size_t			 remote_min;	/* Minimum number of signatures
 						 * that the remote must provide
 						 * succesfully. */
+
+	struct net2_promise*	(*xchange_factory)(int xchange, size_t keysize,
+				    void *arg);
+	void			*xchange_factory_arg;
 };
 
 ILIAS_NET2_EXPORT
@@ -51,9 +55,13 @@ int	net2_ctx_add_local_signature(struct net2_ctx*, int,
 ILIAS_NET2_EXPORT
 int	net2_ctx_add_remote_signature(struct net2_ctx*, int,
 	    const void*, size_t);
+ILIAS_NET2_EXPORT
+struct net2_promise
+	*net2_ctx_get_xchange(struct net2_ctx*, int, size_t);
 
 #define net2_ctx_local_signcount(s)	(net2_signset_size(&(s)->local_signs))
 #define net2_ctx_remote_signcount(s)	(net2_signset_size(&(s)->remote_signs))
+
 
 #ifdef __cplusplus
 }
