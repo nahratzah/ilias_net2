@@ -24,14 +24,14 @@ extern "C" {
 
 struct net2_thread;
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 ILIAS_NET2_LOCAL
 struct net2_thread	*net2_thread_new(void *(*)(void*), void*, const char*);
 ILIAS_NET2_LOCAL
 int			 net2_thread_join(struct net2_thread*, void**);
 ILIAS_NET2_LOCAL
 void			 net2_thread_free(struct net2_thread*);
-#endif
+#endif /* BUILDING_ILIAS_NET2 */
 
 #ifdef __cplusplus
 }

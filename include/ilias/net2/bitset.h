@@ -26,7 +26,7 @@ struct net2_bitset {
 };
 
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 
 #define net2_bitset_size(_s)	((const size_t)(_s)->size)
 ILIAS_NET2_LOCAL
@@ -44,6 +44,6 @@ int	net2_bitset_allset(const struct net2_bitset*);
 ILIAS_NET2_LOCAL
 int	net2_bitset_allclear(const struct net2_bitset*);
 
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 #endif /* ILIAS_NET2_BITSET_H */

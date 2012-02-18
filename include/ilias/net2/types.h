@@ -29,10 +29,10 @@ struct			net2_obj;
 struct			net2_objtype;
 struct			net2_window;
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 /* Not a type, but it needs to be defined somewhere... */
 ILIAS_NET2_LOCAL
 void			net2_secure_zero(void*, size_t);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 #endif /* ILIAS_NET2_TYPES_H */

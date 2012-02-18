@@ -17,10 +17,10 @@
 #define ILIAS_NET2_OBJ_MANAGER_H
 
 #include <ilias/net2/ilias_net2_export.h>
-
-#ifdef ilias_net2_EXPORTS
-
 #include <ilias/net2/acceptor.h>
+
+#ifdef BUILDING_ILIAS_NET2
+
 #include <ilias/net2/protocol.h>
 #include <bsd_compat/bsd_compat.h>
 
@@ -30,20 +30,21 @@
 #include <bsd_compat/tree.h>
 #endif
 
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct net2_objmanager;
+struct net2_objman_group;
 
 /* Callback argument return. */
 typedef void (*net2_objman_return_cb)(int conn_error, int cb_error,
     void *cbarg, void *out_params);
 
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 struct net2_objman_group;
 struct net2_objman_tx_ticket;
 struct net2_objman_rx_ticket;
@@ -71,14 +72,14 @@ struct net2_objmanager {
 	struct net2_mutex	*mtx;		/* Guard. */
 	size_t			 refcnt;	/* Reference counter. */
 };
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 
 /* Cast objmanager to conn acceptor. */
-static __inline struct net2_conn_acceptor*
+static __inline struct net2_acceptor*
 net2_objmanager_reduce(struct net2_objmanager *m)
 {
-	return (struct net2_conn_acceptor*)m;
+	return (struct net2_acceptor*)m;
 }
 
 
@@ -94,7 +95,7 @@ void		 net2_objmanager_ref(struct net2_objmanager*);
 ILIAS_NET2_EXPORT
 void		 net2_objmanager_release(struct net2_objmanager*);
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 ILIAS_NET2_LOCAL
 struct net2_objman_tx_ticket*
 		 net2_objmanager_find_tx_ticket(struct net2_objmanager*,
@@ -102,7 +103,7 @@ struct net2_objman_tx_ticket*
 ILIAS_NET2_LOCAL
 const struct command_param*
 		 net2_objman_ttx_type(struct net2_objman_tx_ticket*);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 ILIAS_NET2_EXPORT
 int		 net2_objman_rmi(struct net2_objmanager *,

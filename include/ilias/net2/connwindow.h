@@ -91,7 +91,7 @@ struct net2_connwindow {
 };
 
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 struct packet_header;
 struct net2_buffer;
 
@@ -119,7 +119,7 @@ void			 net2_connwindow_tx_commit(struct net2_cw_tx*,
 			    struct packet_header*, size_t);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_rollback(struct net2_cw_tx*);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 
 struct net2_evbase;

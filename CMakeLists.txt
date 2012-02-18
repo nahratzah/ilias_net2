@@ -274,7 +274,13 @@ check_struct_has_member ("struct sockaddr_in" "sin_len"
 configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 list (APPEND srcs ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
+add_definitions(-DBUILDING_ILIAS_NET2)
 add_library (ilias_net2 SHARED
+	${srcs}
+	${headers}
+	${cluster_headers}
+	)
+add_library (ilias_net2_static STATIC
 	${srcs}
 	${headers}
 	${cluster_headers}
@@ -288,8 +294,11 @@ if (WIN32)
 endif (WIN32)
 set_property (TARGET ilias_net2 PROPERTY VERSION "0.0")
 set_property (TARGET ilias_net2 PROPERTY SOVERSION "0.0")
+if (NOT WIN32)
+	set_property (TARGET ilias_net2_static PROPERTY OUTPUT_NAME ilias_net2)
+endif (NOT WIN32)
 
-install (TARGETS ilias_net2
+install (TARGETS ilias_net2 ilias_net2_static
 	LIBRARY DESTINATION lib
 	ARCHIVE DESTINATION lib)
 install (FILES ${headers} DESTINATION include/ilias/net2)

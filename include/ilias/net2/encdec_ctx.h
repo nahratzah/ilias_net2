@@ -24,8 +24,6 @@
 extern "C" {
 #endif
 
-struct net2_acceptor_socket;	/* From ilias/net2/acceptor.h */
-
 /*
  * Encoding/decoding context.
  *
@@ -42,9 +40,10 @@ struct net2_encdec_ctx {
 	struct net2_objmanager	*ed_objman;	/* Object manager. */
 };
 
-#ifdef ilias_net2_EXPORTS
-struct net2_connection;
-struct net2_objmanager;
+#ifdef BUILDING_ILIAS_NET2
+struct net2_acceptor_socket;	/* From ilias/net2/acceptor.h */
+struct net2_connection;		/* From ilias/net2/connection.h */
+struct net2_objmanager;		/* From ilias/net2/obj_manager.h */
 
 ILIAS_NET2_LOCAL
 int	 net2_encdec_ctx_init(struct net2_encdec_ctx*, struct net2_pvlist*,
@@ -59,7 +58,7 @@ int	 net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx*,
 ILIAS_NET2_LOCAL
 int	 net2_encdec_ctx_newobjman(struct net2_encdec_ctx*,
 	    struct net2_objmanager*);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 /* Returns the protocol version from this context. */
 static __inline int

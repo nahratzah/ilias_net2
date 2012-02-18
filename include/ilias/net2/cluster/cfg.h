@@ -131,12 +131,12 @@ ILIAS_NET2_EXPORT
 struct net2_node_cfg	*net2_clustercfg_findnode(struct net2_cluster_cfg*,
 			    const char*);
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 ILIAS_NET2_LOCAL
 int			 net2_clustercfg_thisnode(struct net2_cluster_cfg*,
 			    struct net2_node_cfg**,
 			    struct net2_site_cfg**);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 #ifdef __cplusplus
 }

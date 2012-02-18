@@ -77,7 +77,7 @@ struct net2_connstats {
 };
 
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 struct net2_connection;
 
 ILIAS_NET2_LOCAL
@@ -95,6 +95,6 @@ void	net2_connstats_record_transmit(struct net2_connstats*, size_t wire_sz);
 ILIAS_NET2_LOCAL
 void	net2_connstats_record_recv(struct net2_connstats*, size_t wire_sz);
 
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 #endif /* ILIAS_NET2_CONNSTATS_H */

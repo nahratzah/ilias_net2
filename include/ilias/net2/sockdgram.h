@@ -28,7 +28,7 @@
 #include <event2/util.h>
 
 
-#ifdef ilias_net2_EXPORTS
+#ifdef BUILDING_ILIAS_NET2
 struct net2_connection;
 struct net2_conn_receive;
 struct net2_buffer;
@@ -43,7 +43,7 @@ ILIAS_NET2_LOCAL
 int	net2_sockdgram_nonblock(evutil_socket_t);
 ILIAS_NET2_LOCAL
 int	net2_sockdgram_dnf(evutil_socket_t);
-#endif /* ilias_net2_EXPORTS */
+#endif /* BUILDING_ILIAS_NET2 */
 
 
 /* Error codes for net2_sockdgram_send. */
