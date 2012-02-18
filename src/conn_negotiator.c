@@ -65,10 +65,48 @@ decode_header(struct net2_encdec_ctx *ctx, struct header *h,
 	return net2_cp_decode(ctx, &cp_header, h, in, NULL);
 }
 
+/* Notify connection that we want to send data. */
+static __inline void
+cneg_ready_to_send(struct net2_conn_negotiator *cn)
+{
+	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
+}
 
-static int	set_get(struct net2_conn_negotiator*, size_t,
+
+static struct encoded_header
+		*mk_encoded_header();
+static void	 free_encoded_header(struct encoded_header*);
+static void	 ack_cb(void*, void*);
+static void	 nack_cb(void*, void*);
+static void	 destroy_cb(void*, void*);
+
+static int	 create_xhc_headers(struct net2_conn_negotiator*,
+		    const char *(*)(int), int, uint32_t);
+static int	 create_fingerprint_headers(struct net2_conn_negotiator*,
+		    struct net2_signset*, uint32_t);
+static int	 create_headers(struct net2_conn_negotiator*);
+
+static int	 set_get(struct net2_conn_negotiator*, size_t,
 		    struct net2_conn_negotiator_set**);
-static int	cneg_prepare_key_exchange(struct net2_conn_negotiator*);
+static int	 set_process(struct net2_conn_negotiator*, size_t, size_t,
+		    int*);
+static int	 set_process_size(struct net2_conn_negotiator*, uint32_t,
+		    uint32_t);
+static int	 set_done(struct net2_conn_negotiator_set*);
+static int	 set_all_done(const struct net2_conn_negotiator*);
+static int	 all_done(const struct net2_conn_negotiator*);
+
+static int	 intlist_add(int**, size_t*, int);
+static int	 hash_cmp(const void*, const void*);
+static int	 enc_cmp(const void*, const void*);
+static int	 xchange_cmp(const void*, const void*);
+static int	 sign_cmp(const void*, const void*);
+
+static int	 cneg_apply_header(struct net2_conn_negotiator*,
+		    struct header*);
+
+static int	 cneg_conclude_pristine(struct net2_conn_negotiator*);
+static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
 
 /* Queue encoded headers. */
@@ -105,12 +143,6 @@ free_encoded_header(struct encoded_header *eh)
 	if (eh->buf)
 		net2_buffer_free(eh->buf);
 	free(eh);
-}
-/* Notify connection that we want to send data. */
-static void
-cneg_ready_to_send(struct net2_conn_negotiator *cn)
-{
-	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
 }
 /* Encoded header connection-ack callback. */
 static void
