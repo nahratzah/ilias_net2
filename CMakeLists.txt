@@ -213,6 +213,8 @@ include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})
 
+add_definitions(-DQUEUE_MACRO_DEBUG)
+
 if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
 	list (APPEND srcs src/mutex-pthreads.c)
 	list (APPEND srcs src/thread-pthreads.c)
