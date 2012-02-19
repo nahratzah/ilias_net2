@@ -421,6 +421,8 @@ main()
 	    c2->n2c_stats.tx_bytes, c2->n2c_stats.tx_packets,
 	    c2->n2c_stats.rx_bytes, c2->n2c_stats.rx_packets);
 
+	net2_buffer_free(sent);
+	net2_buffer_free(received);
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
 	net2_stream_acceptor_destroy(sa1);
