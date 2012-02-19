@@ -4,6 +4,9 @@
 
 #ifdef BUILDING_ILIAS_NET2
 
+#include <sys/types.h>
+#include <stdint.h>
+
 #ifdef NET2_USE_EXUDE_DEBUG
 
 
@@ -62,7 +65,7 @@
 #endif /* NET2_USE_EXUDE_DEBUG */
 
 #define net2_recalloc(p, n, s)						\
-	((n) > SIZE_MAX / (s) ? NULL : realloc((p), (n) * (s)))
+	((n) > SIZE_MAX / (s) ? NULL : net2_realloc((p), (n) * (s)))
 
 #endif /* BUILDING_ILIAS_NET2 */
 
