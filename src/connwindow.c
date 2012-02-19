@@ -20,6 +20,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/cp.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/secure_random.h>
 #include <bsd_compat/clock.h>
 #include <bsd_compat/error.h>
@@ -489,7 +490,7 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	c = w->cw_conn;
 	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 
-	if ((tx = malloc(sizeof(*tx))) == NULL)
+	if ((tx = net2_malloc(sizeof(*tx))) == NULL)
 		goto fail_0;
 	tx->cwt_owner = w;
 	tx->cwt_seq = seq;
@@ -504,7 +505,7 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	return tx;
 
 fail_1:
-	free(tx);
+	net2_free(tx);
 fail_0:
 	return NULL;
 }
@@ -539,7 +540,7 @@ tx_cb_execute(int fd, short what, void *cbptr)
 
 	/* Destroy callback. */
 	event_free(cb->ev);
-	free(cb);
+	net2_free(cb);
 }
 /*
  * Execute the timeout event in a transmission callback.
@@ -582,7 +583,7 @@ tx_cb_ack(struct net2_cw_transmit_cb *cb)
 			event_free(cb->ev_timeout);
 		if (cb->ev)
 			event_free(cb->ev);
-		free(cb);
+		net2_free(cb);
 	}
 }
 
@@ -603,7 +604,7 @@ tx_cb_nack(struct net2_cw_transmit_cb *cb)
 			event_free(cb->ev_timeout);
 		if (cb->ev)
 			event_free(cb->ev);
-		free(cb);
+		net2_free(cb);
 	}
 }
 
@@ -624,7 +625,7 @@ tx_cb_cdestroy(struct net2_cw_transmit_cb *cb)
 			event_free(cb->ev_timeout);
 		if (cb->ev)
 			event_free(cb->ev);
-		free(cb);
+		net2_free(cb);
 	}
 }
 
@@ -641,7 +642,7 @@ tx_free(struct net2_cw_tx *tx)
 		tx_cb_cdestroy(cb);
 	}
 	assert(RB_FIND(net2_cw_transmits, &tx->cwt_owner->cw_tx_id, tx) != tx);
-	free(tx);
+	net2_free(tx);
 }
 
 static struct net2_cw_rx*
@@ -654,7 +655,7 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 	c = w->cw_conn;
 	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 
-	if ((rx = malloc(sizeof(*rx))) == NULL)
+	if ((rx = net2_malloc(sizeof(*rx))) == NULL)
 		goto fail_0;
 	rx->cwr_owner = w;
 	rx->cwr_seq = seq;
@@ -667,7 +668,7 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 	return rx;
 
 fail_1:
-	free(rx);
+	net2_free(rx);
 fail_0:
 	return NULL;
 }
@@ -678,7 +679,7 @@ rx_free(struct net2_cw_rx *rx)
 	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
 	assert(!(rx->cwr_flags & NET2_CWRX_QUEUEMASK));
 	event_free(rx->cwr_timeout);
-	free(rx);
+	net2_free(rx);
 }
 
 
@@ -1258,7 +1259,7 @@ net2_connwindow_writebuf(struct net2_connwindow *w, struct packet_header *ph,
 		 * Allocation failure is not fatal: window has no requirement
 		 * to be complete.
 		 */
-		if ((tmp = realloc(wh.bad,
+		if ((tmp = net2_realloc(wh.bad,
 		    ((size_t)wh.num_bad + 1) * sizeof(*wh.bad))) == NULL)
 			break;
 		wh.bad = tmp;
@@ -1319,7 +1320,7 @@ skip:			/* All goto skip continue here. */
 		/*
 		 * Create a new range for this sequence.
 		 */
-		tmp = realloc(*range, (*counter + 1) * sizeof(**range));
+		tmp = net2_realloc(*range, (*counter + 1) * sizeof(**range));
 		if (tmp == NULL)
 			break;
 		*range = tmp;
@@ -1385,12 +1386,9 @@ skip:			/* All goto skip continue here. */
 	assert(net2_buffer_length(buf) <= avail);
 
 	/* Release resources in window. */
-	if (wh.bad)
-		free(wh.bad);
-	if (wh.lost)
-		free(wh.lost);
-	if (wh.recv)
-		free(wh.recv);
+	net2_free(wh.bad);
+	net2_free(wh.lost);
+	net2_free(wh.recv);
 
 	/* Unwant all rx. */
 	TAILQ_FOREACH(rx, &rxq, cwr_entry_rx) {
@@ -1415,12 +1413,9 @@ skip:			/* All goto skip continue here. */
 	return buf;
 
 fail_1:
-	if (wh.bad)
-		free(wh.bad);
-	if (wh.lost)
-		free(wh.lost);
-	if (wh.recv)
-		free(wh.recv);
+	net2_free(wh.bad);
+	net2_free(wh.lost);
+	net2_free(wh.recv);
 
 	/* Move all tx and rx back into their queues; order will change. */
 	while ((rx = TAILQ_FIRST(&rxq)) != NULL) {
@@ -1588,7 +1583,7 @@ net2_connwindow_txcb_register(struct net2_cw_tx *tx, struct net2_evbase *evbase,
 		return 0;
 
 	/* Create storage for new callback. */
-	if ((cb = malloc(sizeof(*cb))) == NULL)
+	if ((cb = net2_malloc(sizeof(*cb))) == NULL)
 		goto fail_0;
 	/* Apply parameters. */
 	cb->cb_ack = cb_ack;
@@ -1626,7 +1621,7 @@ fail_2:
 	if (cb->ev_timeout != NULL)
 		event_free(cb->ev_timeout);
 fail_1:
-	free(cb);
+	net2_free(cb);
 fail_0:
 	return -1;
 }
