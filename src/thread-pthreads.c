@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/memory.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -50,13 +51,13 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 {
 	struct net2_thread	*t;
 
-	if ((t = malloc(sizeof(*t))) == NULL)
+	if ((t = net2_malloc(sizeof(*t))) == NULL)
 		return NULL;
 	t->fn = fn;
 	t->arg = arg;
 	if (pthread_create(&t->n2t_impl, NULL, &thread_wrapper, t)) {
 		warn("pthread_create");
-		free(t);
+		net2_free(t);
 		return NULL;
 	}
 
@@ -78,5 +79,5 @@ net2_thread_join(struct net2_thread *t, void **out)
 ILIAS_NET2_LOCAL void
 net2_thread_free(struct net2_thread *t)
 {
-	free(t);
+	net2_free(t);
 }

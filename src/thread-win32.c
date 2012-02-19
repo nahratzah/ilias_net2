@@ -40,11 +40,11 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 {
 	struct net2_thread	*t;
 
-	if ((t = malloc(sizeof(*t))) == NULL)
+	if ((t = net2_malloc(sizeof(*t))) == NULL)
 		return NULL;
 	t->handle = CreateThread(NULL, 0, &thread_wrapper, t, 0, NULL);
 	if (t->handle == NULL) {
-		free(t);
+		net2_free(t);
 		return NULL;
 	}
 	t->fn = fn;
@@ -68,5 +68,5 @@ net2_thread_join(struct net2_thread *t, void **out)
 ILIAS_NET2_LOCAL void
 net2_thread_free(struct net2_thread *t)
 {
-	free(t);
+	net2_free(t);
 }
