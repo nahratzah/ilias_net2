@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/init.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
 
@@ -26,6 +27,8 @@
 ILIAS_NET2_EXPORT void
 net2_init()
 {
+	net2_memory_init();
+
 #ifdef WIN32
 	WSADATA	wsa_data;
 	int	rv;
@@ -53,4 +56,6 @@ net2_cleanup()
 #ifdef WIN32
 	WSACleanup();
 #endif
+
+	net2_memory_fini();
 }

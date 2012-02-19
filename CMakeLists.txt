@@ -75,6 +75,14 @@ add_library (bsd_compat SHARED IMPORTED)
 set_property (TARGET bsd_compat PROPERTY IMPORTED_LOCATION "${bsd_compat_LIBS}")
 
 #
+# Find exude allocation debugger.
+#
+find_library (exude_LIBS "exude" PATHS "${LOCALBASE}/lib")
+if (NOT exude_LIBS-NOTFOUND)
+	find_library (clog_LIBS "clog" PATHS "${LOCALBASE}/lib")
+endif (NOT exude_LIBS-NOTFOUND)
+
+#
 # Lex and yacc implementation required.
 #
 add_subdirectory (tools)
@@ -298,6 +306,12 @@ if (NOT WIN32)
 	set_property (TARGET ilias_net2_static PROPERTY OUTPUT_NAME ilias_net2)
 endif (NOT WIN32)
 
+if (NOT exude_LIBS-NOTFOUND)
+	set_property (TARGET ilias_net2 PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
+	set_property (TARGET ilias_net2_static PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
+	target_link_libraries (ilias_net2 debug ${exude_LIBS} debug ${clog_LIBS})
+endif (NOT exude_LIBS-NOTFOUND)
+
 install (TARGETS ilias_net2 ilias_net2_static
 	LIBRARY DESTINATION lib
 	ARCHIVE DESTINATION lib)
@@ -385,4 +399,16 @@ if (BUILD_TESTING)
 	target_link_libraries (test_udp_conn ilias_net2 bsd_compat
 	    ${EVENT_LIBRARIES})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
+
+	if (NOT exude_LIBS-NOTFOUND)
+		target_link_libraries (test_buffer debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_encdec_ctypes debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_hash debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_sign debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_enc debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_xchange debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_evbase debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_conn debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_udp_conn debug ${exude_LIBS} debug ${clog_LIBS})
+	endif (NOT exude_LIBS-NOTFOUND)
 endif (BUILD_TESTING)
