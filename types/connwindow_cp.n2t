@@ -223,7 +223,7 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 
 	if (wh->num_recv > 0) {
 		if ((wh->recv =
-		    net2_malloc((size_t)wh->num_recv * sizeof(*wh->recv))) ==
+		    net2_calloc((size_t)wh->num_recv, sizeof(*wh->recv))) ==
 		    NULL) {
 			err = ENOMEM;
 			goto fail;
@@ -231,7 +231,7 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 	}
 	if (wh->num_lost > 0) {
 		if ((wh->lost =
-		    net2_malloc((size_t)wh->num_lost * sizeof(*wh->lost))) ==
+		    net2_calloc((size_t)wh->num_lost, sizeof(*wh->lost))) ==
 		    NULL) {
 			err = ENOMEM;
 			goto fail;
@@ -239,7 +239,7 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 	}
 	if (wh->num_bad > 0) {
 		if ((wh->bad =
-		    net2_malloc((size_t)wh->num_bad * sizeof(*wh->bad))) ==
+		    net2_calloc((size_t)wh->num_bad, sizeof(*wh->bad))) ==
 		    NULL) {
 			err = ENOMEM;
 			goto fail;

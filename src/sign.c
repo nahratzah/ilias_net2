@@ -283,7 +283,7 @@ net2_signctx_fingerprint(struct net2_sign_ctx *s)
 
 	/* Load iovs. */
 	iovcount = net2_buffer_peek(pk, pklen, NULL, 0);
-	if (iovcount == 0 || SIZE_MAX / sizeof(*iov) < iovcount)
+	if (iovcount == 0 || iovcount > SIZE_MAX / sizeof(*iov))
 		goto fail;
 	iov = alloca(sizeof(*iov) * iovcount);
 	if (net2_buffer_peek(pk, pklen, iov, iovcount) != iovcount)

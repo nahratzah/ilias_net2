@@ -232,8 +232,9 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 			require = SEGMENT_SZ(off + add);
 			want = ((require + NET2_BUFFER_ALIGN - 1) &
 			    ~(NET2_BUFFER_ALIGN - 1));
-			if (want < require /* overflow */ ||
-			    (tmp = net2_realloc(s, want)) == NULL) {
+			if (want == 0)	/* wrap-around */
+				want = require;
+			if ((tmp = net2_realloc(s, want)) == NULL) {
 				if ((tmp = net2_realloc(s, require)) == NULL)
 					goto fail_0;
 				else

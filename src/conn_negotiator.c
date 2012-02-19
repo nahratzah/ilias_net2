@@ -552,7 +552,7 @@ intlist_add(int **list, size_t *sz, int val)
 	size_t		 newsz;
 
 	newsz = *sz + 1;
-	if (newsz > SIZE_MAX / sizeof(int))
+	if (newsz > SIZE_MAX / sizeof(*nl))
 		return ENOMEM;
 	nl = net2_recalloc(*list, newsz, sizeof(int));
 	if (nl == NULL)
@@ -808,14 +808,14 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 		/* Insert into to-sign set. */
 		if (cn->signature_list.size <= h->seq) {
 			/* Prevent overflow. */
-			if (SIZE_MAX / sizeof(*cn->signature_list.signatures) <
-			    (size_t)h->seq + 1)
+			if ((size_t)h->seq + 1U > SIZE_MAX /
+			    sizeof(*cn->signature_list.signatures))
 				return ENOMEM;
 
 			/* Resize the signature list. */
 			if ((siglist = net2_recalloc(
 			    cn->signature_list.signatures,
-			    (size_t)h->seq + 1,
+			    (size_t)h->seq + 1U,
 			    sizeof(*cn->signature_list.signatures))) == NULL)
 				return ENOMEM;
 			cn->signature_list.signatures = siglist;
