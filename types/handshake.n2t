@@ -127,6 +127,7 @@ int	 net2_add_poetry(struct net2_buffer*, size_t);
 #include <stdlib.h>
 #include <string.h>
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/memory.h>
 %%
 
 
@@ -372,10 +373,12 @@ deinit_header(struct header *h)
 		/* Nothing. */
 		break;
 	case FT_STRING:
-		free(h->payload.string);
+		net2_cp_destroy(&net2_encdec_proto0, &cp_string,
+		    &h->payload.string, NULL);
 		break;
 	case FT_BUFFER:
-		free(h->payload.buf);
+		net2_cp_destroy(&net2_encdec_proto0, &cp_short_net2_buffer,
+		    h->payload.buf, NULL);
 		break;
 	default:
 		/* Ignore (might be incorrect received packet?). */
@@ -584,14 +587,14 @@ net2_init_poetry()
 	}
 
 	poetry_buf.iov_len = net2_buffer_length(out);
-	if ((poetry_buf.iov_base = malloc(poetry_buf.iov_len)) == NULL) {
+	if ((poetry_buf.iov_base = net2_malloc(poetry_buf.iov_len)) == NULL) {
 		net2_buffer_free(out);
 		return ENOMEM;
 	}
 	if (net2_buffer_copyout(out, poetry_buf.iov_base,
 	    poetry_buf.iov_len) != poetry_buf.iov_len) {
 		net2_buffer_free(out);
-		free(poetry_buf.iov_base);
+		net2_free(poetry_buf.iov_base);
 		poetry_buf.iov_base = NULL;
 		poetry_buf.iov_len = 0;
 		return EINVAL;
@@ -603,7 +606,7 @@ net2_init_poetry()
 ILIAS_NET2_LOCAL void
 net2_destroy_poetry()
 {
-	free(poetry_buf.iov_base);
+	net2_free(poetry_buf.iov_base);
 	poetry_buf.iov_base = NULL;
 	poetry_buf.iov_len = 0;
 }
