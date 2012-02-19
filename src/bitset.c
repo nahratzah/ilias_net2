@@ -82,7 +82,7 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	list = s->data;
 	need = SIZE_TO_BYTES(newsz);
 	have = SIZE_TO_BYTES(s->size);
-	if (newsz > need / sizeof(*list))
+	if (newsz > SIZE_MAX / sizeof(*list))
 		return ENOMEM;	/* size_t overflow detected. */
 
 	if (need != have) {
