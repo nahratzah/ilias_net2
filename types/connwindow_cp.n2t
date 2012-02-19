@@ -81,6 +81,7 @@ struct windowheader {
 #include "connwindow_cp.h"
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/protocol.h>
+#include <ilias/net2/memory.h>
 #include <stdlib.h>
 #include <errno.h>
 %%
@@ -122,15 +123,15 @@ whdestroy(struct net2_encdec_ctx *c, struct windowheader *wh,
     const void *cp_arg)
 {
 	if (wh->recv != NULL) {
-		free(wh->recv);
+		net2_free(wh->recv);
 		wh->recv = NULL;
 	}
 	if (wh->lost != NULL) {
-		free(wh->lost);
+		net2_free(wh->lost);
 		wh->lost = NULL;
 	}
 	if (wh->bad != NULL) {
-		free(wh->bad);
+		net2_free(wh->bad);
 		wh->bad = NULL;
 	}
 	return 0;
@@ -222,21 +223,24 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 
 	if (wh->num_recv > 0) {
 		if ((wh->recv =
-		    malloc((size_t)wh->num_recv * sizeof(*wh->recv))) == NULL) {
+		    net2_malloc((size_t)wh->num_recv * sizeof(*wh->recv))) ==
+		    NULL) {
 			err = ENOMEM;
 			goto fail;
 		}
 	}
 	if (wh->num_lost > 0) {
 		if ((wh->lost =
-		    malloc((size_t)wh->num_lost * sizeof(*wh->lost))) == NULL) {
+		    net2_malloc((size_t)wh->num_lost * sizeof(*wh->lost))) ==
+		    NULL) {
 			err = ENOMEM;
 			goto fail;
 		}
 	}
 	if (wh->num_bad > 0) {
 		if ((wh->bad =
-		    malloc((size_t)wh->num_bad * sizeof(*wh->bad))) == NULL) {
+		    net2_malloc((size_t)wh->num_bad * sizeof(*wh->bad))) ==
+		    NULL) {
 			err = ENOMEM;
 			goto fail;
 		}
@@ -269,15 +273,15 @@ whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
 
 fail:
 	if (wh->recv) {
-		free(wh->recv);
+		net2_free(wh->recv);
 		wh->recv = NULL;
 	}
 	if (wh->lost) {
-		free(wh->lost);
+		net2_free(wh->lost);
 		wh->lost = NULL;
 	}
 	if (wh->bad) {
-		free(wh->bad);
+		net2_free(wh->bad);
 		wh->bad = NULL;
 	}
 	return err;
