@@ -16,6 +16,7 @@
 #include <ilias/net2/xchange.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/types.h>
+#include <ilias/net2/memory.h>
 #include <openssl/bn.h>
 #include <openssl/dh.h>
 #include <openssl/err.h>
@@ -126,7 +127,7 @@ net2_xchangectx_prepare(int alg, size_t keylen, int flags,
 	if ((flags & NET2_XCHANGE_F_INITIATOR) && !net2_buffer_empty(initbuf))
 		return NULL;
 
-	if ((x = malloc(sizeof(*x))) == NULL)
+	if ((x = net2_malloc(sizeof(*x))) == NULL)
 		goto fail_0;
 	x->fn = &xchange[alg];
 	x->flags = flags;
@@ -136,7 +137,7 @@ net2_xchangectx_prepare(int alg, size_t keylen, int flags,
 	return x;
 
 fail_1:
-	free(x);
+	net2_free(x);
 fail_0:
 	return NULL;
 }
@@ -147,7 +148,7 @@ net2_xchangectx_free(struct net2_xchange_ctx *x)
 {
 	if (x->fn->destroy != NULL)
 		(*x->fn->destroy)(x);
-	free(x);
+	net2_free(x);
 }
 
 /* Fill export buffer. */
@@ -218,14 +219,14 @@ net2_xchangectx_clone(const struct net2_xchange_ctx *x)
 	struct net2_xchange_ctx	*dst;
 	int			 error;
 
-	if ((dst = malloc(sizeof(*dst))) == NULL)
+	if ((dst = net2_malloc(sizeof(*dst))) == NULL)
 		return NULL;
 	dst->fn = x->fn;
 	dst->flags = x->flags;
 	dst->scratch = NULL;
 
 	if ((error = (*dst->fn->clone)(dst, x)) != 0) {
-		free(dst);
+		net2_free(dst);
 		return NULL;
 	}
 

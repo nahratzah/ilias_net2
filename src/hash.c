@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/hash.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/bsd_compat.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -188,14 +189,14 @@ net2_hashctx_new(int alg, const void *key, size_t keylen)
 		return NULL;
 
 	/* Allocate context. */
-	if ((ctx = malloc(sizeof(*ctx))) == NULL)
+	if ((ctx = net2_malloc(sizeof(*ctx))) == NULL)
 		return NULL;
 
 	/* Store algorithm and initialize state. */
 	ctx->fn = fn;
 	if (fn->init_fn != NULL &&
 	    (*fn->init_fn)(ctx, key, keylen)) {
-		free(ctx);
+		net2_free(ctx);
 		return NULL;
 	}
 
@@ -210,7 +211,7 @@ net2_hashctx_free(struct net2_hash_ctx *ctx)
 
 	if (fn->destroy_fn != NULL)
 		(*fn->destroy_fn)(ctx);
-	free(ctx);
+	net2_free(ctx);
 }
 
 /* Add data to be hashed. */
