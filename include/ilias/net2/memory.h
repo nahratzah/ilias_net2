@@ -25,13 +25,9 @@
 	e_strdup((s))
 
 #define net2_memory_init()						\
-	do {								\
-		clog_init(1);						\
-		clog_set_flags(CLOG_F_ENABLE | CLOG_F_STDERR);		\
-		exude_enable(EXUDE_DBG_ALWAYS);				\
-	} while (0)
+	do {} while (0)
 #define net2_memory_fini()						\
-	e_check_memory()
+	do {} while (0)
 
 
 #else /* NET2_USE_EXUDE_DEBUG */

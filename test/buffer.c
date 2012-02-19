@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/init.h>
 #include <stdio.h>
@@ -504,6 +505,7 @@ test_remove()
 int
 main()
 {
+	test_start();
 	net2_init();
 
 	printf("test 1: buffer new, free\n");
@@ -536,5 +538,7 @@ main()
 
 	if (fail == 0)
 		net2_cleanup();
+
+	test_fini();
 	return fail;
 }

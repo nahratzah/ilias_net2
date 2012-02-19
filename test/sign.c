@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/init.h>
 #include <ilias/net2/sign.h>
@@ -53,6 +54,8 @@ main()
 	int			 error;
 	char			*hex;
 	int			 fail = 0;
+
+	test_start();
 
 	/* Initialize SSL. */
 	SSL_library_init();
@@ -190,6 +193,7 @@ main()
 	net2_cleanup();
 skip_pubkey:
 
+	test_fini();
 	/* Done. */
 	return fail;
 }

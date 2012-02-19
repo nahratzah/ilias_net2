@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "testconn.h"
+#include "test.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/evbase.h>
@@ -52,6 +53,7 @@ test_conn_create_destroy()
 int
 main()
 {
+	test_start();
 	net2_init();
  
 	if (test_conn_create_destroy())
@@ -60,5 +62,6 @@ main()
 	testconn_cleanup();
 
 	net2_cleanup();
+	test_fini();
 	return fail;
 }

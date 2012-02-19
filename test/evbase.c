@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/init.h>
 #include <stdio.h>
@@ -41,6 +42,8 @@ main()
 	struct event		*ev;
 	struct timeval		 second = { 1, 0 };
 	struct timeval		 immediate = { 0, 0 };
+
+	test_start();
 
 	/* Initializing libevent. */
 #ifdef WIN32
@@ -137,5 +140,6 @@ main()
 	net2_evbase_release(b);
 
 	net2_cleanup();
+	test_fini();
 	return 0;
 }

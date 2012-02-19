@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include <ilias/net2/init.h>
 #include <event2/buffer.h>
 #include <ilias/net2/ctypes.h>
@@ -210,6 +211,7 @@ main()
 		NULL
 	};
 
+	test_start();
 	net2_init();
 
 	printf("test  1: unsigned int8\n");
@@ -237,6 +239,7 @@ main()
 	test_stringlist_cp(&sl[0], sl_out, &cp_null_stringlist);
 
 	net2_cleanup();
+	test_fini();
 
 	return fail;
 }

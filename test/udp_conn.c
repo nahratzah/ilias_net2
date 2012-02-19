@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include "testprotocol.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/udp_connection.h>
@@ -217,6 +218,8 @@ main()
 				*sa1, *sa2;
 	struct net2_buffer	*sent, *received;
 	int			 thread_running = 0;
+
+	test_start();
 
 	/* Initializing libevent. */
 	event_enable_debug_mode();
@@ -431,5 +434,6 @@ main()
 	test_ctx_free(protocol_ctx);
 	net2_cleanup();
 
+	test_fini();
 	return fail;
 }

@@ -13,6 +13,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include "test.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/hash.h>
 #include <event2/buffer.h>
@@ -109,6 +110,7 @@ main()
 	const char	*nilname;
 	int		 alg;
 
+	test_start();
 	net2_init();
 
 	printf("test 1: nil checksum name\n");
@@ -148,6 +150,7 @@ main()
 		return -1;
 
 	net2_cleanup();
+	test_fini();
 
 	return fail;
 }
