@@ -509,7 +509,7 @@ ILIAS_NET2_LOCAL int
 net2_conn_p2p_setev(struct net2_conn_p2p *c, short what)
 {
 	struct net2_evbase	*evbase;
-	int			 allocated = 1;
+	int			 allocated = 0;
 	int			 want_write, have_write;
 	int			 want_read,  have_read;
 
@@ -539,14 +539,11 @@ net2_conn_p2p_setev(struct net2_conn_p2p *c, short what)
 		}
 
 		/* Remove and reinitialize event. */
-		if (event_del(c->np2p_ev)) {
-			warnx("event_del fail");
-			goto fail;
-		}
-		if (event_assign(c->np2p_ev, evbase->evbase,
+		event_free(c->np2p_ev);
+		if ((c->np2p_ev = event_new(evbase->evbase,
 		    c->np2p_sock, what | EV_PERSIST,
-		    net2_conn_p2p_recv, c)) {
-			warnx("event_assign fail");
+		    net2_conn_p2p_recv, c)) == NULL) {
+			warnx("event_new fail");
 			goto fail;
 		}
 	}
@@ -708,11 +705,11 @@ retry_tx:
 		/* Test if we still have pending writes. */
 		if (TAILQ_EMPTY(&udps->wantwrite)) {
 empty_sendq:
-			if (event_del(udps->ev))
-				errx(EX_UNAVAILABLE, "event_del fail");
-			if (event_assign(udps->ev, udps->evbase->evbase, sock,
-			    EV_READ|EV_PERSIST, &net2_udpsocket_recv, udps))
-				warnx("event_assign fail");
+			event_free(udps->ev);
+			if ((udps->ev = event_new(udps->evbase->evbase, sock,
+			    EV_READ|EV_PERSIST, &net2_udpsocket_recv, udps)) ==
+			    NULL)
+				warnx("event_new fail");
 			if (event_add(udps->ev, NULL))
 				warnx("event_add fail");
 		}
