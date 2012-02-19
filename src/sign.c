@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/sign.h>
+#include <ilias/net2/memory.h>
 #include <errno.h>
 #include <string.h>
 #include <openssl/ec.h>
@@ -136,12 +137,12 @@ net2_signctx_pubnew(int alg, const void *key, size_t keylen)
 	if (alg < 0 || alg >= net2_signmax)
 		return NULL;
 
-	if ((s = malloc(sizeof(*s))) == NULL)
+	if ((s = net2_malloc(sizeof(*s))) == NULL)
 		return NULL;
 	s->fn = &sign[alg];
 	s->fingerprint = NULL;
 	if ((*s->fn->initpub_fn)(s, key, keylen) != 0) {
-		free(s);
+		net2_free(s);
 		return NULL;
 	}
 	return s;
@@ -156,12 +157,12 @@ net2_signctx_privnew(int alg, const void *key, size_t keylen)
 	if (alg < 0 || alg >= net2_signmax)
 		return NULL;
 
-	if ((s = malloc(sizeof(*s))) == NULL)
+	if ((s = net2_malloc(sizeof(*s))) == NULL)
 		return NULL;
 	s->fn = &sign[alg];
 	s->fingerprint = NULL;
 	if ((*s->fn->initpriv_fn)(s, key, keylen) != 0) {
-		free(s);
+		net2_free(s);
 		return NULL;
 	}
 	return s;
@@ -175,7 +176,7 @@ net2_signctx_free(struct net2_sign_ctx *s)
 		(*s->fn->destroy_fn)(s);
 		if (s->fingerprint != NULL)
 			net2_buffer_free(s->fingerprint);
-		free(s);
+		net2_free(s);
 	}
 }
 
@@ -220,12 +221,12 @@ net2_signctx_clone(struct net2_sign_ctx *orig)
 {
 	struct net2_sign_ctx	*dest;
 
-	if ((dest = malloc(sizeof(*dest))) == NULL)
+	if ((dest = net2_malloc(sizeof(*dest))) == NULL)
 		return NULL;
 	dest->fn = orig->fn;
 
 	if ((*dest->fn->clone_fn)(dest, orig) != 0) {
-		free(dest);
+		net2_free(dest);
 		return NULL;
 	}
 

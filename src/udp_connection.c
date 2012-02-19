@@ -20,6 +20,7 @@
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/sockdgram.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/memory.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -191,11 +192,11 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 	if (sock == -1)
 		return NULL;
 	/* Reserve space. */
-	if ((c = malloc(sizeof(*c))) == NULL)
+	if ((c = net2_malloc(sizeof(*c))) == NULL)
 		goto fail_0;
 	/* Copy remote address. */
 	if (remote) {
-		if ((c->np2p_remote = malloc(remotelen)) == NULL)
+		if ((c->np2p_remote = net2_malloc(remotelen)) == NULL)
 			goto fail_1;
 		memcpy(c->np2p_remote, remote, remotelen);
 		c->np2p_remotelen = remotelen;
@@ -227,9 +228,9 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 fail_3:
 	net2_connection_deinit(&c->np2p_conn);
 fail_2:
-	free(c->np2p_remote);
+	net2_free(c->np2p_remote);
 fail_1:
-	free(c);
+	net2_free(c);
 fail_0:
 	return NULL;
 }
@@ -249,7 +250,7 @@ net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
 	if (evbase == NULL)
 		evbase = sock->evbase;
 
-	if ((c = malloc(sizeof(*c))) == NULL)
+	if ((c = net2_malloc(sizeof(*c))) == NULL)
 		return NULL;
 	c->np2p_sock = -1;
 	c->np2p_udpsock = sock;
@@ -259,7 +260,7 @@ net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
 	c->np2p_flags = 0;
 
 	if (remote) {
-		if ((c->np2p_remote = malloc(remotelen)) == NULL)
+		if ((c->np2p_remote = net2_malloc(remotelen)) == NULL)
 			goto fail;
 		memcpy(c->np2p_remote, remote, remotelen);
 		c->np2p_remotelen = remotelen;
@@ -272,8 +273,8 @@ net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
 
 fail:
 	if (c->np2p_remote)
-		free(c->np2p_remote);
-	free(c);
+		net2_free(c->np2p_remote);
+	net2_free(c);
 	return NULL;
 }
 
@@ -306,7 +307,7 @@ net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
 		goto fail;
 
 	/* Allocate result. */
-	if ((rv = malloc(sizeof(*rv))) == NULL)
+	if ((rv = net2_malloc(sizeof(*rv))) == NULL)
 		goto fail;
 	rv->evbase = evbase;
 	rv->sock = fd;
@@ -327,7 +328,7 @@ fail_event_add:
 fail_event_new:
 	net2_mutex_free(rv->guard);
 fail_guard:
-	free(rv);
+	net2_free(rv);
 fail:
 	if (fd != -1) {
 		saved_errno = errno;
@@ -370,7 +371,7 @@ net2_conn_p2p_destroy(struct net2_acceptor_socket *cptr)
 
 	udpsock = c->np2p_udpsock;
 	if (c->np2p_remote)
-		free(c->np2p_remote);
+		net2_free(c->np2p_remote);
 	if (c->np2p_sock != -1)
 #ifdef WIN32
 		closesocket(c->np2p_sock);
@@ -384,7 +385,7 @@ net2_conn_p2p_destroy(struct net2_acceptor_socket *cptr)
 		event_free(c->np2p_ev);
 	}
 	net2_connection_deinit(&c->np2p_conn);
-	free(cptr);
+	net2_free(cptr);
 }
 
 /*
@@ -614,7 +615,7 @@ net2_udpsocket_recv(int sock, short what, void *udps_ptr)
 				/* TODO: implement new connection callback */
 				if (r->buf)
 					net2_buffer_free(r->buf);
-				free(r);
+				net2_free(r);
 			}
 			net2_mutex_unlock(udps->guard);	/* UNLOCK */
 		}
@@ -736,7 +737,7 @@ net2_udpsock_unlock(struct net2_udpsocket *sock)
 		net2_mutex_free(sock->guard);
 		event_free(sock->ev);
 		net2_evbase_release(sock->evbase);
-		free(sock);
+		net2_free(sock);
 	}
 }
 

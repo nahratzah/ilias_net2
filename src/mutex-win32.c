@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/sysexits.h>
 #include <bsd_compat/error.h>
 #include <windows.h>
@@ -45,7 +46,7 @@ net2_mutex_alloc()
 {
 	struct net2_mutex	*m;
 
-	if ((m = malloc(sizeof(*m))) == NULL)
+	if ((m = net2_malloc(sizeof(*m))) == NULL)
 		return NULL;
 	InitializeCriticalSection(&m->s);
 	m->locks = 0;
@@ -60,7 +61,7 @@ net2_mutex_free(struct net2_mutex *m)
 {
 	if (m) {
 		DeleteCriticalSection(&m->s);
-		free(m);
+		net2_free(m);
 	}
 }
 
@@ -157,7 +158,7 @@ net2_cond_alloc()
 {
 	struct net2_condition	*c;
 
-	if ((c = malloc(sizeof(*c))) == NULL)
+	if ((c = net2_malloc(sizeof(*c))) == NULL)
 		return NULL;
 
 	InitializeCriticalSection(&c->s);

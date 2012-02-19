@@ -99,3 +99,11 @@ testconn_ready_to_send(struct net2_acceptor_socket *cptr)
 
 	c->wantsend = 1;
 }
+
+void
+testconn_cleanup()
+{
+	if (global_evbase != NULL)
+		net2_evbase_release(global_evbase);
+	global_evbase = NULL;
+}

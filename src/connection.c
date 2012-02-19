@@ -24,6 +24,7 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/secure_random.h>
@@ -126,16 +127,16 @@ net2_connection_deinit(struct net2_connection *conn)
 		TAILQ_REMOVE(&conn->n2c_recvq, r, recvq);
 		if (r->buf)
 			net2_buffer_free(r->buf);
-		free(r);
+		net2_free(r);
 	}
 
 	if (conn->n2c_sign.key) {
 		net2_secure_zero(conn->n2c_sign.key, conn->n2c_sign.keylen);
-		free(conn->n2c_sign.key);
+		net2_free(conn->n2c_sign.key);
 	}
 	if (conn->n2c_enc.key) {
 		net2_secure_zero(conn->n2c_enc.key, conn->n2c_enc.keylen);
-		free(conn->n2c_enc.key);
+		net2_free(conn->n2c_enc.key);
 	}
 	net2_mutex_free(conn->n2c_recvmtx);
 }
@@ -257,7 +258,7 @@ net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
 		if (buf)
 			net2_buffer_free(buf);
 release:
-		free(r);
+		net2_free(r);
 		net2_mutex_lock(c->n2c_recvmtx);
 	}
 	net2_mutex_unlock(c->n2c_recvmtx);

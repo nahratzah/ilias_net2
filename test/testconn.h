@@ -30,5 +30,6 @@ struct testconn {
 
 extern struct net2_evbase	*global_evbase;
 int	testconn(struct net2_connection**, struct net2_connection**);
+void	testconn_cleanup();
 
 #endif /* TEST_TESTCONN_H */

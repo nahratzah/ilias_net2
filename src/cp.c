@@ -17,6 +17,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/obj_manager.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <event2/event.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -64,7 +65,7 @@ net2_cp_init_alloc(struct net2_encdec_ctx *ctx, const struct command_param *cp,
     void **ptr, const void *arg)
 {
 	/* Allocate parameter space. */
-	if ((*ptr = malloc(cp->cp_size)) == NULL)
+	if ((*ptr = net2_malloc(cp->cp_size)) == NULL)
 		goto fail_0;
 	/* Initialize allocated space. */
 	if (net2_cp_init(ctx, cp, *ptr, arg))
@@ -73,7 +74,7 @@ net2_cp_init_alloc(struct net2_encdec_ctx *ctx, const struct command_param *cp,
 	return 0;
 
 fail_1:
-	free(*ptr);
+	net2_free(*ptr);
 	*ptr = NULL;
 fail_0:
 	return -1;
@@ -95,7 +96,7 @@ net2_cp_destroy_alloc(struct net2_encdec_ctx *ctx,
 	/* Destroy allocated space. */
 	if ((err = net2_cp_destroy(ctx, cp, *ptr, arg)) == 0) {
 		/* Release parameter space. */
-		free(*ptr);
+		net2_free(*ptr);
 		*ptr = NULL;	/* For safety. */
 	}
 
@@ -206,7 +207,7 @@ net2_invocation_ctx_new(struct net2_objmanager *man,
 	if ((cm->cm_in == NULL) != (in_params == NULL))
 		return NULL;
 
-	if ((ctx = malloc(sizeof(*ctx))) == NULL)
+	if ((ctx = net2_malloc(sizeof(*ctx))) == NULL)
 		goto fail_0;
 	ctx->man = man;
 	net2_objmanager_ref(man);
@@ -227,7 +228,7 @@ fail_2:
 	net2_mutex_free(ctx->mtx);
 fail_1:
 	net2_objmanager_release(man);
-	free(ctx);
+	net2_free(ctx);
 fail_0:
 	return NULL;
 }
@@ -251,7 +252,7 @@ net2_invocation_ctx_free(struct net2_invocation_ctx *ctx)
 		net2_objmanager_release(ctx->man);
 	net2_mutex_free(ctx->mtx);
 
-	free(ctx);
+	net2_free(ctx);
 }
 
 /*

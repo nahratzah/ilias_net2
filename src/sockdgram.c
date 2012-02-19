@@ -16,6 +16,7 @@
 #include <ilias/net2/sockdgram.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/error.h>
 #include <stdlib.h>
 #include <string.h>
@@ -163,7 +164,7 @@ net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
 		assert(error != 0);
 
 	/* Succes. */
-	if ((*recvptr = malloc(sizeof(**recvptr))) == NULL)
+	if ((*recvptr = net2_malloc(sizeof(**recvptr))) == NULL)
 		goto fail;
 	(*recvptr)->error = error;
 	(*recvptr)->buf = buf;
@@ -172,7 +173,7 @@ net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
 fail:
 	/* Failure. Release resources and return error. */
 	if (*recvptr != NULL) {
-		free(*recvptr);
+		net2_free(*recvptr);
 		*recvptr = NULL;
 	}
 	if (buf != NULL)
@@ -198,7 +199,7 @@ net2_sockdgram_send(evutil_socket_t sock, struct net2_connection *c,
 
 	tbuf_len = net2_buffer_length(txbuf);
 	numvec = net2_buffer_peek(txbuf, tbuf_len, NULL, 0);
-	if ((vec = calloc(numvec, sizeof(*vec))) == NULL) {
+	if ((vec = net2_calloc(numvec, sizeof(*vec))) == NULL) {
 		warn("%s: failed to allocate %d iovec", __FUNCTION__, numvec);
 		return NET2_CONNFAIL_RESOURCE;
 	}
@@ -236,7 +237,7 @@ simple:
 		buflen = vec[0].iov_len;
 	} else {
 		buflen = tbuf_len;
-		if ((buf = malloc(buflen)) == NULL) {
+		if ((buf = net2_malloc(buflen)) == NULL) {
 			err = NET2_CONNFAIL_RESOURCE;
 			goto out;
 		}
@@ -265,8 +266,8 @@ simple:
 
 out:
 	if (freebuf)		/* buf was allocated. */
-		free(buf);
-	free(vec);
+		net2_free(buf);
+	net2_free(vec);
 	return err;
 
 handle_errno:

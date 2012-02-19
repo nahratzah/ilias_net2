@@ -21,6 +21,7 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/packet.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/bsd_compat.h>
@@ -211,7 +212,7 @@ net2_stream_acceptor_new()
 {
 	struct net2_stream_acceptor	*nsa;
 
-	if ((nsa = malloc(sizeof(*nsa))) == NULL)
+	if ((nsa = net2_malloc(sizeof(*nsa))) == NULL)
 		goto fail_0;
 	if (net2_acceptor_init(&nsa->base, &nsa_fn))
 		goto fail_1;
@@ -228,7 +229,7 @@ fail_3:
 fail_2:
 	net2_acceptor_deinit(&nsa->base);
 fail_1:
-	free(nsa);
+	net2_free(nsa);
 fail_0:
 	return NULL;
 }
@@ -239,7 +240,7 @@ net2_stream_acceptor_destroy(struct net2_stream_acceptor *nsa)
 {
 	sa_rx_deinit(&nsa->rx);
 	sa_tx_deinit(&nsa->tx);
-	free(nsa);
+	net2_free(nsa);
 }
 
 
@@ -292,7 +293,7 @@ sa_range_new(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 {
 	struct range			*r;
 
-	if ((r = malloc(sizeof(*r))) == NULL)
+	if ((r = net2_malloc(sizeof(*r))) == NULL)
 		return NULL;
 
 	r->sa = sa;
@@ -306,7 +307,7 @@ sa_range_new(struct net2_sa_tx *sa, uint32_t start, uint32_t end)
 static void
 sa_range_free(struct range *r)
 {
-	free(r);
+	net2_free(r);
 }
 
 /*
@@ -372,7 +373,7 @@ sa_fragment_new(struct net2_sa_rx *sa, uint32_t start, uint32_t end,
 	struct fragment			*f;
 
 	assert(end - start == net2_buffer_length(payload));
-	if ((f = malloc(sizeof(*f))) == NULL)
+	if ((f = net2_malloc(sizeof(*f))) == NULL)
 		return NULL;
 
 	f->sa = sa;
@@ -388,7 +389,7 @@ sa_fragment_free(struct fragment *f)
 {
 	if (f->payload)
 		net2_buffer_free(f->payload);
-	free(f);
+	net2_free(f);
 }
 
 /*

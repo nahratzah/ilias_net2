@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/enc.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/bsd_compat.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -165,10 +166,10 @@ net2_encctx_new(int alg, const void *key, size_t keylen,
 		return NULL;
 
 	/* Create context. */
-	if ((ctx = malloc(sizeof(*ctx))) == NULL)
+	if ((ctx = net2_malloc(sizeof(*ctx))) == NULL)
 		return NULL;
 	if ((ctx->out = net2_buffer_new()) == NULL) {
-		free(ctx);
+		net2_free(ctx);
 		return NULL;
 	}
 	ctx->fn = fn;
@@ -176,7 +177,7 @@ net2_encctx_new(int alg, const void *key, size_t keylen,
 	/* Initialize algorithm. */
 	if ((*fn->init_fn)(ctx, key, keylen, iv, ivlen, direction)) {
 		net2_buffer_free(ctx->out);
-		free(ctx);
+		net2_free(ctx);
 		return NULL;
 	}
 
@@ -193,7 +194,7 @@ net2_encctx_free(struct net2_enc_ctx *ctx)
 		(*fn->destroy_fn)(ctx);
 	if (ctx->out)
 		net2_buffer_free(ctx->out);
-	free(ctx);
+	net2_free(ctx);
 }
 
 /* Add data to encoder context. */

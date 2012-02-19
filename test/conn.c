@@ -57,6 +57,8 @@ main()
 	if (test_conn_create_destroy())
 		return -1;
 
+	testconn_cleanup();
+
 	net2_cleanup();
 	return fail;
 }

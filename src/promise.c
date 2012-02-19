@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/promise.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
@@ -54,7 +55,7 @@ net2_promise_new()
 	struct net2_promise		*p;
 	int				 i;
 
-	if ((p = malloc(sizeof(*p))) == NULL)
+	if ((p = net2_malloc(sizeof(*p))) == NULL)
 		goto fail_0;
 
 	p->refcnt = 1;
@@ -76,7 +77,7 @@ net2_promise_new()
 fail_2:
 	net2_mutex_free(p->mtx);
 fail_1:
-	free(p);
+	net2_free(p);
 fail_0:
 	return NULL;
 }
@@ -102,7 +103,7 @@ net2_promise_unlock(struct net2_promise *p)
 		if (p->result != NULL && p->free.fn != NULL)
 			(*p->free.fn)(p->result, p->free.arg);
 
-		free(p);
+		net2_free(p);
 	}
 }
 

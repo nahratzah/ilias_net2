@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
 #include <pthread.h>
@@ -38,11 +39,11 @@ net2_mutex_alloc()
 	struct net2_mutex	*m;
 	int			 rv;
 
-	if ((m = malloc(sizeof(*m))) == NULL)
+	if ((m = net2_malloc(sizeof(*m))) == NULL)
 		return m;
 	if ((rv = pthread_mutex_init(&m->n2m_impl, NULL)) != 0) {
 		warnx("%s: %s", "pthread_mutex_init", strerror(rv));
-		free(m);
+		net2_free(m);
 		return NULL;
 	}
 	return m;
@@ -62,7 +63,7 @@ net2_mutex_free(struct net2_mutex *m)
 		errx(EX_OSERR, "%s: %s",
 		    "pthread_mutex_destroy", strerror(rv));
 	}
-	free(m);
+	net2_free(m);
 }
 
 /*
@@ -117,12 +118,12 @@ net2_cond_alloc()
 	struct net2_condition	*c;
 	int			 rv;
 
-	if ((c = malloc(sizeof(c))) == NULL)
+	if ((c = net2_malloc(sizeof(c))) == NULL)
 		return c;
 
 	if ((rv = pthread_cond_init(&c->n2c_impl, NULL)) != 0) {
 		warnx("%s: %s", "pthread_cond_init", strerror(rv));
-		free(c);
+		net2_free(c);
 		return NULL;
 	}
 	return c;
@@ -142,7 +143,7 @@ net2_cond_free(struct net2_condition *c)
 		errx(EX_OSERR, "%s: %s",
 		    "pthread_cond_destroy", strerror(rv));
 	}
-	free(c);
+	net2_free(c);
 }
 
 /*
