@@ -121,6 +121,7 @@ struct net2_cw_transmit_cb {
 #define NET2_CWTXCB_ACK		 2		/* State: ack received. */
 #define NET2_CWTXCB_NACK	 3		/* State: nack received. */
 #define NET2_CWTXCB_CDESTROY	 4		/* State: conn destroyed. */
+#define NET2_CWTXCB_INVAL	0xffffffff	/* State: invalid state. */
 	struct event		*ev;		/* Event delivery. */
 	struct event		*ev_timeout;	/* Timeout event delivery. */
 
@@ -517,8 +518,12 @@ static void
 tx_cb_execute(int fd, short what, void *cbptr)
 {
 	struct net2_cw_transmit_cb	*cb = cbptr;
+	int				 state;
 
-	switch (cb->state) {
+	state = cb->state;
+	cb->state = NET2_CWTXCB_INVAL;
+
+	switch (state) {
 	case NET2_CWTXCB_ACK:
 		if (cb->cb_ack)
 			(*cb->cb_ack)(cb->cb_arg0, cb->cb_arg1);
@@ -539,6 +544,8 @@ tx_cb_execute(int fd, short what, void *cbptr)
 	}
 
 	/* Destroy callback. */
+	if (cb->ev_timeout)
+		event_free(cb->ev_timeout);
 	event_free(cb->ev);
 	net2_free(cb);
 }
@@ -569,15 +576,13 @@ tx_cb_timeout(struct net2_cw_transmit_cb *cb)
 static void
 tx_cb_ack(struct net2_cw_transmit_cb *cb)
 {
-	const struct timeval	now = { 0, 0 };
-
 	assert(cb->state == NET2_CWTXCB_NONE);
 
 	if (cb->ev_timeout)
 		event_del(cb->ev_timeout);
 	cb->state = NET2_CWTXCB_ACK;
 	if (cb->cb_ack != NULL)
-		event_add(cb->ev, &now);
+		event_active(cb->ev, 0, 0);
 	else {
 		if (cb->ev_timeout)
 			event_free(cb->ev_timeout);
@@ -590,15 +595,13 @@ tx_cb_ack(struct net2_cw_transmit_cb *cb)
 static void
 tx_cb_nack(struct net2_cw_transmit_cb *cb)
 {
-	const struct timeval	now = { 0, 0 };
-
 	assert(cb->state == NET2_CWTXCB_NONE);
 
 	if (cb->ev_timeout)
 		event_del(cb->ev_timeout);
 	cb->state = NET2_CWTXCB_NACK;
 	if (cb->cb_nack != NULL)
-		event_add(cb->ev, &now);
+		event_active(cb->ev, 0, 0);
 	else {
 		if (cb->ev_timeout)
 			event_free(cb->ev_timeout);
@@ -611,15 +614,13 @@ tx_cb_nack(struct net2_cw_transmit_cb *cb)
 static void
 tx_cb_cdestroy(struct net2_cw_transmit_cb *cb)
 {
-	const struct timeval	now = { 0, 0 };
-
 	assert(cb->state == NET2_CWTXCB_NONE);
 
 	if (cb->ev_timeout)
 		event_del(cb->ev_timeout);
 	cb->state = NET2_CWTXCB_CDESTROY;
 	if (cb->cb_cdestroy != NULL)
-		event_add(cb->ev, &now);
+		event_active(cb->ev, 0, 0);
 	else {
 		if (cb->ev_timeout)
 			event_free(cb->ev_timeout);
