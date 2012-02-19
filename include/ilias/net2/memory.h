@@ -36,13 +36,6 @@
 #else /* NET2_USE_EXUDE_DEBUG */
 
 
-#ifndef NDEBUG
-#ifndef NET2_USE_EXUDE_DEBUG
-#error "Not using exude in non-optimized build."
-#endif /* NET2_USE_EXUDE_DEBUG */
-#endif
-
-
 #include <stdlib.h>
 
 #define net2_malloc(s)							\
@@ -52,9 +45,9 @@
 #define net2_realloc(p, s)						\
 	realloc((p), (s))
 #define net2_calloc(n, s)						\
-	calloc((n), (s)
+	calloc((n), (s))
 #define net2_strdup(s)							\
-	strdup(s)
+	strdup((s))
 
 #define net2_memory_init()						\
 	do {} while (0)
