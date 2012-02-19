@@ -125,7 +125,8 @@ int			 net2_buffer_commit_space(struct net2_buffer*,
 			    struct iovec*, size_t);
 
 ILIAS_NET2_EXPORT
-char			*net2_buffer_hex(const struct net2_buffer*);
+char			*net2_buffer_hex(const struct net2_buffer*,
+			    void *(*)(size_t));
 
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_buffer_subrange(const struct net2_buffer*,

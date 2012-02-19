@@ -101,8 +101,8 @@ test(int alg)
 		fail++;
 	}
 
-	alice_hex = net2_buffer_hex(alice_key);
-	bob_hex = net2_buffer_hex(bob_key);
+	alice_hex = net2_buffer_hex(alice_key, &malloc);
+	bob_hex = net2_buffer_hex(bob_key, &malloc);
 	if (net2_buffer_cmp(alice_key, bob_key) != 0) {
 		printf("Bob and Alice don't have the same key\n"
 		    "Alice: %s\n"

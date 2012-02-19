@@ -1550,7 +1550,7 @@ fail:
  * String will be NULL terminated.
  */
 ILIAS_NET2_EXPORT char*
-net2_buffer_hex(const struct net2_buffer *b)
+net2_buffer_hex(const struct net2_buffer *b, void *(*malloc_fn)(size_t))
 {
 	struct net2_buffer_segment	*list;
 	char				*s, *result;
@@ -1564,8 +1564,11 @@ net2_buffer_hex(const struct net2_buffer *b)
 		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
 	};
 
+	if (malloc_fn == NULL)
+		return NULL;
+
 	list = b->list;
-	if ((result = s = net2_malloc(2 * net2_buffer_length(b) + 1)) == NULL)
+	if ((result = s = (*malloc_fn)(2 * net2_buffer_length(b) + 1)) == NULL)
 		return NULL;
 	for (i = 0; i < b->listlen; i++) {
 		p = segment_getptr(&list[i]);
