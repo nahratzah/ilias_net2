@@ -17,9 +17,9 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/packet.h>
+#include <ilias/net2/memory.h>
 #include "connwindow_cp.h"
 #include "stream_packet.h"
-#include <stdlib.h>
 
 ILIAS_NET2_EXPORT const struct net2_objtype *
 net2_protocol_type(const struct net2_protocol *p, uint32_t tid)
@@ -133,7 +133,7 @@ net2_pvlist_init(struct net2_pvlist *pv)
 ILIAS_NET2_EXPORT void
 net2_pvlist_deinit(struct net2_pvlist *pv)
 {
-	free(pv->list);
+	net2_free(pv->list);
 	pv->list = NULL;
 	pv->listsz = 0;
 }
@@ -151,7 +151,8 @@ net2_pvlist_add(struct net2_pvlist *pv, const struct net2_protocol *p,
 	    sizeof(pv->list[0]), &net2_pvlist_cmp) != NULL)
 		return -1;
 
-	if ((list = realloc(list, (pv->listsz + 1) * sizeof(*list))) == NULL)
+	if ((list = net2_recalloc(list, pv->listsz + 1, sizeof(*list))) ==
+	    NULL)
 		return -1;
 	pv->list = list;
 	elem = &list[pv->listsz];
@@ -197,7 +198,7 @@ net2_pvlist_merge(struct net2_pvlist *dst, const struct net2_pvlist *src)
 
 	list = dst->list;
 	listlen = dst->listsz + src->listsz;
-	if ((list = realloc(list, listlen * sizeof(*list))) == NULL)
+	if ((list = net2_recalloc(list, listlen, sizeof(*list))) == NULL)
 		return -1;
 	dst->list = list;
 

@@ -220,6 +220,9 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 	int				 rv = -1;
 	size_t				 require, want, have;
 
+	if (off + add < off)
+		return -1;	/* overflow */
+
 	assert(s->use >= off);
 	if ((s->flags & BUF_STD) && s->use == off) {
 		if (s->len - s->use >= add) {
@@ -229,7 +232,8 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 			require = SEGMENT_SZ(off + add);
 			want = ((require + NET2_BUFFER_ALIGN - 1) &
 			    ~(NET2_BUFFER_ALIGN - 1));
-			if ((tmp = net2_realloc(s, want)) == NULL) {
+			if (want < require /* overflow */ ||
+			    (tmp = net2_realloc(s, want)) == NULL) {
 				if ((tmp = net2_realloc(s, require)) == NULL)
 					goto fail_0;
 				else
@@ -557,7 +561,7 @@ net2_buffer_add(struct net2_buffer *b, const void *data, size_t len)
 			return 0;
 	}
 
-	if ((list = net2_realloc(list, (b->listlen + 1) * sizeof(*list))) ==
+	if ((list = net2_recalloc(list, (b->listlen + 1), sizeof(*list))) ==
 	    NULL)
 		goto fail_0;
 	b->list = list;
@@ -596,7 +600,7 @@ net2_buffer_add_reference(struct net2_buffer *b, void *data, size_t len,
 
 	list = b->list;
 
-	if ((list = net2_realloc(list, (b->listlen + 1) * sizeof(*list))) ==
+	if ((list = net2_recalloc(list, (b->listlen + 1), sizeof(*list))) ==
 	    NULL)
 		goto fail_0;
 	b->list = list;
@@ -626,7 +630,7 @@ net2_buffer_append(struct net2_buffer *dst, const struct net2_buffer *src)
 	/* Create enough space in list. */
 	newlen = dst->listlen + src->listlen;
 	list = dst->list;
-	if ((list = net2_realloc(list, newlen * sizeof(*list))) == NULL)
+	if ((list = net2_recalloc(list, newlen, sizeof(*list))) == NULL)
 		goto fail_0;
 	dst->list = list;
 
@@ -659,7 +663,7 @@ net2_buffer_prepend(struct net2_buffer *dst, const struct net2_buffer *src)
 	/* Create enough space in list. */
 	newlen = dst->listlen + src->listlen;
 	list = dst->list;
-	if ((list = net2_realloc(list, newlen * sizeof(*list))) == NULL)
+	if ((list = net2_recalloc(list, newlen, sizeof(*list))) == NULL)
 		goto fail_0;
 	dst->list = list;
 
@@ -730,7 +734,7 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 	memmove(&list[1], &list[next], b->listlen - 1);
 
 	/* Attempt to release memory (not an error if this fails). */
-	if ((list = net2_realloc(list, b->listlen * sizeof(*list))) != NULL)
+	if ((list = net2_recalloc(list, b->listlen, sizeof(*list))) != NULL)
 		b->list = list;
 
 	/*
@@ -1161,7 +1165,7 @@ remove_everything:
 		 * Source has insufficient entries -> add all.
 		 */
 		listlen = src->listlen + dst->listlen;
-		dst_list = net2_realloc(dst_list, listlen * sizeof(*dst_list));
+		dst_list = net2_recalloc(dst_list, listlen, sizeof(*dst_list));
 		if (dst_list == NULL)
 			return 0;
 		dst->list = dst_list;
@@ -1199,7 +1203,7 @@ remove_everything:
 	assert(mv <= src->listlen);
 
 	/* Prepare space in dst. */
-	dst_list = net2_realloc(dst_list, listlen * sizeof(*dst_list));
+	dst_list = net2_recalloc(dst_list, listlen, sizeof(*dst_list));
 	if (dst_list == NULL)
 		return 0;
 	dst->list = dst_list;
@@ -1234,8 +1238,8 @@ remove_everything:
 		src->list = NULL;
 	} else {
 		/* Reduce memory usage. */
-		src_list = net2_realloc(src_list,
-		    src->listlen * sizeof(*src_list));
+		src_list = net2_recalloc(src_list,
+		    src->listlen, sizeof(*src_list));
 		if (src_list != NULL)
 			src->list = src_list;
 	}
@@ -1348,8 +1352,8 @@ net2_buffer_reserve_space(struct net2_buffer *b, size_t len, struct iovec *iov,
 	reserve = b->reserve;
 
 	/* Reserve enough space for the worst case scenario. */
-	reserve = net2_realloc(reserve,
-	    (b->reservelen + *iovlen) * sizeof(*reserve));
+	reserve = net2_recalloc(reserve,
+	    (b->reservelen + *iovlen), sizeof(*reserve));
 	if (reserve == NULL)
 		return -1;
 	b->reserve = reserve;
@@ -1499,8 +1503,8 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 				 * Cannot merge with last entry in list.
 				 * Grow the list and create a copy.
 				 */
-				list = net2_realloc(list,
-				    (spent + 1) * sizeof(*list));
+				list = net2_recalloc(list,
+				    spent + 1, sizeof(*list));
 				if (list == NULL)
 					goto fail;
 				b->list = list;
@@ -1628,7 +1632,7 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 	/* Calculate destination listlen. */
 	listlen = end.segment - start.segment + 1;
 	/* Allocate storage. */
-	if ((list = net2_realloc(list, listlen * sizeof(*list))) == NULL)
+	if ((list = net2_recalloc(list, listlen, sizeof(*list))) == NULL)
 		goto fail_1;
 	dst->list = list;
 
@@ -1699,7 +1703,7 @@ net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 		segment_deinit(&list[--b->listlen]);
 
 	/* Attempt to conserve memory. */
-	if ((list = net2_realloc(list, listlen * sizeof(*list))) != NULL)
+	if ((list = net2_recalloc(list, listlen, sizeof(*list))) != NULL)
 		b->list = list;
 
 	ASSERTBUFFER(b);

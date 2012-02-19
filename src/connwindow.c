@@ -1260,8 +1260,8 @@ net2_connwindow_writebuf(struct net2_connwindow *w, struct packet_header *ph,
 		 * Allocation failure is not fatal: window has no requirement
 		 * to be complete.
 		 */
-		if ((tmp = net2_realloc(wh.bad,
-		    ((size_t)wh.num_bad + 1) * sizeof(*wh.bad))) == NULL)
+		if ((tmp = net2_recalloc(wh.bad,
+		    (size_t)wh.num_bad + 1, sizeof(*wh.bad))) == NULL)
 			break;
 		wh.bad = tmp;
 
@@ -1321,7 +1321,7 @@ skip:			/* All goto skip continue here. */
 		/*
 		 * Create a new range for this sequence.
 		 */
-		tmp = net2_realloc(*range, (*counter + 1) * sizeof(**range));
+		tmp = net2_recalloc(*range, *counter + 1UL, sizeof(**range));
 		if (tmp == NULL)
 			break;
 		*range = tmp;

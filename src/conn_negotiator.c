@@ -399,7 +399,7 @@ set_get(struct net2_conn_negotiator *cn, size_t which_set,
 	/* Grow list to include which_set. */
 	list = cn->negotiated.sets;
 	if (which_set >= cn->negotiated.sets_count) {
-		list = net2_realloc(list, (which_set + 1) * sizeof(*list));
+		list = net2_recalloc(list, which_set + 1, sizeof(*list));
 		if (list == NULL)
 			return ENOMEM;
 		cn->negotiated.sets = list;
@@ -554,7 +554,7 @@ intlist_add(int **list, size_t *sz, int val)
 	newsz = *sz + 1;
 	if (newsz > SIZE_MAX / sizeof(int))
 		return ENOMEM;
-	nl = net2_realloc(*list, newsz * sizeof(int));
+	nl = net2_recalloc(*list, newsz, sizeof(int));
 	if (nl == NULL)
 		return ENOMEM;
 	*list = nl;
@@ -813,9 +813,9 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 				return ENOMEM;
 
 			/* Resize the signature list. */
-			if ((siglist = net2_realloc(
+			if ((siglist = net2_recalloc(
 			    cn->signature_list.signatures,
-			    ((size_t)h->seq + 1) *
+			    (size_t)h->seq + 1,
 			    sizeof(*cn->signature_list.signatures))) == NULL)
 				return ENOMEM;
 			cn->signature_list.signatures = siglist;
