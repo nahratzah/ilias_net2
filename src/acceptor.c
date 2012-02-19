@@ -1,4 +1,5 @@
 #include <ilias/net2/acceptor.h>
+#include <ilias/net2/evbase.h>
 #include <assert.h>
 
 /*
@@ -13,6 +14,7 @@ net2_acceptor_socket_init(struct net2_acceptor_socket *self,
 	self->fn = fn;
 	self->acceptor = NULL;
 	self->evbase = evbase;
+	net2_evbase_ref(evbase);
 	return 0;
 }
 
@@ -21,6 +23,7 @@ ILIAS_NET2_EXPORT void
 net2_acceptor_socket_deinit(struct net2_acceptor_socket *self)
 {
 	net2_acceptor_detach(self);
+	net2_evbase_release(self->evbase);
 }
 
 /* Acceptor socket destructor. */
