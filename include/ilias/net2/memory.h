@@ -13,7 +13,10 @@
 #define net2_malloc(s)							\
 	e_malloc((s))
 #define net2_free(p)							\
-	e_free((&p))
+	do {								\
+		if (p != NULL)						\
+			e_free((&p));					\
+	} while (0)
 #define net2_realloc(p, s)						\
 	e_realloc((p), (s))
 #define net2_calloc(n, s)						\
