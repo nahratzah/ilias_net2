@@ -56,10 +56,8 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 {
 	memset(conn, 0, sizeof(*conn));
 
-	if (evbase == NULL)
+	if (evbase == NULL || functions == NULL)
 		goto fail_0;
-	if (functions == NULL)
-		goto fail_1;
 
 	conn->n2c_sign.algorithm = 0;
 	conn->n2c_sign.key = NULL;
