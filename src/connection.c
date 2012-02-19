@@ -116,7 +116,6 @@ net2_connection_deinit(struct net2_connection *conn)
 {
 	struct net2_conn_receive	*r;
 
-	net2_acceptor_socket_deinit(&conn->n2c_socket);
 	net2_cneg_deinit(&conn->n2c_negotiator);
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
@@ -136,6 +135,7 @@ net2_connection_deinit(struct net2_connection *conn)
 		net2_secure_zero(conn->n2c_enc.key, conn->n2c_enc.keylen);
 		net2_free(conn->n2c_enc.key);
 	}
+	net2_acceptor_socket_deinit(&conn->n2c_socket);
 	net2_mutex_free(conn->n2c_recvmtx);
 }
 
