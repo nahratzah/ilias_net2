@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/conn_negotiator.h>
 #include <ilias/net2/connection.h>
+#include <ilias/net2/memory.h>
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/cp.h>
@@ -123,10 +124,10 @@ mk_encoded_header()
 {
 	struct encoded_header	*eh;
 
-	if ((eh = malloc(sizeof(*eh))) == NULL)
+	if ((eh = net2_malloc(sizeof(*eh))) == NULL)
 		return NULL;
 	if (net2_cp_init(NULL, &cp_header, &eh->header, NULL)) {
-		free(eh);
+		net2_free(eh);
 		return NULL;
 	}
 	eh->flags = 0;
@@ -140,7 +141,7 @@ free_encoded_header(struct encoded_header *eh)
 	net2_cp_destroy(NULL, &cp_header, &eh->header, NULL);
 	if (eh->buf)
 		net2_buffer_free(eh->buf);
-	free(eh);
+	net2_free(eh);
 }
 /* Encoded header connection-ack callback. */
 static void
@@ -209,7 +210,7 @@ create_xhc_headers(struct net2_conn_negotiator *cn,
 	int			 error;
 
 	/* Allocate the name list. */
-	if ((list = calloc(MAX(end, 1), sizeof(*list))) == NULL)
+	if ((list = net2_calloc(MAX(end, 1), sizeof(*list))) == NULL)
 		return ENOMEM;
 
 	/* Gather all names, skipping nulls. */
@@ -247,11 +248,11 @@ create_xhc_headers(struct net2_conn_negotiator *cn,
 		TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 	}
 
-	free(list);
+	net2_free(list);
 	return 0;
 
 fail:
-	free(list);
+	net2_free(list);
 	return error;
 }
 
@@ -313,7 +314,7 @@ fail:
 	if (list != NULL) {
 		while (e > 0)
 			net2_buffer_free(list[--e]);
-		free(list);
+		net2_free(list);
 	}
 	return error;
 }
@@ -398,7 +399,7 @@ set_get(struct net2_conn_negotiator *cn, size_t which_set,
 	/* Grow list to include which_set. */
 	list = cn->negotiated.sets;
 	if (which_set >= cn->negotiated.sets_count) {
-		list = realloc(list, (which_set + 1) * sizeof(*list));
+		list = net2_realloc(list, (which_set + 1) * sizeof(*list));
 		if (list == NULL)
 			return ENOMEM;
 		cn->negotiated.sets = list;
@@ -551,7 +552,9 @@ intlist_add(int **list, size_t *sz, int val)
 	size_t		 newsz;
 
 	newsz = *sz + 1;
-	nl = realloc(*list, newsz * sizeof(int));
+	if (newsz > SIZE_MAX / sizeof(int))
+		return ENOMEM;
+	nl = net2_realloc(*list, newsz * sizeof(int));
 	if (nl == NULL)
 		return ENOMEM;
 	*list = nl;
@@ -810,7 +813,8 @@ cneg_apply_header(struct net2_conn_negotiator *cn, struct header *h)
 				return ENOMEM;
 
 			/* Resize the signature list. */
-			if ((siglist = realloc(cn->signature_list.signatures,
+			if ((siglist = net2_realloc(
+			    cn->signature_list.signatures,
 			    ((size_t)h->seq + 1) *
 			    sizeof(*cn->signature_list.signatures))) == NULL)
 				return ENOMEM;
@@ -1073,7 +1077,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			net2_bitset_deinit(&cn->negotiated.sets[
 			    --cn->negotiated.sets_count].data);
 		}
-		free(cn->negotiated.sets);
+		net2_free(cn->negotiated.sets);
 	}
 
 	/* Free signatures used to identify this host. */
@@ -1084,7 +1088,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			net2_signctx_free(cn->signature_list.signatures[i]);
 		}
 
-		free(cn->signature_list.signatures);
+		net2_free(cn->signature_list.signatures);
 		cn->signature_list.signatures = NULL;
 		cn->signature_list.size = 0;
 	}
@@ -1092,10 +1096,10 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	net2_pvlist_deinit(&cn->negotiated.proto);
 	net2_bitset_deinit(&cn->negotiated.received);
 	net2_signset_deinit(&cn->remote_signs);
-	free(cn->hash.supported);
-	free(cn->enc.supported);
-	free(cn->xchange.supported);
-	free(cn->sign.supported);
+	net2_free(cn->hash.supported);
+	net2_free(cn->enc.supported);
+	net2_free(cn->xchange.supported);
+	net2_free(cn->sign.supported);
 	return;
 }
 

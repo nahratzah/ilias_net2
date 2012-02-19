@@ -16,6 +16,7 @@
 #include <ilias/net2/signset.h>
 #include <ilias/net2/sign.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/sysexits.h>
 #include <assert.h>
@@ -75,7 +76,7 @@ net2_signset_deinit(struct net2_signset *s)
 		RB_REMOVE(net2_signset_tree, &s->data, e);
 
 		net2_signctx_free(e->key);
-		free(e);
+		net2_free(e);
 	}
 }
 
@@ -128,27 +129,27 @@ net2_signset_insert(struct net2_signset *s, struct net2_sign_ctx *key)
 	struct net2_buffer	*fp;
 
 	/* Allocate storage. */
-	if ((e = malloc(sizeof(*e))) == NULL)
+	if ((e = net2_malloc(sizeof(*e))) == NULL)
 		return ENOMEM;
 	e->key = key;
 
 	/* Calculate the mini_hash fingerprint. */
 	if ((fp = net2_signctx_fingerprint(key)) == NULL) {
-		free(e);
+		net2_free(e);
 		return EINVAL;	/* Key invalid? Could be ENOMEM... */
 	}
 	if (net2_buffer_copyout(fp, &e->mini_hash, sizeof(e->mini_hash)) !=
 	    sizeof(e->mini_hash)) {
 		/* The fingerprint is not large enough. */
 		net2_buffer_free(fp);
-		free(e);
+		net2_free(e);
 		return EINVAL;
 	}
 	net2_buffer_free(fp);
 
 	/* Insert into set. */
 	if (RB_INSERT(net2_signset_tree, &s->data, e) != NULL) {
-		free(e);
+		net2_free(e);
 		return EEXIST;
 	}
 
@@ -191,7 +192,7 @@ net2_signset_all_fingerprints(struct net2_signset *s,
 fail:
 	while (count > 0)
 		net2_buffer_free(list[--count]);
-	free(list);
+	net2_free(list);
 	*countptr = 0;
 	*listptr = NULL;
 	return error;
