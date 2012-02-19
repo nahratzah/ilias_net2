@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <ilias/net2/thread.h>
 #include <bsd_compat/error.h>
 #include <event2/event.h>
@@ -33,20 +34,20 @@ net2_evbase_new()
 {
 	struct net2_evbase *b;
 
-	b = malloc(sizeof(*b));
+	b = net2_malloc(sizeof(*b));
 	b->refcnt = 1;
 	b->thread = NULL;
 
 	b->mtx = net2_mutex_alloc();
 	if (b->mtx == NULL) {
-		free(b);
+		net2_free(b);
 		return NULL;
 	}
 
 	b->evbase = event_base_new();
 	if (b->evbase == NULL) {
 		net2_mutex_free(b->mtx);
-		free(b);
+		net2_free(b);
 		return NULL;
 	}
 
@@ -54,7 +55,7 @@ net2_evbase_new()
 	if (b->threadlive == NULL) {
 		event_base_free(b->evbase);
 		net2_mutex_free(b->mtx);
-		free(b);
+		net2_free(b);
 		return NULL;
 	}
 
@@ -82,7 +83,7 @@ net2_evbase_release(struct net2_evbase *b)
 		net2_mutex_free(b->mtx);
 		event_free(b->threadlive);
 		event_base_free(b->evbase);
-		free(b);
+		net2_free(b);
 	} else
 		net2_mutex_unlock(b->mtx);
 }
