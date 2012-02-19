@@ -195,7 +195,7 @@ struct net2_cw_rx {
 };
 
 
-#define INITIAL_RX_WINDOW_SIZE	4096	/* TODO: make dynamic. */
+#define MAX_WINDOW_SIZE		16384	/* TODO: make dynamic. */
 #define INITIAL_WINDOW_SIZE	8	/* Dynamically incremented each ack. */
 #define INITIAL_TX_SSTHRESH	0	/* Slow start initially to here. */
 
@@ -673,15 +673,13 @@ fail_0:
 }
 
 static void
-rx_free(struct net2_cw_rx *rx, const char *file, int line)
+rx_free(struct net2_cw_rx *rx)
 {
 	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
-	fprintf(stderr, "%s:%d rx->cwr_flags = 0x%x\n", file, line, rx->cwr_flags);
 	assert(!(rx->cwr_flags & NET2_CWRX_QUEUEMASK));
 	event_free(rx->cwr_timeout);
 	free(rx);
 }
-#define rx_free(x)	rx_free((x), __FILE__, __LINE__)
 
 
 /*
@@ -998,8 +996,8 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
 	w->cw_conn = c;
 	w->cw_tx_start = w->cw_tx_nextseq = secure_random();
-	w->cw_rx_windowsz = INITIAL_RX_WINDOW_SIZE;
-	w->cw_tx_windowsz = INITIAL_WINDOW_SIZE;
+	w->cw_rx_windowsz = MAX_WINDOW_SIZE;
+	w->cw_tx_windowsz = MIN(INITIAL_WINDOW_SIZE, MAX_WINDOW_SIZE);
 	w->cw_tx_ssthresh = INITIAL_TX_SSTHRESH;
 	w->cw_tx_count = 0;
 	TAILQ_INIT(&w->cw_tx_bad);
@@ -1706,6 +1704,8 @@ add_statistic(struct net2_connwindow *w, struct timeval *tx_ts,
 			    MAX(1, w->cw_tx_windowsz / 2);
 		}
 	}
+
+	w->cw_tx_windowsz = MIN(w->cw_tx_windowsz, MAX_WINDOW_SIZE);
 
 	update_stalled(w);
 }
