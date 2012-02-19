@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/init.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -495,12 +496,16 @@ test_remove()
 		net2_buffer_free(drained);
 	}
 
+	net2_buffer_free(orig);
+
 	return 0;
 }
 
 int
 main()
 {
+	net2_init();
+
 	printf("test 1: buffer new, free\n");
 	if (test_new_free())
 		return -1;
@@ -529,5 +534,7 @@ main()
 	if (test_search())
 		return -1;
 
+	if (fail == 0)
+		net2_cleanup();
 	return fail;
 }
