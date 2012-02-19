@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/memory.h>
 #include <bsd_compat/minmax.h>
 #include <sys/types.h>
 #include <stdint.h>
@@ -117,8 +118,8 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 	require = SEGMENT_SZ(len);
 	want = ((require + NET2_BUFFER_ALIGN - 1) & ~(NET2_BUFFER_ALIGN - 1));
 
-	if ((s = malloc(want)) == NULL) {
-		if ((s = malloc(require)) == NULL)
+	if ((s = net2_malloc(want)) == NULL) {
+		if ((s = net2_malloc(require)) == NULL)
 			goto fail_0;
 		else
 			have = require;
@@ -135,7 +136,7 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 	return s;
 
 fail_1:
-	free(s);
+	net2_free(s);
 fail_0:
 	return NULL;
 }
@@ -150,7 +151,7 @@ segment_impl_newref(void *data, size_t len, void (*release)(void*), void *releas
 	if (len == 0)
 		goto fail_0;
 
-	if ((s = malloc(NET2_BUFSEGMENT_IMPL_SZ + sizeof(*r))) == NULL)
+	if ((s = net2_malloc(NET2_BUFSEGMENT_IMPL_SZ + sizeof(*r))) == NULL)
 		goto fail_0;
 	if ((s->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
@@ -167,7 +168,7 @@ segment_impl_newref(void *data, size_t len, void (*release)(void*), void *releas
 	return s;
 
 fail_1:
-	free(s);
+	net2_free(s);
 fail_0:
 	return NULL;
 }
@@ -191,7 +192,7 @@ segment_impl_release(struct net2_buffer_segment_impl *s)
 				(*r->release)(r->release_arg);
 		}
 
-		free(s);
+		net2_free(s);
 		return;
 	}
 	net2_mutex_unlock(s->mtx);
@@ -228,8 +229,8 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 			require = SEGMENT_SZ(off + add);
 			want = ((require + NET2_BUFFER_ALIGN - 1) &
 			    ~(NET2_BUFFER_ALIGN - 1));
-			if ((tmp = realloc(s, want)) == NULL) {
-				if ((tmp = realloc(s, require)) == NULL)
+			if ((tmp = net2_realloc(s, want)) == NULL) {
+				if ((tmp = net2_realloc(s, require)) == NULL)
 					goto fail_0;
 				else
 					have = require;
@@ -454,9 +455,11 @@ struct net2_buffer {
 static void
 kill_reserve(struct net2_buffer *b)
 {
-	while (b->reservelen > 0)
-		segment_deinit(&b->reserve[--b->reservelen]);
-	free(b->reserve);
+	if (b->reserve != NULL) {
+		while (b->reservelen > 0)
+			segment_deinit(&b->reserve[--b->reservelen]);
+		net2_free(b->reserve);
+	}
 	b->reserve = NULL;
 }
 
@@ -466,7 +469,7 @@ net2_buffer_new()
 {
 	struct net2_buffer		*result;
 
-	result = malloc(sizeof(*result));
+	result = net2_malloc(sizeof(*result));
 	if (result) {
 		result->list = NULL;
 		result->listlen = 0;
@@ -490,9 +493,9 @@ net2_buffer_free(struct net2_buffer *buf)
 	if (buf->list != NULL) {
 		for (i = 0; i < buf->listlen; i++)
 			segment_deinit(&buf->list[i]);
-		free(buf->list);
+		net2_free(buf->list);
 	}
-	free(buf);
+	net2_free(buf);
 }
 
 /* Copy a buffer. */
@@ -504,7 +507,8 @@ net2_buffer_copy(const struct net2_buffer *src)
 
 	if ((dst = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((dst->list = malloc(src->listlen * sizeof(*dst->list))) == NULL)
+	if ((dst->list = net2_malloc(src->listlen * sizeof(*dst->list))) ==
+	    NULL)
 		goto fail_1;
 	dst->listlen = src->listlen;
 
@@ -553,7 +557,8 @@ net2_buffer_add(struct net2_buffer *b, const void *data, size_t len)
 			return 0;
 	}
 
-	if ((list = realloc(list, (b->listlen + 1) * sizeof(*list))) == NULL)
+	if ((list = net2_realloc(list, (b->listlen + 1) * sizeof(*list))) ==
+	    NULL)
 		goto fail_0;
 	b->list = list;
 	if (segment_init_data(&list[b->listlen], data, len))
@@ -591,7 +596,8 @@ net2_buffer_add_reference(struct net2_buffer *b, void *data, size_t len,
 
 	list = b->list;
 
-	if ((list = realloc(list, (b->listlen + 1) * sizeof(*list))) == NULL)
+	if ((list = net2_realloc(list, (b->listlen + 1) * sizeof(*list))) ==
+	    NULL)
 		goto fail_0;
 	b->list = list;
 	if (segment_init_ref(&list[b->listlen], data, len, release, release_arg))
@@ -620,7 +626,7 @@ net2_buffer_append(struct net2_buffer *dst, const struct net2_buffer *src)
 	/* Create enough space in list. */
 	newlen = dst->listlen + src->listlen;
 	list = dst->list;
-	if ((list = realloc(list, newlen * sizeof(*list))) == NULL)
+	if ((list = net2_realloc(list, newlen * sizeof(*list))) == NULL)
 		goto fail_0;
 	dst->list = list;
 
@@ -653,7 +659,7 @@ net2_buffer_prepend(struct net2_buffer *dst, const struct net2_buffer *src)
 	/* Create enough space in list. */
 	newlen = dst->listlen + src->listlen;
 	list = dst->list;
-	if ((list = realloc(list, newlen * sizeof(*list))) == NULL)
+	if ((list = net2_realloc(list, newlen * sizeof(*list))) == NULL)
 		goto fail_0;
 	dst->list = list;
 
@@ -724,7 +730,7 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 	memmove(&list[1], &list[next], b->listlen - 1);
 
 	/* Attempt to release memory (not an error if this fails). */
-	if ((list = realloc(list, b->listlen * sizeof(*list))) != NULL)
+	if ((list = net2_realloc(list, b->listlen * sizeof(*list))) != NULL)
 		b->list = list;
 
 	/*
@@ -1155,7 +1161,7 @@ remove_everything:
 		 * Source has insufficient entries -> add all.
 		 */
 		listlen = src->listlen + dst->listlen;
-		dst_list = realloc(dst_list, listlen * sizeof(*dst_list));
+		dst_list = net2_realloc(dst_list, listlen * sizeof(*dst_list));
 		if (dst_list == NULL)
 			return 0;
 		dst->list = dst_list;
@@ -1165,7 +1171,7 @@ remove_everything:
 			dst_list[dst->listlen + i] = src_list[i];
 		}
 		dst->listlen = listlen;
-		free(src->list);
+		net2_free(src->list);
 		src->list = NULL;
 		src->listlen = 0;
 		ASSERTBUFFER(src);
@@ -1193,7 +1199,7 @@ remove_everything:
 	assert(mv <= src->listlen);
 
 	/* Prepare space in dst. */
-	dst_list = realloc(dst_list, listlen * sizeof(*dst_list));
+	dst_list = net2_realloc(dst_list, listlen * sizeof(*dst_list));
 	if (dst_list == NULL)
 		return 0;
 	dst->list = dst_list;
@@ -1224,11 +1230,11 @@ remove_everything:
 	assert(net2_buffer_length(dst) == dstlen_expect);
 #endif
 	if (src->listlen == 0) {
-		free(src->list);
+		net2_free(src->list);
 		src->list = NULL;
 	} else {
 		/* Reduce memory usage. */
-		src_list = realloc(src_list,
+		src_list = net2_realloc(src_list,
 		    src->listlen * sizeof(*src_list));
 		if (src_list != NULL)
 			src->list = src_list;
@@ -1342,7 +1348,7 @@ net2_buffer_reserve_space(struct net2_buffer *b, size_t len, struct iovec *iov,
 	reserve = b->reserve;
 
 	/* Reserve enough space for the worst case scenario. */
-	reserve = realloc(reserve,
+	reserve = net2_realloc(reserve,
 	    (b->reservelen + *iovlen) * sizeof(*reserve));
 	if (reserve == NULL)
 		return -1;
@@ -1405,7 +1411,7 @@ fail:
 	while (spent-- > b->reservelen)
 		segment_deinit(&reserve[spent]);
 	if (b->reservelen == 0) {
-		free(reserve);
+		net2_free(reserve);
 		b->reserve = NULL;
 	}
 	return -1;
@@ -1493,7 +1499,7 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 				 * Cannot merge with last entry in list.
 				 * Grow the list and create a copy.
 				 */
-				list = realloc(list,
+				list = net2_realloc(list,
 				    (spent + 1) * sizeof(*list));
 				if (list == NULL)
 					goto fail;
@@ -1525,7 +1531,7 @@ fail:
 	while (spent-- > b->listlen)
 		segment_deinit(&b->list[spent]);
 	if (b->listlen == 0) {
-		free(b->list);
+		net2_free(b->list);
 		b->list = NULL;
 	} else
 		segment_trunc(&b->list[b->listlen - 1], old_list_lastlen);
@@ -1559,7 +1565,7 @@ net2_buffer_hex(const struct net2_buffer *b)
 	};
 
 	list = b->list;
-	if ((result = s = malloc(2 * net2_buffer_length(b) + 1)) == NULL)
+	if ((result = s = net2_malloc(2 * net2_buffer_length(b) + 1)) == NULL)
 		return NULL;
 	for (i = 0; i < b->listlen; i++) {
 		p = segment_getptr(&list[i]);
@@ -1619,7 +1625,7 @@ net2_buffer_subrange(const struct net2_buffer *b, size_t off, size_t len)
 	/* Calculate destination listlen. */
 	listlen = end.segment - start.segment + 1;
 	/* Allocate storage. */
-	if ((list = realloc(list, listlen * sizeof(*list))) == NULL)
+	if ((list = net2_realloc(list, listlen * sizeof(*list))) == NULL)
 		goto fail_1;
 	dst->list = list;
 
@@ -1690,7 +1696,7 @@ net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 		segment_deinit(&list[--b->listlen]);
 
 	/* Attempt to conserve memory. */
-	if ((list = realloc(list, listlen * sizeof(*list))) != NULL)
+	if ((list = net2_realloc(list, listlen * sizeof(*list))) != NULL)
 		b->list = list;
 
 	ASSERTBUFFER(b);

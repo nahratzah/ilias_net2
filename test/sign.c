@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/init.h>
 #include <ilias/net2/sign.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/secure_random.h>
@@ -59,6 +60,8 @@ main()
 	ERR_load_crypto_strings();
 	OpenSSL_add_all_algorithms();
 
+	net2_init();
+
 	/* Load keys. */
 	fprintf(stderr, "Loading private key...\n");
 	priv = net2_signctx_privnew(net2_sign_ecdsa, ecdsa_privkey, strlen(ecdsa_privkey));
@@ -90,8 +93,6 @@ main()
 	/* Generate signature. */
 	if ((error = net2_signctx_sign(priv, msg, sig)) != 0)
 		errx(2, "Sign operation failed, error %d", error);
-	printf("Signature (hex): %s\n", hex = net2_buffer_hex(sig));
-	free(hex);
 
 	/* Validate signature. */
 	error = net2_signctx_validate(pub, sig, msg);
@@ -105,8 +106,6 @@ main()
 	/* Generate signature again (to see if it's different). */
 	if ((error = net2_signctx_sign(priv, msg, sig2)) != 0)
 		errx(2, "Sign operation failed, error %d", error);
-	printf("Signature (hex): %s\n", hex = net2_buffer_hex(sig2));
-	free(hex);
 	/* Validate signature again. */
 	error = net2_signctx_validate(pub, sig2, msg);
 	if (error)
@@ -131,9 +130,14 @@ main()
 	net2_buffer_copyout(msg, &v, sizeof(v));
 	v = ~v;
 	net2_buffer_add(badmsg, &v, sizeof(v));
-	net2_buffer_append(badmsg,
-	    net2_buffer_subrange(msg, sizeof(v),
-	    net2_buffer_length(msg) - sizeof(v)));
+	{
+		struct net2_buffer	*tmp;
+
+		net2_buffer_append(badmsg,
+		    tmp = net2_buffer_subrange(msg, sizeof(v),
+		    net2_buffer_length(msg) - sizeof(v)));
+		net2_buffer_free(tmp);
+	}
 
 	/* Test tampered buffer. */
 	error = net2_signctx_validate(pub, sig, badmsg);
@@ -157,9 +161,6 @@ main()
 			goto skip_pubkey;
 		}
 
-		printf("Public keys\npriv: %s\npub:  %s\n",
-		    net2_buffer_hex(priv_pk), net2_buffer_hex(pub_pk));
-
 		if (net2_buffer_length(priv_pk) == 0 ||
 		    net2_buffer_length(pub_pk) == 0) {
 			fail++;
@@ -174,7 +175,19 @@ main()
 			warnx("Public key for priv and pub mismatch");
 		}
 
+		net2_buffer_free(priv_pk);
+		net2_buffer_free(pub_pk);
+
 	}
+
+	net2_buffer_free(msg);
+	net2_buffer_free(badmsg);
+	net2_buffer_free(sig);
+	net2_buffer_free(sig2);
+	net2_signctx_free(priv);
+	net2_signctx_free(pub);
+
+	net2_cleanup();
 skip_pubkey:
 
 	/* Done. */
