@@ -424,13 +424,17 @@ main()
 	    c2->n2c_stats.tx_bytes, c2->n2c_stats.tx_packets,
 	    c2->n2c_stats.rx_bytes, c2->n2c_stats.rx_packets);
 
-	net2_evbase_release(evbase);
 	net2_buffer_free(sent);
 	net2_buffer_free(received);
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
 	net2_stream_acceptor_destroy(sa1);
 	net2_stream_acceptor_destroy(sa2);
+
+	/* Allow evbase to run post-destruction events. */
+	event_base_dispatch(evbase->evbase);
+	net2_evbase_release(evbase);
+
 	test_ctx_free(protocol_ctx);
 	net2_cleanup();
 
