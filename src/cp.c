@@ -23,20 +23,52 @@
 #include <assert.h>
 #include <errno.h>
 
+/* Enable for printing of encoding/decoding errors. */
+#define DEBUG_ENCODING
+
+#ifdef DEBUG_ENCODING
+#include <stdio.h>
+#include <string.h>
+#endif
+
 ILIAS_NET2_EXPORT int
 net2_cp_encode(struct net2_encdec_ctx *c, const struct command_param *cp,
     struct net2_buffer *out, const void *val, const void *arg)
 {
+	int			 error;
+
 	assert(cp->cp_encode != NULL);
-	return (*cp->cp_encode)(c, out, val, arg);
+	error = (*cp->cp_encode)(c, out, val, arg);
+#ifdef DEBUG_ENCODING
+	if (error != 0) {
+		char	errbuf[1024];
+
+		strerror_r(error, errbuf, sizeof(errbuf));
+		fprintf(stderr, "%s: error for type %s, value at %p: %d %s\n",
+		    __FUNCTION__, cp->cp_name, val, error, errbuf);
+	}
+#endif
+	return error;
 }
 
 ILIAS_NET2_EXPORT int
 net2_cp_decode(struct net2_encdec_ctx *c, const struct command_param *cp,
     void *val, struct net2_buffer *in, const void *arg)
 {
+	int			 error;
+
 	assert(cp->cp_decode != NULL);
-	return (*cp->cp_decode)(c, val, in, arg);
+	error = (*cp->cp_decode)(c, val, in, arg);
+#ifdef DEBUG_ENCODING
+	if (error != 0) {
+		char	errbuf[1024];
+
+		strerror_r(error, errbuf, sizeof(errbuf));
+		fprintf(stderr, "%s: error for type %s, value at %p: %d %s\n",
+		    __FUNCTION__, cp->cp_name, val, error, errbuf);
+	}
+#endif
+	return error;
 }
 
 ILIAS_NET2_EXPORT int
