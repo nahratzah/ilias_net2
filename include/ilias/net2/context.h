@@ -45,6 +45,12 @@ struct net2_ctx {
 	void			*xchange_factory_arg;
 };
 
+/* Result type of exchange factory. */
+struct net2_ctx_xchange_factory_result {
+	struct net2_xchange_ctx	*ctx;		/* Exchange context. */
+	struct net2_buffer	*initbuf;	/* Buffer created at init. */
+};
+
 ILIAS_NET2_EXPORT
 int	net2_ctx_init(struct net2_ctx*);
 ILIAS_NET2_EXPORT
@@ -61,6 +67,14 @@ struct net2_promise
 
 #define net2_ctx_local_signcount(s)	(net2_signset_size(&(s)->local_signs))
 #define net2_ctx_remote_signcount(s)	(net2_signset_size(&(s)->remote_signs))
+
+ILIAS_NET2_EXPORT
+struct net2_ctx_xchange_factory_result
+	*net2_ctx_xchange_factory_result_new(const struct net2_xchange_ctx*,
+	    const struct net2_buffer*);
+ILIAS_NET2_EXPORT
+void	 net2_ctx_xchange_factory_result_free(
+	    struct net2_ctx_xchange_factory_result*, void*);
 
 
 #ifdef __cplusplus

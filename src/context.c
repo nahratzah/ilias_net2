@@ -15,6 +15,9 @@
  */
 #include <ilias/net2/context.h>
 #include <ilias/net2/sign.h>
+#include <ilias/net2/buffer.h>
+#include <ilias/net2/xchange.h>
+#include <ilias/net2/memory.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -94,4 +97,41 @@ net2_ctx_get_xchange(struct net2_ctx *ctx, int alg, size_t keylen)
 		    ctx->xchange_factory_arg);
 	}
 	return NULL;
+}
+
+/* Create a new xchange factory result. */
+ILIAS_NET2_EXPORT struct net2_ctx_xchange_factory_result*
+net2_ctx_xchange_factory_result_new(const struct net2_xchange_ctx *xchange,
+    const struct net2_buffer *initbuf)
+{
+	struct net2_ctx_xchange_factory_result
+				*r;
+
+	if (xchange == NULL || initbuf == NULL)
+		return NULL;
+
+	if ((r = net2_malloc(sizeof(*r))) == NULL)
+		return NULL;
+
+	r->ctx = net2_xchangectx_clone(xchange);
+	r->initbuf = net2_buffer_copy(initbuf);
+	if (r->ctx == NULL || r->initbuf == NULL) {
+		net2_ctx_xchange_factory_result_free(r, NULL);
+		return NULL;
+	}
+	return r;
+}
+
+/* Free xchange factory result. */
+ILIAS_NET2_EXPORT void
+net2_ctx_xchange_factory_result_free(struct net2_ctx_xchange_factory_result *r,
+    void *ignored)
+{
+	if (r != NULL) {
+		if (r->ctx != NULL)
+			net2_xchangectx_free(r->ctx);
+		if (r->initbuf != NULL)
+			net2_buffer_free(r->initbuf);
+		net2_free(r);
+	}
 }
