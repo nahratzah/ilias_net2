@@ -36,6 +36,7 @@ struct net2_buffer;			/* From ilias/net2/buffer.h */
 struct encoded_header;			/* Internal. */
 struct net2_conn_negotiator_set;	/* Internal. */
 struct net2_cw_tx;			/* From ilias/net2/connwindow.h */
+struct net2_promise;			/* From ilias/net2/promise.h */
 struct packet_header;			/* From ilias/net2/packet.h */
 
 /*
@@ -98,6 +99,15 @@ struct net2_conn_negotiator {
 	int			 tx_enc;	/* Selected enc for tx. */
 	int			 tx_hash;	/* Selected hash for tx. */
 	int			 tx_xchange;	/* Selected xchange for tx. */
+
+	struct {
+		struct net2_cneg_exchange {
+			struct net2_xchange_ctx
+				*xchange;	/* Xchange context. */
+			struct net2_promise
+				*promise;	/* Promise for xchange. */
+		}		 xchanges[4];	/* Xchange contexts. */
+	}			 stage2;
 };
 
 

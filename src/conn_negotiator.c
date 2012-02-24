@@ -20,11 +20,13 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/packet.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/context.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>
+#include <event2/event.h>
 
 #include <ilias/net2/enc.h>
 #include <ilias/net2/hash.h>
@@ -118,7 +120,10 @@ struct encoded_header {
 
 	int			 flags;
 #define EHF_NEGOTIATOR_DIED	0x00000001
-	struct header		 header;
+#define EHF_HEADER		0x00000010	/* This is a header. */
+	union {
+		struct header	 header;
+	}			 data;
 	struct net2_buffer	*buf;
 };
 /* Create a new encoded header from a buffer. */
@@ -129,11 +134,11 @@ mk_encoded_header()
 
 	if ((eh = net2_malloc(sizeof(*eh))) == NULL)
 		return NULL;
-	if (net2_cp_init(NULL, &cp_header, &eh->header, NULL)) {
+	if (net2_cp_init(NULL, &cp_header, &eh->data.header, NULL)) {
 		net2_free(eh);
 		return NULL;
 	}
-	eh->flags = 0;
+	eh->flags = EHF_HEADER;
 	eh->buf = NULL;
 	return eh;
 }
@@ -141,7 +146,8 @@ mk_encoded_header()
 static void
 free_encoded_header(struct encoded_header *eh)
 {
-	net2_cp_destroy(NULL, &cp_header, &eh->header, NULL);
+	if (eh->flags & EHF_HEADER)
+		net2_cp_destroy(NULL, &cp_header, &eh->data.header, NULL);
 	if (eh->buf)
 		net2_buffer_free(eh->buf);
 	net2_free(eh);
@@ -159,7 +165,7 @@ ack_cb(void *hptr, void *cnptr)
 		return;
 	}
 
-	if (h->header.flags == F_TYPE_PVER)
+	if (h->data.header.flags == F_TYPE_PVER)
 		cn->pver_acknowledged = 1;
 	TAILQ_REMOVE(&cn->waitq, h, entry);
 	free_encoded_header(h);
@@ -229,7 +235,7 @@ create_xhc_headers(struct net2_conn_negotiator *cn,
 			goto fail;
 		}
 
-		if ((error = init_header_stringset(&h->header, i, list[i],
+		if ((error = init_header_stringset(&h->data.header, i, list[i],
 		    e - 1, type)) != 0) {
 			free_encoded_header(h);
 			goto fail;
@@ -244,7 +250,8 @@ create_xhc_headers(struct net2_conn_negotiator *cn,
 			goto fail;
 		}
 
-		if ((error = init_header_empty_set(&h->header, type)) != 0) {
+		if ((error = init_header_empty_set(&h->data.header,
+		    type)) != 0) {
 			free_encoded_header(h);
 			goto fail;
 		}
@@ -287,8 +294,8 @@ create_fingerprint_headers(struct net2_conn_negotiator *cn, struct net2_signset 
 			goto fail;
 		}
 
-		if ((error = init_header_bufset(&h->header, i, list[i], e - 1,
-		    which)) != 0) {
+		if ((error = init_header_bufset(&h->data.header, i, list[i],
+		    e - 1, which)) != 0) {
 			free_encoded_header(h);
 			goto fail;
 		}
@@ -302,7 +309,7 @@ create_fingerprint_headers(struct net2_conn_negotiator *cn, struct net2_signset 
 			goto fail;
 		}
 
-		if ((error = init_header_empty_set(&h->header,
+		if ((error = init_header_empty_set(&h->data.header,
 		    which)) != 0) {
 			free_encoded_header(h);
 			goto fail;
@@ -338,12 +345,12 @@ create_headers(struct net2_conn_negotiator *cn)
 	if ((h = mk_encoded_header()) == NULL)
 		return ENOMEM;
 	/* TYPE[0]: Generate protocol header. */
-	if ((error = init_header_protocol(&h->header, cn->flags)) != 0) {
+	if ((error = init_header_protocol(&h->data.header, cn->flags)) != 0) {
 		free_encoded_header(h);
 		return error;
 	}
-	num_types = h->header.payload.num_types;
-	num_settypes = h->header.payload.num_settypes;
+	num_types = h->data.header.payload.num_types;
+	num_settypes = h->data.header.payload.num_settypes;
 	TAILQ_INSERT_TAIL(&cn->sendq, h, entry);
 
 	assert(1 == num_types);
@@ -1106,6 +1113,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 			*s = CNEG_CONN(cn);
 	struct encoded_header
 			*h;
+	size_t		 i;
 
 	assert(s != NULL);
 
@@ -1145,6 +1153,14 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	if ((error = net2_signset_init(&cn->remote_signs)) != 0)
 		goto fail_1;
 
+	/* Zero stage 2 data. */
+	for (i = 0;
+	    i < sizeof(cn->stage2.xchanges) / sizeof(cn->stage2.xchanges[0]);
+	    i++) {
+		cn->stage2.xchanges[i].xchange = NULL;
+		cn->stage2.xchanges[i].promise = NULL;
+	}
+
 	return 0;
 
 fail_1:
@@ -1171,6 +1187,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 {
 	struct encoded_header	*h;
 	size_t			 i;
+	struct event		*ev;
 
 	/* Mark as dead, all headers on the waitq; callback will deal with
 	 * cleanup. */
@@ -1204,6 +1221,25 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 		net2_free(cn->signature_list.signatures);
 		cn->signature_list.signatures = NULL;
 		cn->signature_list.size = 0;
+	}
+
+	/* Release stage2 data. */
+	for (i = 0;
+	    i < sizeof(cn->stage2.xchanges) / sizeof(cn->stage2.xchanges[0]);
+	    i++) {
+		if (cn->stage2.xchanges[i].xchange != NULL)
+			net2_xchangectx_free(cn->stage2.xchanges[i].xchange);
+		if (cn->stage2.xchanges[i].promise != NULL) {
+			/* Remove the promise callback from its event base. */
+			net2_promise_set_event(cn->stage2.xchanges[i].promise,
+			    NET2_PROM_ON_FINISH, NULL, &ev);
+			if (ev != NULL)
+				event_free(ev);
+
+			/* Cancel and release the promise. */
+			net2_promise_cancel(cn->stage2.xchanges[i].promise);
+			net2_promise_release(cn->stage2.xchanges[i].promise);
+		}
 	}
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
@@ -1252,7 +1288,7 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 			if ((eh->buf = net2_buffer_new()) == NULL)
 				break;
 
-			error = encode_header(eh->buf, &eh->header);
+			error = encode_header(eh->buf, &eh->data.header);
 			if (error != 0) {
 				net2_buffer_free(eh->buf);
 				if (error == ENOMEM)
