@@ -36,8 +36,8 @@
  */
 struct key_xchange_msg {
 	uint16_t		 exchange_id;
-#define KEY_XCHANGE_SEQ_MASK	0x7fff
-#define KEY_XCHANGE_LAST	0x8000
+#define	KEY_XCHANGE_SEQ_MASK	0x7fff
+#define	KEY_XCHANGE_LAST	0x8000
 	uint16_t		 signature_idx;
 	uint16_t		 offset;
 	struct net2_buffer	*buf;
@@ -73,7 +73,6 @@ struct header {
 #define FT_INT			 0x00000000U
 #define FT_STRING		 0x00010000U
 #define FT_BUFFER		 0x00020000U
-#define FT_XCHANGE_MSG		 0x00040000U
 #define F_POETRY		 0x80000000U
 
 /* Indicates the end of a connection negotiation. */
@@ -132,7 +131,7 @@ int	 init_header_bufset(struct header*, int, struct net2_buffer*, int,
 ILIAS_NET2_LOCAL
 int	 init_header_empty_set(struct header*, uint32_t);
 ILIAS_NET2_LOCAL
-void	 deinit_header(struct header*);
+void	 deinit_header(struct net2_encdec_ctx*, struct header*);
 
 ILIAS_NET2_LOCAL
 int	 net2_init_poetry();
@@ -590,7 +589,7 @@ init_header_empty_set(struct header *h, uint32_t which)
 }
 /* Free resources of header. */
 ILIAS_NET2_LOCAL void
-deinit_header(struct header *h)
+deinit_header(struct net2_encdec_ctx *c, struct header *h)
 {
 	if (h->flags == F_LAST_HEADER)
 		return;
@@ -600,16 +599,12 @@ deinit_header(struct header *h)
 		/* Nothing. */
 		break;
 	case FT_STRING:
-		net2_cp_destroy(&net2_encdec_proto0, &cp_string,
+		net2_cp_destroy(c, &cp_string,
 		    &h->payload.string, NULL);
 		break;
 	case FT_BUFFER:
-		net2_cp_destroy(&net2_encdec_proto0, &cp_short_net2_buffer,
+		net2_cp_destroy(c, &cp_short_net2_buffer,
 		    h->payload.buf, NULL);
-		break;
-	case FT_XCHANGE_MSG:
-		net2_cp_destroy(&net2_encdec_proto0, &cp_key_xchange_msg,
-		    &h->payload.xchange_msg, NULL);
 		break;
 	default:
 		/* Ignore (might be incorrect received packet?). */
@@ -663,10 +658,10 @@ cp_header_init(struct net2_encdec_ctx *ignored_ctx, struct header *h,
 }
 /* Destroy header. */
 static int
-cp_header_destroy(struct net2_encdec_ctx *ignored_ctx, struct header *h,
+cp_header_destroy(struct net2_encdec_ctx *c, struct header *h,
     const void *arg)
 {
-	deinit_header(h);
+	deinit_header(c, h);
 	return 0;
 }
 

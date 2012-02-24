@@ -1248,7 +1248,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 			goto fail;
 		/* GUARD: Stop after decoding the last header. */
 		if (h.flags == F_LAST_HEADER) {
-			deinit_header(&h);
+			deinit_header(&net2_encdec_proto0, &h);
 			break;
 		}
 
@@ -1325,7 +1325,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 
 skip:
 		/* Free header. */
-		deinit_header(&h);
+		deinit_header(&net2_encdec_proto0, &h);
 	}
 
 stage_only:
@@ -1343,7 +1343,7 @@ stage_only:
 	return 0;
 
 fail_wh:
-	deinit_header(&h);
+	deinit_header(&net2_encdec_proto0, &h);
 fail:
 	return error;
 }
