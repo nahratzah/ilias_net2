@@ -20,11 +20,27 @@
 
 
 /*
- * Key exchange with optional host signature.
+ * Key exchange message.
+ *
+ * Exchange ID contains an identifier for the exchange algorithm.
+ * For DH:
+ *	0: initial message (only sent by initiator)
+ *	1: exchange (both sides send this)
+ * The other values are currently invalid and reserved for future use.
+ * The high bit signifies that this is the last buffer in the message.
+ *
+ * Offset is the offset in the exchange message.
+ *
+ * Signature idx == 0: this is the actual message that is negotiated.
+ * Signature idx >= 1: each signature for that message.
  */
-struct key_exchange {
-	struct net2_buffer	*payload;
-	struct net2_signature	 signature;
+struct key_xchange_msg {
+	uint16_t		 exchange_id;
+#define KEY_XCHANGE_SEQ_MASK	0x7fff
+#define KEY_XCHANGE_LAST	0x8000
+	uint16_t		 signature_idx;
+	uint16_t		 offset;
+	struct net2_buffer	*buf;
 };
 
 
@@ -53,9 +69,11 @@ struct header {
 #define F_SET_LASTELEM		 0x00001000U
 #define F_SET_EMPTY		 0x00002000U
 #define FT_MASK			 0x000f0000U
+#define FT_MASKSHIFT		16U	/* Shift, to convert FT to index. */
 #define FT_INT			 0x00000000U
 #define FT_STRING		 0x00010000U
 #define FT_BUFFER		 0x00020000U
+#define FT_XCHANGE_MSG		 0x00040000U
 #define F_POETRY		 0x80000000U
 
 /* Indicates the end of a connection negotiation. */
@@ -77,6 +95,8 @@ struct header {
 		struct net2_buffer
 				*buf;
 		uint32_t	 val;
+		struct key_xchange_msg
+				 xchange_msg;
 	}			 payload;
 };
 
@@ -126,6 +146,7 @@ int	 net2_add_poetry(struct net2_buffer*, size_t);
 #include "handshake.h"
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/memory.h>
 %%
@@ -150,8 +171,214 @@ struct pver_header_content (ctype struct header,
 	uint32		payload.reserved;
 };
 
+struct val_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32		payload.val;
+};
+
+struct string_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	string		payload.string;
+};
+
+struct buffer_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	short_net2_buffer
+			payload.buf;
+};
+
+struct last_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32		fin_reserved;
+};
+
+struct key_xchange_msg (ctype struct key_xchange_msg,
+    protocol net2_proto) {
+	uint16			 exchange_id;
+	uint16			 signature_idx;
+	uint16			 offset;
+	short_net2_buffer	*buf;
+};
+
+type set_header (ctype struct header,
+    encode set_encode,
+    decode set_decode);
+
+type header_payload (ctype struct header,
+    encode payload_encode,
+    decode payload_decode);
+
+type header__no_flags (ctype struct header,
+    encode header__no_flags_encode,
+    decode header__no_flags_decode);
+
+type poetry_header (ctype struct header,
+    encode poetry_encode,
+    decode poetry_decode);
+
 
 %%
+
+/* Extracts the encoding type of a header based on the flags. */
+static __inline const struct command_param*
+get_header__no_flags_type(uint32_t hflags)
+{
+	if (hflags == F_TYPE_PVER)
+		return &cp_pver_header_content;
+	if (hflags == F_LAST_HEADER)
+		return &cp_last_header;
+
+	if (hflags & F_SET_ELEMENT)
+		return &cp_set_header;
+	if (hflags & F_POETRY)
+		return &cp_poetry_header;
+	return &cp_header_payload;
+}
+
+static int
+header__no_flags_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header__no_flags_type(h->flags)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, h, NULL);
+}
+
+static int
+header__no_flags_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header__no_flags_type(h->flags)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, h, in, NULL);
+}
+
+
+static const struct command_param *const header_cp_type[] = {
+	/* INT */	&cp_val_header,
+	/* STRING */	&cp_string_header,
+	/* BUFFER */	&cp_buffer_header,
+};
+
+#define HEADER_FLAGS__TYPE(header)					\
+	(((header)->flags & FT_MASK) >> FT_MASKSHIFT)
+
+/* Returns the command param type for the payload of the given header. */
+static __inline const struct command_param*
+get_header_cp_type(const struct header *h)
+{
+	uint32_t	 idx;
+
+	idx = HEADER_FLAGS__TYPE(h);
+	if (idx > sizeof(header_cp_type) / sizeof(header_cp_type[0]))
+		return NULL;
+	return header_cp_type[idx];
+}
+
+static int
+payload_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header_cp_type(h)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, h, NULL);
+}
+
+static int
+payload_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header_cp_type(h)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, h, in, NULL);
+}
+
+static int
+set_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg)
+{
+	int				 error;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if ((h->flags & (F_SET_ELEMENT | F_SET_LASTELEM | F_SET_EMPTY | FT_MASK | F_TYPEMASK)) != h->flags)
+		return EINVAL;
+
+	if (h->flags & F_SET_EMPTY) {
+		if (h->flags & F_SET_LASTELEM)
+			return EINVAL;
+		return 0;
+	}
+
+	if ((error = net2_cp_encode(c, &cp_uint32, out, &h->seq, NULL)) != 0)
+		return error;
+
+	if ((error = net2_cp_encode(c, &cp_header_payload, out, h, NULL)) != 0)
+		return error;
+	return 0;
+}
+
+static int
+set_decode(struct net2_encdec_ctx *c, struct header *h, struct net2_buffer *in,
+    const void *cp_arg)
+{
+	int				 error;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if ((h->flags & (F_SET_ELEMENT | F_SET_LASTELEM | F_SET_EMPTY | FT_MASK | F_TYPEMASK)) != h->flags)
+		return EINVAL;
+
+	if (h->flags & F_SET_EMPTY) {
+		if (h->flags & F_SET_LASTELEM)
+			return EINVAL;
+		return 0;
+	}
+
+	if ((error = net2_cp_decode(c, &cp_uint32, &h->seq, in, NULL)) != 0)
+		return error;
+
+	if ((error = net2_cp_decode(c, &cp_header_payload, h, in, NULL)) != 0)
+		return error;
+	return 0;
+}
+
+static int
+poetry_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg)
+{
+	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
+		return EINVAL;
+	return net2_cp_encode(c, &cp_header_payload, out, h, NULL);
+}
+
+static int
+poetry_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg)
+{
+	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
+		return EINVAL;
+	return net2_cp_decode(c, &cp_header_payload, h, in, NULL);
+}
+
+
+
 /* Describe for each option which protocol version first supported it. */
 static const net2_protocol_t	options[] = {
 	/* ENCRYPTION */	 0,
@@ -380,6 +607,10 @@ deinit_header(struct header *h)
 		net2_cp_destroy(&net2_encdec_proto0, &cp_short_net2_buffer,
 		    h->payload.buf, NULL);
 		break;
+	case FT_XCHANGE_MSG:
+		net2_cp_destroy(&net2_encdec_proto0, &cp_key_xchange_msg,
+		    &h->payload.xchange_msg, NULL);
+		break;
 	default:
 		/* Ignore (might be incorrect received packet?). */
 		break;
@@ -396,64 +627,11 @@ cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
 	/* Encode flags. */
 	if ((error = net2_cp_encode(ctx, &cp_uint32, out, &h->flags,
 	    NULL)) != 0)
-		goto out;
-	if (h->flags == F_LAST_HEADER) {
-		error = net2_cp_encode(ctx, &cp_uint32, out, &h->fin_reserved,
-		    NULL);
-		goto out;
-	}
-	if (h->flags & F_SET_EMPTY) {
-		error = 0;
-		goto out;
-	}
-	/* Encode sequence, if set element. */
-	if (h->flags & F_SET_ELEMENT) {
-		if ((error = net2_cp_encode(ctx, &cp_uint32, out, &h->seq,
-		    NULL)) != 0)
-			goto out;
-	}
-
-	/* Encode protocol version. */
-	if (h->flags == F_TYPE_PVER) {
-		if (h->flags != F_TYPE_PVER) {
-			error = EINVAL;
-			goto out;
-		}
-
-		if ((error = net2_cp_encode(ctx, &cp_pver_header_content, out,
-		    h, NULL)) != 0)
-			goto out;
-
-		error = 0;
-		goto out;
-	}
-
-	/* Encode payload. */
-	switch (h->flags & FT_MASK) {
-	case FT_INT:
-		if ((error = net2_cp_encode(ctx, &cp_uint32, out,
-		    &h->payload.val, NULL)) != 0)
-			goto out;
-		break;
-	case FT_STRING:
-		if ((error = net2_cp_encode(ctx, &cp_paddedstring, out,
-		    &h->payload.string, NULL)) != 0)
-			goto out;
-		break;
-	case FT_BUFFER:
-		if ((error = net2_cp_encode(ctx, &cp_short_net2_buffer, out,
-		    &h->payload.buf, NULL)) != 0)
-			goto out;
-		break;
-	default:
-		error = EINVAL;
-		goto out;
-	}
-
-	error = 0;
-
-out:
-	return error;
+		return error;
+	if ((error = net2_cp_encode(ctx, &cp_header__no_flags, out, h,
+	    NULL)) != 0)
+		return error;
+	return 0;
 }
 
 /* Decode header. */
@@ -468,66 +646,11 @@ cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
 	/* Decode flags. */
 	if ((error = net2_cp_decode(ctx, &cp_uint32, &h->flags, in,
 	    NULL)) != 0)
-		goto out;
-	if (h->flags == F_LAST_HEADER) {
-		error = net2_cp_decode(ctx, &cp_uint32, &h->fin_reserved, in,
-		    NULL);
-		goto out;
-	}
-
-	/* Set handling. */
-	if (h->flags & F_SET_EMPTY) {
-		error = 0;
-		goto out;
-	}
-	/* Decode sequence, if set element. */
-	if (h->flags & F_SET_ELEMENT) {
-		if ((error = net2_cp_decode(ctx, &cp_uint32, &h->seq, in,
-		    NULL)) != 0)
-			goto out;
-	}
-
-	/* Decode protocol version. */
-	if (h->flags == F_TYPE_PVER) {
-		if (h->flags != F_TYPE_PVER) {
-			error = EINVAL;
-			goto out;
-		}
-
-		if ((error = net2_cp_decode(ctx, &cp_pver_header_content,
-		    h, in, NULL)) != 0)
-			goto out;
-
-		error = 0;
-		goto out;
-	}
-
-	/* Decode payload. */
-	switch (h->flags & FT_MASK) {
-	case FT_INT:
-		if ((error = net2_cp_decode(ctx, &cp_uint32,
-		    &h->payload.val, in, NULL)) != 0)
-			goto out;
-		break;
-	case FT_STRING:
-		if ((error = net2_cp_decode(ctx, &cp_paddedstring,
-		    &h->payload.string, in, NULL)) != 0)
-			goto out;
-		break;
-	case FT_BUFFER:
-		if ((error = net2_cp_decode(ctx, &cp_short_net2_buffer,
-		    &h->payload.buf, in, NULL)) != 0)
-			goto out;
-		break;
-	default:
-		error = EINVAL;
-		goto out;
-	}
-
-	error = 0;
-
-out:
-	return error;
+		return error;
+	if ((error = net2_cp_decode(ctx, &cp_header__no_flags, h, in,
+	    NULL)) != 0)
+		return error;
+	return 0;
 }
 
 /* Initialize header. */
