@@ -107,6 +107,9 @@ static int	 cneg_apply_header(struct net2_conn_negotiator*,
 static int	 cneg_conclude_pristine(struct net2_conn_negotiator*);
 static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
+static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
+		    struct packet_header*, struct net2_buffer*);
+
 
 /* Queue encoded headers. */
 struct encoded_header {
@@ -960,6 +963,116 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 
 
 /*
+ * Handle stage 1 decoding and application.
+ */
+static int
+cneg_stage1_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
+    struct net2_buffer *buf)
+{
+	struct header		 h;
+	int			 skip;
+	int			 error;
+	size_t			 i;
+	struct net2_conn_negotiator_set
+				*nset;
+
+	for (;;) {
+		/* Decode header. */
+		if ((error = decode_header(&h, buf)) != 0)
+			goto fail;
+		/* GUARD: Stop after decoding the last header. */
+		if (h.flags == F_LAST_HEADER) {
+			deinit_header(&net2_encdec_proto0, &h);
+			break;
+		}
+
+		skip = 0;
+		if (h.flags == F_POETRY)
+			goto skip;
+
+		if (h.flags & F_SET_EMPTY) {
+			if ((error = set_process_size(cn, h.flags & F_TYPEMASK,
+			    0)) != 0)
+				goto fail_wh;
+			if ((error = set_get(cn, h.flags & F_TYPEMASK,
+			    &nset)) != 0)
+				goto fail_wh;
+
+			/* Invoke callback for empty set. */
+			if (nset->callback_complete != NULL) {
+				error = (*nset->callback_complete)(cn);
+				nset->callback_complete = NULL;
+				if (error)
+					goto fail_wh;
+			}
+			skip = 1;
+		} else if (h.flags & F_SET_ELEMENT) {
+			if (h.flags & F_SET_LASTELEM) {
+				if ((error = set_process_size(cn,
+				    h.flags & F_TYPEMASK,
+				    (size_t)h.seq + 1)) != 0)
+					goto fail_wh;
+			}
+			if ((error = set_process(cn, h.flags & F_TYPEMASK,
+			    h.seq, &skip)) != 0)
+				goto fail_wh;
+		} else {
+			i = h.flags & F_TYPEMASK;
+			/* Don't accept anything over what was published. */
+			if (cn->negotiated.rcv_expected != UNKNOWN_SIZE &&
+			    i >= cn->negotiated.rcv_expected) {
+				error = EINVAL;
+				goto fail_wh;
+			}
+
+			if (i >= net2_bitset_size(&cn->negotiated.received)) {
+				if ((error = net2_bitset_resize(
+				    &cn->negotiated.received, i + 1, 0)) != 0)
+					goto fail_wh;
+			}
+
+			if ((error = net2_bitset_set(&cn->negotiated.received,
+			    i, 1, &skip)) != 0)
+				goto fail_wh;
+		}
+
+		if (!skip) {
+			if ((error = cneg_apply_header(cn, &h)) != 0)
+				goto fail_wh;
+
+			/* Invoke set completion callback. */
+			if (h.flags & F_SET_ELEMENT) {
+				if ((error = set_get(cn, h.flags & F_TYPEMASK,
+				    &nset)) != 0)
+					goto fail_wh;
+
+				if (nset->callback_complete != NULL &&
+				    set_done(nset)) {
+					error = (*nset->callback_complete)(cn);
+					nset->callback_complete = NULL;
+					if (error)
+						goto fail_wh;
+				}
+			}
+		}
+
+
+skip:
+		/* Free header. */
+		deinit_header(&net2_encdec_proto0, &h);
+	}
+
+	return 0;
+
+fail_wh:
+	deinit_header(&net2_encdec_proto0, &h);
+fail:
+	assert(error != 0);
+	return error;
+}
+
+
+/*
  * True iff the connection is ready and sufficiently secure
  * to allow payload to cross.
  */
@@ -1231,101 +1344,18 @@ ILIAS_NET2_LOCAL int
 net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
     struct net2_buffer *buf)
 {
-	struct header		 h;
-	int			 skip;
 	int			 error;
-	size_t			 i;
-	struct net2_conn_negotiator_set
-				*nset;
 
 	/* Only decode if negotiation data is present. */
 	if (!(ph->flags & PH_HANDSHAKE))
 		goto stage_only;
 
-	for (;;) {
-		/* Decode header. */
-		if ((error = decode_header(&h, buf)) != 0)
+
+	/* Handle stage 1 decoding. */
+	if (cn->stage == NET2_CNEG_STAGE_PRISTINE) {
+		if ((ph->flags & PH_HANDSHAKE) &&
+		    (error = cneg_stage1_accept(cn, ph, buf)) != 0)
 			goto fail;
-		/* GUARD: Stop after decoding the last header. */
-		if (h.flags == F_LAST_HEADER) {
-			deinit_header(&net2_encdec_proto0, &h);
-			break;
-		}
-
-		skip = 0;
-		if (h.flags == F_POETRY)
-			goto skip;
-
-		if (h.flags & F_SET_EMPTY) {
-			if ((error = set_process_size(cn, h.flags & F_TYPEMASK,
-			    0)) != 0)
-				goto fail_wh;
-			if ((error = set_get(cn, h.flags & F_TYPEMASK,
-			    &nset)) != 0)
-				goto fail_wh;
-
-			/* Invoke callback for empty set. */
-			if (nset->callback_complete != NULL) {
-				error = (*nset->callback_complete)(cn);
-				nset->callback_complete = NULL;
-				if (error)
-					goto fail_wh;
-			}
-			skip = 1;
-		} else if (h.flags & F_SET_ELEMENT) {
-			if (h.flags & F_SET_LASTELEM) {
-				if ((error = set_process_size(cn,
-				    h.flags & F_TYPEMASK,
-				    (size_t)h.seq + 1)) != 0)
-					goto fail_wh;
-			}
-			if ((error = set_process(cn, h.flags & F_TYPEMASK,
-			    h.seq, &skip)) != 0)
-				goto fail_wh;
-		} else {
-			i = h.flags & F_TYPEMASK;
-			/* Don't accept anything over what was published. */
-			if (cn->negotiated.rcv_expected != UNKNOWN_SIZE &&
-			    i >= cn->negotiated.rcv_expected) {
-				error = EINVAL;
-				goto fail_wh;
-			}
-
-			if (i >= net2_bitset_size(&cn->negotiated.received)) {
-				if ((error = net2_bitset_resize(
-				    &cn->negotiated.received, i + 1, 0)) != 0)
-					goto fail_wh;
-			}
-
-			if ((error = net2_bitset_set(&cn->negotiated.received,
-			    i, 1, &skip)) != 0)
-				goto fail_wh;
-		}
-
-		if (!skip) {
-			if ((error = cneg_apply_header(cn, &h)) != 0)
-				goto fail_wh;
-
-			/* Invoke set completion callback. */
-			if (h.flags & F_SET_ELEMENT) {
-				if ((error = set_get(cn, h.flags & F_TYPEMASK,
-				    &nset)) != 0)
-					goto fail_wh;
-
-				if (nset->callback_complete != NULL &&
-				    set_done(nset)) {
-					error = (*nset->callback_complete)(cn);
-					nset->callback_complete = NULL;
-					if (error)
-						goto fail_wh;
-				}
-			}
-		}
-
-
-skip:
-		/* Free header. */
-		deinit_header(&net2_encdec_proto0, &h);
 	}
 
 stage_only:
@@ -1342,8 +1372,6 @@ stage_only:
 
 	return 0;
 
-fail_wh:
-	deinit_header(&net2_encdec_proto0, &h);
 fail:
 	return error;
 }

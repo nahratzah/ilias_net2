@@ -27,8 +27,9 @@ struct packet_header {
 #define PH_SIGNED		0x00000002
 #define PH_WINUPDATE		0x00000004
 #define PH_STALLED		0x00000008
-#define PH_HANDSHAKE		0x00000010
-#define PH_PAYLOAD		0x00000020
+#define PH_PAYLOAD		0x00000010
+#define PH_HANDSHAKE		0x00000020	/* Stage 1 handshake. */
+#define PH_HANDSHAKE_S2		0x00000040	/* Stage 2 handshake. */
 
 
 ILIAS_NET2_LOCAL
