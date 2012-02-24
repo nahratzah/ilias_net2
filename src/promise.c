@@ -227,6 +227,15 @@ net2_promise_is_cancelreq(struct net2_promise *p)
 	return net2_promise_flags(p) & NET2_PROM_F_CANCEL_REQ;
 }
 
+/* Request cancellation of this request. */
+ILIAS_NET2_EXPORT void
+net2_promise_cancel(struct net2_promise *p)
+{
+	net2_mutex_lock(p->mtx);
+	p->flags |= NET2_PROM_F_CANCEL_REQ;
+	net2_promise_unlock(p);
+}
+
 /* Mark promise as cancelled. */
 ILIAS_NET2_EXPORT int
 net2_promise_set_cancel(struct net2_promise *p, int flags)
