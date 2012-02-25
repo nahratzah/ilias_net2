@@ -40,20 +40,6 @@ struct net2_promise;			/* From ilias/net2/promise.h */
 struct packet_header;			/* From ilias/net2/packet.h */
 
 /*
- * Connection negotiator stage 2 exchange state.
- */
-struct net2_cneg_exchange {
-	struct net2_conn_negotiator
-				*cneg;		/* Exchange owner. */
-	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
-	struct net2_promise	*promise;	/* Promise for xchange. */
-	struct net2_buffer	*initbuf;	/* Initial buffer. */
-	int			 alg;		/* Algorithm ID. */
-	int			 xchange_alg;	/* Selected exchange method. */
-	uint32_t		 keysize;	/* Negotiated key size. */
-};
-
-/*
  * Connection negotiator module.
  *
  * Performs negotiation of protocols, security properties.
