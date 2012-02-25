@@ -43,12 +43,14 @@ struct packet_header;			/* From ilias/net2/packet.h */
  * Connection negotiator stage 2 exchange state.
  */
 struct net2_cneg_exchange {
-	int			 alg;		/* Algorithm ID. */
-	int			 xchange_alg;	/* Selected exchange method. */
-	uint32_t		 keysize;	/* Negotiated key size. */
+	struct net2_conn_negotiator
+				*cneg;		/* Exchange owner. */
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
 	struct net2_buffer	*initbuf;	/* Initial buffer. */
+	int			 alg;		/* Algorithm ID. */
+	int			 xchange_alg;	/* Selected exchange method. */
+	uint32_t		 keysize;	/* Negotiated key size. */
 };
 
 /*
@@ -118,7 +120,7 @@ struct net2_conn_negotiator {
 					 * counterpart. */
 #define NET2_CNEG_S2_MAX	4	/* Number of stage 2 exchanges. */
 		struct net2_cneg_exchange
-				 xchanges[NET2_CNEG_S2_MAX]; /* Contexts. */
+				*xchanges; /* Contexts. */
 	}			 stage2;
 };
 

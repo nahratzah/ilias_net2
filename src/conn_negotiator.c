@@ -1241,10 +1241,11 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	if ((error = net2_signset_init(&cn->remote_signs)) != 0)
 		goto fail_1;
 
-	/* Zero stage 2 data. */
-	for (i = 0;
-	    i < sizeof(cn->stage2.xchanges) / sizeof(cn->stage2.xchanges[0]);
-	    i++) {
+	/* Create stage 2 data. */
+	if ((cn->stage2.xchanges = net2_calloc(NET2_CNEG_S2_MAX,
+	    sizeof(*cn->stage2.xchanges))) == NULL)
+		goto fail_2;
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
 		cn->stage2.xchanges[i].xchange = NULL;
 		cn->stage2.xchanges[i].promise = NULL;
 		cn->stage2.xchanges[i].initbuf = NULL;
@@ -1252,6 +1253,11 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 
 	return 0;
 
+
+fail_3:
+	net2_free(cn->stage2.xchanges);
+fail_2:
+	net2_signset_deinit(&cn->remote_signs);
 fail_1:
 	net2_bitset_deinit(&cn->negotiated.received);
 	net2_pvlist_deinit(&cn->negotiated.proto);
@@ -1313,11 +1319,10 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	}
 
 	/* Release stage2 data. */
-	for (i = 0;
-	    i < sizeof(cn->stage2.xchanges) / sizeof(cn->stage2.xchanges[0]);
-	    i++) {
+	for (i = 0; cn->stage2.xchanges != NULL && i < NET2_CNEG_S2_MAX; i++) {
 		if (cn->stage2.xchanges[i].xchange != NULL)
 			net2_xchangectx_free(cn->stage2.xchanges[i].xchange);
+
 		if (cn->stage2.xchanges[i].promise != NULL) {
 			/* Remove the promise callback from its event base. */
 			net2_promise_set_event(cn->stage2.xchanges[i].promise,
@@ -1328,14 +1333,15 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			/* Cancel and release the promise. */
 			net2_promise_cancel(cn->stage2.xchanges[i].promise);
 			net2_promise_release(cn->stage2.xchanges[i].promise);
+		}
 
-			/* Release buffer. */
-			if (cn->stage2.xchanges[i].initbuf != NULL) {
-				net2_buffer_free(
-				    cn->stage2.xchanges[i].initbuf);
-			}
+		/* Release buffer. */
+		if (cn->stage2.xchanges[i].initbuf != NULL) {
+			net2_buffer_free(
+			    cn->stage2.xchanges[i].initbuf);
 		}
 	}
+	net2_free(cn->stage2.xchanges);
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
 	net2_bitset_deinit(&cn->negotiated.received);
