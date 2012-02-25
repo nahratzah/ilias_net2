@@ -1497,7 +1497,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 
 stage_only:
 	/*
-	 * Handle conclusion of pristine (exchange) stage.
+	 * Handle conclusion of pristine (stage 1) stage.
 	 */
 	if (cn->stage == NET2_CNEG_STAGE_PRISTINE && all_done(cn)) {
 		if ((error = cneg_conclude_pristine(cn)) != 0)
