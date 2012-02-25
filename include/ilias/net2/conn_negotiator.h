@@ -40,6 +40,14 @@ struct net2_promise;			/* From ilias/net2/promise.h */
 struct packet_header;			/* From ilias/net2/packet.h */
 
 /*
+ * Connection negotiator stage 2 exchange state.
+ */
+struct net2_cneg_exchange {
+	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
+	struct net2_promise	*promise;	/* Promise for xchange. */
+};
+
+/*
  * Connection negotiator module.
  *
  * Performs negotiation of protocols, security properties.
@@ -101,12 +109,14 @@ struct net2_conn_negotiator {
 	int			 tx_xchange;	/* Selected xchange for tx. */
 
 	struct {
-		struct net2_cneg_exchange {
-			struct net2_xchange_ctx
-				*xchange;	/* Xchange context. */
-			struct net2_promise
-				*promise;	/* Promise for xchange. */
-		}		 xchanges[4];	/* Xchange contexts. */
+/* Stage 2 exchange codes. */
+#define NET2_CNEG_S2_HASH	0	/* Hash key negotiation. */
+#define NET2_CNEG_S2_ENC	2	/* Enc key negotiation. */
+#define NET2_CNEG_REMOTE	1	/* Or-ed with above for remote
+					 * counterpart. */
+#define NET2_CNEG_MAX		4	/* Number of stage 2 exchanges. */
+		struct net2_cneg_exchange
+				 xchanges[NET2_CNEG_MAX]; /* Contexts. */
 	}			 stage2;
 };
 
