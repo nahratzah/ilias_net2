@@ -55,6 +55,7 @@ struct exchange_msg {
 #include "exchange.h"
 #include <string.h>
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/conn_negotiator.h>	/* For NET2_CNEG_S2_MAX define. */
 %%
 
 type exchange_msg (ctype struct exchange_msg,
@@ -99,6 +100,9 @@ struct exchange_msg__signature (ctype struct exchange_msg,
 static __inline const struct command_param*
 get_exchange_cp(const struct exchange_msg *msg)
 {
+	if (msg->slot >= NET2_CNEG_S2_MAX)
+		return NULL;	/* Only first 4 slots are currently defined. */
+
 	if (msg->msg_id & XMSG_SIGNATURE)
 		return &cp_exchange_msg__signature;
 
