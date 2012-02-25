@@ -18,6 +18,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+/*
+ * Format on the wire, of exchange messages.
+ */
 struct exchange_msg {
 	uint8_t				 slot;
 	uint8_t				 msg_id;
@@ -30,8 +33,8 @@ struct exchange_msg {
 	union {
 		/* Setup of exchange. */
 		struct {
-			const char	*exchange_alg;
-			const char	*result_alg;
+			char		*exchange_alg;
+			char		*result_alg;
 		};
 
 		/* Buffer transfer. */
@@ -51,11 +54,21 @@ struct exchange_msg {
 	}				 payload;
 };
 
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_setup(struct exchange_msg*, int, int, int,
+	    const char*(*)(int));
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_buf(struct exchange_msg*, int, int,
+	    struct net2_buffer*, size_t, size_t);
+
 %%
 #include "exchange.h"
 #include <string.h>
 #include <ilias/net2/ctypes.h>
+#include <ilias/net2/xchange.h>
+#include <ilias/net2/memory.h>
 #include <ilias/net2/conn_negotiator.h>	/* For NET2_CNEG_S2_MAX define. */
+
 %%
 
 type exchange_msg (ctype struct exchange_msg,
@@ -164,4 +177,83 @@ exchange_msg_decode(struct net2_encdec_ctx *c, struct exchange_msg *msg,
 	if ((cp = get_exchange_cp(msg)) == NULL)
 		return EINVAL;
 	return net2_cp_decode(c, cp, msg, in, NULL);
+}
+
+
+/* Create setup message. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
+    int xchange_alg, int result_alg, const char *(*result_alg_to_name)(int))
+{
+	const char			*xchange_name, *result_name;
+
+	if (msg == NULL || result_alg_to_name == NULL)
+		return EINVAL;
+	if (slot < 0 || slot > 0xff)
+		return EINVAL;
+
+	if ((xchange_name = net2_xchange_getname(xchange_alg)) == NULL)
+		return EINVAL;
+	if ((result_name = (*result_alg_to_name)(result_alg)) == NULL)
+		return EINVAL;
+
+	memset(msg, 0, sizeof(*msg));
+	msg->slot = slot;
+	msg->msg_id = XMSG_SETUP;
+
+	msg->payload.exchange_alg = net2_strdup(xchange_name);
+	msg->payload.result_alg = net2_strdup(result_name);
+	if (msg->payload.exchange_alg == NULL ||
+	    msg->payload.result_alg == NULL) {
+		if (msg->payload.exchange_alg != NULL) {
+			net2_free(msg->payload.exchange_alg);
+			msg->payload.exchange_alg = NULL;
+		}
+		if (msg->payload.result_alg != NULL) {
+			net2_free(msg->payload.result_alg);
+			msg->payload.result_alg = NULL;
+		}
+		return ENOMEM;
+	}
+
+	return 0;
+}
+
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
+	    struct net2_buffer *data, size_t offset, size_t len)
+{
+	if (slot < 0 || slot > 0xff)
+		return EINVAL;
+	if (data == NULL || len == 0)
+		return EINVAL;
+
+	/* Test if msg_id is a valid parameter. */
+	switch (msg_id) {
+	case XMSG_INITBUF:
+	case XMSG_RESPONSE:
+		break;
+	default:
+		return EINVAL;
+	}
+
+	if (offset + len < offset)
+		return EINVAL;	/* Overflow. */
+	if (offset + len > net2_buffer_length(data))
+		return EINVAL;	/* Requested data does not exist. */
+	if (offset + len > 0xffff)
+		return EINVAL;	/* Only up to 64K-1 bytes data max. */
+
+
+	memset(msg, 0, sizeof(*msg));
+	msg->slot = slot;
+	msg->msg_id = msg_id;
+
+	msg->payload.offset = offset;
+	msg->payload.total_len = len;
+	if ((msg->payload.data = net2_buffer_subrange(data, offset, len)) ==
+	    NULL)
+		return ENOMEM;
+
+	return 0;
 }
