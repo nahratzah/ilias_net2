@@ -1,0 +1,163 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <ilias/net2/buffer.h>
+#include "signature.h"
+#include <sys/types.h>
+#include <stdint.h>
+
+struct exchange_msg {
+	uint8_t				 slot;
+	uint8_t				 msg_id;
+#define XMSG_SIGNATURE			0x80
+#define XMSG_SETUP			0x00
+#define XMSG_INITBUF			0x01
+#define XMSG_RESPONSE			0x02
+
+	uint16_t			 padding;
+	union {
+		/* Setup of exchange. */
+		struct {
+			const char	*exchange_alg;
+			const char	*result_alg;
+		};
+
+		/* Buffer transfer. */
+		struct {
+			uint16_t	 offset;
+			uint16_t	 total_len;
+			struct net2_buffer
+					*data;
+		};
+
+		/* Signature. */
+		struct {
+			uint32_t	 signature_idx;
+			struct net2_signature
+					 signature;
+		};
+	}				 payload;
+};
+
+%%
+#include "exchange.h"
+#include <string.h>
+#include <ilias/net2/ctypes.h>
+%%
+
+type exchange_msg (ctype struct exchange_msg,
+    init exchange_msg_init,
+    destroy exchange_msg_destroy,
+    encode exchange_msg_encode,
+    decode exchange_msg_decode);
+
+struct exchange_msg__shared (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint8			slot;
+	uint8			msg_id;
+	uint16			padding;
+};
+
+struct exchange_msg__setup (ctype struct exchange_msg,
+    init NULL,
+    protocol net2_proto) {
+	paddedstring		payload.exchange_alg;
+	paddedstring		payload.result_alg;
+};
+
+struct exchange_msg__transfer (ctype struct exchange_msg,
+    init NULL,
+    protocol net2_proto) {
+	uint16			payload.offset;
+	uint16			payload.total_len;
+	short_net2_buffer	payload.data;
+};
+
+struct exchange_msg__signature (ctype struct exchange_msg,
+    init NULL,
+    protocol net2_proto) {
+	uint32			payload.signature_idx;
+	net2_signature		payload.signature;
+};
+
+%%
+
+static __inline const struct command_param*
+get_exchange_cp(const struct exchange_msg *msg)
+{
+	if (msg->msg_id & XMSG_SIGNATURE)
+		return &cp_exchange_msg__signature;
+
+	switch (msg->msg_id) {
+	case XMSG_SETUP:
+		return &cp_exchange_msg__setup;
+	case XMSG_INITBUF:
+	case XMSG_RESPONSE:
+		return &cp_exchange_msg__transfer;
+	default:
+		return NULL;
+	}
+}
+
+static int
+exchange_msg_init(struct net2_encdec_ctx *c, struct exchange_msg *msg,
+    const void *arg)
+{
+	memset(msg, 0, sizeof(*msg));
+	return 0;
+}
+static int
+exchange_msg_destroy(struct net2_encdec_ctx *c, struct exchange_msg *msg,
+    const void *arg)
+{
+	const struct command_param
+				*cp;
+
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_destroy(c, cp, msg, NULL);
+}
+static int
+exchange_msg_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct exchange_msg *msg, const void *arg)
+{
+	int			 error;
+	const struct command_param
+				*cp;
+
+	if ((error = net2_cp_encode(c, &cp_exchange_msg__shared, out, msg,
+	    NULL)) != 0)
+		return error;
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, msg, NULL);
+}
+static int
+exchange_msg_decode(struct net2_encdec_ctx *c, struct exchange_msg *msg,
+    struct net2_buffer *in, const void *arg)
+{
+	int			 error;
+	const struct command_param
+				*cp;
+
+	if ((error = net2_cp_decode(c, &cp_exchange_msg__shared, msg, in,
+	    NULL)) != 0)
+		return error;
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, msg, in, NULL);
+}

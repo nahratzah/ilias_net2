@@ -196,6 +196,12 @@ net2type(srcs "types/handshake.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_HANDSHAKE_H")
+net2type(srcs "types/exchange.n2t"
+    "${CMAKE_CURRENT_BINARY_DIR}/exchange.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/exchange.h"
+    "static"
+    "ILIAS_NET2_LOCAL"
+    "ILIAS_NET2_EXCHANGE_H")
 net2type(srcs "types/connwindow_cp.n2t"
     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.c"
     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.h"
