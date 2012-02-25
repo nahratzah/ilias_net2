@@ -44,9 +44,11 @@ struct packet_header;			/* From ilias/net2/packet.h */
  */
 struct net2_cneg_exchange {
 	int			 alg;		/* Algorithm ID. */
+	int			 xchange_alg;	/* Selected exchange method. */
 	uint32_t		 keysize;	/* Negotiated key size. */
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
+	struct net2_buffer	*initbuf;	/* Initial buffer. */
 };
 
 /*
@@ -106,19 +108,17 @@ struct net2_conn_negotiator {
 						  * Order is significant and
 						  * decided by remote host. */
 
-	int			 tx_enc;	/* Selected enc for tx. */
-	int			 tx_hash;	/* Selected hash for tx. */
-	int			 tx_xchange;	/* Selected xchange for tx. */
-
 	struct {
 /* Stage 2 exchange codes. */
 #define NET2_CNEG_S2_HASH	0	/* Hash key negotiation. */
 #define NET2_CNEG_S2_ENC	2	/* Enc key negotiation. */
-#define NET2_CNEG_REMOTE	1	/* Or-ed with above for remote
+#define NET2_CNEG_S2_REMOTE	1	/* Or-ed with above for remote
 					 * counterpart. */
-#define NET2_CNEG_MAX		4	/* Number of stage 2 exchanges. */
+#define NET2_CNEG_S2_LOCAL	0	/* Or-ed with above for local
+					 * counterpart. */
+#define NET2_CNEG_S2_MAX	4	/* Number of stage 2 exchanges. */
 		struct net2_cneg_exchange
-				 xchanges[NET2_CNEG_MAX]; /* Contexts. */
+				 xchanges[NET2_CNEG_S2_MAX]; /* Contexts. */
 	}			 stage2;
 };
 

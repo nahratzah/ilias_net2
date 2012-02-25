@@ -109,6 +109,10 @@ static int	 cneg_apply_header(struct net2_conn_negotiator*,
 static int	 cneg_conclude_pristine(struct net2_conn_negotiator*);
 static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
+static int	 stage2_init_exchange(struct net2_ctx*,
+		    struct net2_cneg_exchange*);
+static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
+
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
 
@@ -858,6 +862,7 @@ static int
 cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 {
 	int		error = 0;
+	int		tx_xchange, tx_hash, tx_enc;
 
 	/*
 	 * Connection is not sufficiently ready to transmit the next batch.
@@ -893,22 +898,29 @@ cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 	/*
 	 * Always select the best key exchange mechanism.
 	 */
-	cn->tx_xchange =
-	    cn->xchange.supported[cn->xchange.num_supported - 1];
+	tx_xchange = cn->xchange.supported[cn->xchange.num_supported - 1];
+	cn->stage2.xchanges[NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL].xchange_alg =
+	    tx_xchange;
+	cn->stage2.xchanges[NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL].xchange_alg =
+	    tx_xchange;
 
 	/* Select encryption algorithm. */
 	if (!(cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
 		/*
 		 * Select the weakest encryption algorithm.
 		 * This usually is enc[0]: nil.
+		 *
+		 * If nil is not supported, the weakest algorithm will be
+		 * selected.
 		 */
-		cn->tx_enc = cn->enc.supported[0];
+		cn->stage2.xchanges[NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL].alg =
+		    tx_enc = cn->enc.supported[0];
 	} else {
 		/*
 		 * Select the best encryption algorithm.
 		 */
-		cn->tx_enc =
-		    cn->enc.supported[cn->enc.num_supported - 1];
+		cn->stage2.xchanges[NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL].alg =
+		    tx_enc = cn->enc.supported[cn->enc.num_supported - 1];
 	}
 
 	/* Select hashing algorithm. */
@@ -916,21 +928,25 @@ cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 		/*
 		 * Select the weakest signing algorithm.
 		 * This usually is hash[0]: nil.
+		 *
+		 * If nil is not supported, the weakest algorithm will be
+		 * selected.
 		 */
-		cn->tx_hash = cn->enc.supported[0];
+		cn->stage2.xchanges[NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL].alg =
+		    tx_hash = cn->enc.supported[0];
 	} else {
 		/*
 		 * Select the best signing algorithm.
 		 */
-		cn->tx_hash =
-		    cn->hash.supported[cn->hash.num_supported - 1];
+		cn->stage2.xchanges[NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL].alg =
+		    tx_hash = cn->hash.supported[cn->hash.num_supported - 1];
 	}
 
 	/*
 	 * If we require signing, ensure we don't select
 	 * the nil algorithm.
 	 */
-	if (cn->tx_hash == 0 &&
+	if (tx_hash == 0 &&
 	    (cn->flags & NET2_CNEG_REQUIRE_SIGNING)) {
 		error = ENODEV;
 		goto fail;
@@ -939,10 +955,32 @@ cneg_conclude_pristine(struct net2_conn_negotiator *cn)
 	 * If we require encryption, ensure we don't select
 	 * the nil algorithm.
 	 */
-	if (cn->tx_enc == 0 &&
+	if (tx_enc == 0 &&
 	    (cn->flags & NET2_CNEG_REQUIRE_ENCRYPTION)) {
 		error = ENODEV;
 		goto fail;
+	}
+
+	/* Load required key lengths. */
+	cn->stage2.xchanges[NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL].keysize =
+	    net2_hash_getkeylen(tx_hash);
+	cn->stage2.xchanges[NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL].keysize =
+	    net2_enc_getkeylen(tx_enc);
+
+	/*
+	 * Ask context for exchange implementation.
+	 * If the context returns NULL, make one ourselves.
+	 */
+	if (cn->context != NULL) {
+		error = stage2_init_exchange(cn->context, &cn->stage2.xchanges[
+		    NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL]);
+		if (error)
+			return error;
+
+		error = stage2_init_exchange(cn->context, &cn->stage2.xchanges[
+		    NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL]);
+		if (error)
+			return error;
 	}
 
 	/* Go to next stage. */
@@ -965,6 +1003,56 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 	    F_TYPE_SIGNATURE_ACCEPT)) != 0)
 		return error;
 	cneg_ready_to_send(cn);
+	return 0;
+}
+
+
+/* Initialize local exchange for stage 2. */
+static int
+stage2_init_exchange(struct net2_ctx *ctx,
+    struct net2_cneg_exchange *e)
+{
+	/* Do not use exchange for 0-length keys. */
+	if (e->keysize == 0) {
+		if ((e->initbuf = net2_buffer_new()) == NULL)
+			return ENOMEM;
+		return 0;
+	}
+
+	/* Require context with factory for promise. */
+	if (ctx == NULL || ctx->xchange_factory == NULL)
+		goto fail_promise;
+
+	/* Acquire promise from context. */
+	e->promise = ctx->xchange_factory(e->xchange_alg, e->keysize,
+	    ctx->xchange_factory_arg);
+	if (e->promise == NULL)
+		goto fail_promise;
+
+	/* TODO: add event to promise. */
+	return 0;
+
+
+fail_promise:
+	/*
+	 * If the promise is not created, we'll have to make it ourselves.
+	 */
+	return stage2_init_exchange_directly(e);
+}
+
+/* Create exchange context without help from context. */
+static int
+stage2_init_exchange_directly(struct net2_cneg_exchange *e)
+{
+	/* Initialize initbuf. */
+	if ((e->initbuf = net2_buffer_new()) == NULL)
+		return ENOMEM;
+
+	/* Initialize xchange context. */
+	if ((e->xchange = net2_xchangectx_prepare(e->xchange_alg, e->keysize,
+	    NET2_XCHANGE_F_INITIATOR, e->initbuf)) == NULL)
+		return ENOMEM;
+
 	return 0;
 }
 
@@ -1159,6 +1247,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	    i++) {
 		cn->stage2.xchanges[i].xchange = NULL;
 		cn->stage2.xchanges[i].promise = NULL;
+		cn->stage2.xchanges[i].initbuf = NULL;
 	}
 
 	return 0;
@@ -1239,6 +1328,12 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 			/* Cancel and release the promise. */
 			net2_promise_cancel(cn->stage2.xchanges[i].promise);
 			net2_promise_release(cn->stage2.xchanges[i].promise);
+
+			/* Release buffer. */
+			if (cn->stage2.xchanges[i].initbuf != NULL) {
+				net2_buffer_free(
+				    cn->stage2.xchanges[i].initbuf);
+			}
 		}
 	}
 
