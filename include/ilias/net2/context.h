@@ -74,7 +74,7 @@ struct net2_ctx_xchange_factory_result
 	    const struct net2_buffer*);
 ILIAS_NET2_EXPORT
 void	 net2_ctx_xchange_factory_result_free(
-	    struct net2_ctx_xchange_factory_result*, void*);
+	    void*, void*);
 
 
 #ifdef __cplusplus

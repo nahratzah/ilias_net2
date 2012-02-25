@@ -15,6 +15,7 @@
  */
 #include "testprotocol.h"
 #include <ilias/net2/context.h>
+#include <ilias/net2/context_xchange.h>
 #include <stdlib.h>
 
 static const struct command_param *test_cps[] = {
@@ -51,6 +52,12 @@ test_ctx()
 		free(ctx);
 		return NULL;
 	}
+
+	if ((ctx->xchange_factory_arg = net2_ctx_xchange_factory_bg_new()) !=
+	    NULL) {
+		ctx->xchange_factory = &net2_ctx_xchange_factory_bg;
+	}
+
 	return ctx;
 }
 
@@ -58,6 +65,9 @@ test_ctx()
 void
 test_ctx_free(struct net2_ctx *ctx)
 {
+	if (ctx->xchange_factory_arg)
+		net2_ctx_xchange_factory_bg_destroy(ctx->xchange_factory_arg);
+
 	net2_ctx_destroy(ctx);
 	free(ctx);
 }

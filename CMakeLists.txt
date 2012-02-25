@@ -13,6 +13,7 @@ list (APPEND headers
 	include/ilias/net2/connwindow.h
 	include/ilias/net2/udp_connection.h
 	include/ilias/net2/context.h
+	include/ilias/net2/context_xchange.h
 	include/ilias/net2/cp.h
 	include/ilias/net2/encdec_ctx.h
 	include/ilias/net2/evbase.h
@@ -45,6 +46,7 @@ list (APPEND srcs
 	src/connwindow.c
 	src/udp_connection.c
 	src/context.c
+	src/context_xchange.c
 	src/cp.c
 	src/encdec_ctx.c
 	src/evbase.c

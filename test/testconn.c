@@ -20,6 +20,7 @@
 
 
 struct net2_evbase	*global_evbase = NULL;
+struct net2_ctx		*ctx = NULL;
 
 void	testconn_free(struct net2_acceptor_socket*);
 void	testconn_ready_to_send(struct net2_acceptor_socket*);
@@ -37,15 +38,17 @@ struct testconn*
 testconn_1()
 {
 	struct testconn		*tc;
-	struct net2_ctx		*ctx;
 
 	if (global_evbase == NULL) {
 		if ((global_evbase = net2_evbase_new()) == NULL)
 			return NULL;
 	}
 
-	if ((ctx = test_ctx()) == NULL)
-		return NULL;
+	if (ctx == NULL) {
+		if ((ctx = test_ctx()) == NULL)
+			return NULL;
+	}
+
 	tc = malloc(sizeof(*tc));
 	if (net2_connection_init(&tc->base_conn, ctx, global_evbase,
 	    &testconn_fn)) {
@@ -106,4 +109,8 @@ testconn_cleanup()
 	if (global_evbase != NULL)
 		net2_evbase_release(global_evbase);
 	global_evbase = NULL;
+
+	if (ctx != NULL)
+		test_ctx_free(ctx);
+	ctx = NULL;
 }

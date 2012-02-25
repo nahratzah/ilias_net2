@@ -124,9 +124,12 @@ net2_ctx_xchange_factory_result_new(const struct net2_xchange_ctx *xchange,
 
 /* Free xchange factory result. */
 ILIAS_NET2_EXPORT void
-net2_ctx_xchange_factory_result_free(struct net2_ctx_xchange_factory_result *r,
-    void *ignored)
+net2_ctx_xchange_factory_result_free(void *r_ptr, void *ignored)
 {
+	struct net2_ctx_xchange_factory_result	*r;
+
+	r = (struct net2_ctx_xchange_factory_result*)r_ptr;
+
 	if (r != NULL) {
 		if (r->ctx != NULL)
 			net2_xchangectx_free(r->ctx);
