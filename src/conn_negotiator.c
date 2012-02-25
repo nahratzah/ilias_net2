@@ -33,7 +33,7 @@
 #include <ilias/net2/xchange.h>
 
 #include "handshake.h"
-#include "signature.h"
+#include "exchange.h"
 
 #define REQUIRE								\
 	(NET2_CNEG_REQUIRE_ENCRYPTION | NET2_CNEG_REQUIRE_SIGNING)
