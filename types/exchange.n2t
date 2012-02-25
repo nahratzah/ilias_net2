@@ -59,7 +59,11 @@ int	 mk_exchange_msg_setup(struct exchange_msg*, int, int, int,
 	    const char*(*)(int));
 ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_buf(struct exchange_msg*, int, int,
-	    struct net2_buffer*, size_t, size_t);
+	    const struct net2_buffer*, size_t, size_t);
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_signature(struct exchange_msg*, int,
+	    int, const struct net2_buffer *data,
+	    int, struct net2_sign_ctx*);
 
 %%
 #include "exchange.h"
@@ -219,9 +223,10 @@ mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
 	return 0;
 }
 
+/* Create initbuf and response messages. */
 ILIAS_NET2_LOCAL int
 mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
-	    struct net2_buffer *data, size_t offset, size_t len)
+    const struct net2_buffer *data, size_t offset, size_t len)
 {
 	if (slot < 0 || slot > 0xff)
 		return EINVAL;
@@ -256,4 +261,23 @@ mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
 		return ENOMEM;
 
 	return 0;
+}
+
+/* Create signature message. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
+    int hash_alg, const struct net2_buffer *data,
+    int sig_idx, struct net2_sign_ctx *sign)
+{
+	if (slot < 0 || slot > 0xff)
+		return EINVAL;
+	if (data == NULL || sign == NULL)
+		return EINVAL;
+
+	memset(msg, 0, sizeof(*msg));
+	msg->slot = slot;
+	msg->msg_id = XMSG_SIGNATURE;
+	msg->payload.signature_idx = sig_idx;
+	return net2_signature_create(&msg->payload.signature, data, hash_alg,
+	    sign);
 }
