@@ -84,6 +84,17 @@ if (NOT exude_LIBS-NOTFOUND)
 	find_library (clog_LIBS "clog" PATHS "${LOCALBASE}/lib")
 endif (NOT exude_LIBS-NOTFOUND)
 
+option (WITH_EXUDE "Build with exude memory checker." NOT ${exude_LIBS-NOTFOUND})
+if (WITH_EXUDE AND exude_LIBS-NOTFOUND)
+	message (SEND_ERROR "Exude requested but not found.")
+endif (WITH_EXUDE AND exude_LIBS-NOTFOUND)
+
+if (${WITH_EXUDE})
+	message (STATUS "exude build: enabled")
+else (${WITH_EXUDE})
+	message (STATUS "exude build: disabled")
+endif (${WITH_EXUDE})
+
 #
 # Lex and yacc implementation required.
 #
@@ -308,11 +319,11 @@ if (NOT WIN32)
 	set_property (TARGET ilias_net2_static PROPERTY OUTPUT_NAME ilias_net2)
 endif (NOT WIN32)
 
-if (NOT exude_LIBS-NOTFOUND)
+if (${WITH_EXUDE})
 	set_property (TARGET ilias_net2 PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 	set_property (TARGET ilias_net2_static PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 	target_link_libraries (ilias_net2 debug ${exude_LIBS} debug ${clog_LIBS})
-endif (NOT exude_LIBS-NOTFOUND)
+endif (${WITH_EXUDE})
 
 install (TARGETS ilias_net2 ilias_net2_static
 	LIBRARY DESTINATION lib
@@ -402,7 +413,7 @@ if (BUILD_TESTING)
 	    ${EVENT_LIBRARIES})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
 
-	if (NOT exude_LIBS-NOTFOUND)
+	if (${WITH_EXUDE})
 		target_link_libraries (test_buffer debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_encdec_ctypes debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_hash debug ${exude_LIBS} debug ${clog_LIBS})
@@ -422,5 +433,5 @@ if (BUILD_TESTING)
 		set_property (TARGET test_evbase PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_udp_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-	endif (NOT exude_LIBS-NOTFOUND)
+	endif (${WITH_EXUDE})
 endif (BUILD_TESTING)
