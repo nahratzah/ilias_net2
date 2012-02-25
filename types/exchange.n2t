@@ -64,6 +64,9 @@ ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_signature(struct exchange_msg*, int,
 	    int, const struct net2_buffer *data,
 	    int, struct net2_sign_ctx*);
+ILIAS_NET2_LOCAL
+struct net2_buffer
+	*exchange_signature_contents(const char*, const char*);
 
 %%
 #include "exchange.h"
@@ -280,4 +283,40 @@ mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
 	msg->payload.signature_idx = sig_idx;
 	return net2_signature_create(&msg->payload.signature, data, hash_alg,
 	    sign);
+}
+
+/*
+ * Generate the buffer over which the signature for the names must be
+ * generated.
+ */
+ILIAS_NET2_LOCAL struct net2_buffer*
+exchange_signature_contents(const char *exchange_alg,
+    const char *result_alg)
+{
+	struct exchange_msg	 tmp;
+	struct net2_buffer	*result;
+
+	/* Must have supplied arguments. */
+	if (exchange_alg == NULL || result_alg == NULL)
+		return NULL;
+
+	/* Init temporary message, used for encoding. */
+	memset(&tmp, 0, sizeof(tmp));
+	tmp.payload.exchange_alg = (char*)exchange_alg;
+	tmp.payload.result_alg = (char*)result_alg;
+
+	/* Create result. */
+	if ((result = net2_buffer_new()) == NULL)
+		return NULL;
+
+	/* Encode temporary message into result. */
+	if (net2_cp_encode(&net2_encdec_proto0, &cp_exchange_msg__setup,
+	    result, &tmp, NULL))
+		goto fail;
+
+	return result;
+
+fail:
+	net2_buffer_free(result);
+	return NULL;
 }
