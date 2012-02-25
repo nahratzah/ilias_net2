@@ -20,31 +20,6 @@
 
 
 /*
- * Key exchange message.
- *
- * Exchange ID contains an identifier for the exchange algorithm.
- * For DH:
- *	0: initial message (only sent by initiator)
- *	1: exchange (both sides send this)
- * The other values are currently invalid and reserved for future use.
- * The high bit signifies that this is the last buffer in the message.
- *
- * Offset is the offset in the exchange message.
- *
- * Signature idx == 0: this is the actual message that is negotiated.
- * Signature idx >= 1: each signature for that message.
- */
-struct key_xchange_msg {
-	uint16_t		 exchange_id;
-#define	KEY_XCHANGE_SEQ_MASK	0x7fff
-#define	KEY_XCHANGE_LAST	0x8000
-	uint16_t		 signature_idx;
-	uint16_t		 offset;
-	struct net2_buffer	*buf;
-};
-
-
-/*
  * Negotiation packets.
  *
  * These are kept small, so they won't span multiple packets during
@@ -94,8 +69,6 @@ struct header {
 		struct net2_buffer
 				*buf;
 		uint32_t	 val;
-		struct key_xchange_msg
-				 xchange_msg;
 	}			 payload;
 };
 
@@ -197,14 +170,6 @@ struct last_header (ctype struct header,
     destroy NULL,
     protocol net2_proto) {
 	uint32		fin_reserved;
-};
-
-struct key_xchange_msg (ctype struct key_xchange_msg,
-    protocol net2_proto) {
-	uint16			 exchange_id;
-	uint16			 signature_idx;
-	uint16			 offset;
-	short_net2_buffer	*buf;
 };
 
 type set_header (ctype struct header,
