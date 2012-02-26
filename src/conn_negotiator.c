@@ -21,11 +21,13 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/promise.h>
+#include <ilias/net2/evbase.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/context.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>
+#include <bsd_compat/bsd_compat.h>
 #include <event2/event.h>
 
 #include <ilias/net2/enc.h>
@@ -34,6 +36,18 @@
 
 #include "handshake.h"
 #include "exchange.h"
+
+#ifdef HAVE_SYS_TREE_H
+#include <sys/tree.h>
+#else
+#include <bsd_compat/tree.h>
+#endif
+
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <bsd_compat/queue.h>
+#endif
 
 #define REQUIRE								\
 	(NET2_CNEG_REQUIRE_ENCRYPTION | NET2_CNEG_REQUIRE_SIGNING)
@@ -64,13 +78,43 @@ struct net2_cneg_exchange {
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
 	struct net2_buffer	*initbuf;	/* Initial buffer. */
+	struct net2_buffer	*export;	/* Export buffer. */
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Selected exchange method. */
 	uint32_t		 keysize;	/* Negotiated key size. */
 
 	int			 state;		/* DFA state. */
+#define S2_SETUP_KNOWN		0x00000001	/* Setup received/sent. */
+#define S2_INITBUF_KNOWN	0x00000002	/* Initbuf received/send. */
+#define S2_RESPONSE_RECEIVED	0x00000004	/* Response received. */
+#define S2_READY		0x00000007	/* All of the above. */
+
+	RB_HEAD(cneg_s2_ranges, cneg_s2_range)
+				 initbuf_ranges,
+				 export_ranges;
 };
 
+/* List of unsent ranges in stage2 buffers. */
+struct cneg_s2_range {
+	RB_ENTRY(cneg_s2_range)	 tree;
+
+	/* Array semantics: the end is one past the array end. */
+	size_t			 min;		/* First offset in range. */
+	size_t			 max;		/* Last+1 offset in range. */
+
+	struct net2_buffer	*data;		/* Portion of data in range. */
+};
+
+
+static __inline int
+cneg_s2_range_cmp(struct cneg_s2_range *r1, struct cneg_s2_range *r2)
+{
+	assert(r1->min >= r2->max || r2->min >= r1->max);
+
+	return (r1->min < r2->min ? -1 : r1->min > r2->min);
+}
+
+RB_PROTOTYPE_STATIC(cneg_s2_ranges, cneg_s2_range, tree, cneg_s2_range_cmp);
 
 static __inline int
 encode_header(struct net2_buffer *out, const struct header *h)
@@ -126,9 +170,17 @@ static int	 cneg_apply_header(struct net2_conn_negotiator*,
 static int	 cneg_conclude_pristine(struct net2_conn_negotiator*);
 static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
+static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*,
+		    struct net2_cneg_exchange*);
+static void	 net2_cneg_exchange_deinit(struct net2_cneg_exchange*);
+static struct cneg_s2_range
+		*cneg_s2_range_new(size_t, size_t, struct net2_buffer*);
+static void	 cneg_s2_range_destroy(struct cneg_s2_range*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
+static int	 stage2_init_xchange_post(struct net2_cneg_exchange*);
+static void	 stage2_init_xchange_promise_cb(evutil_socket_t, short, void*);
 
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
@@ -1024,11 +1076,99 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 }
 
 
+/* Post-allocation exchange initialization. */
+static int
+net2_cneg_exchange_init(struct net2_conn_negotiator *cn, struct net2_cneg_exchange *e)
+{
+	e->cneg = cn;
+	e->xchange = NULL;
+	e->promise = NULL;
+	e->initbuf = NULL;
+	e->export = NULL;
+	RB_INIT(&e->initbuf_ranges);
+	RB_INIT(&e->export_ranges);
+	return 0;
+}
+
+/* Exchange destruction. */
+static void
+net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
+{
+	struct event		*ev;
+	struct cneg_s2_range	*r;
+
+	if (e->xchange != NULL)
+		net2_xchangectx_free(e->xchange);
+	if (e->promise != NULL) {
+		net2_promise_set_event(e->promise, NET2_PROM_ON_FINISH, NULL,
+		    &ev);
+		if (ev != NULL)
+			event_free(ev);
+
+		net2_promise_cancel(e->promise);
+		net2_promise_release(e->promise);
+	}
+	if (e->initbuf != NULL)
+		net2_buffer_free(e->initbuf);
+	if (e->export != NULL)
+		net2_buffer_free(e->export);
+
+	while ((r = RB_ROOT(&e->initbuf_ranges)) != NULL) {
+		RB_REMOVE(cneg_s2_ranges, &e->initbuf_ranges, r);
+		net2_free(r);
+	}
+	while ((r = RB_ROOT(&e->export_ranges)) != NULL) {
+		RB_REMOVE(cneg_s2_ranges, &e->export_ranges, r);
+		cneg_s2_range_destroy(r);
+	}
+}
+
+/* Create a new stage 2 range. */
+static struct cneg_s2_range*
+cneg_s2_range_new(size_t min, size_t max, struct net2_buffer *data)
+{
+	struct cneg_s2_range	*r;
+
+	assert(min < max);
+	assert(data != NULL);
+	assert(max <= net2_buffer_length(data));
+
+	if ((r = net2_malloc(sizeof(*r))) == NULL)
+		return NULL;
+	r->min = min;
+	r->max = max;
+	if ((r->data = net2_buffer_subrange(data, min, max - min)) == NULL) {
+		net2_free(r);
+		return NULL;
+	}
+
+	return r;
+}
+
+/* Destroy a stage 2 range. */
+static void
+cneg_s2_range_destroy(struct cneg_s2_range *r)
+{
+	if (r != NULL) {
+		if (r->data != NULL)
+			net2_buffer_free(r->data);
+		net2_free(r);
+	}
+}
+
 /* Initialize local exchange for stage 2. */
 static int
 stage2_init_exchange(struct net2_ctx *ctx,
     struct net2_cneg_exchange *e)
 {
+	struct event		*ev;
+	struct net2_conn_negotiator
+				*cn;
+	struct net2_evbase	*evbase;
+
+	cn = e->cneg;
+	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
+
 	/* Do not use exchange for 0-length keys. */
 	if (e->keysize == 0) {
 		if ((e->initbuf = net2_buffer_new()) == NULL)
@@ -1036,17 +1176,37 @@ stage2_init_exchange(struct net2_ctx *ctx,
 		return 0;
 	}
 
-	/* Require context with factory for promise. */
-	if (ctx == NULL || ctx->xchange_factory == NULL)
+	/* Create promise callback. */
+	if (evbase == NULL)
 		goto fail_promise;
+	if ((ev = event_new(evbase->evbase, -1, 0,
+	    &stage2_init_xchange_promise_cb, e)) == NULL)
+		goto fail_promise;
+
+	/* Require context with factory for promise. */
+	if (ctx == NULL || ctx->xchange_factory == NULL) {
+		event_free(ev);
+		goto fail_promise;
+	}
 
 	/* Acquire promise from context. */
 	e->promise = ctx->xchange_factory(e->xchange_alg, e->keysize,
 	    ctx->xchange_factory_arg);
-	if (e->promise == NULL)
+	if (e->promise == NULL) {
+		event_free(ev);
 		goto fail_promise;
+	}
 
-	/* TODO: add event to promise. */
+	/* Add event to promise. */
+	if (net2_promise_set_event(e->promise, NET2_PROM_ON_FINISH,
+	    ev, NULL)) {
+		event_free(ev);
+		net2_promise_cancel(e->promise);
+		net2_promise_release(e->promise);
+		e->promise = NULL;
+		goto fail_promise;
+	}
+
 	return 0;
 
 
@@ -1070,7 +1230,125 @@ stage2_init_exchange_directly(struct net2_cneg_exchange *e)
 	    NET2_XCHANGE_F_INITIATOR, e->initbuf)) == NULL)
 		return ENOMEM;
 
+	return stage2_init_xchange_post(e);
+}
+
+/*
+ * Post exchange initialization
+ * (requires initbuf and xchange to have been set).
+ */
+static int
+stage2_init_xchange_post(struct net2_cneg_exchange *e)
+{
+	struct cneg_s2_range	*r;
+
+	/* Validate that ranges are empty/uninitialized. */
+	if (!RB_EMPTY(&e->initbuf_ranges) || !RB_EMPTY(&e->export_ranges))
+		return EINVAL;
+
+	if (e->keysize != 0 &&
+	    (e->export = net2_xchangectx_export(e->xchange)) == NULL)
+		return ENOMEM;
+
+	if (e->export == NULL)
+		e->state |= S2_INITBUF_KNOWN | S2_RESPONSE_RECEIVED;
+
+	/* Set up entire initbuf as unsent. */
+	if ((r = cneg_s2_range_new(0, net2_buffer_length(e->initbuf),
+	    e->initbuf)) == NULL)
+		return ENOMEM;
+	RB_INSERT(cneg_s2_ranges, &e->initbuf_ranges, r);
+
+	/* Set up entire export as unsent (iff it exists). */
+	if (e->export != NULL) {
+		if ((r = cneg_s2_range_new(0, net2_buffer_length(e->export),
+		    e->export)) == NULL)
+			return ENOMEM;
+		RB_INSERT(cneg_s2_ranges, &e->export_ranges, r);
+	}
+
+	/* Ensure the new unsent ranges will be processed. */
+	cneg_ready_to_send(e->cneg);
+
 	return 0;
+}
+
+/* Promise completion callback. */
+static void
+stage2_init_xchange_promise_cb(evutil_socket_t fd, short what, void *e_ptr)
+{
+	struct net2_cneg_exchange	*e = e_ptr;
+	uint32_t			 prom_error;
+	struct net2_ctx_xchange_factory_result
+					*prom_result;
+	int				 prom_fin;
+	int				 error;
+	struct event			*ev;
+
+	/* Remove ourselves. */
+	net2_promise_set_event(e->promise, NET2_PROM_ON_FINISH, NULL, &ev);
+	if (ev != NULL)
+		event_free(ev);
+
+	prom_fin = net2_promise_get_result(e->promise, (void**)&prom_result,
+	    &prom_error);
+
+	/* We are in an on-completion hander... */
+	assert(prom_fin != NET2_PROM_FIN_UNFINISHED);
+
+	/* Read promise result; recover from error. */
+	switch (prom_fin) {
+	case NET2_PROM_FIN_OK:
+		/* Claim ownership of data. */
+		error = 0;
+		e->xchange = prom_result->ctx;
+		prom_result->ctx = NULL;
+		e->initbuf = prom_result->initbuf;
+		prom_result->initbuf = NULL;
+
+		net2_promise_release(e->promise);
+		e->promise = NULL;
+
+		/* Perform post initialization now. */
+		error = stage2_init_xchange_post(e);
+		break;
+
+	case NET2_PROM_FIN_CANCEL:
+		/* Hmmm... shouldn't have fired. */
+		return;	/* TODO: consider abort() instead? */
+
+	case NET2_PROM_FIN_ERROR:
+		/* If the promise had an error, we'll run into the same. */
+		error = prom_error;
+		break;
+
+	case NET2_PROM_FIN_FAIL:	/* Recover from non-invocation. */
+	default:			/* Recover from unknown result code. */
+		net2_promise_release(e->promise);
+		e->promise = NULL;
+		error = stage2_init_exchange_directly(e);
+	}
+
+	/*
+	 * Either:
+	 * - error == 0 and we have e->xchange and e->initbuf set.
+	 * - error != 0 and we have to fail.
+	 */
+	if (error != 0) {
+		assert(0);	/* TODO: make conn_neg send an error and die. */
+		return;
+	}
+
+	/*
+	 * Validate assumptions.
+	 */
+	assert(e->xchange != NULL && e->initbuf != NULL && e->export != NULL);
+
+	/*
+	 * Mark negotiator as ready to send
+	 * since we just received data from our promise.
+	 */
+	cneg_ready_to_send(e->cneg);
 }
 
 
@@ -1263,14 +1541,19 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	    sizeof(*cn->stage2.xchanges))) == NULL)
 		goto fail_2;
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		cn->stage2.xchanges[i].xchange = NULL;
-		cn->stage2.xchanges[i].promise = NULL;
-		cn->stage2.xchanges[i].initbuf = NULL;
+		if ((error = net2_cneg_exchange_init(cn,
+		    &cn->stage2.xchanges[i])) != 0)
+			goto fail_4_partial;
 	}
 
 	return 0;
 
 
+fail_4:
+	i = NET2_CNEG_S2_MAX;
+fail_4_partial:
+	while (i > 0)
+		net2_cneg_exchange_deinit(&cn->stage2.xchanges[--i]);
 fail_3:
 	net2_free(cn->stage2.xchanges);
 fail_2:
@@ -1336,29 +1619,11 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	}
 
 	/* Release stage2 data. */
-	for (i = 0; cn->stage2.xchanges != NULL && i < NET2_CNEG_S2_MAX; i++) {
-		if (cn->stage2.xchanges[i].xchange != NULL)
-			net2_xchangectx_free(cn->stage2.xchanges[i].xchange);
-
-		if (cn->stage2.xchanges[i].promise != NULL) {
-			/* Remove the promise callback from its event base. */
-			net2_promise_set_event(cn->stage2.xchanges[i].promise,
-			    NET2_PROM_ON_FINISH, NULL, &ev);
-			if (ev != NULL)
-				event_free(ev);
-
-			/* Cancel and release the promise. */
-			net2_promise_cancel(cn->stage2.xchanges[i].promise);
-			net2_promise_release(cn->stage2.xchanges[i].promise);
-		}
-
-		/* Release buffer. */
-		if (cn->stage2.xchanges[i].initbuf != NULL) {
-			net2_buffer_free(
-			    cn->stage2.xchanges[i].initbuf);
-		}
+	if (cn->stage2.xchanges != NULL) {
+		for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+			net2_cneg_exchange_deinit(&cn->stage2.xchanges[i]);
+		net2_free(cn->stage2.xchanges);
 	}
-	net2_free(cn->stage2.xchanges);
 
 	net2_pvlist_deinit(&cn->negotiated.proto);
 	net2_bitset_deinit(&cn->negotiated.received);
@@ -1535,3 +1800,6 @@ net2_cneg_pvlist(struct net2_conn_negotiator *cn, struct net2_pvlist *pv)
 {
 	return net2_pvlist_merge(pv, &cn->negotiated.proto);
 }
+
+
+RB_GENERATE_STATIC(cneg_s2_ranges, cneg_s2_range, tree, cneg_s2_range_cmp);
