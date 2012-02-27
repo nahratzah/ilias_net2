@@ -146,9 +146,6 @@ static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*,
 		    struct net2_cneg_exchange*);
 static void	 net2_cneg_exchange_deinit(struct net2_cneg_exchange*);
-static struct cneg_s2_range
-		*cneg_s2_range_new(size_t, size_t, struct net2_buffer*);
-static void	 cneg_s2_range_destroy(struct cneg_s2_range*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
@@ -1067,7 +1064,6 @@ static void
 net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 {
 	struct event		*ev;
-	struct cneg_s2_range	*r;
 
 	if (e->xchange != NULL)
 		net2_xchangectx_free(e->xchange);
@@ -1203,7 +1199,6 @@ static int
 stage2_init_xchange_post(struct net2_cneg_exchange *e,
     struct net2_buffer *initbuf)
 {
-	struct cneg_s2_range	*r;
 	struct net2_buffer	*export = NULL;
 	int			 error;
 
@@ -1211,9 +1206,10 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 	if (e->state & S2_CARVER_INITDONE)
 		return EINVAL;
 
-	if (e->keysize == 0)
-		export = net2_buffer_new();
-	else if ((export = net2_xchangectx_export(e->xchange)) == NULL)
+	if (e->keysize == 0) {
+		if ((export = net2_buffer_new()) == NULL)
+			return ENOMEM;
+	} else if ((export = net2_xchangectx_export(e->xchange)) == NULL)
 		return ENOMEM;
 
 	if ((error = net2_carver_init(&e->initbuf, NET2_CARVER_16BIT,
@@ -1236,6 +1232,7 @@ fail_2:
 fail_1:
 	net2_carver_deinit(&e->initbuf);
 fail_0:
+	net2_buffer_free(export);
 	assert(error != 0);
 	assert(!(e->state & S2_CARVER_INITDONE));
 	return error;
@@ -1272,11 +1269,11 @@ stage2_init_xchange_promise_cb(evutil_socket_t fd, short what, void *e_ptr)
 		e->xchange = prom_result->ctx;
 		prom_result->ctx = NULL;	/* Claim ownership. */
 
-		net2_promise_release(e->promise);
-		e->promise = NULL;
-
 		/* Perform post initialization now. */
 		error = stage2_init_xchange_post(e, prom_result->initbuf);
+
+		net2_promise_release(e->promise);
+		e->promise = NULL;
 		break;
 
 	case NET2_PROM_FIN_CANCEL:
@@ -1425,6 +1422,17 @@ fail_wh:
 fail:
 	assert(error != 0);
 	return error;
+}
+
+/*
+ * Handle stage 2 decoding and application.
+ */
+static int
+cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
+    struct net2_buffer *buf)
+{
+	assert(0); /* TODO: implement. */
+	return 0;
 }
 
 
