@@ -17,17 +17,25 @@
 
 struct net2_carver_range {
 	RB_ENTRY(net2_carver_range)
-				 tree;
+				 tree;		/* Link into tree. */
 
-	size_t			 offset;
-	struct net2_buffer	*data;
-	int			 flags;
+	size_t			 offset;	/* Offset of this range. */
+	struct net2_buffer	*data;		/* Data in this range. */
+	int			 flags;		/* State flags. */
+
+/* Carver only flags. */
+#define RANGE_TRANSMITTED	0x00010000	/* Range is on the wire. */
+#define RANGE_DETACHED		0x00020000	/* Carver was destroyed. */
 };
 
+/* Flags shared by carver and combiner. */
 #define NET2_CARVER_F_16BIT	0x00000000	/* 16 bit carver. */
 #define NET2_CARVER_F_32BIT	0x00000001	/* 32 bit carver. */
 #define NET2_CARVER_F_BITS	0x0000000f	/* Carver bit mask. */
 #define NET2_CARVER_F_KNOWN_SZ	0x00000010	/* Expected size is knwon. */
+
+/* Carver only flags. */
+#define NET2_CARVER_F_SZ_TX	0x00010000	/* Size is on wire. */
 
 
 static __inline int
@@ -129,9 +137,15 @@ net2_carver_deinit(struct net2_carver *c)
 
 	while ((r = RB_ROOT(&c->ranges)) != NULL) {
 		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
-		if (r->data)
-			net2_buffer_free(r->data);
-		net2_free(r);
+
+		if (r->flags & RANGE_TRANSMITTED) {
+			/* Callback must perform cleanup. */
+			r->flags |= RANGE_DETACHED;
+		} else {
+			if (r->data)
+				net2_buffer_free(r->data);
+			net2_free(r);
+		}
 	}
 }
 
@@ -218,6 +232,124 @@ net2_combiner_data(struct net2_combiner *c)
 	root = RB_ROOT(&c->ranges);
 	assert(root != NULL && root->offset == 0);
 	return net2_buffer_copy(root->data);
+}
+
+
+/*
+ * Stores a transmit message in the buffer, that will be at most maxsz bytes.
+ */
+ILIAS_NET2_EXPORT int
+net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
+    struct net2_buffer *out, struct net2_cw_tx *tx, size_t maxsz)
+{
+	size_t			 setup_overhead;
+	size_t			 msg_overhead;
+	struct net2_carver_range*r;
+	int			 error;
+	struct carver_msg_header header;
+
+	if (out == NULL || !net2_buffer_empty(out))
+		return EINVAL;
+
+	/* Figure out overhead. */
+	switch (c->flags & NET2_CARVER_F_BITS) {
+	default:
+		return EINVAL;
+	case NET2_CARVER_F_16BIT:
+		setup_overhead = OVERHEAD_HEADER + OVERHEAD16_SETUP;
+		msg_overhead = OVERHEAD_HEADER + OVERHEAD16_MSG;
+		break;
+	case NET2_CARVER_F_32BIT:
+		setup_overhead = OVERHEAD_HEADER + OVERHEAD32_SETUP;
+		msg_overhead = OVERHEAD_HEADER + OVERHEAD32_MSG;
+		break;
+	}
+
+	header.reserved = 0;
+	/* Setup message fits and is untransmitted, so send it now. */
+	if (!(c->flags & NET2_CARVER_F_SZ_TX) && maxsz >= setup_overhead) {
+		/* Encode header for SETUP. */
+		header.msg_type = CARVER_MSGTYPE_SETUP;
+		if ((error = net2_cp_encode(ctx, &cp_carver_msg_header, out,
+		    &header, NULL)) != 0)
+			return error;
+
+		if ((error = carver_setup_msg(c, ctx, out)) != 0)
+			return error;
+		/* TODO: install callback */
+		c->flags |= NET2_CARVER_F_SZ_TX;
+		return 0;
+	}
+
+	/* Find untransmitted message. */
+	RB_FOREACH(r, net2_carver_ranges, &c->ranges) {
+		if (!(r->flags & RANGE_TRANSMITTED))
+			break;
+	}
+	/* Nothing to send. */
+	if (r == NULL)
+		return 0;
+
+	/* Encode header for DATA. */
+	header.msg_type = CARVER_MSGTYPE_DATA;
+	if ((error = net2_cp_encode(ctx, &cp_carver_msg_header, out,
+	    &header, NULL)) != 0)
+		return error;
+
+	if ((error = carver_range_split(c, r,
+	    maxsz - msg_overhead)) != 0)
+		return error;
+	if ((error = carver_range_to_msg(c, r, ctx, out)) != 0)
+		return error;
+	/* TODO: install callback */
+	r->flags |= RANGE_TRANSMITTED;
+	return 0;
+}
+
+/* Accept a message for the combiner. */
+ILIAS_NET2_EXPORT int
+net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
+    struct net2_buffer *in)
+{
+	int			 error;
+	struct carver_msg_header header;
+	uint32_t		 msg_type;
+	struct net2_carver_range*r;
+
+	/* Decode header to read message type. */
+	if ((error = net2_cp_init(ctx, &cp_carver_msg_header, &header,
+	    NULL)) != 0)
+		return error;
+	error = net2_cp_decode(ctx, &cp_carver_msg_header, &header, in, NULL);
+	msg_type = header.msg_type;
+	if (error != 0) {
+		net2_cp_destroy(ctx, &cp_carver_msg_header, &header, NULL);
+		return error;
+	}
+
+	switch (header.msg_type) {
+	default:
+		return EINVAL;
+	case CARVER_MSGTYPE_SETUP:
+		return combiner_setup_msg(c, ctx, in);
+	case CARVER_MSGTYPE_DATA:
+		r = net2_malloc(sizeof(*r));
+		if ((error = combiner_msg_to_range(c, r, ctx, in)) != 0) {
+			net2_free(r);
+			return error;
+		}
+		if ((error = combiner_msg_combine(c, r)) != 0) {
+			if (r->data)
+				net2_buffer_free(r->data);
+			net2_free(r);
+			return error;
+		}
+		/*
+		 * Don't free r: combiner_msg_combine will have done this,
+		 * or inserted r directly into the tree.
+		 */
+		return 0;
+	}
 }
 
 

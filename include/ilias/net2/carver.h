@@ -15,6 +15,7 @@
 struct net2_carver_range;	/* Internal. */
 struct net2_buffer;		/* From ilias/net2/buffer.h */
 struct net2_encdec_ctx;		/* From ilias/net2/encdec_ctx.h */
+struct net2_cw_tx;		/* From ilias/net2/connection.h */
 
 RB_HEAD(net2_carver_ranges, net2_carver_range);
 
@@ -77,5 +78,13 @@ ILIAS_NET2_EXPORT
 int			 net2_combiner_is_done(struct net2_combiner*);
 ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_combiner_data(struct net2_combiner*);
+
+ILIAS_NET2_EXPORT
+int			 net2_carver_get_transmit(struct net2_carver*,
+			    struct net2_encdec_ctx*, struct net2_buffer*,
+			    struct net2_cw_tx*, size_t);
+ILIAS_NET2_EXPORT
+int			 net2_combiner_accept(struct net2_combiner*,
+			    struct net2_encdec_ctx*, struct net2_buffer*);
 
 #endif /* ILIAS_NET2_CARVER_H */

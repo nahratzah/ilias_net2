@@ -24,7 +24,20 @@ struct carver_msg_setup_32 {
 	uint32_t		 size;
 };
 
+struct carver_msg_header {
+	uint32_t		 msg_type;
+#define CARVER_MSGTYPE_SETUP	0x00
+#define CARVER_MSGTYPE_DATA	0x01
+	uint32_t		 reserved;	/* Zero. */
+};
+
 #define NET2_CARVER_SETUP_EMPTY	0x00000001	/* Empty carver message. */
+
+#define OVERHEAD_HEADER		8	/* Header is 1 byte. */
+#define OVERHEAD16_SETUP	8	/* 16-bit setup is 8 byte. */
+#define OVERHEAD32_SETUP	8	/* 32-bit setup is 8 byte. */
+#define OVERHEAD16_MSG		4	/* 16-bit message requires 4 byte. */
+#define OVERHEAD32_MSG		8	/* 16-bit message requires 8 byte. */
 
 %%
 #include "carver_msg.h"
@@ -54,4 +67,11 @@ struct carver_msg_setup_32 (ctype struct carver_msg_setup_32,
     protocol net2_proto) {
 	uint32			flags;
 	uint32			size;
+};
+
+struct carver_msg_header (ctype struct carver_msg_header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint8			msg_type;
 };
