@@ -736,6 +736,7 @@ combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
 	return 0;
 }
 
+/* Extract carver/combiner type from flags. */
 static enum net2_carver_type
 flags_to_type(int flags)
 {
