@@ -21,6 +21,7 @@ list (APPEND headers
 	include/ilias/net2/enc.h
 	include/ilias/net2/hash.h
 	include/ilias/net2/init.h
+	include/ilias/net2/memory.h
 	include/ilias/net2/mutex.h
 	include/ilias/net2/obj_manager.h
 	include/ilias/net2/obj_window.h
@@ -55,6 +56,7 @@ list (APPEND srcs
 	src/enc.c
 	src/hash.c
 	src/init.c
+	src/memory.c
 	src/obj_manager.c
 	src/obj_window.c
 	src/promise.c

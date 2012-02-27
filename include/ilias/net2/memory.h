@@ -1,3 +1,18 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 #ifndef ILIAS_NET2_MEMORY_H
 #define ILIAS_NET2_MEMORY_H
 
@@ -10,27 +25,31 @@
 #ifdef NET2_USE_EXUDE_DEBUG
 
 
-#include <exude.h>
-#include <clog.h>
+#include <ilias/net2/ilias_net2_export.h>
+
+ILIAS_NET2_LOCAL void	*net2_malloc_(size_t, const char*, const char*, int);
+ILIAS_NET2_LOCAL void	*net2_realloc_(void*, size_t, const char*, const char*, int);
+ILIAS_NET2_LOCAL void	*net2_calloc_(size_t, size_t, const char*, const char*, int);
+ILIAS_NET2_LOCAL char	*net2_strdup_(const char*, const char*, const char*, int);
+ILIAS_NET2_LOCAL void	 net2_free_(void**, const char*, const char*, int);
+
+ILIAS_NET2_LOCAL void	 net2_memory_init();
+ILIAS_NET2_LOCAL void	 net2_memory_fini();
 
 #define net2_malloc(s)							\
-	e_malloc((s))
+	net2_malloc_((s), __FILE__, __FUNCTION__, __LINE__)
 #define net2_free(p)							\
 	do {								\
 		if (p != NULL)						\
-			e_free((&p));					\
+			net2_free_((void**)&(p), __FILE__,		\
+			    __FUNCTION__, __LINE__);			\
 	} while (0)
 #define net2_realloc(p, s)						\
-	e_realloc((p), (s))
+	net2_realloc_((p), (s), __FILE__, __FUNCTION__, __LINE__)
 #define net2_calloc(n, s)						\
-	e_calloc((n), (s))
+	net2_calloc_((n), (s), __FILE__, __FUNCTION__, __LINE__)
 #define net2_strdup(s)							\
-	e_strdup((s))
-
-#define net2_memory_init()						\
-	do {} while (0)
-#define net2_memory_fini()						\
-	do {} while (0)
+	net2_strdup_((s), __FILE__, __FUNCTION__, __LINE__)
 
 
 #else /* NET2_USE_EXUDE_DEBUG */
