@@ -33,11 +33,6 @@ enum net2_carver_type {
  */
 struct net2_carver {
 	int			 flags;
-#define NET2_CARVER_F_16BIT	0x00000000	/* 16 bit carver. */
-#define NET2_CARVER_F_32BIT	0x00000001	/* 32 bit carver. */
-#define NET2_CARVER_F_BITS	0x0000000f	/* Carver bit mask. */
-#define NET2_CARVER_F_KNOWN_SZ	0x00000010	/* Expected size is knwon. */
-
 	struct net2_carver_ranges
 				 ranges;
 	size_t			 size;		/* Carver message size. */
@@ -50,7 +45,6 @@ struct net2_carver {
  */
 struct net2_combiner {
 	int			 flags;
-
 	struct net2_carver_ranges
 				 ranges;
 	size_t			 expected_size;
