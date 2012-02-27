@@ -73,6 +73,8 @@ static enum net2_carver_type
 static void	carver_txcb_ack(void*, void*);
 static void	carver_txcb_nack(void*, void*);
 #define carver_txcb_destroy	carver_txcb_nack
+static void	carver_setup_ack(void*, void*);
+static void	carver_setup_nack(void*, void*);
 
 
 /* Return the type of carver. */
@@ -282,7 +284,12 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 
 		if ((error = carver_setup_msg(c, ctx, out)) != 0)
 			return error;
-		/* TODO: install callback */
+		/* Install callback. */
+		if ((error = net2_connwindow_txcb_register(tx, evbase, NULL,
+		    &carver_setup_ack, &carver_setup_nack, NULL,
+		    c, NULL)) != 0)
+			return error;
+
 		c->flags |= NET2_CARVER_F_SZ_TX;
 		return 0;
 	}
@@ -792,4 +799,22 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 		net2_buffer_free(r->data);
 		net2_free(r);
 	}
+}
+
+/* Ack setup receival. */
+static void
+carver_setup_ack(void *c_ptr, void *unusued)
+{
+	struct net2_carver	*c = c_ptr;
+
+	c->flags |= NET2_CARVER_F_KNOWN_SZ;
+}
+
+/* Setup receival failed. */
+static void
+carver_setup_nack(void *c_ptr, void *unusued)
+{
+	struct net2_carver	*c = c_ptr;
+
+	c->flags &= ~NET2_CARVER_F_SZ_TX;
 }
