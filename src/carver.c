@@ -99,6 +99,9 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 	size_t			 maxbyte;
 	struct net2_carver_range*r;
 
+	if (c == NULL || data == NULL)
+		return EINVAL;
+
 	c->flags = 0;
 	RB_INIT(&c->ranges);
 	c->size = net2_buffer_length(data);
