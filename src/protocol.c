@@ -18,6 +18,7 @@
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
+#include <stdlib.h>
 #include "connwindow_cp.h"
 #include "stream_packet.h"
 
