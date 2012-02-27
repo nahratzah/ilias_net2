@@ -24,6 +24,7 @@
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/context.h>
+#include <ilias/net2/carver.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <bsd_compat/minmax.h>
@@ -36,12 +37,6 @@
 
 #include "handshake.h"
 #include "exchange.h"
-
-#ifdef HAVE_SYS_TREE_H
-#include <sys/tree.h>
-#else
-#include <bsd_compat/tree.h>
-#endif
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -77,8 +72,9 @@ struct net2_cneg_exchange {
 				*cneg;		/* Exchange owner. */
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
-	struct net2_buffer	*initbuf;	/* Initial buffer. */
-	struct net2_buffer	*export;	/* Export buffer. */
+	struct net2_carver	 initbuf;	/* Initial buffer. */
+	struct net2_carver	 export;	/* Export buffer. */
+	struct net2_combiner	 import;	/* Import buffer. */
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Selected exchange method. */
 	uint32_t		 keysize;	/* Negotiated key size. */
@@ -88,33 +84,10 @@ struct net2_cneg_exchange {
 #define S2_INITBUF_KNOWN	0x00000002	/* Initbuf received/send. */
 #define S2_RESPONSE_RECEIVED	0x00000004	/* Response received. */
 #define S2_READY		0x00000007	/* All of the above. */
-
-	RB_HEAD(cneg_s2_ranges, cneg_s2_range)
-				 initbuf_ranges,
-				 export_ranges;
+#define S2_CARVER_INITDONE	0x80000000	/* Carvers/combiners have been
+						 * initialized. */
 };
 
-/* List of unsent ranges in stage2 buffers. */
-struct cneg_s2_range {
-	RB_ENTRY(cneg_s2_range)	 tree;
-
-	/* Array semantics: the end is one past the array end. */
-	size_t			 min;		/* First offset in range. */
-	size_t			 max;		/* Last+1 offset in range. */
-
-	struct net2_buffer	*data;		/* Portion of data in range. */
-};
-
-
-static __inline int
-cneg_s2_range_cmp(struct cneg_s2_range *r1, struct cneg_s2_range *r2)
-{
-	assert(r1->min >= r2->max || r2->min >= r1->max);
-
-	return (r1->min < r2->min ? -1 : r1->min > r2->min);
-}
-
-RB_PROTOTYPE_STATIC(cneg_s2_ranges, cneg_s2_range, tree, cneg_s2_range_cmp);
 
 static __inline int
 encode_header(struct net2_buffer *out, const struct header *h)
@@ -179,7 +152,8 @@ static void	 cneg_s2_range_destroy(struct cneg_s2_range*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
-static int	 stage2_init_xchange_post(struct net2_cneg_exchange*);
+static int	 stage2_init_xchange_post(struct net2_cneg_exchange*,
+		    struct net2_buffer*);
 static void	 stage2_init_xchange_promise_cb(evutil_socket_t, short, void*);
 
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
@@ -1081,12 +1055,10 @@ static int
 net2_cneg_exchange_init(struct net2_conn_negotiator *cn, struct net2_cneg_exchange *e)
 {
 	e->cneg = cn;
+	e->state = 0;
+	net2_combiner_init(&e->import, NET2_CARVER_16BIT);
 	e->xchange = NULL;
 	e->promise = NULL;
-	e->initbuf = NULL;
-	e->export = NULL;
-	RB_INIT(&e->initbuf_ranges);
-	RB_INIT(&e->export_ranges);
 	return 0;
 }
 
@@ -1108,52 +1080,12 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 		net2_promise_cancel(e->promise);
 		net2_promise_release(e->promise);
 	}
-	if (e->initbuf != NULL)
-		net2_buffer_free(e->initbuf);
-	if (e->export != NULL)
-		net2_buffer_free(e->export);
 
-	while ((r = RB_ROOT(&e->initbuf_ranges)) != NULL) {
-		RB_REMOVE(cneg_s2_ranges, &e->initbuf_ranges, r);
-		net2_free(r);
+	if (e->state & S2_CARVER_INITDONE) {
+		net2_carver_deinit(&e->initbuf);
+		net2_carver_deinit(&e->export);
 	}
-	while ((r = RB_ROOT(&e->export_ranges)) != NULL) {
-		RB_REMOVE(cneg_s2_ranges, &e->export_ranges, r);
-		cneg_s2_range_destroy(r);
-	}
-}
-
-/* Create a new stage 2 range. */
-static struct cneg_s2_range*
-cneg_s2_range_new(size_t min, size_t max, struct net2_buffer *data)
-{
-	struct cneg_s2_range	*r;
-
-	assert(min < max);
-	assert(data != NULL);
-	assert(max <= net2_buffer_length(data));
-
-	if ((r = net2_malloc(sizeof(*r))) == NULL)
-		return NULL;
-	r->min = min;
-	r->max = max;
-	if ((r->data = net2_buffer_subrange(data, min, max - min)) == NULL) {
-		net2_free(r);
-		return NULL;
-	}
-
-	return r;
-}
-
-/* Destroy a stage 2 range. */
-static void
-cneg_s2_range_destroy(struct cneg_s2_range *r)
-{
-	if (r != NULL) {
-		if (r->data != NULL)
-			net2_buffer_free(r->data);
-		net2_free(r);
-	}
+	net2_combiner_deinit(&e->import);
 }
 
 /* Initialize local exchange for stage 2. */
@@ -1165,15 +1097,38 @@ stage2_init_exchange(struct net2_ctx *ctx,
 	struct net2_conn_negotiator
 				*cn;
 	struct net2_evbase	*evbase;
+	struct net2_buffer	*empty;
+	int			 error;
 
 	cn = e->cneg;
 	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
 
 	/* Do not use exchange for 0-length keys. */
 	if (e->keysize == 0) {
-		if ((e->initbuf = net2_buffer_new()) == NULL)
-			return ENOMEM;
+		if ((empty = net2_buffer_new()) == NULL) {
+			error = ENOMEM;
+			goto keysize0_fail_0;
+		}
+		if ((error = net2_carver_init(&e->initbuf, NET2_CARVER_16BIT, empty)) != 0)
+			goto keysize0_fail_1;
+		if ((error = net2_carver_init(&e->export, NET2_CARVER_16BIT, empty)) != 0)
+			goto keysize0_fail_2;
+		e->state |= S2_CARVER_INITDONE;
+
+		net2_buffer_free(empty);
 		return 0;
+
+keysize0_fail_3:
+		e->state &= ~S2_CARVER_INITDONE;
+		net2_carver_deinit(&e->export);
+keysize0_fail_2:
+		net2_carver_deinit(&e->initbuf);
+keysize0_fail_1:
+		net2_buffer_free(empty);
+keysize0_fail_0:
+		assert(!(e->state & S2_CARVER_INITDONE));
+		assert(error != 0);
+		return error;
 	}
 
 	/* Create promise callback. */
@@ -1221,16 +1176,23 @@ fail_promise:
 static int
 stage2_init_exchange_directly(struct net2_cneg_exchange *e)
 {
+	struct net2_buffer	*initbuf;
+	int			 error;
+
 	/* Initialize initbuf. */
-	if ((e->initbuf = net2_buffer_new()) == NULL)
+	if ((initbuf = net2_buffer_new()) == NULL)
 		return ENOMEM;
 
 	/* Initialize xchange context. */
 	if ((e->xchange = net2_xchangectx_prepare(e->xchange_alg, e->keysize,
-	    NET2_XCHANGE_F_INITIATOR, e->initbuf)) == NULL)
+	    NET2_XCHANGE_F_INITIATOR, initbuf)) == NULL) {
+		net2_buffer_free(initbuf);
 		return ENOMEM;
+	}
 
-	return stage2_init_xchange_post(e);
+	error = stage2_init_xchange_post(e, initbuf);
+	net2_buffer_free(initbuf);
+	return error;
 }
 
 /*
@@ -1238,39 +1200,45 @@ stage2_init_exchange_directly(struct net2_cneg_exchange *e)
  * (requires initbuf and xchange to have been set).
  */
 static int
-stage2_init_xchange_post(struct net2_cneg_exchange *e)
+stage2_init_xchange_post(struct net2_cneg_exchange *e,
+    struct net2_buffer *initbuf)
 {
 	struct cneg_s2_range	*r;
+	struct net2_buffer	*export = NULL;
+	int			 error;
 
 	/* Validate that ranges are empty/uninitialized. */
-	if (!RB_EMPTY(&e->initbuf_ranges) || !RB_EMPTY(&e->export_ranges))
+	if (e->state & S2_CARVER_INITDONE)
 		return EINVAL;
 
-	if (e->keysize != 0 &&
-	    (e->export = net2_xchangectx_export(e->xchange)) == NULL)
+	if (e->keysize == 0)
+		export = net2_buffer_new();
+	else if ((export = net2_xchangectx_export(e->xchange)) == NULL)
 		return ENOMEM;
 
-	if (e->export == NULL)
-		e->state |= S2_INITBUF_KNOWN | S2_RESPONSE_RECEIVED;
-
-	/* Set up entire initbuf as unsent. */
-	if ((r = cneg_s2_range_new(0, net2_buffer_length(e->initbuf),
-	    e->initbuf)) == NULL)
-		return ENOMEM;
-	RB_INSERT(cneg_s2_ranges, &e->initbuf_ranges, r);
-
-	/* Set up entire export as unsent (iff it exists). */
-	if (e->export != NULL) {
-		if ((r = cneg_s2_range_new(0, net2_buffer_length(e->export),
-		    e->export)) == NULL)
-			return ENOMEM;
-		RB_INSERT(cneg_s2_ranges, &e->export_ranges, r);
-	}
+	if ((error = net2_carver_init(&e->initbuf, NET2_CARVER_16BIT,
+	    initbuf)) != 0)
+		goto fail_0;
+	if ((error = net2_carver_init(&e->export, NET2_CARVER_16BIT,
+	    export)) != 0)
+		goto fail_1;
+	e->state |= S2_CARVER_INITDONE;
 
 	/* Ensure the new unsent ranges will be processed. */
 	cneg_ready_to_send(e->cneg);
 
 	return 0;
+
+
+fail_2:
+	e->state &= ~S2_CARVER_INITDONE;
+	net2_carver_deinit(&e->export);
+fail_1:
+	net2_carver_deinit(&e->initbuf);
+fail_0:
+	assert(error != 0);
+	assert(!(e->state & S2_CARVER_INITDONE));
+	return error;
 }
 
 /* Promise completion callback. */
@@ -1302,15 +1270,13 @@ stage2_init_xchange_promise_cb(evutil_socket_t fd, short what, void *e_ptr)
 		/* Claim ownership of data. */
 		error = 0;
 		e->xchange = prom_result->ctx;
-		prom_result->ctx = NULL;
-		e->initbuf = prom_result->initbuf;
-		prom_result->initbuf = NULL;
+		prom_result->ctx = NULL;	/* Claim ownership. */
 
 		net2_promise_release(e->promise);
 		e->promise = NULL;
 
 		/* Perform post initialization now. */
-		error = stage2_init_xchange_post(e);
+		error = stage2_init_xchange_post(e, prom_result->initbuf);
 		break;
 
 	case NET2_PROM_FIN_CANCEL:
@@ -1342,7 +1308,7 @@ stage2_init_xchange_promise_cb(evutil_socket_t fd, short what, void *e_ptr)
 	/*
 	 * Validate assumptions.
 	 */
-	assert(e->xchange != NULL && e->initbuf != NULL && e->export != NULL);
+	assert(e->state & S2_CARVER_INITDONE);
 
 	/*
 	 * Mark negotiator as ready to send
@@ -1800,6 +1766,3 @@ net2_cneg_pvlist(struct net2_conn_negotiator *cn, struct net2_pvlist *pv)
 {
 	return net2_pvlist_merge(pv, &cn->negotiated.proto);
 }
-
-
-RB_GENERATE_STATIC(cneg_s2_ranges, cneg_s2_range, tree, cneg_s2_range_cmp);
