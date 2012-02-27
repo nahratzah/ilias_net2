@@ -1223,6 +1223,8 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 	/* Ensure the new unsent ranges will be processed. */
 	cneg_ready_to_send(e->cneg);
 
+	net2_buffer_free(export);
+
 	return 0;
 
 
