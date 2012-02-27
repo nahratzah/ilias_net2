@@ -104,14 +104,12 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	return 0;
 }
 
-/* Test if all bits are set. */
-ILIAS_NET2_LOCAL int
-net2_bitset_allset(const struct net2_bitset *s)
+/* Test if all bits have the pattern in test. */
+static int
+net2_bitset_all_value(const struct net2_bitset *s, int test)
 {
-	int			 mask, test;
+	int			 mask;
 	size_t			 i, index, offset;
-
-	test = ~(int)0;
 
 	/* Test all complete ints. */
 	index = INDEX(s->size);
@@ -130,29 +128,15 @@ net2_bitset_allset(const struct net2_bitset *s)
 
 	return 1;
 }
+/* Test if all bits are set. */
+ILIAS_NET2_LOCAL int
+net2_bitset_allset(const struct net2_bitset *s)
+{
+	return net2_bitset_all_value(s, ~(int)0);
+}
 /* Test if all bits are clear. */
 ILIAS_NET2_LOCAL int
 net2_bitset_allclear(const struct net2_bitset *s)
 {
-	int			 mask, test;
-	size_t			 i, index, offset;
-
-	test = 0;
-
-	/* Test all complete ints. */
-	index = INDEX(s->size);
-	offset = OFFSET(s->size);
-	for (i = 0; i + 1 < index; i++) {
-		if (s->data[i] != test)
-			return 0;
-	}
-
-	/* Test last, incomplete int. */
-	if (offset != 0) {
-		mask = (1 << offset) - 1;
-		if ((s->data[index] & mask) != (test & mask))
-			return 0;
-	}
-
-	return 1;
+	return net2_bitset_all_value(s, 0);
 }
