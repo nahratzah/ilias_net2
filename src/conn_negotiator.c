@@ -75,6 +75,7 @@ struct net2_cneg_exchange {
 	struct net2_carver	 initbuf;	/* Initial buffer. */
 	struct net2_carver	 export;	/* Export buffer. */
 	struct net2_combiner	 import;	/* Import buffer. */
+	struct net2_combiner	 init_import;	/* Initial buffer importer. */
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Selected exchange method. */
 	uint32_t		 keysize;	/* Negotiated key size. */
@@ -1051,12 +1052,25 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 static int
 net2_cneg_exchange_init(struct net2_conn_negotiator *cn, struct net2_cneg_exchange *e)
 {
+	int		 error;
+
 	e->cneg = cn;
 	e->state = 0;
-	net2_combiner_init(&e->import, NET2_CARVER_16BIT);
+	if ((error = net2_combiner_init(&e->import, NET2_CARVER_16BIT)) != 0)
+		goto fail_0;
+	if ((error = net2_combiner_init(&e->init_import, NET2_CARVER_16BIT)) != 0)
+		goto fail_1;
 	e->xchange = NULL;
 	e->promise = NULL;
 	return 0;
+
+fail_2:
+	net2_combiner_deinit(&e->init_import);
+fail_1:
+	net2_combiner_deinit(&e->import);
+fail_0:
+	assert(error != 0);
+	return error;
 }
 
 /* Exchange destruction. */
@@ -1082,6 +1096,7 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 		net2_carver_deinit(&e->export);
 	}
 	net2_combiner_deinit(&e->import);
+	net2_combiner_deinit(&e->init_import);
 }
 
 /* Initialize local exchange for stage 2. */
@@ -1427,13 +1442,149 @@ fail:
 }
 
 /*
+ * Generate stage 1 buffer contents.
+ */
+static int
+cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
+    struct packet_header* ph,
+    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    int stealth, int want_payload)
+{
+	struct encoded_header	*eh, *eh_next;
+	struct net2_buffer	*buf;
+	int			 error;
+	TAILQ_HEAD(, encoded_header)
+				 transit;
+	struct net2_evbase	*evbase;
+	size_t			 old_sz;
+
+	/* If nothing to send, return without data. */
+	if (TAILQ_EMPTY(&cn->sendq))
+		return 0;
+
+	/* Initialize locals. */
+	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
+	*bufptr = NULL;
+	TAILQ_INIT(&transit);
+
+	/* Create buffer. */
+	if ((buf = net2_buffer_new()) == NULL)
+		return ENOMEM;
+
+	for (eh = TAILQ_FIRST(&cn->sendq); eh != NULL; eh = eh_next) {
+		eh_next = TAILQ_NEXT(eh, entry);	/* Next header. */
+
+		/* Cache encoded header. */
+		if (eh->buf == NULL) {
+			if ((eh->buf = net2_buffer_new()) == NULL)
+				break;
+
+			error = encode_header(eh->buf, &eh->data.header);
+			if (error != 0) {
+				net2_buffer_free(eh->buf);
+				if (error == ENOMEM)
+					break;
+				else
+					goto fail;
+			}
+		}
+
+		/*
+		 * Store old size, so we can undo the addition of this
+		 * buffer on failure.
+		 */
+		old_sz = net2_buffer_length(buf);
+
+		/* Test if the header will fit in available space. */
+		if (old_sz + net2_buffer_length(eh->buf) + FINI_LEN > maxlen)
+			continue;
+
+		/* Append this eh. */
+		if (net2_buffer_append(buf, eh->buf))
+			break;
+
+		/* Register callback. */
+		if ((error = net2_connwindow_txcb_register(tx, evbase,
+		    NULL, &ack_cb, &nack_cb, &destroy_cb, eh, cn)) != 0) {
+			net2_buffer_truncate(buf, old_sz);	/* Undo. */
+			break;
+		}
+
+		/* Move to transit queue. */
+		TAILQ_REMOVE(&cn->sendq, eh, entry);
+		TAILQ_INSERT_TAIL(&transit, eh, entry);
+	}
+
+	/*
+	 * Add poetry.
+	 *
+	 * We don't add poetry while under stealth.
+	 * Also, we don't add poetry once we allow payload to happen.
+	 */
+	if (net2_cneg_allow_payload(cn, ph->seq))
+		assert(!stealth);
+	if (!stealth && !net2_cneg_allow_payload(cn, ph->seq) &&
+	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
+		/*
+		 * Only add poetry on:
+		 * - packets with negotiation data, or
+		 * - keepalive packets
+		 */
+		if (!(want_payload && TAILQ_EMPTY(&transit))) {
+			/* Ignore failure: this is optional and ignored. */
+			net2_add_poetry(buf, maxlen - FINI_LEN -
+			    net2_buffer_length(buf));
+		}
+	}
+
+	if (TAILQ_EMPTY(&transit)) {
+		net2_buffer_free(buf);
+		return 0;
+	}
+
+	/* Append closing tag. */
+	if ((error = encode_header(buf, &header_fini)) != 0)
+		goto fail;
+
+	/* Commit transit queue. */
+	while ((eh = TAILQ_FIRST(&transit)) != NULL) {
+		TAILQ_REMOVE(&transit, eh, entry);
+		TAILQ_INSERT_TAIL(&cn->waitq, eh, entry);
+	}
+	ph->flags |= PH_HANDSHAKE;
+
+	*bufptr = buf;
+	return 0;
+
+fail:
+	net2_buffer_free(buf);
+	/* Undo putting transit packets on queue. */
+	while ((eh = TAILQ_FIRST(&transit)) != NULL)
+		TAILQ_INSERT_TAIL(&cn->sendq, eh, entry);
+	return error;
+}
+
+/*
  * Handle stage 2 decoding and application.
  */
 static int
 cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
     struct net2_buffer *buf)
 {
-	assert(0); /* TODO: implement. */
+	/* TODO: implement */
+	return 0;
+}
+
+/*
+ * Generate stage 2 buffer contents.
+ */
+static int
+cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
+    struct packet_header* ph,
+    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    int stealth, int want_payload)
+{
+	/* TODO: implement */
 	return 0;
 }
 
@@ -1618,118 +1769,19 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
     struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
     int stealth, int want_payload)
 {
-	struct encoded_header	*eh, *eh_next;
-	struct net2_buffer	*buf;
-	int			 error;
-	TAILQ_HEAD(, encoded_header)
-				 transit;
-	struct net2_evbase	*evbase;
-	size_t			 old_sz;
-
-	/* If nothing to send, return without data. */
-	if (TAILQ_EMPTY(&cn->sendq))
-		return 0;
-
-	/* Initialize locals. */
-	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
-	*bufptr = NULL;
-	TAILQ_INIT(&transit);
-
-	/* Create buffer. */
-	if ((buf = net2_buffer_new()) == NULL)
-		return ENOMEM;
-
-	for (eh = TAILQ_FIRST(&cn->sendq); eh != NULL; eh = eh_next) {
-		eh_next = TAILQ_NEXT(eh, entry);	/* Next header. */
-
-		/* Cache encoded header. */
-		if (eh->buf == NULL) {
-			if ((eh->buf = net2_buffer_new()) == NULL)
-				break;
-
-			error = encode_header(eh->buf, &eh->data.header);
-			if (error != 0) {
-				net2_buffer_free(eh->buf);
-				if (error == ENOMEM)
-					break;
-				else
-					goto fail;
-			}
-		}
-
-		/*
-		 * Store old size, so we can undo the addition of this
-		 * buffer on failure.
-		 */
-		old_sz = net2_buffer_length(buf);
-
-		/* Test if the header will fit in available space. */
-		if (old_sz + net2_buffer_length(eh->buf) + FINI_LEN > maxlen)
-			continue;
-
-		/* Append this eh. */
-		if (net2_buffer_append(buf, eh->buf))
-			break;
-
-		/* Register callback. */
-		if ((error = net2_connwindow_txcb_register(tx, evbase,
-		    NULL, &ack_cb, &nack_cb, &destroy_cb, eh, cn)) != 0) {
-			net2_buffer_truncate(buf, old_sz);	/* Undo. */
-			break;
-		}
-
-		/* Move to transit queue. */
-		TAILQ_REMOVE(&cn->sendq, eh, entry);
-		TAILQ_INSERT_TAIL(&transit, eh, entry);
+	/* Fill stage 1 transmission data. */
+	if (cn->stage == NET2_CNEG_STAGE_PRISTINE) {
+		return cneg_stage1_get_transmit(cn, ph, bufptr, tx, maxlen,
+		    stealth, want_payload);
 	}
 
-	/*
-	 * Add poetry.
-	 *
-	 * We don't add poetry while under stealth.
-	 * Also, we don't add poetry once we allow payload to happen.
-	 */
-	if (net2_cneg_allow_payload(cn, ph->seq))
-		assert(!stealth);
-	if (!stealth && !net2_cneg_allow_payload(cn, ph->seq) &&
-	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
-		/*
-		 * Only add poetry on:
-		 * - packets with negotiation data, or
-		 * - keepalive packets
-		 */
-		if (!(want_payload && TAILQ_EMPTY(&transit))) {
-			/* Ignore failure: this is optional and ignored. */
-			net2_add_poetry(buf, maxlen - FINI_LEN -
-			    net2_buffer_length(buf));
-		}
+	/* Fill stage 2 transmission data. */
+	if (cn->stage == NET2_CNEG_STAGE_KEY_EXCHANGE) {
+		return cneg_stage2_get_transmit(cn, ph, bufptr, tx, maxlen,
+		    stealth, want_payload);
 	}
 
-	if (TAILQ_EMPTY(&transit)) {
-		net2_buffer_free(buf);
-		return 0;
-	}
-
-	/* Append closing tag. */
-	if ((error = encode_header(buf, &header_fini)) != 0)
-		goto fail;
-
-	/* Commit transit queue. */
-	while ((eh = TAILQ_FIRST(&transit)) != NULL) {
-		TAILQ_REMOVE(&transit, eh, entry);
-		TAILQ_INSERT_TAIL(&cn->waitq, eh, entry);
-	}
-	ph->flags |= PH_HANDSHAKE;
-
-	*bufptr = buf;
 	return 0;
-
-fail:
-	net2_buffer_free(buf);
-	/* Undo putting transit packets on queue. */
-	while ((eh = TAILQ_FIRST(&transit)) != NULL)
-		TAILQ_INSERT_TAIL(&cn->sendq, eh, entry);
-	return error;
 }
 
 /*
