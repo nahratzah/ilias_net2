@@ -1,0 +1,57 @@
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/buffer.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+struct carver_msg_16 {
+	uint16_t		 offset;
+	struct net2_buffer	*payload;
+};
+
+struct carver_msg_32 {
+	uint32_t		 offset;
+	struct net2_buffer	*payload;
+};
+
+struct carver_msg_setup_16 {
+	uint32_t		 flags;
+	uint16_t		 pad;
+	uint16_t		 size;
+};
+
+struct carver_msg_setup_32 {
+	uint32_t		 flags;
+	uint32_t		 size;
+};
+
+#define NET2_CARVER_SETUP_EMPTY	0x00000001	/* Empty carver message. */
+
+%%
+#include "carver_msg.h"
+#include <ilias/net2/ctypes.h>
+%%
+
+struct carver_msg_16 (ctype struct carver_msg_16,
+    protocol net2_proto) {
+	uint16			offset;
+	short_net2_buffer	payload;
+};
+
+struct carver_msg_32 (ctype struct carver_msg_32,
+    protocol net2_proto) {
+	uint32			offset;
+	net2_buffer		payload;
+};
+
+struct carver_msg_setup_16 (ctype struct carver_msg_setup_16,
+    protocol net2_proto) {
+	uint32			flags;
+	uint16			pad;
+	uint16			size;
+};
+
+struct carver_msg_setup_32 (ctype struct carver_msg_setup_32,
+    protocol net2_proto) {
+	uint32			flags;
+	uint32			size;
+};
