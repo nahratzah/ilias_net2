@@ -1739,28 +1739,37 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 {
 	int			 error;
 
-	/* Only decode if negotiation data is present. */
-	if (!(ph->flags & PH_HANDSHAKE))
-		goto stage_only;
-
-
 	/* Handle stage 1 decoding. */
 	if (cn->stage == NET2_CNEG_STAGE_PRISTINE) {
 		if ((ph->flags & PH_HANDSHAKE) &&
 		    (error = cneg_stage1_accept(cn, ph, buf)) != 0)
 			goto fail;
+
+		/*
+		 * Handle conclusion of pristine (stage 1) stage.
+		 */
+		if (all_done(cn)) {
+			if ((error = cneg_conclude_pristine(cn)) != 0)
+				goto fail;
+
+			/*
+			 * Disengage stealth (TODO: move down once more states
+			 * are added.
+			 */
+			CNEG_CONN(cn)->n2c_stealth |=
+			    NET2_CONN_STEALTH_UNSTEALTH;
+		}
 	}
 
-stage_only:
-	/*
-	 * Handle conclusion of pristine (stage 1) stage.
-	 */
-	if (cn->stage == NET2_CNEG_STAGE_PRISTINE && all_done(cn)) {
-		if ((error = cneg_conclude_pristine(cn)) != 0)
+	/* Handle stage 2 decoding. */
+	if (cn->stage == NET2_CNEG_STAGE_KEY_EXCHANGE) {
+		if ((ph->flags & PH_HANDSHAKE_S2) &&
+		    (error = cneg_stage2_accept(cn, ph, buf)) != 0)
 			goto fail;
 
-		/* Disengage stealth (TODO: move down once more states are added. */
-		CNEG_CONN(cn)->n2c_stealth |= NET2_CONN_STEALTH_UNSTEALTH;
+		/*
+		 * Handle conclusion of KEY_EXCHANGE (stage 2) stage.
+		 */
 	}
 
 	return 0;
