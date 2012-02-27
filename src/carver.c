@@ -2,6 +2,7 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/cp.h>
+#include <ilias/net2/connwindow.h>
 #include <bsd_compat/bsd_compat.h>
 #include <assert.h>
 #include <errno.h>
@@ -68,6 +69,10 @@ static struct net2_buffer
 
 static enum net2_carver_type
 		 flags_to_type(int);
+
+static void	carver_txcb_ack(void*, void*);
+static void	carver_txcb_nack(void*, void*);
+#define carver_txcb_destroy	carver_txcb_nack
 
 
 /* Return the type of carver. */
@@ -240,6 +245,7 @@ net2_combiner_data(struct net2_combiner *c)
  */
 ILIAS_NET2_EXPORT int
 net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
+    struct net2_evbase *evbase,
     struct net2_buffer *out, struct net2_cw_tx *tx, size_t maxsz)
 {
 	size_t			 setup_overhead;
@@ -301,7 +307,13 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		return error;
 	if ((error = carver_range_to_msg(c, r, ctx, out)) != 0)
 		return error;
-	/* TODO: install callback */
+
+	/* Install callback. */
+	if ((error = net2_connwindow_txcb_register(tx, evbase, NULL,
+	    &carver_txcb_ack, &carver_txcb_nack, &carver_txcb_destroy,
+	    c, r)) != 0)
+		return error;
+
 	r->flags |= RANGE_TRANSMITTED;
 	return 0;
 }
@@ -333,7 +345,11 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	case CARVER_MSGTYPE_SETUP:
 		return combiner_setup_msg(c, ctx, in);
 	case CARVER_MSGTYPE_DATA:
-		r = net2_malloc(sizeof(*r));
+		if ((r = net2_malloc(sizeof(*r))) == NULL)
+			return ENOMEM;
+		r->flags = 0;
+		r->offset = 0;
+		r->data = NULL;
 		if ((error = combiner_msg_to_range(c, r, ctx, in)) != 0) {
 			net2_free(r);
 			return error;
@@ -747,4 +763,33 @@ flags_to_type(int flags)
 		return NET2_CARVER_32BIT;
 	}
 	return NET2_CARVER_INVAL;
+}
+
+/* Carver range callback: receival acknowledged. */
+static void
+carver_txcb_ack(void *c_ptr, void *r_ptr)
+{
+	struct net2_carver_range*r = r_ptr;
+	struct net2_carver	*c = c_ptr;
+
+	if (!(r->flags & RANGE_DETACHED))
+		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
+
+	net2_buffer_free(r->data);
+	net2_free(r);
+}
+
+/* Carver range callback: receival failed. */
+static void
+carver_txcb_nack(void *c_ptr, void *r_ptr)
+{
+	struct net2_carver_range*r = r_ptr;
+	struct net2_carver	*c = c_ptr;
+
+	if (!(r->flags & RANGE_DETACHED))
+		r->flags &= ~RANGE_TRANSMITTED;
+	else {
+		net2_buffer_free(r->data);
+		net2_free(r);
+	}
 }
