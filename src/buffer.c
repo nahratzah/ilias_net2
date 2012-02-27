@@ -512,7 +512,7 @@ net2_buffer_copy(const struct net2_buffer *src)
 
 	if ((dst = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((dst->list = net2_malloc(src->listlen * sizeof(*dst->list))) ==
+	if ((dst->list = net2_calloc(src->listlen, sizeof(*dst->list))) ==
 	    NULL)
 		goto fail_1;
 	dst->listlen = src->listlen;
