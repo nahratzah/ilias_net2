@@ -502,6 +502,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 {
 	struct net2_carver_range*sibling;
 
+	assert(r != NULL);
 	if (net2_buffer_length(r->data) <= maxsz)
 		return 0;
 
@@ -520,7 +521,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	net2_buffer_drain(sibling->data, maxsz);
 	net2_buffer_truncate(r->data, maxsz);
 	/* Update ranges tree. */
-	RB_INSERT(net2_carver_ranges, &c->ranges, r);
+	RB_INSERT(net2_carver_ranges, &c->ranges, sibling);
 	return 0;
 }
 
