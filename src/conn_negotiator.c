@@ -65,6 +65,36 @@ struct net2_conn_negotiator_set {
 
 
 /*
+ * Key exchange data transport.
+ *
+ * Transports a data buffer and all associated signatures.
+ */
+struct cneg_keyex_ctx {
+	int			 flags;
+#define CNEG_KEYEX_IN		0x00000001
+#define CNEG_KEYEX_OUT		0x00000002
+#define CNEG_KEYEX_COMPLETE	0x80000000
+
+	size_t			 num_signatures;
+
+	union {
+		struct {
+			struct net2_carver
+				 payload;
+			struct net2_carver
+				*signatures;
+		}		 out;
+		struct {
+			struct net2_combiner
+				 payload;
+			struct net2_combiner
+				*signatures;
+		}		 in;
+	};
+};
+
+
+/*
  * Connection negotiator stage 2 exchange state.
  */
 struct net2_cneg_exchange {
@@ -72,10 +102,9 @@ struct net2_cneg_exchange {
 				*cneg;		/* Exchange owner. */
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
-	struct net2_carver	 initbuf;	/* Initial buffer. */
-	struct net2_carver	 export;	/* Export buffer. */
-	struct net2_combiner	 import;	/* Import buffer. */
-	struct net2_combiner	 init_import;	/* Initial buffer importer. */
+	struct cneg_keyex_ctx	 initbuf;	/* Initial buffer. */
+	struct cneg_keyex_ctx	 export;	/* Export buffer. */
+	struct cneg_keyex_ctx	 import;	/* Import buffer. */
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Selected exchange method. */
 	uint32_t		 keysize;	/* Negotiated key size. */
@@ -106,6 +135,16 @@ static __inline void
 cneg_ready_to_send(struct net2_conn_negotiator *cn)
 {
 	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
+}
+
+/*
+ * Initialize keyex without actual data.
+ * Ensures that calling init or deinit on this is a safe operation.
+ */
+static __inline void
+cneg_keyex_ctx_init(struct cneg_keyex_ctx *ctx)
+{
+	ctx->flags = 0;
 }
 
 
@@ -143,6 +182,13 @@ static int	 cneg_apply_header(struct net2_conn_negotiator*,
 
 static int	 cneg_conclude_pristine(struct net2_conn_negotiator*);
 static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
+
+static int	 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx*,
+		    struct net2_encdec_ctx*, struct net2_buffer*,
+		    int, struct net2_sign_ctx**, size_t);
+static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t);
+static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
+static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
 
 static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*,
 		    struct net2_cneg_exchange*);
@@ -1048,26 +1094,210 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 }
 
 
+/* Initialize keyex for outbound data. */
+static int
+cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
+    struct net2_buffer *payload,
+    int hash_alg, struct net2_sign_ctx **signatures, size_t signatures_size)
+{
+	struct net2_signature	 sigdata;
+	struct net2_buffer	*tmp;
+	int			 error;
+	size_t			 i;
+
+	ctx->flags = CNEG_KEYEX_OUT;
+	ctx->num_signatures = signatures_size;
+	ctx->out.signatures = NULL;
+
+	/* Allocate signature carvers. */
+	if (signatures_size > 0) {
+		if ((ctx->out.signatures = net2_calloc(signatures_size,
+		    sizeof(*ctx->out.signatures))) == NULL)
+			goto fail_0;
+	}
+
+	/* Prepare payload carver. */
+	if ((error = net2_carver_init(&ctx->out.payload, NET2_CARVER_16BIT,
+	    payload)) != 0)
+		goto fail_1;
+
+	/* Calculate each signature. */
+	for (i = 0; i < signatures_size; i++) {
+		if ((error = net2_signature_create(&sigdata, payload, hash_alg,
+		    signatures[i])) != 0)
+			goto fail_3;
+
+		if ((tmp = net2_buffer_new()) == NULL) {
+			error = ENOMEM;
+			net2_signature_deinit(&sigdata);
+			goto fail_3;
+		}
+		if ((error = net2_cp_encode(c, &cp_net2_signature, tmp,
+		    &sigdata, NULL)) != 0) {
+			net2_buffer_free(tmp);
+			net2_signature_deinit(&sigdata);
+			goto fail_3;
+		}
+
+		if ((error = net2_carver_init(&ctx->out.signatures[i],
+		    NET2_CARVER_16BIT, tmp)) != 0) {
+			net2_buffer_free(tmp);
+			net2_signature_deinit(&sigdata);
+			goto fail_3;
+		}
+
+		net2_buffer_free(tmp);
+		net2_signature_deinit(&sigdata);
+	}
+
+	return 0;
+
+
+fail_3:
+	while (i > 0)
+		net2_carver_deinit(&ctx->out.signatures[--i]);
+fail_2:
+	net2_carver_deinit(&ctx->out.payload);
+fail_1:
+	net2_free(ctx->out.signatures);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+/* Initialize keyex for inbound data. */
+static int
+cneg_keyex_ctx_init_in(struct cneg_keyex_ctx *ctx, size_t signatures_size)
+{
+	int			 error;
+	size_t			 i;
+
+	ctx->flags = CNEG_KEYEX_IN;
+	ctx->num_signatures = signatures_size;
+	ctx->in.signatures = NULL;
+
+	/* Allocate signature combiners. */
+	if (signatures_size > 0) {
+		if ((ctx->in.signatures = net2_calloc(signatures_size,
+		    sizeof(*ctx->in.signatures))) == NULL)
+			goto fail_0;
+	}
+
+	/* Prepare payload combiner. */
+	if ((error = net2_combiner_init(&ctx->in.payload,
+	    NET2_CARVER_16BIT)) != 0)
+		goto fail_1;
+
+	/* Initialize receivers for signatures. */
+	for (i = 0; i < signatures_size; i++) {
+		if ((error = net2_combiner_init(&ctx->in.signatures[i],
+		    NET2_CARVER_16BIT)) != 0)
+			goto fail_3;
+	}
+
+	return 0;
+
+
+fail_3:
+	while (i > 0)
+		net2_combiner_deinit(&ctx->in.signatures[--i]);
+fail_2:
+	net2_combiner_deinit(&ctx->in.payload);
+fail_1:
+	net2_free(ctx->in.signatures);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+/* Release resources of keyex. */
+static void
+cneg_keyex_deinit(struct cneg_keyex_ctx *ctx)
+{
+	size_t			 i;
+
+	switch (ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) {
+	default:
+		break;
+	case CNEG_KEYEX_IN:
+		net2_combiner_deinit(&ctx->in.payload);
+		if (ctx->in.signatures != NULL) {
+			for (i = 0; i < ctx->num_signatures; i++)
+				net2_combiner_deinit(&ctx->in.signatures[i]);
+			net2_free(ctx->in.signatures);
+		}
+		break;
+	case CNEG_KEYEX_OUT:
+		net2_carver_deinit(&ctx->out.payload);
+		if (ctx->out.signatures != NULL) {
+			for (i = 0; i < ctx->num_signatures; i++)
+				net2_carver_deinit(&ctx->out.signatures[i]);
+			net2_free(ctx->out.signatures);
+		}
+		break;
+	}
+	ctx->flags = 0;
+}
+/* Test if keyex is done. */
+static int
+cneg_keyex_is_done(struct cneg_keyex_ctx *ctx)
+{
+	size_t			 i;
+
+	/* Already tested. */
+	if (ctx->flags & CNEG_KEYEX_COMPLETE)
+		return 1;
+
+	switch (ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) {
+	default:
+		return 0;
+	case CNEG_KEYEX_IN:
+		if (!net2_combiner_is_done(&ctx->in.payload))
+			return 0;
+		for (i = 0; i < ctx->num_signatures; i++) {
+			if (!net2_combiner_is_done(&ctx->in.signatures[i]))
+				return 0;
+		}
+		break;
+	case CNEG_KEYEX_OUT:
+		if (!net2_carver_is_done(&ctx->out.payload))
+			return 0;
+		for (i = 0; i < ctx->num_signatures; i++) {
+			if (!net2_carver_is_done(&ctx->out.signatures[i]))
+				return 0;
+		}
+		break;
+	}
+
+	ctx->flags |= CNEG_KEYEX_COMPLETE;
+	return 1;
+}
+
+
 /* Post-allocation exchange initialization. */
 static int
 net2_cneg_exchange_init(struct net2_conn_negotiator *cn, struct net2_cneg_exchange *e)
 {
 	int		 error;
 
+	/* Mini init: ensure destroying the buffer is safe. */
+	cneg_keyex_ctx_init(&e->initbuf);
+	cneg_keyex_ctx_init(&e->import);
+	cneg_keyex_ctx_init(&e->export);
+
 	e->cneg = cn;
 	e->state = 0;
-	if ((error = net2_combiner_init(&e->import, NET2_CARVER_16BIT)) != 0)
-		goto fail_0;
-	if ((error = net2_combiner_init(&e->init_import, NET2_CARVER_16BIT)) != 0)
-		goto fail_1;
 	e->xchange = NULL;
 	e->promise = NULL;
+
+	if ((error = cneg_keyex_ctx_init_in(&e->import,
+	    cn->signature_list.size)) != 0)
+		goto fail_1;
+
 	return 0;
 
-fail_2:
-	net2_combiner_deinit(&e->init_import);
 fail_1:
-	net2_combiner_deinit(&e->import);
+	cneg_keyex_deinit(&e->export);
+	cneg_keyex_deinit(&e->import);
+	cneg_keyex_deinit(&e->initbuf);
 fail_0:
 	assert(error != 0);
 	return error;
@@ -1091,12 +1321,9 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 		net2_promise_release(e->promise);
 	}
 
-	if (e->state & S2_CARVER_INITDONE) {
-		net2_carver_deinit(&e->initbuf);
-		net2_carver_deinit(&e->export);
-	}
-	net2_combiner_deinit(&e->import);
-	net2_combiner_deinit(&e->init_import);
+	cneg_keyex_deinit(&e->initbuf);
+	cneg_keyex_deinit(&e->export);
+	cneg_keyex_deinit(&e->import);
 }
 
 /* Initialize local exchange for stage 2. */
@@ -1116,30 +1343,8 @@ stage2_init_exchange(struct net2_ctx *ctx,
 
 	/* Do not use exchange for 0-length keys. */
 	if (e->keysize == 0) {
-		if ((empty = net2_buffer_new()) == NULL) {
-			error = ENOMEM;
-			goto keysize0_fail_0;
-		}
-		if ((error = net2_carver_init(&e->initbuf, NET2_CARVER_16BIT, empty)) != 0)
-			goto keysize0_fail_1;
-		if ((error = net2_carver_init(&e->export, NET2_CARVER_16BIT, empty)) != 0)
-			goto keysize0_fail_2;
 		e->state |= S2_CARVER_INITDONE;
-
-		net2_buffer_free(empty);
 		return 0;
-
-keysize0_fail_3:
-		e->state &= ~S2_CARVER_INITDONE;
-		net2_carver_deinit(&e->export);
-keysize0_fail_2:
-		net2_carver_deinit(&e->initbuf);
-keysize0_fail_1:
-		net2_buffer_free(empty);
-keysize0_fail_0:
-		assert(!(e->state & S2_CARVER_INITDONE));
-		assert(error != 0);
-		return error;
 	}
 
 	/* Create promise callback. */
@@ -1216,40 +1421,82 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 {
 	struct net2_buffer	*export = NULL;
 	int			 error;
+	int			 hash_alg;
+	size_t			 idx;
+	struct net2_encdec_ctx	 ctx;
+	struct net2_conn_negotiator
+				*cn;
+	int			 alg;
 
 	/* Validate that ranges are empty/uninitialized. */
 	if (e->state & S2_CARVER_INITDONE)
 		return EINVAL;
 
-	if (e->keysize == 0) {
-		if ((export = net2_buffer_new()) == NULL)
-			return ENOMEM;
-	} else if ((export = net2_xchangectx_export(e->xchange)) == NULL)
-		return ENOMEM;
-
-	if ((error = net2_carver_init(&e->initbuf, NET2_CARVER_16BIT,
-	    initbuf)) != 0)
+	/* Initialize special variables. */
+	cn = e->cneg;
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
 		goto fail_0;
-	if ((error = net2_carver_init(&e->export, NET2_CARVER_16BIT,
-	    export)) != 0)
+
+	/* Find the hash algorithm with the largest hash size, that is non-zero. */
+	if (cn->signature_list.size > 0) {
+		hash_alg = -1;
+		for (idx = cn->hash.num_supported; idx > 0; idx--) {
+			alg = cn->hash.supported[idx - 1];
+			assert(net2_hash_getname(alg) != NULL);
+			if (net2_hash_gethashlen(alg) != 0 &&
+			    net2_hash_getkeylen(alg) == 0) {
+				hash_alg = alg;
+				break;
+			}
+		}
+		if (hash_alg == -1) {
+			/* No suitable hash algorithm. */
+			error = EINVAL;
+			goto fail_1;
+		}
+	} else {
+		hash_alg = -1;
+		/* No signatures, so hash_alg will not be used. */
+	}
+
+	if (e->keysize == 0)
+		export = net2_buffer_new();
+	else
+		export = net2_xchangectx_export(e->xchange);
+	if (export == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
+
+	if ((error = cneg_keyex_ctx_init_out(&e->initbuf, &ctx, initbuf,
+	    hash_alg, cn->signature_list.signatures,
+	    cn->signature_list.size)) != 0)
+		goto fail_2;
+	if ((error = cneg_keyex_ctx_init_out(&e->export, &ctx, export,
+	    hash_alg, cn->signature_list.signatures,
+	    cn->signature_list.size)) != 0)
+		goto fail_3;
 	e->state |= S2_CARVER_INITDONE;
 
 	/* Ensure the new unsent ranges will be processed. */
 	cneg_ready_to_send(e->cneg);
 
 	net2_buffer_free(export);
+	net2_encdec_ctx_deinit(&ctx);
 
 	return 0;
 
 
-fail_2:
+fail_4:
 	e->state &= ~S2_CARVER_INITDONE;
-	net2_carver_deinit(&e->export);
-fail_1:
-	net2_carver_deinit(&e->initbuf);
-fail_0:
+	cneg_keyex_deinit(&e->export);
+fail_3:
+	cneg_keyex_deinit(&e->initbuf);
+fail_2:
 	net2_buffer_free(export);
+fail_1:
+	net2_encdec_ctx_deinit(&ctx);
+fail_0:
 	assert(error != 0);
 	assert(!(e->state & S2_CARVER_INITDONE));
 	return error;
@@ -1571,8 +1818,32 @@ static int
 cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
     struct net2_buffer *buf)
 {
-	/* TODO: implement */
-	return 0;
+	int			 error;
+	struct exchange_msg	 msg;
+	struct net2_encdec_ctx	 ctx;
+
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
+		return error;
+
+	for (;;) {
+		if ((error = net2_cp_init(&ctx, &cp_exchange_msg, &msg, NULL)) != 0)
+			goto out;
+		if ((error = net2_cp_decode(&ctx, &cp_exchange_msg, &msg, buf, NULL)) != 0)
+			goto out_with_msg;
+		if (msg.slot == SLOT_FIN)
+			break;		/* GUARD */
+
+		/* TODO: implement */
+
+		net2_cp_destroy(&ctx, &cp_exchange_msg, &msg, NULL);
+	}
+
+	error = 0;
+out_with_msg:
+	net2_cp_destroy(&ctx, &cp_exchange_msg, &msg, NULL);
+out:
+	net2_encdec_ctx_deinit(&ctx);
+	return error;
 }
 
 /*
@@ -1584,8 +1855,62 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
     struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
     int stealth, int want_payload)
 {
-	/* TODO: implement */
-	return 0;
+	struct net2_buffer	*header, *payload, *fin, *buf;
+	int			 error;
+	struct exchange_msg	 msg;
+	struct net2_encdec_ctx	 ctx;
+
+	/* Setup buffers, context. */
+	header = payload = fin = NULL;
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
+		return error;
+	if ((buf = net2_buffer_new()) == NULL)
+		goto out;
+
+	/* Encode the fini header. */
+	if ((fin = net2_buffer_new()) == NULL)
+		goto out;
+	if ((error = mk_exchange_msg_fin(&msg)) != 0)
+		goto out;
+	error = net2_cp_encode(&ctx, &cp_exchange_msg, fin, &msg, NULL);
+	net2_cp_destroy(&ctx, &cp_exchange_msg, &msg, NULL);
+	if (error != 0)
+		goto out;
+	/* Insufficient space for meaningful data. */
+	if (net2_buffer_length(fin) >= maxlen)
+		goto out;
+	maxlen -= net2_buffer_length(fin);
+
+	while (net2_buffer_length(buf) < maxlen) {
+		break; /* TODO: implement */
+	}
+
+	/* Append fin data to buffer, since it is not empty. */
+	if (!net2_buffer_empty(buf)) {
+		if ((net2_buffer_append(buf, fin)) != 0) {
+			error = ENOMEM;
+			goto out;
+		}
+	}
+
+	/* Done. */
+	if (!net2_buffer_empty(buf))
+		ph->flags |= PH_HANDSHAKE_S2;
+	error = 0;
+	*bufptr = buf;
+	buf = NULL;
+
+out:
+	net2_encdec_ctx_deinit(&ctx);
+	if (buf != NULL)
+		net2_buffer_free(buf);
+	if (header != NULL)
+		net2_buffer_free(header);
+	if (payload != NULL)
+		net2_buffer_free(payload);
+	if (fin != NULL)
+		net2_buffer_free(fin);
+	return error;
 }
 
 
