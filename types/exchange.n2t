@@ -22,14 +22,14 @@
  * Format on the wire, of exchange messages.
  */
 struct exchange_msg {
-	uint8_t				 slot;
-	uint8_t				 msg_id;
-#define XMSG_SIGNATURE			0x80
-#define XMSG_SETUP			0x00
-#define XMSG_INITBUF			0x01
-#define XMSG_RESPONSE			0x02
+	uint16_t			 slot;
+#define SLOT_FIN			0xffff
+	uint16_t			 msg_id;
+#define XMSG_SIGNATURE			0x8000
+#define XMSG_SETUP			0x0000
+#define XMSG_INITBUF			0x0001
+#define XMSG_RESPONSE			0x0002
 
-	uint16_t			 padding;
 	union {
 		/* Setup of exchange. */
 		struct {
@@ -37,20 +37,8 @@ struct exchange_msg {
 			char		*result_alg;
 		};
 
-		/* Buffer transfer. */
-		struct {
-			uint16_t	 offset;
-			uint16_t	 total_len;
-			struct net2_buffer
-					*data;
-		};
-
 		/* Signature. */
-		struct {
-			uint32_t	 signature_idx;
-			struct net2_signature
-					 signature;
-		};
+		uint32_t		 signature_idx;
 	}				 payload;
 };
 
@@ -58,12 +46,11 @@ ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_setup(struct exchange_msg*, int, int, int,
 	    const char*(*)(int));
 ILIAS_NET2_LOCAL
-int	 mk_exchange_msg_buf(struct exchange_msg*, int, int,
-	    const struct net2_buffer*, size_t, size_t);
+int	 mk_exchange_msg_buf(struct exchange_msg*, int, int);
 ILIAS_NET2_LOCAL
-int	 mk_exchange_msg_signature(struct exchange_msg*, int,
-	    int, const struct net2_buffer *data,
-	    int, struct net2_sign_ctx*);
+int	 mk_exchange_msg_signature(struct exchange_msg*, int, int, int);
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_fin(struct exchange_msg*);
 ILIAS_NET2_LOCAL
 struct net2_buffer
 	*exchange_signature_contents(const char*, const char*);
@@ -88,31 +75,34 @@ struct exchange_msg__shared (ctype struct exchange_msg,
     init NULL,
     destroy NULL,
     protocol net2_proto) {
-	uint8			slot;
-	uint8			msg_id;
-	uint16			padding;
+	uint16			slot;
+	uint16			msg_id;
 };
 
 struct exchange_msg__setup (ctype struct exchange_msg,
     init NULL,
     protocol net2_proto) {
-	paddedstring		payload.exchange_alg;
-	paddedstring		payload.result_alg;
+	string			payload.exchange_alg;
+	string			payload.result_alg;
 };
 
 struct exchange_msg__transfer (ctype struct exchange_msg,
     init NULL,
+    destroy NULL,
     protocol net2_proto) {
-	uint16			payload.offset;
-	uint16			payload.total_len;
-	short_net2_buffer	payload.data;
+};
+
+struct exchange_msg__fin (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
 };
 
 struct exchange_msg__signature (ctype struct exchange_msg,
     init NULL,
+    destroy NULL,
     protocol net2_proto) {
 	uint32			payload.signature_idx;
-	net2_signature		payload.signature;
 };
 
 %%
@@ -120,9 +110,11 @@ struct exchange_msg__signature (ctype struct exchange_msg,
 static __inline const struct command_param*
 get_exchange_cp(const struct exchange_msg *msg)
 {
-	if (msg->slot >= NET2_CNEG_S2_MAX)
-		return NULL;	/* Only first 4 slots are currently defined. */
-
+	if (msg->slot == SLOT_FIN) {
+		if (msg->msg_id != 0)
+			return NULL;
+		return &cp_exchange_msg__fin;
+	}
 	if (msg->msg_id & XMSG_SIGNATURE)
 		return &cp_exchange_msg__signature;
 
@@ -228,12 +220,9 @@ mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
 
 /* Create initbuf and response messages. */
 ILIAS_NET2_LOCAL int
-mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
-    const struct net2_buffer *data, size_t offset, size_t len)
+mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id)
 {
 	if (slot < 0 || slot > 0xff)
-		return EINVAL;
-	if (data == NULL || len == 0)
 		return EINVAL;
 
 	/* Test if msg_id is a valid parameter. */
@@ -245,23 +234,9 @@ mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
 		return EINVAL;
 	}
 
-	if (offset + len < offset)
-		return EINVAL;	/* Overflow. */
-	if (offset + len > net2_buffer_length(data))
-		return EINVAL;	/* Requested data does not exist. */
-	if (offset + len > 0xffff)
-		return EINVAL;	/* Only up to 64K-1 bytes data max. */
-
-
 	memset(msg, 0, sizeof(*msg));
 	msg->slot = slot;
 	msg->msg_id = msg_id;
-
-	msg->payload.offset = offset;
-	msg->payload.total_len = len;
-	if ((msg->payload.data = net2_buffer_subrange(data, offset, len)) ==
-	    NULL)
-		return ENOMEM;
 
 	return 0;
 }
@@ -269,20 +244,27 @@ mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id,
 /* Create signature message. */
 ILIAS_NET2_LOCAL int
 mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
-    int hash_alg, const struct net2_buffer *data,
-    int sig_idx, struct net2_sign_ctx *sign)
+    int msg_id, int sig_idx)
 {
 	if (slot < 0 || slot > 0xff)
 		return EINVAL;
-	if (data == NULL || sign == NULL)
+	if (msg_id > 0x7fff)	/* High bit is reserved for XMSG_SIGNATURE. */
 		return EINVAL;
 
 	memset(msg, 0, sizeof(*msg));
 	msg->slot = slot;
-	msg->msg_id = XMSG_SIGNATURE;
+	msg->msg_id = msg_id | XMSG_SIGNATURE;
 	msg->payload.signature_idx = sig_idx;
-	return net2_signature_create(&msg->payload.signature, data, hash_alg,
-	    sign);
+	return 0;
+}
+
+/* Create the final message. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_fin(struct exchange_msg *msg)
+{
+	msg->slot = SLOT_FIN;
+	msg->msg_id = 0;
+	return 0;
 }
 
 /*
