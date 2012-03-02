@@ -312,6 +312,10 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		return 0;
 	}
 
+	/* Cannot fit message. */
+	if (maxsz <= msg_overhead)
+		return 0;
+
 	/* Find untransmitted message. */
 	RB_FOREACH(r, net2_carver_ranges, &c->ranges) {
 		if (!(r->flags & RANGE_TRANSMITTED))
