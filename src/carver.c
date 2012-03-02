@@ -363,12 +363,11 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 		return error;
 	error = net2_cp_decode(ctx, &cp_carver_msg_header, &header, in, NULL);
 	msg_type = header.msg_type;
-	if (error != 0) {
-		net2_cp_destroy(ctx, &cp_carver_msg_header, &header, NULL);
+	net2_cp_destroy(ctx, &cp_carver_msg_header, &header, NULL);
+	if (error != 0)
 		return error;
-	}
 
-	switch (header.msg_type) {
+	switch (msg_type) {
 	default:
 		return EINVAL;
 	case CARVER_MSGTYPE_SETUP:
