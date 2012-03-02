@@ -188,7 +188,7 @@ mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
 
 	if (msg == NULL || result_alg_to_name == NULL)
 		return EINVAL;
-	if (slot < 0 || slot > 0xff)
+	if (slot < 0 || slot > 0xffff)
 		return EINVAL;
 
 	if ((xchange_name = net2_xchange_getname(xchange_alg)) == NULL)
@@ -222,7 +222,7 @@ mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
 ILIAS_NET2_LOCAL int
 mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id)
 {
-	if (slot < 0 || slot > 0xff)
+	if (slot < 0 || slot > 0xffff)
 		return EINVAL;
 
 	/* Test if msg_id is a valid parameter. */
@@ -246,7 +246,7 @@ ILIAS_NET2_LOCAL int
 mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
     int msg_id, int sig_idx)
 {
-	if (slot < 0 || slot > 0xff)
+	if (slot < 0 || slot > 0xffff)
 		return EINVAL;
 	if (msg_id > 0x7fff)	/* High bit is reserved for XMSG_SIGNATURE. */
 		return EINVAL;
