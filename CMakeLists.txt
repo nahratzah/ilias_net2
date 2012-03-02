@@ -359,6 +359,14 @@ if (BUILD_TESTING)
 	    ${EVENT_LIBRARIES})
 	add_test(NAME test_buffer COMMAND test_buffer)
 
+	# Carver tests.
+	add_executable (test_carver
+		test/carver.c
+		)
+	target_link_libraries (test_carver ilias_net2 bsd_compat
+	    ${EVENT_LIBRARIES})
+	add_test(NAME test_carver COMMAND test_carver)
+
 	# Encoding/decoding tests.
 	add_executable (test_encdec_ctypes
 		test/encdec_ctypes.c
@@ -431,6 +439,7 @@ if (BUILD_TESTING)
 
 	if (${WITH_EXUDE})
 		target_link_libraries (test_buffer debug ${exude_LIBS} debug ${clog_LIBS})
+		target_link_libraries (test_carver debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_encdec_ctypes debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_hash debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_sign debug ${exude_LIBS} debug ${clog_LIBS})
@@ -441,6 +450,7 @@ if (BUILD_TESTING)
 		target_link_libraries (test_udp_conn debug ${exude_LIBS} debug ${clog_LIBS})
 
 		set_property (TARGET test_buffer PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
+		set_property (TARGET test_carver PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_encdec_ctypes PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_hash PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_sign PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
