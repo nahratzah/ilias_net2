@@ -189,10 +189,25 @@ static int	 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx*,
 static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t);
 static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
+static int	 cneg_keyex_ctx_encode_payload(struct net2_buffer**,
+		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
+		    struct net2_evbase*, struct net2_cw_tx*, int, int,
+		    size_t);
+static int	 cneg_keyex_ctx_encode_signature(struct net2_buffer**,
+		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
+		    struct net2_evbase*, struct net2_cw_tx*, int, int, size_t,
+		    size_t);
+static int	 cneg_keyex_ctx_encode(struct net2_buffer**,
+		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
+		    struct net2_evbase*, struct net2_cw_tx*, int, int,
+		    size_t);
 
 static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*,
 		    struct net2_cneg_exchange*);
 static void	 net2_cneg_exchange_deinit(struct net2_cneg_exchange*);
+static int	 net2_cneg_exchange_get_transmit(struct net2_buffer**,
+		    struct net2_cneg_exchange*, struct net2_encdec_ctx*,
+		    struct net2_evbase*, struct net2_cw_tx*, int, size_t);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
@@ -1271,6 +1286,247 @@ cneg_keyex_is_done(struct cneg_keyex_ctx *ctx)
 	return 1;
 }
 
+/* Encode payload of keyex. */
+static int
+cneg_keyex_ctx_encode_payload(struct net2_buffer **outptr,
+    struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
+    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, int msg_id,
+    size_t maxsz)
+{
+	struct net2_buffer	*header, *carver_buf;
+	struct exchange_msg	 msg;
+	int			 error;
+	int			 fatal; /* Set if errors are unrecoverable. */
+
+	/* Argument check. */
+	if (outptr == NULL || *outptr != NULL || ctx == NULL || c == NULL ||
+	    evbase == NULL || tx == NULL)
+		return EINVAL;
+	if (slot == SLOT_FIN)
+		return EINVAL;
+	if (msg_id & XMSG_SIGNATURE)
+		return EINVAL;
+	fatal = 0;
+
+	/* Can only encode output keyex. */
+	if (!(ctx->flags & CNEG_KEYEX_OUT))
+		return 0;
+
+	/* Encode header. */
+	if ((error = mk_exchange_msg_buf(&msg, slot, msg_id)) != 0)
+		goto fail_0;
+	if ((header = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	if ((error = net2_cp_encode(c, &cp_exchange_msg, header, &msg,
+	    NULL)) != 0)
+		goto fail_2;
+
+	/* Insufficient space. */
+	if (net2_buffer_length(header) >= maxsz) {
+		error = 0;
+		goto fail_2;
+	}
+
+	/* Carver encoding invocation. */
+	if ((carver_buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
+	if (net2_carver_get_transmit(&ctx->out.payload, c, evbase, carver_buf,
+	    tx, maxsz - net2_buffer_length(header)) != 0) {
+		error = 0;
+		goto fail_3;
+	}
+
+	/*
+	 * tx now contains completion events, so this message may not succeed
+	 * if below fails.
+	 */
+	fatal = 1;
+
+	/* Combine header and carver payload. */
+	if ((net2_buffer_append(header, carver_buf)) != 0)
+		goto fail_3;
+
+	/* Done. */
+	*outptr = header;
+	header = NULL;
+	error = 0;
+
+fail_3:
+	net2_buffer_free(carver_buf);
+fail_2:
+	if (header != NULL)
+		net2_buffer_free(header);
+fail_1:
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+fail_0:
+	assert(error == 0 || *outptr == NULL);
+	if (*outptr != NULL)
+		assert(net2_buffer_length(*outptr) <= maxsz);
+	return (fatal ? error : 0);
+}
+
+/* Encode payload of keyex. */
+static int
+cneg_keyex_ctx_encode_signature(struct net2_buffer **outptr,
+    struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
+    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, int msg_id,
+    size_t sig_idx, size_t maxsz)
+{
+	struct net2_buffer	*header, *carver_buf;
+	struct exchange_msg	 msg;
+	int			 error;
+	int			 fatal; /* Set if errors are unrecoverable. */
+
+	/* Argument check. */
+	if (outptr == NULL || *outptr != NULL || ctx == NULL || c == NULL ||
+	    evbase == NULL || tx == NULL)
+		return EINVAL;
+	if (sig_idx >= ctx->num_signatures)
+		return EINVAL;
+	if (slot == SLOT_FIN)
+		return EINVAL;
+	if (msg_id & XMSG_SIGNATURE)
+		return EINVAL;
+	fatal = 0;
+
+	/* Can only encode output keyex. */
+	if (!(ctx->flags & CNEG_KEYEX_OUT))
+		return 0;
+
+	/* Encode header. */
+	if ((error = mk_exchange_msg_signature(&msg, slot, msg_id,
+	    sig_idx)) != 0)
+		goto fail_0;
+	if ((header = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	if ((error = net2_cp_encode(c, &cp_exchange_msg, header, &msg,
+	    NULL)) != 0)
+		goto fail_2;
+
+	/* Insufficient space. */
+	if (net2_buffer_length(header) >= maxsz) {
+		error = 0;
+		goto fail_2;
+	}
+
+	/* Carver encoding invocation. */
+	if ((carver_buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
+	if (net2_carver_get_transmit(&ctx->out.signatures[sig_idx], c, evbase,
+	    carver_buf, tx, maxsz - net2_buffer_length(header)) != 0) {
+		error = 0;
+		goto fail_3;
+	}
+
+	/*
+	 * tx now contains completion events, so this message may not succeed
+	 * if below fails.
+	 */
+	fatal = 1;
+
+	/* Combine header and carver payload. */
+	if ((net2_buffer_append(header, carver_buf)) != 0)
+		goto fail_3;
+
+	/* Done. */
+	*outptr = header;
+	header = NULL;
+	error = 0;
+
+fail_3:
+	net2_buffer_free(carver_buf);
+fail_2:
+	if (header != NULL)
+		net2_buffer_free(header);
+fail_1:
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+fail_0:
+	assert(error == 0 || *outptr == NULL);
+	if (*outptr != NULL)
+		assert(net2_buffer_length(*outptr) <= maxsz);
+	return (fatal ? error : 0);
+}
+
+/* Encode keyex. */
+static int
+cneg_keyex_ctx_encode(struct net2_buffer **outptr,
+    struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
+    struct net2_evbase *evbase, struct net2_cw_tx *tx,
+    int slot, int msg_id, size_t maxsz)
+{
+	struct net2_buffer	*out, *append;
+	size_t			 i;
+	int			 error;
+
+	*outptr = NULL;
+	if ((out = net2_buffer_new()) == NULL)
+		return 0;	/* Non-fatal. */
+
+	/* Encode as much of payload as possible (repeatedly). */
+	while (net2_buffer_length(out) < maxsz) {
+		append = NULL;
+		error = cneg_keyex_ctx_encode_payload(&append, ctx, c, evbase,
+		    tx, slot, msg_id, maxsz - net2_buffer_length(out));
+		if (error != 0)
+			goto fail;
+		if (append == NULL)
+			break;	/* GUARD */
+
+		assert(!net2_buffer_empty(append));
+		if (net2_buffer_append(out, append)) {
+			net2_buffer_free(append);
+			error = ENOMEM; /* Fatal: tx is modified. */
+			goto fail;
+		}
+		net2_buffer_free(append);
+	}
+
+	/* Encode as many signatures as possible. */
+	for (i = 0; i < ctx->num_signatures; i++) {
+		while (net2_buffer_length(out) < maxsz) {
+			append = NULL;
+			error = cneg_keyex_ctx_encode_signature(&append, ctx,
+			    c, evbase, tx, slot, msg_id, i,
+			    maxsz - net2_buffer_length(out));
+			if (error != 0)
+				goto fail;
+			if (append == NULL)
+				break;	/* GUARD */
+
+			assert(!net2_buffer_empty(append));
+			if (net2_buffer_append(out, append)) {
+				net2_buffer_free(append);
+				error = ENOMEM; /* Fatal: tx is modified. */
+				goto fail;
+			}
+			net2_buffer_free(append);
+		}
+	}
+
+	/* Done. */
+	assert(net2_buffer_length(out) <= maxsz);
+	if (net2_buffer_empty(out)) {
+		net2_buffer_free(out);
+		return 0;
+	}
+	*outptr = out;
+	return 0;
+
+
+fail:
+	net2_buffer_free(out);
+	assert(error != 0);
+	return error;
+}
+
 
 /* Post-allocation exchange initialization. */
 static int
@@ -1324,6 +1580,56 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 	cneg_keyex_deinit(&e->initbuf);
 	cneg_keyex_deinit(&e->export);
 	cneg_keyex_deinit(&e->import);
+}
+
+/* Retrieve transmission for given exchange. */
+static int
+net2_cneg_exchange_get_transmit(struct net2_buffer **outptr,
+    struct net2_cneg_exchange *e, struct net2_encdec_ctx *ctx,
+    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, size_t maxsz)
+{
+	struct net2_buffer	*out, *append;
+	int			 error;
+
+	*outptr = NULL;
+
+	if ((out = net2_buffer_new()) == NULL)
+		return 0; /* Not fatal here. */
+
+	/* Encode initbuf. */
+	append = NULL;
+	error = cneg_keyex_ctx_encode(&append, &e->initbuf, ctx, evbase, tx,
+	    slot, XMSG_INITBUF, maxsz - net2_buffer_length(out));
+	if (append != NULL) {
+		if (net2_buffer_append(out, append)) {
+			error = ENOMEM;
+			goto fail;
+		}
+		net2_buffer_free(append);
+	}
+
+	/* Encode response buffer. */
+	append = NULL;
+	error = cneg_keyex_ctx_encode(&append, &e->export, ctx, evbase, tx,
+	    slot, XMSG_RESPONSE, maxsz - net2_buffer_length(out));
+	if (append != NULL) {
+		if (net2_buffer_append(out, append)) {
+			error = ENOMEM;
+			goto fail;
+		}
+		net2_buffer_free(append);
+	}
+
+	/* Apply result. */
+	if (net2_buffer_empty(out))
+		net2_buffer_free(out);
+	else
+		*outptr = out;
+	return 0;
+
+fail:
+	net2_buffer_free(out);
+	return error;
 }
 
 /* Initialize local exchange for stage 2. */
@@ -1821,6 +2127,12 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	int			 error;
 	struct exchange_msg	 msg;
 	struct net2_encdec_ctx	 ctx;
+	struct net2_cneg_exchange
+				*exchange;
+	int			 local;
+	int			 result_alg, xchange_alg;
+	size_t			 keysize;
+	int			 signature_idx;
 
 	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
 		return error;
@@ -1833,6 +2145,114 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		if (msg.slot == SLOT_FIN)
 			break;		/* GUARD */
 
+		local = 0;	/* Not local exchange. */
+		switch (msg.slot) {
+		default:
+			/* Unrecognized slot. */
+			error = EINVAL;
+			goto out_with_msg;
+		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL:
+		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL:
+			local = 1;
+			/* FALLTHROUGH */
+		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
+		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
+			exchange = &cn->stage2.xchanges[msg.slot];
+			break;
+
+			switch (msg.msg_id) {
+			default:
+				error = EINVAL;
+				goto out_with_msg;
+
+			case XMSG_SETUP:
+				/*
+				 * Setup can only be called for remotely
+				 * initialized exchanges.
+				 */
+				if (local) {
+					error = EINVAL;
+					goto out_with_msg;
+				}
+
+				/* Look up algorithm IDs. */
+				switch (msg.slot) {
+				case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
+					result_alg = net2_hash_findname(msg.payload.result_alg);
+					keysize = net2_hash_getkeylen(result_alg);
+					break;
+				case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
+					result_alg = net2_enc_findname(msg.payload.result_alg);
+					keysize = net2_enc_getkeylen(result_alg);
+					break;
+				default:
+					error = EINVAL;
+					goto out_with_msg;
+				}
+				xchange_alg = net2_xchange_findname(msg.payload.exchange_alg);
+
+				/* Check that we found a matching algorithm. */
+				if (xchange_alg == -1 || result_alg == -1) {
+					error = EINVAL;	/* Not found. */
+					goto out_with_msg;
+				}
+
+				/* Apply or cross-reference with previously
+				 * published values. */
+				if (exchange->state & S2_SETUP_KNOWN) {
+					/* Check that new data does not
+					 * contradict old data. */
+					if (xchange_alg != exchange->xchange_alg ||
+					    result_alg != exchange->alg) {
+						error = EINVAL;
+						goto out_with_msg;
+					}
+				} else {
+					exchange->xchange_alg = xchange_alg;
+					exchange->alg = result_alg;
+					exchange->keysize = keysize;
+					exchange->state |= S2_SETUP_KNOWN;
+					if (keysize == 0)
+						exchange->state |= S2_INITBUF_KNOWN | S2_RESPONSE_RECEIVED;
+				}
+				break;
+
+			case XMSG_INITBUF:
+				/*
+				 * Handle initbuf input.
+				 */
+				if (local) {
+					/* Initbuf can only be transmitted by
+					 * remote initializer. */
+					error = EINVAL;
+					goto out_with_msg;
+				}
+
+				assert(0); /* TODO: push into INITBUF keyex_ctx. */
+				break;
+
+			case XMSG_RESPONSE:
+				assert(0); /* TODO: push into IMPORT keyex_ctx. */
+				break;
+
+			case XMSG_INITBUF | XMSG_SIGNATURE:
+				if (local) {
+					/* Initbuf can only be transmitted by
+					 * remote initializer. */
+					error = EINVAL;
+					goto out_with_msg;
+				}
+
+				signature_idx = msg.payload.signature_idx;
+				assert(0); /* TODO: push into INITBUF signature[signature_idx] keyex_ctx. */
+				break;
+
+			case XMSG_RESPONSE | XMSG_SIGNATURE:
+				signature_idx = msg.payload.signature_idx;
+				assert(0); /* TODO: push into IMPORT signature[signature_idx] keyex_ctx. */
+				break;
+			}
+		}
 		/* TODO: implement */
 
 		net2_cp_destroy(&ctx, &cp_exchange_msg, &msg, NULL);
@@ -1855,17 +2275,22 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
     struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
     int stealth, int want_payload)
 {
-	struct net2_buffer	*header, *payload, *fin, *buf;
+	struct net2_buffer	 *payload, *fin, *buf;
 	int			 error;
 	struct exchange_msg	 msg;
 	struct net2_encdec_ctx	 ctx;
+	size_t			 i;
+	struct net2_evbase	*evbase;
 
 	/* Setup buffers, context. */
-	header = payload = fin = NULL;
+	payload = fin = NULL;
 	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
 		return error;
 	if ((buf = net2_buffer_new()) == NULL)
 		goto out;
+
+	/* Lookup evbase. */
+	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
 
 	/* Encode the fini header. */
 	if ((fin = net2_buffer_new()) == NULL)
@@ -1881,8 +2306,22 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 		goto out;
 	maxlen -= net2_buffer_length(fin);
 
-	while (net2_buffer_length(buf) < maxlen) {
-		break; /* TODO: implement */
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+		error = net2_cneg_exchange_get_transmit(&payload,
+		    &cn->stage2.xchanges[i], &ctx, evbase, tx, i,
+		    maxlen - net2_buffer_length(buf));
+		if (error != 0)
+			goto out;
+
+		/* Append payload to buf. */
+		if (payload != NULL) {
+			if (net2_buffer_append(buf, payload)) {
+				error = ENOMEM;
+				goto out;
+			}
+			net2_buffer_free(payload);
+		}
+		payload = NULL;
 	}
 
 	/* Append fin data to buffer, since it is not empty. */
@@ -1904,12 +2343,11 @@ out:
 	net2_encdec_ctx_deinit(&ctx);
 	if (buf != NULL)
 		net2_buffer_free(buf);
-	if (header != NULL)
-		net2_buffer_free(header);
 	if (payload != NULL)
 		net2_buffer_free(payload);
 	if (fin != NULL)
 		net2_buffer_free(fin);
+	assert(error == 0 || *bufptr == NULL);
 	return error;
 }
 
