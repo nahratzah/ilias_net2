@@ -2286,11 +2286,16 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 	size_t			 i;
 	int			 error;
 
+	fprintf(stderr, "Invoked: %s\n", __FUNCTION__);
+
 	/* Check that all promises have completed. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
 		if (!net2_promise_is_finished(
-		    cn->stage2.xchanges[i].key_promise))
+		    cn->stage2.xchanges[i].key_promise)) {
+			fprintf(stderr, "Aborting %s: %zu is not ready.\n",
+			    __FUNCTION__, i);
 			return;
+		}
 	}
 
 	/* Print each output. */
