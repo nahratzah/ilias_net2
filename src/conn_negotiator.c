@@ -104,11 +104,13 @@ struct net2_cneg_exchange {
 				*cneg;		/* Exchange owner. */
 	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
 	struct net2_promise	*promise;	/* Promise for xchange. */
+	struct net2_promise	*key_promise;	/* Promise for key. */
 	struct cneg_keyex_ctx	 initbuf;	/* Initial buffer. */
 	struct cneg_keyex_ctx	 export;	/* Export buffer. */
 	struct cneg_keyex_ctx	 import;	/* Import buffer. */
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Selected exchange method. */
+	int			 hash_alg;	/* Signature hash algorithm. */
 	uint32_t		 keysize;	/* Negotiated key size. */
 
 	int			 state;		/* DFA state. */
@@ -208,6 +210,8 @@ static int	 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx*,
 static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t);
 static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
+static struct net2_buffer
+		*cneg_keyex_data(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_ctx_encode_payload(struct net2_buffer**,
 		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
 		    struct net2_evbase*, struct net2_tx_callback*,
@@ -228,6 +232,7 @@ static int	 cneg_keyex_ctx_deliver_signature(struct cneg_keyex_ctx*,
 static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*, size_t,
 		    struct net2_cneg_exchange*);
 static void	 net2_cneg_exchange_deinit(struct net2_cneg_exchange*);
+static void	 net2_cneg_exchange_key_free(void*, void*);
 static int	 net2_cneg_exchange_get_transmit(struct net2_buffer**,
 		    struct net2_cneg_exchange*, struct net2_encdec_ctx*,
 		    struct net2_evbase*, struct net2_tx_callback*, int,
@@ -235,6 +240,7 @@ static int	 net2_cneg_exchange_get_transmit(struct net2_buffer**,
 static int	 net2_cneg_exchange_deliver(struct net2_cneg_exchange*,
 		    struct exchange_msg*, struct net2_encdec_ctx*,
 		    struct net2_buffer*);
+static int	 net2_cneg_exchange_is_done(struct net2_cneg_exchange*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
@@ -1335,6 +1341,17 @@ cneg_keyex_is_done(struct cneg_keyex_ctx *ctx)
 	ctx->flags |= CNEG_KEYEX_COMPLETE;
 	return 1;
 }
+/*
+ * Return data from keyex.
+ * Only succeeds on keyex ctx for input.
+ */
+static struct net2_buffer*
+cneg_keyex_data(struct cneg_keyex_ctx *ctx)
+{
+	if ((ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) == CNEG_KEYEX_IN)
+		return net2_combiner_data(&ctx->in.payload);
+	return NULL;
+}
 
 /* Encode payload of keyex. */
 static int
@@ -1606,6 +1623,7 @@ static int
 net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
     struct net2_cneg_exchange *e)
 {
+	struct event	*ev;
 	int		 error;
 
 	/* Mini init: ensure destroying the buffer is safe. */
@@ -1628,8 +1646,19 @@ net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
 			goto fail_1;
 	}
 
+	if ((e->key_promise = net2_promise_new()) == NULL)
+		goto fail_1;
+	net2_promise_set_running(e->key_promise);
+
 	return 0;
 
+fail_2:
+	net2_promise_set_event(e->key_promise, NET2_PROM_ON_FINISH, NULL,
+	    &ev);
+	if (ev != NULL)
+		event_free(ev);
+	net2_promise_cancel(e->key_promise);
+	net2_promise_release(e->key_promise);
 fail_1:
 	cneg_keyex_deinit(&e->export);
 	cneg_keyex_deinit(&e->import);
@@ -1656,10 +1685,28 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 		net2_promise_cancel(e->promise);
 		net2_promise_release(e->promise);
 	}
+	if (e->key_promise != NULL) {
+		net2_promise_set_event(e->key_promise, NET2_PROM_ON_FINISH,
+		    NULL, &ev);
+		if (ev != NULL)
+			event_free(ev);
+
+		net2_promise_cancel(e->key_promise);
+		net2_promise_release(e->key_promise);
+	}
 
 	cneg_keyex_deinit(&e->initbuf);
 	cneg_keyex_deinit(&e->export);
 	cneg_keyex_deinit(&e->import);
+}
+
+/* Release net2_cneg_exchange key. */
+static void
+net2_cneg_exchange_key_free(void *key_buf, void *unused)
+{
+	struct net2_buffer	*key = key_buf;
+
+	net2_buffer_free(key);
 }
 
 /* Retrieve transmission for given exchange. */
@@ -1737,6 +1784,103 @@ net2_cneg_exchange_deliver(struct net2_cneg_exchange *e,
 		    msg->payload.signature_idx, data);
 	} else
 		return cneg_keyex_ctx_deliver_payload(k, ctx, data);
+}
+
+/* Test if the exchange has finished transmission and receival. */
+static int
+net2_cneg_exchange_is_done(struct net2_cneg_exchange *e)
+{
+	return cneg_keyex_is_done(&e->initbuf) &&
+	    cneg_keyex_is_done(&e->export) &&
+	    cneg_keyex_is_done(&e->import);
+}
+
+/*
+ * Perform exchange calculation post receival and transmission.
+ * Invoked from carver and combiner completion routines.
+ */
+static void
+net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e)
+{
+	struct net2_buffer	*initbuf, *export, *import, *key;
+	int			 error;
+	struct net2_encdec_ctx	 ctx;
+	struct net2_conn_negotiator
+				*cn;
+
+	cn = e->cneg;
+	initbuf = export = import = key = NULL;
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
+	    &CNEG_CONN(cn)->n2c_socket)) != 0)
+		goto fail;
+
+	/* Set up xchange if this is a remotely initiated exchange. */
+	if (e->xchange == NULL && cneg_keyex_is_done(&e->initbuf)) {
+		initbuf = cneg_keyex_data(&e->initbuf);
+		/* TODO: calculate xchange, keylen, result_alg. */
+		e->xchange = net2_xchangectx_prepare(e->xchange_alg, e->keysize, 0, initbuf);
+		if (e->xchange == NULL) {
+			error = ENOMEM;
+			goto fail;
+		}
+
+		/* Set up remote response. */
+		if ((export = net2_xchangectx_export(e->xchange)) == NULL)
+			goto fail;
+		if ((error = cneg_keyex_ctx_init_out(&e->export, &ctx, export,
+		    e->hash_alg, cn->signature_list.signatures,
+		    cn->signature_list.size, cn)) != 0)
+			goto fail;
+
+		cneg_ready_to_send(cn);	/* Start sending this. */
+		goto out;
+	}
+
+	/* Can be called with incomplete data. */
+	if (!net2_cneg_exchange_is_done(e))
+		goto out;
+	/* If the calculation has already completed, don't do it twice. */
+	if (!net2_promise_is_running(e->key_promise))
+		goto out;
+
+	/* TODO: validate signatures for initbuf, import. */
+
+	/* Import remotely generated xchange export data. */
+	if ((import = cneg_keyex_data(&e->import)) == NULL)
+		goto fail;
+	error = net2_xchangectx_import(e->xchange, import);
+	net2_buffer_free(import);
+	if (error)
+		goto fail;
+
+	if ((key = net2_xchangectx_final(e->xchange)) == NULL)
+		goto fail;
+	assert(e->key_promise != NULL);
+	if ((error = net2_promise_set_finok(e->key_promise, key,
+	    &net2_cneg_exchange_key_free, NULL, 0)) != 0)
+		goto fail;
+	else
+		key = NULL;	/* Now managed by promise. */
+
+	/* Succes. */
+	goto out;
+
+
+fail:
+	assert(error != 0);
+	net2_encdec_ctx_deinit(&ctx);
+	/* Any failure must inform caller, via promise. */
+	net2_promise_set_error(e->key_promise, error, 0);
+out:
+	if (initbuf != NULL)
+		net2_buffer_free(initbuf);
+	if (export != NULL)
+		net2_buffer_free(export);
+	if (import != NULL)
+		net2_buffer_free(import);
+	if (key != NULL)
+		net2_buffer_free(key);
+	return;
 }
 
 /* Initialize local exchange for stage 2. */
@@ -1847,7 +1991,8 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 
 	/* Initialize special variables. */
 	cn = e->cneg;
-	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
+	    &CNEG_CONN(cn)->n2c_socket)) != 0)
 		goto fail_0;
 
 	/* Find the hash algorithm with the largest hash size, that is non-zero. */
@@ -1871,6 +2016,7 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 		hash_alg = -1;
 		/* No signatures, so hash_alg will not be used. */
 	}
+	e->hash_alg = hash_alg;
 
 	if (e->keysize == 0)
 		export = net2_buffer_new();
@@ -2240,7 +2386,8 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	size_t			 keysize;
 	int			 signature_idx;
 
-	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
+	    &CNEG_CONN(cn)->n2c_socket)) != 0)
 		return error;
 
 	for (;;) {
@@ -2297,7 +2444,8 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 
 	/* Setup buffers, context. */
 	payload = fin = NULL;
-	if ((error = net2_encdec_ctx_newaccsocket(&ctx, &CNEG_CONN(cn)->n2c_socket)) != 0)
+	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
+	    &CNEG_CONN(cn)->n2c_socket)) != 0)
 		return error;
 	if ((buf = net2_buffer_new()) == NULL)
 		goto out;
