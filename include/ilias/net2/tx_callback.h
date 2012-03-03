@@ -18,6 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <bsd_compat/bsd_compat.h>
+#include <stdlib.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -47,5 +48,11 @@ ILIAS_NET2_EXPORT
 int	net2_txcb_add(struct net2_tx_callback*, struct net2_evbase*,
 	    net2_tx_callback_fn, net2_tx_callback_fn, net2_tx_callback_fn,
 	    net2_tx_callback_fn, void*, void*);
+
+static __inline int
+net2_txcb_empty(struct net2_tx_callback *cb)
+{
+	return TAILQ_EMPTY(cb);
+}
 
 #endif /* ILIAS_NET2_TX_CALLBACK_H */
