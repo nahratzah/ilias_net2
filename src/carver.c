@@ -18,6 +18,7 @@
 #include <ilias/net2/memory.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/connwindow.h>
+#include <ilias/net2/tx_callback.h>
 #include <bsd_compat/bsd_compat.h>
 #include <assert.h>
 #include <errno.h>
@@ -266,7 +267,7 @@ net2_combiner_data(struct net2_combiner *c)
 ILIAS_NET2_EXPORT int
 net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
     struct net2_evbase *evbase,
-    struct net2_buffer *out, struct net2_cw_tx *tx, size_t maxsz)
+    struct net2_buffer *out, struct net2_tx_callback *tx, size_t maxsz)
 {
 	size_t			 setup_overhead;
 	size_t			 msg_overhead;
@@ -303,7 +304,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		if ((error = carver_setup_msg(c, ctx, out)) != 0)
 			return error;
 		/* Install callback. */
-		if ((error = net2_connwindow_txcb_register(tx, evbase, NULL,
+		if ((error = net2_txcb_add(tx, evbase, NULL,
 		    &carver_setup_ack, &carver_setup_nack, NULL,
 		    c, NULL)) != 0)
 			return error;
@@ -338,7 +339,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		return error;
 
 	/* Install callback. */
-	if ((error = net2_connwindow_txcb_register(tx, evbase, NULL,
+	if ((error = net2_txcb_add(tx, evbase, NULL,
 	    &carver_txcb_ack, &carver_txcb_nack, &carver_txcb_destroy,
 	    c, r)) != 0)
 		return error;

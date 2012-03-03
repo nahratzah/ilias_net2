@@ -25,6 +25,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/carver.h>
+#include <ilias/net2/tx_callback.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -212,16 +213,16 @@ static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_ctx_encode_payload(struct net2_buffer**,
 		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
-		    struct net2_evbase*, struct net2_cw_tx*, int, int,
-		    size_t);
+		    struct net2_evbase*, struct net2_tx_callback*,
+		    int, int, size_t);
 static int	 cneg_keyex_ctx_encode_signature(struct net2_buffer**,
 		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
-		    struct net2_evbase*, struct net2_cw_tx*, int, int, size_t,
-		    size_t);
+		    struct net2_evbase*, struct net2_tx_callback*,
+		    int, int, size_t, size_t);
 static int	 cneg_keyex_ctx_encode(struct net2_buffer**,
 		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
-		    struct net2_evbase*, struct net2_cw_tx*, int, int,
-		    size_t);
+		    struct net2_evbase*, struct net2_tx_callback*,
+		    int, int, size_t);
 static int	 cneg_keyex_ctx_deliver_payload(struct cneg_keyex_ctx*,
 		    struct net2_encdec_ctx*, struct net2_buffer*);
 static int	 cneg_keyex_ctx_deliver_signature(struct cneg_keyex_ctx*,
@@ -232,7 +233,8 @@ static int	 net2_cneg_exchange_init(struct net2_conn_negotiator*, size_t,
 static void	 net2_cneg_exchange_deinit(struct net2_cneg_exchange*);
 static int	 net2_cneg_exchange_get_transmit(struct net2_buffer**,
 		    struct net2_cneg_exchange*, struct net2_encdec_ctx*,
-		    struct net2_evbase*, struct net2_cw_tx*, int, size_t);
+		    struct net2_evbase*, struct net2_tx_callback*, int,
+		    size_t);
 static int	 net2_cneg_exchange_deliver(struct net2_cneg_exchange*,
 		    struct exchange_msg*, struct net2_encdec_ctx*,
 		    struct net2_buffer*);
@@ -1320,8 +1322,8 @@ cneg_keyex_is_done(struct cneg_keyex_ctx *ctx)
 static int
 cneg_keyex_ctx_encode_payload(struct net2_buffer **outptr,
     struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
-    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, int msg_id,
-    size_t maxsz)
+    struct net2_evbase *evbase, struct net2_tx_callback *tx, int slot,
+    int msg_id, size_t maxsz)
 {
 	struct net2_buffer	*header, *carver_buf;
 	struct exchange_msg	 msg;
@@ -1401,8 +1403,8 @@ fail_0:
 static int
 cneg_keyex_ctx_encode_signature(struct net2_buffer **outptr,
     struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
-    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, int msg_id,
-    size_t sig_idx, size_t maxsz)
+    struct net2_evbase *evbase, struct net2_tx_callback *tx, int slot,
+    int msg_id, size_t sig_idx, size_t maxsz)
 {
 	struct net2_buffer	*header, *carver_buf;
 	struct exchange_msg	 msg;
@@ -1484,7 +1486,7 @@ fail_0:
 static int
 cneg_keyex_ctx_encode(struct net2_buffer **outptr,
     struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
-    struct net2_evbase *evbase, struct net2_cw_tx *tx,
+    struct net2_evbase *evbase, struct net2_tx_callback *tx,
     int slot, int msg_id, size_t maxsz)
 {
 	struct net2_buffer	*out, *append;
@@ -1642,7 +1644,8 @@ net2_cneg_exchange_deinit(struct net2_cneg_exchange *e)
 static int
 net2_cneg_exchange_get_transmit(struct net2_buffer **outptr,
     struct net2_cneg_exchange *e, struct net2_encdec_ctx *ctx,
-    struct net2_evbase *evbase, struct net2_cw_tx *tx, int slot, size_t maxsz)
+    struct net2_evbase *evbase, struct net2_tx_callback *tx, int slot,
+    size_t maxsz)
 {
 	struct net2_buffer	*out, *append;
 	int			 error;
@@ -2082,7 +2085,7 @@ fail:
 static int
 cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
     struct packet_header* ph,
-    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    struct net2_buffer **bufptr, struct net2_tx_callback *tx, size_t maxlen,
     int stealth, int want_payload)
 {
 	struct encoded_header	*eh, *eh_next;
@@ -2139,7 +2142,7 @@ cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
 			break;
 
 		/* Register callback. */
-		if ((error = net2_connwindow_txcb_register(tx, evbase,
+		if ((error = net2_txcb_add(tx, evbase,
 		    NULL, &ack_cb, &nack_cb, &destroy_cb, eh, cn)) != 0) {
 			net2_buffer_truncate(buf, old_sz);	/* Undo. */
 			break;
@@ -2264,7 +2267,7 @@ out:
 static int
 cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
     struct packet_header* ph,
-    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    struct net2_buffer **bufptr, struct net2_tx_callback *tx, size_t maxlen,
     int stealth, int want_payload)
 {
 	struct net2_buffer	 *payload, *fin, *buf;
@@ -2524,7 +2527,7 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 ILIAS_NET2_LOCAL int
 net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
     struct packet_header* ph,
-    struct net2_buffer **bufptr, struct net2_cw_tx *tx, size_t maxlen,
+    struct net2_buffer **bufptr, struct net2_tx_callback *tx, size_t maxlen,
     int stealth, int want_payload)
 {
 	/* Fill stage 1 transmission data. */

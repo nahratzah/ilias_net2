@@ -21,6 +21,7 @@
 #include <ilias/net2/packet.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/tx_callback.h>
 #include <bsd_compat/secure_random.h>
 #include <bsd_compat/clock.h>
 #include <bsd_compat/error.h>
@@ -92,44 +93,6 @@
 
 
 /*
- * Transmission callback queue.
- *
- * Once the window receives confirmation of the remote end if the data
- * was received or lost, cb_ack or cb_nack will be invoked.
- * When confirmation is expected, but hasn't arrived yet, the timeout
- * callback will be invoked.
- *
- * The ack and nack callbacks will always be the last callback that is
- * invoked.
- * The timeout callback may or may not be invoked prior to calling the
- * nack and ack callbacks.
- *
- * If the connection is destroyed, the callback may arrive _after_ the
- * connection and connwindow are destroyed. In the case of cb_destroy,
- * this is guaranteed to happen.
- */
-struct net2_cw_transmit_cb {
-	net2_connwindow_cb	 cb_ack;	/* ACK callback. */
-	net2_connwindow_cb	 cb_nack;	/* NACK callback. */
-	net2_connwindow_cb	 cb_timeout;	/* Timed out cb. */
-	net2_connwindow_cb	 cb_cdestroy;	/* Conn destroy. */
-	void			*cb_arg0;	/* First argument. */
-	void			*cb_arg1;	/* Second argument. */
-
-	int			 state;		/* ACK/NACK state. */
-#define NET2_CWTXCB_NONE	 0		/* State: nothing to do. */
-#define NET2_CWTXCB_ACK		 2		/* State: ack received. */
-#define NET2_CWTXCB_NACK	 3		/* State: nack received. */
-#define NET2_CWTXCB_CDESTROY	 4		/* State: conn destroyed. */
-#define NET2_CWTXCB_INVAL	0xffffffff	/* State: invalid state. */
-	struct event		*ev;		/* Event delivery. */
-	struct event		*ev_timeout;	/* Timeout event delivery. */
-
-	TAILQ_ENTRY(net2_cw_transmit_cb)
-				 entry;		/* Link into transmit. */
-};
-
-/*
  * Transmitted packet data.
  * Note that the packet itself is not stored:
  * when a transmission times out, a nack version of the same window is sent.
@@ -142,8 +105,8 @@ struct net2_cw_tx {
 	uint32_t	 cwt_seq;		/* Window sequence. */
 	size_t		 cwt_wire_sz;		/* Wire size. */
 
-	TAILQ_HEAD(, net2_cw_transmit_cb)
-			 cwt_cbq;		/* Callback queue. */
+	struct net2_tx_callback
+			 cwt_txcb;		/* Callback queue. */
 	struct event	*cwt_timeout;		/* Nack timer. */
 
 	RB_ENTRY(net2_cw_tx)
@@ -425,9 +388,6 @@ keepalive(int fd, short what, void *wptr)
 }
 
 
-static void	tx_cb_timeout(struct net2_cw_transmit_cb*);
-static void	tx_cb_ack(struct net2_cw_transmit_cb*);
-static void	tx_cb_nack(struct net2_cw_transmit_cb*);
 static void	add_statistic(struct net2_connwindow*,
 		    struct timeval*, struct timeval*, size_t, int);
 static void	dup_ack(struct net2_connwindow*);
@@ -449,8 +409,7 @@ tx_timeout(int fd, short what, void *txptr)
 
 	if ((tx->cwt_flags & NET2_CWTX_F_TIMEDOUT) == 0) {
 		tx->cwt_flags |= NET2_CWTX_F_TIMEDOUT;
-		TAILQ_FOREACH(cb, &tx->cwt_cbq, entry)
-			tx_cb_timeout(cb);
+		net2_txcb_timeout(&tx->cwt_txcb);
 
 		/* Add wantbad event. */
 		net2_connstats_timeout(&w->cw_conn->n2c_stats, &next_timeout,
@@ -496,152 +455,31 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	tx->cwt_owner = w;
 	tx->cwt_seq = seq;
 	tx->cwt_wire_sz = 0;	/* No idea how large yet. */
-	TAILQ_INIT(&tx->cwt_cbq);
+	if (net2_txcb_init(&tx->cwt_txcb))
+		goto fail_1;
 	if ((tx->cwt_timeout = evtimer_new(evbase->evbase, tx_timeout, tx)) ==
 	    NULL)
-		goto fail_1;
+		goto fail_2;
 	tx->cwt_flags = NET2_CWTX_F_ALLOC;
 	tx->cwt_stalled = 0;
 
 	return tx;
 
+fail_2:
+	net2_txcb_deinit(&tx->cwt_txcb);
 fail_1:
 	net2_free(tx);
 fail_0:
 	return NULL;
 }
 
-/*
- * Execute the final event in a transmission callback.
- */
-static void
-tx_cb_execute(int fd, short what, void *cbptr)
-{
-	struct net2_cw_transmit_cb	*cb = cbptr;
-	int				 state;
-
-	state = cb->state;
-	cb->state = NET2_CWTXCB_INVAL;
-
-	switch (state) {
-	case NET2_CWTXCB_ACK:
-		if (cb->cb_ack)
-			(*cb->cb_ack)(cb->cb_arg0, cb->cb_arg1);
-		break;
-	case NET2_CWTXCB_NACK:
-		if (cb->cb_nack)
-			(*cb->cb_nack)(cb->cb_arg0, cb->cb_arg1);
-		break;
-	case NET2_CWTXCB_CDESTROY:
-		if (cb->cb_cdestroy)
-			(*cb->cb_cdestroy)(cb->cb_arg0, cb->cb_arg1);
-		break;
-	case NET2_CWTXCB_NONE:
-	default:
-		errx(EX_SOFTWARE, "invalid transmit callback invocation %d",
-		    cb->state);
-		/* UNREACHABLE */
-	}
-
-	/* Destroy callback. */
-	if (cb->ev_timeout)
-		event_free(cb->ev_timeout);
-	event_free(cb->ev);
-	net2_free(cb);
-}
-/*
- * Execute the timeout event in a transmission callback.
- */
-static void
-tx_cb_exectimeout(int fd, short what, void *cbptr)
-{
-	struct net2_cw_transmit_cb	*cb = cbptr;
-
-	if (cb->cb_timeout)
-		(*cb->cb_timeout)(cb->cb_arg0, cb->cb_arg1);
-	return;
-}
-
-static void
-tx_cb_timeout(struct net2_cw_transmit_cb *cb)
-{
-	const struct timeval	now = { 0, 0 };
-
-	assert(cb->state == NET2_CWTXCB_NONE);
-
-	if (cb->cb_timeout != NULL)
-		event_add(cb->ev_timeout, &now);
-}
-
-static void
-tx_cb_ack(struct net2_cw_transmit_cb *cb)
-{
-	assert(cb->state == NET2_CWTXCB_NONE);
-
-	if (cb->ev_timeout)
-		event_del(cb->ev_timeout);
-	cb->state = NET2_CWTXCB_ACK;
-	if (cb->cb_ack != NULL)
-		event_active(cb->ev, 0, 0);
-	else {
-		if (cb->ev_timeout)
-			event_free(cb->ev_timeout);
-		if (cb->ev)
-			event_free(cb->ev);
-		net2_free(cb);
-	}
-}
-
-static void
-tx_cb_nack(struct net2_cw_transmit_cb *cb)
-{
-	assert(cb->state == NET2_CWTXCB_NONE);
-
-	if (cb->ev_timeout)
-		event_del(cb->ev_timeout);
-	cb->state = NET2_CWTXCB_NACK;
-	if (cb->cb_nack != NULL)
-		event_active(cb->ev, 0, 0);
-	else {
-		if (cb->ev_timeout)
-			event_free(cb->ev_timeout);
-		if (cb->ev)
-			event_free(cb->ev);
-		net2_free(cb);
-	}
-}
-
-static void
-tx_cb_cdestroy(struct net2_cw_transmit_cb *cb)
-{
-	assert(cb->state == NET2_CWTXCB_NONE);
-
-	if (cb->ev_timeout)
-		event_del(cb->ev_timeout);
-	cb->state = NET2_CWTXCB_CDESTROY;
-	if (cb->cb_cdestroy != NULL)
-		event_active(cb->ev, 0, 0);
-	else {
-		if (cb->ev_timeout)
-			event_free(cb->ev_timeout);
-		if (cb->ev)
-			event_free(cb->ev);
-		net2_free(cb);
-	}
-}
-
 static void
 tx_free(struct net2_cw_tx *tx)
 {
-	struct net2_cw_transmit_cb	*cb;
-
 	assert(tx->cwt_flags & NET2_CWTX_F_ALLOC);
 	assert(!(tx->cwt_flags & NET2_CWTX_QUEUEMASK));
 	event_free(tx->cwt_timeout);
-	while ((cb = TAILQ_FIRST(&tx->cwt_cbq)) != NULL) {
-		TAILQ_REMOVE(&tx->cwt_cbq, cb, entry);
-		tx_cb_cdestroy(cb);
-	}
+	net2_txcb_deinit(&tx->cwt_txcb);
 	assert(RB_FIND(net2_cw_transmits, &tx->cwt_owner->cw_tx_id, tx) != tx);
 	net2_free(tx);
 }
@@ -774,7 +612,6 @@ do_transmit_ack(struct net2_connwindow *w, uint32_t first, uint32_t last,
 {
 	uint32_t			 seq;
 	struct net2_cw_tx		*tx, tx_search;
-	struct net2_cw_transmit_cb	*cb;
 	struct timeval			 now;
 	int				 did_nothing = 1;
 
@@ -805,13 +642,10 @@ do_transmit_ack(struct net2_connwindow *w, uint32_t first, uint32_t last,
 		 * Invoke ack/nack callbacks.
 		 * Those callbacks will ensure the cb gets freed.
 		 */
-		while ((cb = TAILQ_FIRST(&tx->cwt_cbq)) != NULL) {
-			TAILQ_REMOVE(&tx->cwt_cbq, cb, entry);
-			if (ok)
-				tx_cb_ack(cb);
-			else
-				tx_cb_nack(cb);
-		}
+		if (ok)
+			net2_txcb_ack(&tx->cwt_txcb);
+		else
+			net2_txcb_nack(&tx->cwt_txcb);
 
 		tx_free(tx);
 	}
@@ -1478,7 +1312,7 @@ fail_0:
  */
 ILIAS_NET2_LOCAL void
 net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
-    size_t wire_sz)
+    size_t wire_sz, struct net2_tx_callback *callbacks)
 {
 	static const struct timeval	 stalltimeout = { 0, 250000 };
 	static const struct timeval	 ka_timeout = { 5, 0 };
@@ -1513,6 +1347,8 @@ net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
 		err(EX_OSERR, "clock_gettime fail");
 	tx->cwt_wire_sz = wire_sz;
 	event_add(tx->cwt_timeout, &timeout);
+
+	net2_txcb_merge(&tx->cwt_txcb, callbacks);
 }
 
 /*
@@ -1527,15 +1363,11 @@ ILIAS_NET2_LOCAL void
 net2_connwindow_tx_rollback(struct net2_cw_tx *tx)
 {
 	struct net2_connwindow		*w;
-	struct net2_cw_transmit_cb	*cb;
 
 	w = tx->cwt_owner;
 
 	/* Invoke each callback for nack. */
-	while ((cb = TAILQ_FIRST(&tx->cwt_cbq)) != NULL) {
-		TAILQ_REMOVE(&tx->cwt_cbq, cb, entry);
-		tx_cb_nack(cb);
-	}
+	net2_txcb_nack(&tx->cwt_txcb);
 
 	/*
 	 * If this is the most recently allocated sequence, we can undo the
@@ -1559,72 +1391,6 @@ net2_connwindow_tx_rollback(struct net2_cw_tx *tx)
 		tx->cwt_flags |= NET2_CWTX_F_TIMEDOUT;
 		cw_tx_wantbad_insert(w, tx, 0);
 	}
-}
-
-/*
- * Add a callback to the transmission.
- */
-ILIAS_NET2_EXPORT int
-net2_connwindow_txcb_register(struct net2_cw_tx *tx, struct net2_evbase *evbase,
-    net2_connwindow_cb cb_timeout, net2_connwindow_cb cb_ack,
-    net2_connwindow_cb cb_nack, net2_connwindow_cb cb_cdestroy,
-    void *arg0, void *arg1)
-{
-	struct net2_cw_transmit_cb	*cb;
-
-	/* Argument check. */
-	if (tx == NULL || evbase == NULL)
-		return -1;
-	/* Cannot add callbacks to stalled packet: this will never be acked. */
-	if (tx->cwt_stalled)
-		return -1;
-	/* Don't add empty events. */
-	if (cb_timeout == NULL && cb_ack == NULL && cb_nack == NULL &&
-	    cb_cdestroy == NULL)
-		return 0;
-
-	/* Create storage for new callback. */
-	if ((cb = net2_malloc(sizeof(*cb))) == NULL)
-		goto fail_0;
-	/* Apply parameters. */
-	cb->cb_ack = cb_ack;
-	cb->cb_nack = cb_nack;
-	cb->cb_timeout = cb_timeout;
-	cb->cb_cdestroy = cb_cdestroy;
-	cb->cb_arg0 = arg0;
-	cb->cb_arg1 = arg1;
-	cb->state = NET2_CWTXCB_NONE;
-
-	/* Allocate timeout event. */
-	if (cb_timeout == NULL)
-		cb->ev_timeout = NULL;		/* Not needed. */
-	else if ((cb->ev_timeout = evtimer_new(evbase->evbase,
-	    tx_cb_exectimeout, cb)) == NULL)
-		goto fail_1;
-
-	/* Allocate other callback event. */
-	if (cb_ack == NULL && cb_nack == NULL && cb_cdestroy == NULL)
-		cb->ev = NULL;			/* Not needed. */
-	else if ((cb->ev = evtimer_new(evbase->evbase,
-	    tx_cb_execute, cb)) == NULL)
-		goto fail_2;
-
-	/* Add callback to list. */
-	TAILQ_INSERT_TAIL(&tx->cwt_cbq, cb, entry);
-	return 0;
-
-#if 0	/* Only needed if more code is added. */
-fail_3:
-	if (cb->ev != NULL)
-		event_free(cb->ev);
-#endif
-fail_2:
-	if (cb->ev_timeout != NULL)
-		event_free(cb->ev_timeout);
-fail_1:
-	net2_free(cb);
-fail_0:
-	return -1;
 }
 
 /*

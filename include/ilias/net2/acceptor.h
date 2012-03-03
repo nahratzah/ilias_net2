@@ -17,6 +17,7 @@
 #define ILIAS_NET2_ACCEPTOR_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/tx_callback.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <errno.h>
@@ -24,7 +25,7 @@
 struct net2_acceptor_socket;
 struct net2_acceptor;
 struct net2_buffer;	/* From ilias/net2/buffer.h */
-struct net2_cw_tx;	/* From ilias/net2/connwindow.h */
+struct net2_tx_callback; /* From ilias/net2/tx_callback.h */
 struct net2_pvlist;	/* From ilias/net2/protocol.h */
 
 /* Acceptor socket function table. */
@@ -56,7 +57,7 @@ struct net2_acceptor_socket_fn {
 	/* Optional get_transmit processor. */
 	int	(*get_transmit)(struct net2_acceptor_socket*,
 		    struct net2_buffer**,
-		    struct net2_cw_tx*, int first, size_t maxlen);
+		    struct net2_tx_callback*, int first, size_t maxlen);
 
 	/* Acquire PVlist. */
 	int	(*get_pvlist)(struct net2_acceptor_socket*,
@@ -73,7 +74,7 @@ struct net2_acceptor_fn {
 	void	(*accept)(struct net2_acceptor*, struct net2_buffer*);
 	/* Check if the acceptor has pending transmissions. */
 	int	(*get_transmit)(struct net2_acceptor*, struct net2_buffer**,
-		    struct net2_cw_tx*, int first, size_t maxlen);
+		    struct net2_tx_callback*, int first, size_t maxlen);
 };
 
 /*
@@ -119,11 +120,11 @@ void	 net2_acceptor_socket_ready_to_send(struct net2_acceptor_socket*);
 ILIAS_NET2_EXPORT
 void	 net2_acceptor_ready_to_send(struct net2_acceptor*);
 ILIAS_NET2_EXPORT
-int	 net2_acceptor_get_transmit(struct net2_acceptor*, struct net2_buffer**,
-	    struct net2_cw_tx*, int, size_t);
+int	 net2_acceptor_get_transmit(struct net2_acceptor*,
+	    struct net2_buffer**, struct net2_tx_callback*, int, size_t);
 ILIAS_NET2_EXPORT
 int	 net2_acceptor_socket_get_transmit(struct net2_acceptor_socket*,
-	    struct net2_buffer**, struct net2_cw_tx*, int, size_t);
+	    struct net2_buffer**, struct net2_tx_callback*, int, size_t);
 ILIAS_NET2_EXPORT
 void	 net2_acceptor_accept(struct net2_acceptor*, struct net2_buffer*);
 ILIAS_NET2_EXPORT

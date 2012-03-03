@@ -247,10 +247,10 @@ net2_txcb_merge(struct net2_tx_callback *dst, struct net2_tx_callback *src)
 
 /* Add callback to tx callback. */
 ILIAS_NET2_EXPORT int
-net2_txcb_add(struct net2_tx_callback *cb,
+net2_txcb_add(struct net2_tx_callback *cb, struct net2_evbase *evbase,
     net2_tx_callback_fn ack, net2_tx_callback_fn nack,
     net2_tx_callback_fn timeout, net2_tx_callback_fn destroy,
-    void *arg0, void *arg1, struct net2_evbase *evbase)
+    void *arg0, void *arg1)
 {
 	struct net2_tx_callback_cb
 				*txcb;

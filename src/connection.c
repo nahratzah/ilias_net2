@@ -25,6 +25,7 @@
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/tx_callback.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/secure_random.h>
@@ -284,6 +285,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	int				 want_payload, has_payload;
 	int				 negotiation_ready;
 	int				 stealth;
+	struct net2_tx_callback		 callbacks;
 
 	has_payload = 0;
 	*bptr = NULL;
@@ -325,6 +327,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
+	if ((rv = net2_txcb_init(&callbacks)) != 0)
+		goto fail_1;
 
 	/* Initialize packet header. */
 	ph.flags = 0;
@@ -350,8 +354,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 	 */
 	to_add = NULL;
 	if (avail > winoverhead &&
-	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &ph, &to_add, tx,
-	    avail - winoverhead, stealth, want_payload)) != 0)
+	    (rv = net2_cneg_get_transmit(&c->n2c_negotiator, &ph, &to_add,
+	    &callbacks, avail - winoverhead, stealth, want_payload)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
 		if (net2_buffer_append(b, to_add)) {
@@ -380,7 +384,7 @@ fill_up:
 		to_add = NULL;
 		/* Get more data from acceptor. */
 		if (net2_acceptor_socket_get_transmit(&c->n2c_socket,
-		    &to_add, tx, count == 0, avail - winoverhead)) {
+		    &to_add, &callbacks, count == 0, avail - winoverhead)) {
 			warnx("acceptor get_transmit fail");
 			break;
 		}
@@ -474,10 +478,11 @@ fail_2:
 	if (tx != NULL) {
 		if (rv == 0) {
 			net2_connwindow_tx_commit(tx, &ph,
-			    net2_buffer_length(b));
+			    net2_buffer_length(b), &callbacks);
 		} else
 			net2_connwindow_tx_rollback(tx);
 	}
+	net2_txcb_deinit(&callbacks);
 fail_1:
 	if (b != NULL)
 		net2_buffer_free(b);

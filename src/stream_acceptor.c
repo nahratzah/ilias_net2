@@ -22,6 +22,7 @@
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/tx_callback.h>
 #include <bsd_compat/minmax.h>
 #include <bsd_compat/error.h>
 #include <bsd_compat/bsd_compat.h>
@@ -170,7 +171,7 @@ ILIAS_NET2_LOCAL
 void	nsa_accept(struct net2_acceptor*, struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	nsa_get_transmit(struct net2_acceptor*, struct net2_buffer**,
-	    struct net2_cw_tx*, int, size_t);
+	    struct net2_tx_callback*, int, size_t);
 
 ILIAS_NET2_LOCAL
 int	sa_tx_init(struct net2_sa_tx*, void (*)(struct net2_sa_tx*));
@@ -940,7 +941,7 @@ sa_on_lowbuffer(struct net2_sa_tx *sa)
 ILIAS_NET2_LOCAL int
 sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
     struct net2_acceptor_socket *socket,
-    struct net2_cw_tx *tx, int first, size_t maxlen)
+    struct net2_tx_callback *tx, int first, size_t maxlen)
 {
 	struct net2_encdec_ctx		 ctx;
 	struct range			*r, *collide;
@@ -1111,7 +1112,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	/*
 	 * Register delivery callbacks.
 	 */
-	if ((error = net2_connwindow_txcb_register(tx,
+	if ((error = net2_txcb_add(tx,
 	    net2_acceptor_socket_evbase(socket),
 	    sa_transit_timeout,
 	    sa_transit_ack,
@@ -1178,7 +1179,7 @@ nsa_ready_to_send(struct net2_sa_tx *sa)
  */
 ILIAS_NET2_LOCAL int
 nsa_get_transmit(struct net2_acceptor *sa_ptr, struct net2_buffer **bufptr,
-    struct net2_cw_tx *tx, int first, size_t maxlen)
+    struct net2_tx_callback *tx, int first, size_t maxlen)
 {
 	struct net2_stream_acceptor	*nsa;
 

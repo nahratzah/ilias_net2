@@ -85,7 +85,7 @@ net2_acceptor_ready_to_send(struct net2_acceptor *a)
 /* Retrieve transmit data from acceptor. */
 ILIAS_NET2_EXPORT int
 net2_acceptor_get_transmit(struct net2_acceptor *a, struct net2_buffer **buf,
-    struct net2_cw_tx *cwtx, int first, size_t maxlen)
+    struct net2_tx_callback *cwtx, int first, size_t maxlen)
 {
 	return (*a->fn->get_transmit)(a, buf, cwtx, first, maxlen);
 }
@@ -94,7 +94,7 @@ net2_acceptor_get_transmit(struct net2_acceptor *a, struct net2_buffer **buf,
 ILIAS_NET2_EXPORT int
 net2_acceptor_socket_get_transmit(struct net2_acceptor_socket *s,
     struct net2_buffer **buf,
-    struct net2_cw_tx *cwtx, int first, size_t maxlen)
+    struct net2_tx_callback *cwtx, int first, size_t maxlen)
 {
 	if (s->fn->get_transmit != NULL)
 		return (*s->fn->get_transmit)(s, buf, cwtx, first, maxlen);

@@ -41,10 +41,7 @@ extern ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead;
 /* Minimum window size that is able to make progress. */
 extern ILIAS_NET2_LOCAL const size_t net2_connwindow_min_overhead;
 
-/*
- * Connection window delivery callback.
- */
-typedef void (*net2_connwindow_cb)(void*, void*);
+struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
 
 /*
  * Actual connection window.
@@ -116,20 +113,12 @@ struct net2_cw_tx	*net2_connwindow_tx_prepare(struct net2_connwindow*,
 			    struct packet_header*, int*);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_commit(struct net2_cw_tx*,
-			    struct packet_header*, size_t);
+			    struct packet_header*, size_t,
+			    struct net2_tx_callback*);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_rollback(struct net2_cw_tx*);
 #endif /* BUILDING_ILIAS_NET2 */
 
-
-struct net2_evbase;
-
-ILIAS_NET2_EXPORT
-int			 net2_connwindow_txcb_register(struct net2_cw_tx*,
-			    struct net2_evbase*,
-			    net2_connwindow_cb, net2_connwindow_cb,
-			    net2_connwindow_cb, net2_connwindow_cb,
-			    void*, void*);
 
 #ifdef __cplusplus
 }

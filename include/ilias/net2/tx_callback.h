@@ -44,8 +44,8 @@ void	net2_txcb_timeout(struct net2_tx_callback*);
 ILIAS_NET2_EXPORT
 void	net2_txcb_merge(struct net2_tx_callback*, struct net2_tx_callback*);
 ILIAS_NET2_EXPORT
-int	net2_txcb_add(struct net2_tx_callback*, net2_tx_callback_fn,
+int	net2_txcb_add(struct net2_tx_callback*, struct net2_evbase*,
 	    net2_tx_callback_fn, net2_tx_callback_fn, net2_tx_callback_fn,
-	    void*, void*, struct net2_evbase*);
+	    net2_tx_callback_fn, void*, void*);
 
 #endif /* ILIAS_NET2_TX_CALLBACK_H */
