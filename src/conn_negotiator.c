@@ -211,8 +211,12 @@ static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t,
 		    struct net2_cneg_exchange*);
 static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
+static int	 cneg_keyex_validate_signatures(struct net2_conn_negotiator*,
+		    struct cneg_keyex_ctx*, int*);
 static struct net2_buffer
 		*cneg_keyex_data(struct cneg_keyex_ctx*);
+static struct net2_buffer
+		*cneg_keyex_sig(struct cneg_keyex_ctx*, size_t);
 static int	 cneg_keyex_ctx_encode_payload(struct net2_buffer**,
 		    struct cneg_keyex_ctx*, struct net2_encdec_ctx*,
 		    struct net2_evbase*, struct net2_tx_callback*,
@@ -1354,6 +1358,80 @@ cneg_keyex_is_done(struct cneg_keyex_ctx *ctx)
 	ctx->flags |= CNEG_KEYEX_COMPLETE;
 	return 1;
 }
+/* Test keyex signatures. */
+static int
+cneg_keyex_validate_signatures(struct net2_conn_negotiator *cn,
+    struct cneg_keyex_ctx *ctx, int *valid)
+{
+	size_t			 i;
+	struct net2_sign_ctx	*signctx;
+	struct net2_signature	 sent;
+	struct net2_encdec_ctx	 c;
+	struct net2_buffer	*sentbuf, *payload;
+	int			 sigvalid;
+	int			 error;
+
+	/* Empty set consists of only valid signatures. */
+	*valid = 1;
+
+	/* Get data that was signed. */
+	if ((payload = cneg_keyex_data(ctx)) == NULL)
+		goto fail_0;
+	/* Initialize encoding context. */
+	if ((error = net2_encdec_ctx_newaccsocket(&c,
+	    &CNEG_CONN(cn)->n2c_socket)) != 0)
+		goto fail_1;
+
+	for (i = 0; i < cn->signature_list.size; i++) {
+		signctx = cn->signature_list.signatures[i];
+
+		/* Decode sent signature. */
+		if ((sentbuf = cneg_keyex_sig(ctx, i)) == NULL)
+			goto fail_2;
+		if ((error = net2_cp_init(&c, &cp_net2_signature, &sent,
+		    NULL)) != 0)
+			goto fail_3;
+		if ((error = net2_cp_decode(&c, &cp_net2_signature, &sent,
+		    sentbuf, NULL)) != 0)
+			goto fail_4;
+		if (!net2_buffer_empty(sentbuf)) {
+			error = EINVAL;
+			goto fail_5;
+		}
+
+		/* Actual validation. */
+		sigvalid = 0;
+		if ((error = net2_signature_validate(&sent, payload, signctx,
+		    &sigvalid)) != 0)
+			goto fail_6;
+		/* Validation failure, but keep checking the other elements. */
+		if (!sigvalid)
+			*valid = 0;
+
+		net2_cp_destroy(&c, &cp_net2_signature, &sent, NULL);
+		net2_buffer_free(sentbuf);
+	}
+
+	net2_encdec_ctx_deinit(&c);
+	net2_buffer_free(payload);
+	return 0;
+
+
+fail_6:
+fail_5:
+fail_4:
+	net2_cp_destroy(&c, &cp_net2_signature, &sent, NULL);
+fail_3:
+	net2_buffer_free(sentbuf);
+fail_2:
+	net2_encdec_ctx_deinit(&c);
+fail_1:
+	net2_buffer_free(payload);
+fail_0:
+	assert(error != 0);
+	*valid = 0;
+	return error;
+}
 /*
  * Return data from keyex.
  * Only succeeds on keyex ctx for input.
@@ -1363,6 +1441,18 @@ cneg_keyex_data(struct cneg_keyex_ctx *ctx)
 {
 	if ((ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) == CNEG_KEYEX_IN)
 		return net2_combiner_data(&ctx->in.payload);
+	return NULL;
+}
+/*
+ * Return signature from keyex.
+ * Only succeeds on keyex ctx for input.
+ */
+static struct net2_buffer*
+cneg_keyex_sig(struct cneg_keyex_ctx *ctx, size_t idx)
+{
+	if ((ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) == CNEG_KEYEX_IN &&
+	    idx < ctx->num_signatures)
+		return net2_combiner_data(&ctx->in.signatures[idx]);
 	return NULL;
 }
 

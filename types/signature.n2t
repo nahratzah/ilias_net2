@@ -31,7 +31,7 @@ int	net2_signature_create(struct net2_signature*,
 	    const struct net2_buffer*, int, struct net2_sign_ctx*);
 ILIAS_NET2_LOCAL
 int	net2_signature_validate(struct net2_signature*,
-	    const struct net2_buffer*, struct net2_sign_ctx**, size_t,
+	    const struct net2_buffer*, struct net2_sign_ctx*,
 	    int*);
 ILIAS_NET2_LOCAL
 void	net2_signature_deinit(struct net2_signature*);
@@ -124,8 +124,7 @@ fail_0:
 ILIAS_NET2_LOCAL int
 net2_signature_validate(struct net2_signature *s,
     const struct net2_buffer *to_sign,
-    struct net2_sign_ctx **signatures, size_t num_signatures,
-    int *valid)
+    struct net2_sign_ctx *signature, int *valid)
 {
 	int			 error;
 	int			 hash_alg;
@@ -153,18 +152,13 @@ net2_signature_validate(struct net2_signature *s,
 	}
 
 
-	/* Check against signature algorithms. */
-	for (i = 0; i < num_signatures; i++) {
-		/* Skip obvious non-match: wrong algorithm. */
-		if (strcmp(net2_signctx_name(signatures[i]), s->sign_alg) != 0)
-			continue;
+	/* Skip obvious non-match: wrong algorithm. */
+	if (strcmp(net2_signctx_name(signature), s->sign_alg) != 0)
+		error = EINVAL;
 
-		/* Correct algorithm, test. */
-		if (net2_signctx_validate(signatures[i], s->data, hash)) {
-			*valid = 1;
-			break;	/* One succesful validation is sufficient. */
-		}
-	}
+	/* Correct algorithm, test. */
+	if (net2_signctx_validate(signature, s->data, hash))
+		*valid = 1;
 
 	/* Release hash buffer. */
 	net2_buffer_free(hash);
