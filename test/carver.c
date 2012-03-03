@@ -17,19 +17,31 @@
 #include <ilias/net2/init.h>
 #include <ilias/net2/carver.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/tx_callback.h>
+#include <ilias/net2/encdec_ctx.h>
+#include <ilias/net2/evbase.h>
 #include <bsd_compat/secure_random.h>
 #include <bsd_compat/minmax.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <event2/event.h>
 
 int fail = 0;
 
+const char *buffer_data = "Op zekeren dag dat de opstandelingen op-nieuw "
+    "waren geslagen, doolde hy rond in een dorp dat pas veroverd was door "
+    "het Nederlandsche leger, en dus in brand stond. Saidjah wist dat de "
+    "bende die daar vernietigd was geworden, grootendeels uit Bantammers "
+    "had bestaan. Als een spook waarde hij rond in de huizen die nog niet "
+    "geheel verbrand waren, en vond het lyk van Adinda's vader met een "
+    "klewang-bajonetwonde in de borst. Naast hem zag Saidjah de drie "
+    "vermoorde broeders van Adinda, jongelingen, byna kinderen nog, en een "
+    "weinig verder lag het lyk van Adinda, naakt, afschuwelijk mishandeld.";
+
 struct net2_buffer*
-mk_buffer(size_t sz)
+mk_buffer()
 {
-	uint8_t		 tmp[1024];
-	size_t		 reduce;
 	struct net2_buffer
 			*out;
 
@@ -38,43 +50,144 @@ mk_buffer(size_t sz)
 		abort();
 	}
 
-	while (sz > 0) {
-		reduce = MIN(sizeof(tmp), sz);
+	if ((net2_buffer_add_reference(out, (void*)buffer_data,
+	    strlen(buffer_data) + 1, NULL, NULL)) != 0) {
+		fprintf(stderr, "Could not reference buffer data.\n");
+		abort();
+	}
 
-		secure_random_buf(tmp, reduce);
-		if (net2_buffer_add(out, tmp, reduce)) {
-			fprintf(stderr, "Could not add to buffer.\n");
+	return out;
+}
+
+void
+mk_encdec_ctx(struct net2_encdec_ctx *ctx)
+{
+	struct net2_pvlist	 pvlist;
+
+	if (net2_pvlist_init(&pvlist) ||
+	    net2_pvlist_add(&pvlist, &net2_proto, net2_proto.version) ||
+	    net2_encdec_ctx_init(ctx, &pvlist, NULL)) {
+		fprintf(stderr, "Failed to create encoder context.\n");
+		abort();
+	}
+	net2_pvlist_deinit(&pvlist);
+}
+
+void
+transmit(struct net2_carver *carver, struct net2_combiner *combiner, struct net2_evbase *evbase, size_t packet_sz)
+{
+	struct net2_tx_callback	 callbacks;
+	struct net2_buffer	*buf;
+	int			 error;
+	struct net2_encdec_ctx	 ctx;
+	char			*hex;
+
+	mk_encdec_ctx(&ctx);
+
+	printf("Starting transmit with packet size %zu\n", packet_sz);
+
+	while (!(net2_carver_is_done(carver) ||
+	    net2_combiner_is_done(combiner))) {
+		if ((buf = net2_buffer_new()) == NULL) {
+			fprintf(stderr, "Failed to allocate buffer.\n");
 			abort();
 		}
-		sz -= reduce;
+		if ((error = net2_txcb_init(&callbacks)) != 0) {
+			fprintf(stderr, "Failed to init tx_callback: %d\n",
+			    error);
+			abort();
+		}
+
+		error = net2_carver_get_transmit(carver, &ctx,
+		    evbase, buf, &callbacks, packet_sz);
+		if (error != 0) {
+			fprintf(stderr, "carver_get_trnasmit: fatal error "
+			    "%d: %s\n", error, strerror(error));
+			abort();
+		}
+		if (net2_buffer_empty(buf))
+			goto skip;
+
+		hex = net2_buffer_hex(buf, &malloc);
+		printf("Sent buffer: %s\n", hex);
+		free(hex);
+
+		error = net2_combiner_accept(combiner, &ctx,
+		    buf);
+		if (error != 0) {
+			fprintf(stderr, "combiner_accept: fatal error "
+			    "%d: %s\n", error, strerror(error));
+			abort();
+		}
+		if (!net2_buffer_empty(buf)) {
+			fprintf(stderr, "combiner_accept: "
+			    "did not consume entire buffer\n");
+			abort();
+		}
+
+skip:
+		net2_txcb_ack(&callbacks);
+		net2_txcb_nack(&callbacks);
+		net2_txcb_deinit(&callbacks);
+		event_base_dispatch(evbase->evbase);
+		net2_buffer_free(buf);
 	}
-	return out;
+
+	net2_encdec_ctx_deinit(&ctx);
+	printf("Done transmitting\n");
 }
 
 int
 test_run(size_t packet_sz)
 {
-	struct net2_buffer
-			*original;
-	struct net2_carver
-			 carver;
-	struct net2_combiner
-			 combiner;
+	struct net2_buffer	*original, *copy;
+	struct net2_carver	 carver;
+	struct net2_combiner	 combiner;
+	struct net2_evbase	*evbase;
+	struct net2_encdec_ctx	 ctx;
 
-	original = mk_buffer(0xfffe);
+	if ((evbase = net2_evbase_new()) == NULL) {
+		fprintf(stderr, "Failed to init net2_evbase.\n");
+		abort();
+	}
+	original = mk_buffer();
 
 	if (net2_carver_init(&carver, NET2_CARVER_16BIT, original)) {
-		fprintf(stderr, "Failed to init carver.");
+		fprintf(stderr, "Failed to init carver.\n");
 		return 1;
 	}
 	if (net2_combiner_init(&combiner, NET2_CARVER_16BIT)) {
-		fprintf(stderr, "Failed to init combiner.");
+		fprintf(stderr, "Failed to init combiner.\n");
 		return 1;
+	}
+
+	transmit(&carver, &combiner, evbase, packet_sz);
+
+	if (!net2_carver_is_done(&carver)) {
+		fprintf(stderr, "Carver has not completed...\n");
+		fail++;
+	}
+	if (!net2_combiner_is_done(&combiner)) {
+		fprintf(stderr, "Combiner has not completed...\n");
+		fail++;
+	}
+
+	copy = net2_combiner_data(&combiner);
+	if (copy == NULL) {
+		fprintf(stderr, "Combiner returned NULL result...\n");
+		fail++;
+	} else if (net2_buffer_cmp(original, copy) != 0) {
+		fprintf(stderr, "Transmitted result differs from original...\n");
+		fail++;
 	}
 
 	net2_carver_deinit(&carver);
 	net2_combiner_deinit(&combiner);
 	net2_buffer_free(original);
+
+	event_base_dispatch(evbase->evbase);
+	net2_evbase_release(evbase);
+
 	return 0;
 }
 
@@ -86,8 +199,10 @@ main()
 
 	if (test_run(17))
 		fail++;
+	fprintf(stderr, "\n\n");
 	if (test_run(32))
 		fail++;
+	fprintf(stderr, "\n\n");
 	if (test_run(1000000))
 		fail++;
 
