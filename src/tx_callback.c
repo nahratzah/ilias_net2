@@ -35,6 +35,7 @@ struct net2_tx_callback_cb {
 #define NET2_TXCB_ACK		1 /* State: ack received. */
 #define NET2_TXCB_NACK		2 /* State: ack received. */
 #define NET2_TXCB_DESTROY	3 /* State: destroyed. */
+#define NET2_TXCB_INVALID	0xffffffff
 
 	struct event		*txcb_ev;	/* Conclusion event. */
 	struct event		*txcb_ev_timeout; /* Timeout event. */
@@ -94,6 +95,7 @@ txcb_conclude(evutil_socket_t sock, short what, void *txcb_ptr)
 		fn = txcb->txcb_destroy;
 		break;
 	}
+	txcb->txcb_state = NET2_TXCB_INVALID;
 
 	if (fn != NULL)
 		(*fn)(txcb->txcb_arg0, txcb->txcb_arg1);
@@ -125,7 +127,9 @@ tx_callback_cb_new(net2_tx_callback_fn ack, net2_tx_callback_fn nack,
 		if ((txcb->txcb_ev_timeout = event_new(evbase->evbase, -1, 0,
 		    txcb_timeout, txcb)) == NULL)
 			goto fail_1;
-	}
+	} else
+		txcb->txcb_ev_timeout = NULL;
+
 	if ((txcb->txcb_ev = event_new(evbase->evbase, -1, 0,
 	    txcb_conclude, txcb)) == NULL)
 		goto fail_2;
@@ -248,8 +252,8 @@ net2_txcb_merge(struct net2_tx_callback *dst, struct net2_tx_callback *src)
 /* Add callback to tx callback. */
 ILIAS_NET2_EXPORT int
 net2_txcb_add(struct net2_tx_callback *cb, struct net2_evbase *evbase,
-    net2_tx_callback_fn ack, net2_tx_callback_fn nack,
-    net2_tx_callback_fn timeout, net2_tx_callback_fn destroy,
+    net2_tx_callback_fn timeout, net2_tx_callback_fn ack,
+    net2_tx_callback_fn nack, net2_tx_callback_fn destroy,
     void *arg0, void *arg1)
 {
 	struct net2_tx_callback_cb
