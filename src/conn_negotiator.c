@@ -241,6 +241,7 @@ static int	 net2_cneg_exchange_deliver(struct net2_cneg_exchange*,
 		    struct exchange_msg*, struct net2_encdec_ctx*,
 		    struct net2_buffer*);
 static int	 net2_cneg_exchange_is_done(struct net2_cneg_exchange*);
+static void	 net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
