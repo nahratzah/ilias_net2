@@ -451,6 +451,7 @@ write_window_buf:
 		 * instead of commit.
 		 */
 		net2_connwindow_tx_rollback(tx);
+		net2_txcb_nack(&callbacks);
 		tx = NULL;
 
 		rv = 0;
@@ -479,9 +480,12 @@ fail_2:
 		if (rv == 0) {
 			net2_connwindow_tx_commit(tx, &ph,
 			    net2_buffer_length(b), &callbacks);
-		} else
+		} else {
 			net2_connwindow_tx_rollback(tx);
+			net2_txcb_nack(&callbacks);
+		}
 	}
+	assert(net2_txcb_empty(&callbacks));
 	net2_txcb_deinit(&callbacks);
 fail_1:
 	if (b != NULL)
