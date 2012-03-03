@@ -180,6 +180,7 @@ ILIAS_NET2_EXPORT int
 net2_combiner_init(struct net2_combiner *c, enum net2_carver_type type)
 {
 	c->flags = 0;
+	c->expected_size = (size_t)-1;
 	RB_INIT(&c->ranges);
 
 	switch (type) {
@@ -475,7 +476,7 @@ carver_setup_msg(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		} else {
 			if (sz - 1 > 0xffffU)
 				return ENOSPC;
-			msg.msg_16.size = sz - 1;
+			msg.msg_16.size = sz - 1U;
 		}
 		break;
 	case NET2_CARVER_F_32BIT:
@@ -489,7 +490,7 @@ carver_setup_msg(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		} else {
 			if (sz - 1 > 0xffffffffU)
 				return ENOSPC;
-			msg.msg_32.size = sz - 1;
+			msg.msg_32.size = sz - 1U;
 		}
 		break;
 	}
