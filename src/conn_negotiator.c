@@ -1369,6 +1369,10 @@ cneg_keyex_ctx_encode_payload(struct net2_buffer **outptr,
 		error = 0;
 		goto fail_3;
 	}
+	if (net2_buffer_empty(carver_buf)) {
+		error = 0;
+		goto fail_3;
+	}
 
 	/*
 	 * tx now contains completion events, so this message may not succeed
@@ -2329,6 +2333,10 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 	/* Done. */
 	if (!net2_buffer_empty(buf))
 		ph->flags |= PH_HANDSHAKE_S2;
+	else {
+		net2_buffer_free(buf);
+		buf = NULL;
+	}
 	error = 0;
 	*bufptr = buf;
 	buf = NULL;
@@ -2358,6 +2366,9 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 	/* Check that stage is sufficient to transmit. */
 	switch (cn->stage) {
 	case NET2_CNEG_STAGE_PRISTINE:
+#if 0 /* notyet */
+	case NET2_CNEG_STAGE_KEY_EXCHANGE:
+#endif
 		return 0;
 	}
 
