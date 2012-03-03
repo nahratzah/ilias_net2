@@ -2214,7 +2214,6 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	struct net2_encdec_ctx	 ctx;
 	struct net2_cneg_exchange
 				*exchange;
-	int			 local;
 	int			 result_alg, xchange_alg;
 	size_t			 keysize;
 	int			 signature_idx;
@@ -2230,7 +2229,6 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		if (msg.slot == SLOT_FIN)
 			break;		/* GUARD */
 
-		local = 0;	/* Not local exchange. */
 		switch (msg.slot) {
 		default:
 			/* Unrecognized slot. */
@@ -2238,8 +2236,6 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 			goto out_with_msg;
 		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL:
 		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL:
-			local = 1;
-			/* FALLTHROUGH */
 		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
 		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
 			exchange = &cn->stage2.xchanges[msg.slot];
