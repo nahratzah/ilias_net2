@@ -23,7 +23,7 @@
 /*
  * Allocate a new encoding/decoding context.
  */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_encdec_ctx_init(struct net2_encdec_ctx *ctx, struct net2_pvlist *pv,
     struct net2_objmanager *m)
 {
@@ -47,7 +47,7 @@ fail_0:
 /*
  * Perform a rollback on the encoding/decoding context.
  */
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 net2_encdec_ctx_rollback(struct net2_encdec_ctx *ctx)
 {
 	assert(ctx != &net2_encdec_proto0);
@@ -59,7 +59,7 @@ net2_encdec_ctx_rollback(struct net2_encdec_ctx *ctx)
  *
  * This operation commits the context.
  */
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 net2_encdec_ctx_deinit(struct net2_encdec_ctx *ctx)
 {
 	assert(ctx != &net2_encdec_proto0);
@@ -69,7 +69,7 @@ net2_encdec_ctx_deinit(struct net2_encdec_ctx *ctx)
 /*
  * Create a new encdec_ctx from a connection.
  */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx *ctx,
     struct net2_acceptor_socket *s)
 {
@@ -98,7 +98,7 @@ out_0:
 /*
  * Create a new encdec_ctx from an objmanager.
  */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_encdec_ctx_newobjman(struct net2_encdec_ctx *ctx,
     struct net2_objmanager *m)
 {
