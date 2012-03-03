@@ -254,6 +254,7 @@ static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
 static int	 stage2_init_xchange_post(struct net2_cneg_exchange*,
 		    struct net2_buffer*);
 static void	 stage2_init_xchange_promise_cb(evutil_socket_t, short, void*);
+static void	 stage2_exchange_cb(evutil_socket_t, short, void*);
 
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
@@ -1729,8 +1730,11 @@ static int
 net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
     struct net2_cneg_exchange *e)
 {
-	struct event	*ev;
-	int		 error;
+	struct event		*ev;
+	int			 error;
+	struct net2_evbase	*evbase;
+
+	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
 
 	/* Mini init: ensure destroying the buffer is safe. */
 	cneg_keyex_ctx_init(&e->initbuf);
@@ -1752,9 +1756,19 @@ net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
 			goto fail_1;
 	}
 
-	if ((e->key_promise = net2_promise_new()) == NULL)
+	if ((e->key_promise = net2_promise_new()) == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
 	net2_promise_set_running(e->key_promise);
+	if ((ev = event_new(evbase->evbase, -1, 0,
+	    &stage2_exchange_cb, cn)) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
+	if ((error = net2_promise_set_event(e->key_promise,
+	    NET2_PROM_ON_FINISH, ev, NULL)) != 0)
+		goto fail_2;
 
 	return 0;
 
@@ -2260,6 +2274,52 @@ stage2_init_xchange_promise_cb(evutil_socket_t fd, short what, void *e_ptr)
 	cneg_ready_to_send(e->cneg);
 }
 
+/* Exchange completion callback. */
+static void
+stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
+{
+	struct net2_conn_negotiator
+				*cn = cneg_ptr;
+	struct net2_buffer	*buf;
+	uint32_t		 prom_err;
+	char			*key;
+	size_t			 i;
+	int			 error;
+
+	/* Check that all promises have completed. */
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+		if (!net2_promise_is_finished(
+		    cn->stage2.xchanges[i].key_promise))
+			return;
+	}
+
+	/* Print each output. */
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+		if ((error = net2_promise_get_result(
+		    cn->stage2.xchanges[i].key_promise, (void**)&buf,
+		    &prom_err)) != 0)
+			goto fail;
+
+		key = net2_buffer_hex(buf, malloc);
+		fprintf(stderr, "Exchange %zu key: %s\n", i, key);
+		free(key);
+	}
+
+	/* Negotiation complete. */
+	cn->stage = NET2_CNEG_STAGE_PROTO_IDLE;
+	/* Disengage stealth. */
+	CNEG_CONN(cn)->n2c_stealth |= NET2_CONN_STEALTH_UNSTEALTH;
+
+	return;
+
+fail:
+	/*
+	 * TODO: inform negotiator that we encountered an error and cannot
+	 * recover.
+	 */
+	abort();
+}
+
 
 /*
  * Handle stage 1 decoding and application.
@@ -2655,9 +2715,7 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn, uint32_t seq)
 	/* Check that stage is sufficient to transmit. */
 	switch (cn->stage) {
 	case NET2_CNEG_STAGE_PRISTINE:
-#if 0 /* notyet */
 	case NET2_CNEG_STAGE_KEY_EXCHANGE:
-#endif
 		return 0;
 	}
 
@@ -2861,12 +2919,6 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	if (cn->stage == NET2_CNEG_STAGE_PRISTINE && all_done(cn)) {
 		if ((error = cneg_conclude_pristine(cn)) != 0)
 			goto fail;
-
-		/*
-		 * Disengage stealth (TODO: move down once more states
-		 * are added.
-		 */
-		CNEG_CONN(cn)->n2c_stealth |= NET2_CONN_STEALTH_UNSTEALTH;
 	}
 
 	/* Handle stage 2 decoding. */
