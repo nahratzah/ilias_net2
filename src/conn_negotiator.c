@@ -132,13 +132,6 @@ decode_header(struct header *h, struct net2_buffer *in)
 	return net2_cp_decode(&net2_encdec_proto0, &cp_header, h, in, NULL);
 }
 
-/* Notify connection that we want to send data. */
-static __inline void
-cneg_ready_to_send(struct net2_conn_negotiator *cn)
-{
-	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
-}
-
 /*
  * Initialize keyex without actual data.
  * Ensures that calling init or deinit on this is a safe operation.
@@ -169,6 +162,9 @@ flip_slot(int slot)
 	return undecorated | rl;
 }
 
+
+static void	 cneg_ready_to_send(struct net2_conn_negotiator*);
+static void	 carver_ready_to_send(void*, void*);
 
 static struct encoded_header
 		*mk_encoded_header();
@@ -207,7 +203,8 @@ static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 
 static int	 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx*,
 		    struct net2_encdec_ctx*, struct net2_buffer*,
-		    int, struct net2_sign_ctx**, size_t);
+		    int, struct net2_sign_ctx**, size_t,
+		    struct net2_conn_negotiator*);
 static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t);
 static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
@@ -248,6 +245,22 @@ static void	 stage2_init_xchange_promise_cb(evutil_socket_t, short, void*);
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
 
+
+/* Notify connection that we want to send data. */
+static void
+cneg_ready_to_send(struct net2_conn_negotiator *cn)
+{
+	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
+}
+/* Carver callback that it has data to send. */
+static void
+carver_ready_to_send(void *cn_ptr, void *unusued)
+{
+	struct net2_conn_negotiator	*cn;
+
+	cn = cn_ptr;
+	cneg_ready_to_send(cn);
+}
 
 /* Queue encoded headers. */
 struct encoded_header {
@@ -1143,7 +1156,8 @@ cneg_prepare_key_exchange(struct net2_conn_negotiator *cn)
 static int
 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
     struct net2_buffer *payload,
-    int hash_alg, struct net2_sign_ctx **signatures, size_t signatures_size)
+    int hash_alg, struct net2_sign_ctx **signatures, size_t signatures_size,
+    struct net2_conn_negotiator *cn)
 {
 	struct net2_signature	 sigdata;
 	struct net2_buffer	*tmp;
@@ -1166,6 +1180,8 @@ cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
 	if ((error = net2_carver_init(&ctx->out.payload, NET2_CARVER_16BIT,
 	    payload)) != 0)
 		goto fail_1;
+	net2_carver_set_rts(&ctx->out.payload,
+	    &carver_ready_to_send, cn, NULL);
 
 	/* Calculate each signature. */
 	for (i = 0; i < signatures_size; i++) {
@@ -1191,6 +1207,8 @@ cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
 			net2_signature_deinit(&sigdata);
 			goto fail_3;
 		}
+		net2_carver_set_rts(&ctx->out.signatures[i],
+		    &carver_ready_to_send, cn, NULL);
 
 		net2_buffer_free(tmp);
 		net2_signature_deinit(&sigdata);
@@ -1865,11 +1883,11 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 
 	if ((error = cneg_keyex_ctx_init_out(&e->initbuf, &ctx, initbuf,
 	    hash_alg, cn->signature_list.signatures,
-	    cn->signature_list.size)) != 0)
+	    cn->signature_list.size, cn)) != 0)
 		goto fail_2;
 	if ((error = cneg_keyex_ctx_init_out(&e->export, &ctx, export,
 	    hash_alg, cn->signature_list.signatures,
-	    cn->signature_list.size)) != 0)
+	    cn->signature_list.size, cn)) != 0)
 		goto fail_3;
 	e->state |= S2_CARVER_INITDONE;
 
