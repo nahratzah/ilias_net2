@@ -180,6 +180,7 @@ test_run(size_t packet_sz)
 		fprintf(stderr, "Transmitted result differs from original...\n");
 		fail++;
 	}
+	net2_buffer_free(copy);
 
 	net2_carver_deinit(&carver);
 	net2_combiner_deinit(&combiner);
