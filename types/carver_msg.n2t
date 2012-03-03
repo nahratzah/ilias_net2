@@ -73,5 +73,6 @@ struct carver_msg_header (ctype struct carver_msg_header,
     init NULL,
     destroy NULL,
     protocol net2_proto) {
-	uint8			msg_type;
+	uint32			msg_type;
+	uint32			reserved;
 };
