@@ -206,8 +206,9 @@ static int	 cneg_prepare_key_exchange(struct net2_conn_negotiator*);
 static int	 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx*,
 		    struct net2_encdec_ctx*, struct net2_buffer*,
 		    int, struct net2_sign_ctx**, size_t,
-		    struct net2_conn_negotiator*);
-static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t);
+		    struct net2_conn_negotiator*, struct net2_cneg_exchange*);
+static int	 cneg_keyex_ctx_init_in(struct cneg_keyex_ctx*, size_t,
+		    struct net2_cneg_exchange*);
 static void	 cneg_keyex_deinit(struct cneg_keyex_ctx*);
 static int	 cneg_keyex_is_done(struct cneg_keyex_ctx*);
 static struct net2_buffer
@@ -241,7 +242,8 @@ static int	 net2_cneg_exchange_deliver(struct net2_cneg_exchange*,
 		    struct exchange_msg*, struct net2_encdec_ctx*,
 		    struct net2_buffer*);
 static int	 net2_cneg_exchange_is_done(struct net2_cneg_exchange*);
-static void	 net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange*);
+static void	 net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange*,
+		    void*);
 static int	 stage2_init_exchange(struct net2_ctx*,
 		    struct net2_cneg_exchange*);
 static int	 stage2_init_exchange_directly(struct net2_cneg_exchange*);
@@ -1164,7 +1166,7 @@ static int
 cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
     struct net2_buffer *payload,
     int hash_alg, struct net2_sign_ctx **signatures, size_t signatures_size,
-    struct net2_conn_negotiator *cn)
+    struct net2_conn_negotiator *cn, struct net2_cneg_exchange *e)
 {
 	struct net2_signature	 sigdata;
 	struct net2_buffer	*tmp;
@@ -1189,6 +1191,9 @@ cneg_keyex_ctx_init_out(struct cneg_keyex_ctx *ctx, struct net2_encdec_ctx *c,
 		goto fail_1;
 	net2_carver_set_rts(&ctx->out.payload,
 	    &carver_ready_to_send, cn, NULL);
+	net2_carver_set_ready(&ctx->out.payload,
+	    (void(*)(void*, void*))&net2_cneg_exchange_postprocess_cb,
+	    e, NULL);
 
 	/* Calculate each signature. */
 	for (i = 0; i < signatures_size; i++) {
@@ -1237,7 +1242,8 @@ fail_0:
 }
 /* Initialize keyex for inbound data. */
 static int
-cneg_keyex_ctx_init_in(struct cneg_keyex_ctx *ctx, size_t signatures_size)
+cneg_keyex_ctx_init_in(struct cneg_keyex_ctx *ctx, size_t signatures_size,
+    struct net2_cneg_exchange *e)
 {
 	int			 error;
 	size_t			 i;
@@ -1258,12 +1264,18 @@ cneg_keyex_ctx_init_in(struct cneg_keyex_ctx *ctx, size_t signatures_size)
 	if ((error = net2_combiner_init(&ctx->in.payload,
 	    NET2_CARVER_16BIT)) != 0)
 		goto fail_1;
+	net2_combiner_set_ready(&ctx->in.payload,
+	    (void(*)(void*, void*))&net2_cneg_exchange_postprocess_cb,
+	    e, NULL);
 
 	/* Initialize receivers for signatures. */
 	for (i = 0; i < signatures_size; i++) {
 		if ((error = net2_combiner_init(&ctx->in.signatures[i],
 		    NET2_CARVER_16BIT)) != 0)
 			goto fail_3;
+		net2_combiner_set_ready(&ctx->in.signatures[i],
+		    (void(*)(void*, void*))&net2_cneg_exchange_postprocess_cb,
+		    e, NULL);
 	}
 
 	return 0;
@@ -1638,12 +1650,12 @@ net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
 	e->promise = NULL;
 
 	if ((error = cneg_keyex_ctx_init_in(&e->import,
-	    cn->signature_list.size)) != 0)
+	    cn->signature_list.size, e)) != 0)
 		goto fail_1;
 	if ((idx & (NET2_CNEG_S2_REMOTE | NET2_CNEG_S2_LOCAL)) ==
 	    NET2_CNEG_S2_REMOTE) {
 		if ((error = cneg_keyex_ctx_init_in(&e->initbuf,
-		    cn->signature_list.size)) != 0)
+		    cn->signature_list.size, e)) != 0)
 			goto fail_1;
 	}
 
@@ -1801,7 +1813,7 @@ net2_cneg_exchange_is_done(struct net2_cneg_exchange *e)
  * Invoked from carver and combiner completion routines.
  */
 static void
-net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e)
+net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 {
 	struct net2_buffer	*initbuf, *export, *import, *key;
 	int			 error;
@@ -1812,8 +1824,10 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e)
 	cn = e->cneg;
 	initbuf = export = import = key = NULL;
 	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
-	    &CNEG_CONN(cn)->n2c_socket)) != 0)
-		goto fail;
+	    &CNEG_CONN(cn)->n2c_socket)) != 0) {
+		net2_promise_set_error(e->key_promise, error, 0);
+		return;
+	}
 
 	/* Set up xchange if this is a remotely initiated exchange. */
 	if (e->xchange == NULL && cneg_keyex_is_done(&e->initbuf)) {
@@ -1830,7 +1844,7 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e)
 			goto fail;
 		if ((error = cneg_keyex_ctx_init_out(&e->export, &ctx, export,
 		    e->hash_alg, cn->signature_list.signatures,
-		    cn->signature_list.size, cn)) != 0)
+		    cn->signature_list.size, cn, e)) != 0)
 			goto fail;
 
 		cneg_ready_to_send(cn);	/* Start sending this. */
@@ -1869,10 +1883,10 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e)
 
 fail:
 	assert(error != 0);
-	net2_encdec_ctx_deinit(&ctx);
 	/* Any failure must inform caller, via promise. */
 	net2_promise_set_error(e->key_promise, error, 0);
 out:
+	net2_encdec_ctx_deinit(&ctx);
 	if (initbuf != NULL)
 		net2_buffer_free(initbuf);
 	if (export != NULL)
@@ -2030,11 +2044,11 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 
 	if ((error = cneg_keyex_ctx_init_out(&e->initbuf, &ctx, initbuf,
 	    hash_alg, cn->signature_list.signatures,
-	    cn->signature_list.size, cn)) != 0)
+	    cn->signature_list.size, cn, e)) != 0)
 		goto fail_2;
 	if ((error = cneg_keyex_ctx_init_out(&e->export, &ctx, export,
 	    hash_alg, cn->signature_list.signatures,
-	    cn->signature_list.size, cn)) != 0)
+	    cn->signature_list.size, cn, e)) != 0)
 		goto fail_3;
 	e->state |= S2_CARVER_INITDONE;
 
