@@ -74,7 +74,8 @@ mk_encdec_ctx(struct net2_encdec_ctx *ctx)
 }
 
 void
-transmit(struct net2_carver *carver, struct net2_combiner *combiner, struct net2_evbase *evbase, size_t packet_sz)
+transmit(struct net2_carver *carver, struct net2_combiner *combiner,
+    struct net2_evbase *evbase, size_t packet_sz)
 {
 	struct net2_tx_callback	 callbacks;
 	struct net2_buffer	*buf;
@@ -138,7 +139,7 @@ skip:
 }
 
 int
-test_run(size_t packet_sz)
+test_run(size_t packet_sz, enum net2_carver_type carver_type)
 {
 	struct net2_buffer	*original, *copy;
 	struct net2_carver	 carver;
@@ -152,11 +153,11 @@ test_run(size_t packet_sz)
 	}
 	original = mk_buffer();
 
-	if (net2_carver_init(&carver, NET2_CARVER_16BIT, original)) {
+	if (net2_carver_init(&carver, carver_type, original)) {
 		fprintf(stderr, "Failed to init carver.\n");
 		return 1;
 	}
-	if (net2_combiner_init(&combiner, NET2_CARVER_16BIT)) {
+	if (net2_combiner_init(&combiner, carver_type)) {
 		fprintf(stderr, "Failed to init combiner.\n");
 		return 1;
 	}
@@ -198,13 +199,24 @@ main()
 	test_start();
 	net2_init();
 
-	if (test_run(17))
+	/* 16 BIT */
+	if (test_run(17, NET2_CARVER_16BIT))
 		fail++;
 	fprintf(stderr, "\n\n");
-	if (test_run(32))
+	if (test_run(32, NET2_CARVER_16BIT))
 		fail++;
 	fprintf(stderr, "\n\n");
-	if (test_run(1000000))
+	if (test_run(1000000, NET2_CARVER_16BIT))
+		fail++;
+
+	/* 32 BIT */
+	if (test_run(17, NET2_CARVER_32BIT))
+		fail++;
+	fprintf(stderr, "\n\n");
+	if (test_run(32, NET2_CARVER_32BIT))
+		fail++;
+	fprintf(stderr, "\n\n");
+	if (test_run(1000000, NET2_CARVER_32BIT))
 		fail++;
 
 	net2_cleanup();
