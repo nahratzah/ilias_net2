@@ -51,7 +51,7 @@ struct carver_msg_16 (ctype struct carver_msg_16,
 struct carver_msg_32 (ctype struct carver_msg_32,
     protocol net2_proto) {
 	uint32			offset;
-	net2_buffer		payload;
+	short_net2_buffer	payload;
 };
 
 struct carver_msg_setup_16 (ctype struct carver_msg_setup_16,

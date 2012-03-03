@@ -20,6 +20,7 @@
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/tx_callback.h>
 #include <bsd_compat/bsd_compat.h>
+#include <bsd_compat/minmax.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -53,6 +54,9 @@ struct net2_carver_range {
 
 /* Carver only flags. */
 #define NET2_CARVER_F_SZ_TX	0x00010000	/* Size is on wire. */
+
+
+#define MAX_MSG_PAYLOAD		65535
 
 
 static __inline int
@@ -333,7 +337,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		return error;
 
 	if ((error = carver_range_split(c, r,
-	    maxsz - msg_overhead)) != 0)
+	    MIN(maxsz - msg_overhead, MAX_MSG_PAYLOAD))) != 0)
 		return error;
 	if ((error = carver_range_to_msg(c, r, ctx, out)) != 0)
 		return error;
