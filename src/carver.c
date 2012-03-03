@@ -292,7 +292,6 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		break;
 	}
 
-	header.reserved = 0;
 	/* Setup message fits and is untransmitted, so send it now. */
 	if (!(c->flags & NET2_CARVER_F_SZ_TX) && maxsz >= setup_overhead) {
 		/* Encode header for SETUP. */
@@ -469,7 +468,6 @@ carver_setup_msg(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		cp = &cp_carver_msg_setup_16;
 		msg_ptr = &msg.msg_16;
 
-		msg.msg_16.pad = 0;
 		msg.msg_16.flags = 0;
 		if (sz == 0) {
 			msg.msg_16.flags |= NET2_CARVER_SETUP_EMPTY;
@@ -507,6 +505,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	struct net2_carver_range*sibling;
 
 	assert(r != NULL);
+	assert(maxsz > 0);
 	if (net2_buffer_length(r->data) <= maxsz)
 		return 0;
 
@@ -653,10 +652,6 @@ combiner_setup_msg(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 
 	switch (c->flags & NET2_CARVER_F_BITS) {
 	case NET2_CARVER_F_16BIT:
-		if (msg.msg_16.pad != 0) {
-			error = EINVAL;
-			goto out;
-		}
 		sz = msg.msg_16.size;
 		flags = msg.msg_16.flags;
 		break;
