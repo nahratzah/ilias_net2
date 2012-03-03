@@ -51,6 +51,16 @@ struct net2_carver {
 	struct net2_carver_ranges
 				 ranges;
 	size_t			 size;		/* Carver message size. */
+
+	void			(*rts_fn)(void*, void*);
+						/* Ready-to-send callback. */
+	void			*rts_arg0;	/* Argument 1 to rts_fn. */
+	void			*rts_arg1;	/* Argument 2 to rts_fn. */
+
+	void			(*ready_fn)(void*, void*);
+						/* Carver ready callback. */
+	void			*ready_arg0;	/* Argument 1 to ready_fn. */
+	void			*ready_arg1;	/* Argument 2 to ready_fn. */
 };
 
 /*
@@ -63,6 +73,11 @@ struct net2_combiner {
 	struct net2_carver_ranges
 				 ranges;
 	size_t			 expected_size;
+
+	void			(*ready_fn)(void*, void*);
+						/* Combiner ready callback. */
+	void			*ready_arg0;	/* Argument 1 to ready_fn. */
+	void			*ready_arg1;	/* Argument 2 to ready_fn. */
 };
 
 
@@ -97,5 +112,35 @@ int			 net2_carver_get_transmit(struct net2_carver*,
 ILIAS_NET2_EXPORT
 int			 net2_combiner_accept(struct net2_combiner*,
 			    struct net2_encdec_ctx*, struct net2_buffer*);
+
+/* Set carver ready-to-send callback. */
+static __inline void
+net2_carver_set_rts(struct net2_carver *c, void (*fn)(void*, void*),
+    void *arg0, void *arg1)
+{
+	c->rts_fn = fn;
+	c->rts_arg0 = arg0;
+	c->rts_arg1 = arg1;
+}
+
+/* Set carver ready callback. */
+static __inline void
+net2_carver_set_ready(struct net2_carver *c, void (*fn)(void*, void*),
+    void *arg0, void *arg1)
+{
+	c->ready_fn = fn;
+	c->ready_arg0 = arg0;
+	c->ready_arg1 = arg1;
+}
+
+/* Set Combiner ready callback. */
+static __inline void
+net2_combiner_set_ready(struct net2_combiner *c, void (*fn)(void*, void*),
+    void *arg0, void *arg1)
+{
+	c->ready_fn = fn;
+	c->ready_arg0 = arg0;
+	c->ready_arg1 = arg1;
+}
 
 #endif /* ILIAS_NET2_CARVER_H */

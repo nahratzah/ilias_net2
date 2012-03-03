@@ -126,6 +126,12 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 	RB_INIT(&c->ranges);
 	c->size = net2_buffer_length(data);
 
+	/* Clean callback. */
+	c->rts_fn = NULL;
+	c->rts_arg0 = c->rts_arg1 = NULL;
+	c->ready_fn = NULL;
+	c->ready_arg0 = c->ready_arg1 = NULL;
+
 	switch (type) {
 	case NET2_CARVER_16BIT:
 		c->flags |= NET2_CARVER_F_16BIT;
@@ -186,6 +192,10 @@ net2_combiner_init(struct net2_combiner *c, enum net2_carver_type type)
 	c->flags = 0;
 	c->expected_size = (size_t)-1;
 	RB_INIT(&c->ranges);
+
+	/* Clean callback. */
+	c->ready_fn = NULL;
+	c->ready_arg0 = c->ready_arg1 = NULL;
 
 	switch (type) {
 	case NET2_CARVER_16BIT:
@@ -376,7 +386,8 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	default:
 		return EINVAL;
 	case CARVER_MSGTYPE_SETUP:
-		return combiner_setup_msg(c, ctx, in);
+		error = combiner_setup_msg(c, ctx, in);
+		break;
 	case CARVER_MSGTYPE_DATA:
 		if ((r = net2_malloc(sizeof(*r))) == NULL)
 			return ENOMEM;
@@ -397,8 +408,13 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 		 * Don't free r: combiner_msg_combine will have done this,
 		 * or inserted r directly into the tree.
 		 */
-		return 0;
+		error = 0;
+		break;
 	}
+
+	if (error == 0 && c->ready_fn != NULL && net2_combiner_is_done(c))
+		(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
+	return error;
 }
 
 
@@ -803,8 +819,11 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
-	if (!(r->flags & RANGE_DETACHED))
+	if (!(r->flags & RANGE_DETACHED)) {
 		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
+		if (c->ready_fn != NULL && net2_carver_is_done(c))
+			(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
+	}
 
 	net2_buffer_free(r->data);
 	net2_free(r);
@@ -817,9 +836,11 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
-	if (!(r->flags & RANGE_DETACHED))
+	if (!(r->flags & RANGE_DETACHED)) {
 		r->flags &= ~RANGE_TRANSMITTED;
-	else {
+		if (c->rts_fn != NULL)
+			(*c->rts_fn)(c->rts_arg0, c->rts_arg1);
+	} else {
 		net2_buffer_free(r->data);
 		net2_free(r);
 	}
@@ -832,6 +853,8 @@ carver_setup_ack(void *c_ptr, void *unusued)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags |= NET2_CARVER_F_KNOWN_SZ;
+	if (c->ready_fn != NULL && net2_carver_is_done(c))
+		(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
 }
 
 /* Setup receival failed. */
@@ -841,4 +864,6 @@ carver_setup_nack(void *c_ptr, void *unusued)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags &= ~NET2_CARVER_F_SZ_TX;
+	if (c->rts_fn != NULL)
+		(*c->rts_fn)(c->rts_arg0, c->rts_arg1);
 }
