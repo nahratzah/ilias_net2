@@ -1371,6 +1371,9 @@ cneg_keyex_validate_signatures(struct net2_conn_negotiator *cn,
 	int			 sigvalid;
 	int			 error;
 
+	/* Can only validate import buffers. */
+	assert((ctx->flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) == CNEG_KEYEX_IN);
+
 	/* Empty set consists of only valid signatures. */
 	*valid = 1;
 
@@ -1910,6 +1913,7 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 	struct net2_encdec_ctx	 ctx;
 	struct net2_conn_negotiator
 				*cn;
+	int			 import_valid, initbuf_valid;
 
 	cn = e->cneg;
 	initbuf = export = import = key = NULL;
@@ -1948,7 +1952,21 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 	if (!net2_promise_is_running(e->key_promise))
 		goto out;
 
-	/* TODO: validate signatures for initbuf, import. */
+	/* Validate signatures for initbuf, import. */
+	if ((e->initbuf.flags & (CNEG_KEYEX_IN | CNEG_KEYEX_OUT)) !=
+	    CNEG_KEYEX_IN)
+		initbuf_valid = 1; /* Local initbuf validation cannot fail. */
+	else if ((error = cneg_keyex_validate_signatures(cn, &e->initbuf,
+	    &initbuf_valid)) != 0)
+		goto fail;
+	if ((error = cneg_keyex_validate_signatures(cn, &e->import,
+	    &import_valid)) != 0)
+		goto fail;
+	/* Validation check. */
+	if (!initbuf_valid || !import_valid) {
+		error = EINVAL;
+		goto fail;
+	}
 
 	/* Import remotely generated xchange export data. */
 	if ((import = cneg_keyex_data(&e->import)) == NULL)
