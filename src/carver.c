@@ -771,6 +771,7 @@ combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
 		/* r merges with prev. */
 		if (net2_buffer_append(prev->data, r->data))
 			return ENOMEM;
+		net2_buffer_free(r->data);
 		net2_free(r);
 	}
 
