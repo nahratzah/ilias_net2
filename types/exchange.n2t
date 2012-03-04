@@ -230,10 +230,17 @@ mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
 ILIAS_NET2_LOCAL int
 mk_exchange_msg_fin(struct exchange_msg *msg, int poetry)
 {
+	static const char *const poetry_text =
+	    "Secrecy and security aren't the same, "
+	    "even though it may seem that way. "
+	    "Only bad security relies on secrecy; "
+	    "good security works even if all the details of it "
+	    "are public. -- Bruce Schneier";
+
 	msg->slot = SLOT_FIN;
 	msg->msg_id = (poetry ? XMSG_POETRY : 0);
 	if (poetry)
-		msg->payload.poetry = net2_strdup("");
+		msg->payload.poetry = net2_strdup(poetry_text);
 	else
 		msg->payload.poetry = NULL;
 	return 0;
