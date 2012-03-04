@@ -2780,8 +2780,16 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 		payload = NULL;
 	}
 
-	/* Append fin data to buffer, since it is not empty. */
-	if (!net2_buffer_empty(buf)) {
+	/*
+	 * Append fin data to buffer, since it is not empty.
+	 *
+	 * Additionally, put this data in the keep-alive packets, since
+	 * their transmission indicates we are waiting for data to be
+	 * received (unless we're in stealth mode, in which case we won't
+	 * add empty S2 data to keepalives, since that would elevate them
+	 * to the status of non-keepalive and eat our received poetry).
+	 */
+	if (!net2_buffer_empty(buf) || (!stealth && !want_payload)) {
 		if ((net2_buffer_append(buf, fin)) != 0) {
 			error = ENOMEM;
 			goto out;
