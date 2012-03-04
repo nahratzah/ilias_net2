@@ -2042,7 +2042,6 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 	if ((import = cneg_keyex_data(&e->import)) == NULL)
 		goto fail;
 	error = net2_xchangectx_import(e->xchange, import);
-	net2_buffer_free(import);
 	if (error)
 		goto fail;
 
@@ -2373,7 +2372,7 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 	uint32_t		 prom_err;
 	char			*key;
 	size_t			 i;
-	int			 error;
+	int			 prom_fin;
 	int			 ready;
 
 	fprintf(stderr, "Invoked: %s %p\n", __FUNCTION__, cn);
@@ -2395,10 +2394,16 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 
 	/* Print each output. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if ((error = net2_promise_get_result(
+		prom_fin = net2_promise_get_result(
 		    cn->stage2.xchanges[i].key_promise, (void**)&buf,
-		    &prom_err)) != 0)
+		    &prom_err);
+		switch (prom_fin) {
+		default:
 			goto fail;
+			break;
+		case NET2_PROM_FIN_OK:
+			break;
+		}
 
 		key = net2_buffer_hex(buf, malloc);
 		fprintf(stderr, "Exchange %zu key: %s\n", i, key);
