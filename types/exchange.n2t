@@ -26,34 +26,28 @@ struct exchange_msg {
 #define SLOT_FIN			0xffff
 	uint16_t			 msg_id;
 #define XMSG_SIGNATURE			0x8000
-#define XMSG_SETUP			0x0000
 #define XMSG_INITBUF			0x0001
 #define XMSG_RESPONSE			0x0002
 
 	union {
-		/* Setup of exchange. */
-		struct {
-			char		*exchange_alg;
-			char		*result_alg;
-		};
-
 		/* Signature. */
 		uint32_t		 signature_idx;
 	}				 payload;
 };
 
-ILIAS_NET2_LOCAL
-int	 mk_exchange_msg_setup(struct exchange_msg*, int, int, int,
-	    const char*(*)(int));
+/* Encoded form of exchange initbuf. */
+struct exchange_initbuf {
+	char				*xchange_name;
+	char				*result_name;
+	struct net2_buffer		*xchange_init;
+};
+
 ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_buf(struct exchange_msg*, int, int);
 ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_signature(struct exchange_msg*, int, int, int);
 ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_fin(struct exchange_msg*);
-ILIAS_NET2_LOCAL
-struct net2_buffer
-	*exchange_signature_contents(const char*, const char*);
 
 %%
 #include "exchange.h"
@@ -79,13 +73,6 @@ struct exchange_msg__shared (ctype struct exchange_msg,
 	uint16			msg_id;
 };
 
-struct exchange_msg__setup (ctype struct exchange_msg,
-    init NULL,
-    protocol net2_proto) {
-	string			payload.exchange_alg;
-	string			payload.result_alg;
-};
-
 struct exchange_msg__transfer (ctype struct exchange_msg,
     init NULL,
     destroy NULL,
@@ -105,6 +92,13 @@ struct exchange_msg__signature (ctype struct exchange_msg,
 	uint32			payload.signature_idx;
 };
 
+struct exchange_initbuf (ctype struct exchange_initbuf,
+    protocol net2_proto) {
+	string			result_name;
+	string			xchange_name;
+	short_net2_buffer	xchange_init;
+};
+
 %%
 
 static __inline const struct command_param*
@@ -119,8 +113,6 @@ get_exchange_cp(const struct exchange_msg *msg)
 		return &cp_exchange_msg__signature;
 
 	switch (msg->msg_id) {
-	case XMSG_SETUP:
-		return &cp_exchange_msg__setup;
 	case XMSG_INITBUF:
 	case XMSG_RESPONSE:
 		return &cp_exchange_msg__transfer;
@@ -179,45 +171,6 @@ exchange_msg_decode(struct net2_encdec_ctx *c, struct exchange_msg *msg,
 }
 
 
-/* Create setup message. */
-ILIAS_NET2_LOCAL int
-mk_exchange_msg_setup(struct exchange_msg *msg, int slot,
-    int xchange_alg, int result_alg, const char *(*result_alg_to_name)(int))
-{
-	const char			*xchange_name, *result_name;
-
-	if (msg == NULL || result_alg_to_name == NULL)
-		return EINVAL;
-	if (slot < 0 || slot > 0xffff)
-		return EINVAL;
-
-	if ((xchange_name = net2_xchange_getname(xchange_alg)) == NULL)
-		return EINVAL;
-	if ((result_name = (*result_alg_to_name)(result_alg)) == NULL)
-		return EINVAL;
-
-	memset(msg, 0, sizeof(*msg));
-	msg->slot = slot;
-	msg->msg_id = XMSG_SETUP;
-
-	msg->payload.exchange_alg = net2_strdup(xchange_name);
-	msg->payload.result_alg = net2_strdup(result_name);
-	if (msg->payload.exchange_alg == NULL ||
-	    msg->payload.result_alg == NULL) {
-		if (msg->payload.exchange_alg != NULL) {
-			net2_free(msg->payload.exchange_alg);
-			msg->payload.exchange_alg = NULL;
-		}
-		if (msg->payload.result_alg != NULL) {
-			net2_free(msg->payload.result_alg);
-			msg->payload.result_alg = NULL;
-		}
-		return ENOMEM;
-	}
-
-	return 0;
-}
-
 /* Create initbuf and response messages. */
 ILIAS_NET2_LOCAL int
 mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id)
@@ -265,40 +218,4 @@ mk_exchange_msg_fin(struct exchange_msg *msg)
 	msg->slot = SLOT_FIN;
 	msg->msg_id = 0;
 	return 0;
-}
-
-/*
- * Generate the buffer over which the signature for the names must be
- * generated.
- */
-ILIAS_NET2_LOCAL struct net2_buffer*
-exchange_signature_contents(const char *exchange_alg,
-    const char *result_alg)
-{
-	struct exchange_msg	 tmp;
-	struct net2_buffer	*result;
-
-	/* Must have supplied arguments. */
-	if (exchange_alg == NULL || result_alg == NULL)
-		return NULL;
-
-	/* Init temporary message, used for encoding. */
-	memset(&tmp, 0, sizeof(tmp));
-	tmp.payload.exchange_alg = (char*)exchange_alg;
-	tmp.payload.result_alg = (char*)result_alg;
-
-	/* Create result. */
-	if ((result = net2_buffer_new()) == NULL)
-		return NULL;
-
-	/* Encode temporary message into result. */
-	if (net2_cp_encode(&net2_encdec_proto0, &cp_exchange_msg__setup,
-	    result, &tmp, NULL))
-		goto fail;
-
-	return result;
-
-fail:
-	net2_buffer_free(result);
-	return NULL;
 }

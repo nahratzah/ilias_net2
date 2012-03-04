@@ -113,6 +113,7 @@ struct net2_cneg_exchange {
 	int			 hash_alg;	/* Signature hash algorithm. */
 	uint32_t		 keysize;	/* Negotiated key size. */
 
+	int			 s2_slot;	/* Stage 2 slot index. */
 	int			 state;		/* DFA state. */
 #define S2_SETUP_KNOWN		0x00000001	/* Setup received/sent. */
 #define S2_INITBUF_KNOWN	0x00000002	/* Initbuf received/send. */
@@ -1745,6 +1746,7 @@ net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
 	e->state = 0;
 	e->xchange = NULL;
 	e->promise = NULL;
+	e->s2_slot = idx;
 
 	if ((error = cneg_keyex_ctx_init_in(&e->import,
 	    cn->signature_list.size, e)) != 0)
@@ -1871,8 +1873,10 @@ net2_cneg_exchange_get_transmit(struct net2_buffer **outptr,
 	/* Apply result. */
 	if (net2_buffer_empty(out))
 		net2_buffer_free(out);
-	else
+	else {
+		fprintf(stderr, "%s: %zu bytes transmit data for slot %d\n", __FUNCTION__, net2_buffer_length(out), slot);
 		*outptr = out;
+	}
 	return 0;
 
 fail:
@@ -1928,6 +1932,7 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 	struct net2_conn_negotiator
 				*cn;
 	int			 import_valid, initbuf_valid;
+	struct exchange_initbuf	 xinit;
 
 	cn = e->cneg;
 	initbuf = export = import = key = NULL;
@@ -1939,9 +1944,59 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 
 	/* Set up xchange if this is a remotely initiated exchange. */
 	if (e->xchange == NULL && cneg_keyex_is_done(&e->initbuf)) {
-		initbuf = cneg_keyex_data(&e->initbuf);
+		fprintf(stderr, "%s: setup exchange for %d\n", __FUNCTION__, e->s2_slot);
+		if ((initbuf = cneg_keyex_data(&e->initbuf)) == NULL) {
+			error = EINVAL;
+			goto fail;
+		}
+
+		/* Decode initbuf data. */
+		if ((error = net2_cp_init(&ctx, &cp_exchange_initbuf, &xinit,
+		    NULL)) != 0)
+			goto fail;
+		error = net2_cp_decode(&ctx, &cp_exchange_initbuf, &xinit,
+		    initbuf, NULL);
+		if (error != 0) {
+			net2_cp_destroy(&ctx, &cp_exchange_initbuf, &xinit,
+			    NULL);
+			goto fail;
+		}
+		if (!net2_buffer_empty(initbuf)) {
+			net2_cp_destroy(&ctx, &cp_exchange_initbuf, &xinit,
+			    NULL);
+			error = EINVAL;
+			goto fail;
+		}
+
+		fprintf(stderr, "%s: initbuf result alg \"%s\", xchange \"%s\", %zu initbuf\n", __FUNCTION__, xinit.result_name, xinit.xchange_name, net2_buffer_length(xinit.xchange_init));
+
+		/* Figure out exchange alg and result alg. */
+		e->xchange_alg = net2_xchange_findname(xinit.xchange_name);
+		switch (e->s2_slot) {
+		default:
+			net2_cp_destroy(&ctx, &cp_exchange_initbuf, &xinit,
+			    NULL);
+			error = EINVAL;
+			goto fail;
+		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
+			e->alg = net2_hash_findname(xinit.result_name);
+			e->keysize = net2_hash_getkeylen(e->alg);
+			break;
+		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
+			e->alg = net2_enc_findname(xinit.result_name);
+			e->keysize = net2_enc_getkeylen(e->alg);
+			break;
+		}
+		if (e->xchange_alg == -1 || e->alg == -1) {
+			net2_cp_destroy(&ctx, &cp_exchange_initbuf, &xinit,
+			    NULL);
+			error = EINVAL;
+			goto fail;
+		}
+
 		/* TODO: calculate xchange, keylen, result_alg. */
-		e->xchange = net2_xchangectx_prepare(e->xchange_alg, e->keysize, 0, initbuf);
+		e->xchange = net2_xchangectx_prepare(e->xchange_alg, e->keysize, 0, xinit.xchange_init);
+		net2_cp_destroy(&ctx, &cp_exchange_initbuf, &xinit, NULL);
 		if (e->xchange == NULL) {
 			error = ENOMEM;
 			goto fail;
@@ -1955,6 +2010,7 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 		    cn->signature_list.size, cn, e)) != 0)
 			goto fail;
 
+		e->state |= S2_CARVER_INITDONE;
 		cneg_ready_to_send(cn);	/* Start sending this. */
 		goto out;
 	}
@@ -2007,6 +2063,7 @@ fail:
 	assert(error != 0);
 	/* Any failure must inform caller, via promise. */
 	net2_promise_set_error(e->key_promise, error, 0);
+	fprintf(stderr, "%s: failed\n", __FUNCTION__);
 out:
 	net2_encdec_ctx_deinit(&ctx);
 	if (initbuf != NULL)
@@ -2121,10 +2178,31 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 	struct net2_conn_negotiator
 				*cn;
 	int			 alg;
+	struct exchange_initbuf	 xinit;
+	struct net2_buffer	*xinit_buf;
 
 	/* Validate that ranges are empty/uninitialized. */
-	if (e->state & S2_CARVER_INITDONE)
+	assert(!(e->state & S2_CARVER_INITDONE));
+
+	/* Lookup algorithm name. */
+	xinit.xchange_name = (char*)net2_xchange_getname(e->xchange_alg);
+	switch (e->s2_slot) {
+	default:
 		return EINVAL;
+	case NET2_CNEG_S2_HASH | NET2_CNEG_S2_LOCAL:
+	case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
+		xinit.result_name = (char*)net2_hash_getname(e->alg);
+		break;
+	case NET2_CNEG_S2_ENC | NET2_CNEG_S2_LOCAL:
+	case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
+		xinit.result_name = (char*)net2_enc_getname(e->alg);
+		break;
+	}
+	xinit.xchange_init = initbuf;
+	if ((xinit_buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
 
 	/* Initialize special variables. */
 	cn = e->cneg;
@@ -2132,7 +2210,15 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 	    &CNEG_CONN(cn)->n2c_socket)) != 0)
 		goto fail_0;
 
-	/* Find the hash algorithm with the largest hash size, that is non-zero. */
+	/* Encode extended initbuf. */
+	if ((error = net2_cp_encode(&ctx, &cp_exchange_initbuf, xinit_buf,
+	    &xinit, NULL)) != 0)
+		goto fail_1;
+
+	/*
+	 * Find the hash algorithm with the largest hash size,
+	 * that is non-zero.
+	 */
 	if (cn->signature_list.size > 0) {
 		hash_alg = -1;
 		for (idx = cn->hash.num_supported; idx > 0; idx--) {
@@ -2164,7 +2250,7 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 		goto fail_1;
 	}
 
-	if ((error = cneg_keyex_ctx_init_out(&e->initbuf, &ctx, initbuf,
+	if ((error = cneg_keyex_ctx_init_out(&e->initbuf, &ctx, xinit_buf,
 	    hash_alg, cn->signature_list.signatures,
 	    cn->signature_list.size, cn, e)) != 0)
 		goto fail_2;
@@ -2179,6 +2265,7 @@ stage2_init_xchange_post(struct net2_cneg_exchange *e,
 
 	net2_buffer_free(export);
 	net2_encdec_ctx_deinit(&ctx);
+	net2_buffer_free(xinit_buf);
 
 	return 0;
 
@@ -2193,6 +2280,8 @@ fail_2:
 fail_1:
 	net2_encdec_ctx_deinit(&ctx);
 fail_0:
+	if (xinit_buf != NULL)
+		net2_buffer_free(xinit_buf);
 	assert(error != 0);
 	assert(!(e->state & S2_CARVER_INITDONE));
 	return error;
@@ -2285,18 +2374,24 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 	char			*key;
 	size_t			 i;
 	int			 error;
+	int			 ready;
 
-	fprintf(stderr, "Invoked: %s\n", __FUNCTION__);
+	fprintf(stderr, "Invoked: %s %p\n", __FUNCTION__, cn);
 
 	/* Check that all promises have completed. */
+	ready = 1;
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
 		if (!net2_promise_is_finished(
 		    cn->stage2.xchanges[i].key_promise)) {
-			fprintf(stderr, "Aborting %s: %zu is not ready.\n",
-			    __FUNCTION__, i);
-			return;
-		}
+			fprintf(stderr, "%s %p: Aborting, %zu is not ready.\n",
+			    __FUNCTION__, cn, i);
+			ready = 0;
+		} else
+			fprintf(stderr, "%s %p: %zu is ready.\n",
+			    __FUNCTION__, cn, i);
 	}
+	if (!ready)
+		return;
 
 	/* Print each output. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
@@ -2573,6 +2668,7 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	int			 result_alg, xchange_alg;
 	size_t			 keysize;
 	int			 signature_idx;
+	size_t			 bufsz;
 
 	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
 	    &CNEG_CONN(cn)->n2c_socket)) != 0)
@@ -2596,10 +2692,12 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
 		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
 			exchange = &cn->stage2.xchanges[msg.slot];
+			bufsz = net2_buffer_length(buf);
 
 			if ((error = net2_cneg_exchange_deliver(exchange, &msg,
 			    &ctx, buf)) != 0)
 				goto out_with_msg;
+			fprintf(stderr, "%s: Delivered %zu bytes to slot %u\n", __FUNCTION__, bufsz - net2_buffer_length(buf), (unsigned int)msg.slot);
 			break;
 		}
 
