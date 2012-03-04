@@ -60,16 +60,6 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	if (evbase == NULL || functions == NULL)
 		goto fail_0;
 
-	conn->n2c_sign.algorithm = 0;
-	conn->n2c_sign.key = NULL;
-	conn->n2c_sign.keylen = 0;
-	conn->n2c_sign.allow_unsigned = 1;
-
-	conn->n2c_enc.algorithm = 0;
-	conn->n2c_enc.key = NULL;
-	conn->n2c_enc.keylen = 0;
-	conn->n2c_enc.allow_unencrypted = 1;
-
 	TAILQ_INIT(&conn->n2c_recvq);
 	conn->n2c_recvqsz = 0;
 
@@ -128,14 +118,6 @@ net2_connection_deinit(struct net2_connection *conn)
 		net2_free(r);
 	}
 
-	if (conn->n2c_sign.key) {
-		net2_secure_zero(conn->n2c_sign.key, conn->n2c_sign.keylen);
-		net2_free(conn->n2c_sign.key);
-	}
-	if (conn->n2c_enc.key) {
-		net2_secure_zero(conn->n2c_enc.key, conn->n2c_enc.keylen);
-		net2_free(conn->n2c_enc.key);
-	}
 	net2_acceptor_socket_deinit(&conn->n2c_socket);
 	net2_mutex_free(conn->n2c_recvmtx);
 }
@@ -286,6 +268,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	int				 negotiation_ready;
 	int				 stealth;
 	struct net2_tx_callback		 callbacks;
+	struct net2_cneg_keys		 keys;
 
 	has_payload = 0;
 	*bptr = NULL;
@@ -313,9 +296,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	else
 		winoverhead = net2_connwindow_overhead;
 
-	avail = maxlen - net2_ph_overhead -
-	    net2_hash_gethashlen(c->n2c_sign.algorithm) -
-	    net2_enc_getoverhead(c->n2c_enc.algorithm);
+	avail = maxlen - net2_ph_overhead;
 	if (maxlen < avail)	/* Overflow. */
 		goto fail_0;
 	/* Reduce small packet transmission. */
@@ -332,16 +313,27 @@ net2_conn_gather_tx(struct net2_connection *c,
 
 	/* Initialize packet header. */
 	ph.flags = 0;
-	if (c->n2c_sign.algorithm != 0)
-		ph.flags |= PH_ENCRYPTED;
-	if (c->n2c_enc.algorithm != 0)
-		ph.flags |= PH_SIGNED;
 	/* Fill in ph.seq and acquire a transmission context. */
 	if ((tx = net2_connwindow_tx_prepare(&c->n2c_window, &ph,
 	    &want_payload)) == NULL) {
 		rv = 0;
 		goto fail_2;
 	}
+
+	/* Find keys. */
+	if ((rv = net2_cneg_txkeys(&keys, &c->n2c_negotiator, &ph)) != 0)
+		goto fail_2;	/* TODO: double check if this is correct. */
+	if (keys.hash.algorithm != 0) {
+		ph.flags |= PH_SIGNED;
+		avail -= net2_hash_gethashlen(keys.hash.algorithm);
+	}
+	if (keys.enc.algorithm != 0) {
+		ph.flags |= PH_ENCRYPTED;
+		avail -= net2_enc_getoverhead(keys.enc.algorithm);
+	}
+	if (maxlen < avail)	/* Overflow. */
+		goto fail_2;	/* TODO: double check if this is correct. */
+
 	/* Don't add payload to stalled state: these packets are not acked. */
 	count = 0;
 	negotiation_ready = !stealth &&
@@ -461,7 +453,7 @@ write_window_buf:
 	if (count > 0)
 		ph.flags |= PH_PAYLOAD;
 
-	if (net2_packet_encode(c, &net2_encdec_proto0, &ph, bptr, b))
+	if (net2_packet_encode(c, &net2_encdec_proto0, &ph, bptr, b, &keys))
 		goto fail_2;
 
 	/* Succes!. */

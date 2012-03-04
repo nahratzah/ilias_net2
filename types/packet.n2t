@@ -18,6 +18,8 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+struct net2_cneg_keys;		/* From ilias/net2/conn_negotiator.h */
+
 struct packet_header {
 	uint32_t		 seq;
 	uint32_t		 flags;
@@ -52,7 +54,8 @@ int			 net2_packet_decode(struct net2_connection*,
 ILIAS_NET2_LOCAL
 int			 net2_packet_encode(struct net2_connection*,
 			    struct net2_encdec_ctx*, struct packet_header*,
-			    struct net2_buffer**, struct net2_buffer*);
+			    struct net2_buffer**, struct net2_buffer*,
+			    struct net2_cneg_keys*);
 
 /* Size of packet header, after encoding. */
 extern ILIAS_NET2_EXPORT size_t net2_ph_overhead;
@@ -64,6 +67,7 @@ extern ILIAS_NET2_EXPORT size_t net2_ph_overhead;
 #include <ilias/net2/hash.h>
 #include <ilias/net2/enc.h>
 #include <ilias/net2/connwindow.h>
+#include <ilias/net2/conn_negotiator.h>
 #include <ilias/net2/protocol.h>
 
 #include <bsd_compat/bsd_compat.h>
@@ -170,6 +174,7 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	int			 rv;
 	int			 do_sign, do_cryp;
 	size_t			 hashlen, ivlen;
+	struct net2_cneg_keys	 keys;
 
 	assert(bufptr != NULL && *bufptr != NULL);
 	assert(ctx != NULL && ph != NULL);
@@ -195,13 +200,31 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	}
 	debug("received packet, seq=%x, flags=0x%x", ph->seq, ph->flags);
 
+	/* Fetch keys, now we have the packet header. */
+	switch (net2_cneg_rxkeys(&keys, &conn->n2c_negotiator, ph)) {
+	case 0:
+		break;
+	case ENOMEM:
+		rv = NET2_PDECODE_RESOURCE;
+		goto fail_1;
+		break;
+	case EINVAL:
+		rv = NET2_PDECODE_UNSAFE;
+		goto fail_1;
+		break;
+	default:
+		rv = NET2_PDECODE_BAD;
+		goto fail_1;
+		break;
+	}
+
 	/*
 	 * Check for encryption and signing flags on packet header.
 	 */
 	do_sign = (ph->flags & PH_SIGNED);
 	do_cryp = (ph->flags & PH_ENCRYPTED);
-	if ((!do_sign && !conn->n2c_sign.allow_unsigned) ||
-	    (!do_cryp && !conn->n2c_enc.allow_unencrypted)) {
+	if ((!do_sign && !keys.hash.allow_insecure) ||
+	    (!do_cryp && !keys.enc.allow_insecure)) {
 		rv = NET2_PDECODE_UNSAFE;
 		goto fail_1;
 	}
@@ -211,7 +234,7 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	 */
 	if (do_sign) {
 		/* Extract supplied hash. */
-		hashlen = net2_hash_gethashlen(conn->n2c_sign.algorithm);
+		hashlen = net2_hash_gethashlen(keys.hash.algorithm);
 		if ((supplied_hash = net2_buffer_new()) == NULL) {
 			rv = NET2_PDECODE_RESOURCE;
 			goto fail_1;
@@ -224,8 +247,8 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 
 		/* Calculate actual hash. */
 		if ((calculated_hash = net2_hashctx_hashbuf(
-		    conn->n2c_sign.algorithm,
-		    conn->n2c_sign.key, conn->n2c_sign.keylen, buf)) == NULL) {
+		    keys.hash.algorithm,
+		    keys.hash.key, keys.hash.keylen, buf)) == NULL) {
 			rv = NET2_PDECODE_RESOURCE;
 			goto fail_2;
 		}
@@ -243,7 +266,7 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	 */
 	if (do_cryp) {
 		/* Generate an IV from the packet header. */
-		ivlen = net2_enc_getivlen(conn->n2c_enc.algorithm);
+		ivlen = net2_enc_getivlen(keys.enc.algorithm);
 		if ((ivbuf = net2_ph_to_iv(ctx, ph, ivlen)) == NULL) {
 			rv = NET2_PDECODE_RESOURCE;
 			goto fail_2;
@@ -256,8 +279,8 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 		/* Decrypt the packet.
 		 * Replaces buf with the decrypted counterpart of itelf. */
 		encrypted = buf;
-		buf = net2_encctx_encbuf(conn->n2c_enc.algorithm,
-		    conn->n2c_enc.key, conn->n2c_enc.keylen,
+		buf = net2_encctx_encbuf(keys.enc.algorithm,
+		    keys.enc.key, keys.enc.keylen,
 		    iv, ivlen, NET2_ENC_DECRYPT, encrypted);
 		net2_buffer_free(encrypted);
 		if (buf == NULL) {
@@ -295,7 +318,7 @@ fail_0:
 ILIAS_NET2_LOCAL int
 net2_packet_encode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
     struct packet_header *ph, struct net2_buffer **outptr,
-    struct net2_buffer *payload)
+    struct net2_buffer *payload, struct net2_cneg_keys *keys)
 {
 	struct net2_buffer	*out, *hash, *ph_net, *ivbuf;
 	int			 do_cryp, do_sign;
@@ -311,10 +334,10 @@ net2_packet_encode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	do_cryp = (ph->flags & PH_ENCRYPTED);
 	do_sign = (ph->flags & PH_SIGNED);
 	/* Check supplied flags against sign/enc. */
-	if ((!do_sign && (ph->flags & PH_SIGNED)) ||
-	    (!do_cryp && (ph->flags & PH_ENCRYPTED)) ||
-	    (do_sign && conn->n2c_sign.algorithm == 0) ||
-	    (do_cryp && conn->n2c_enc.algorithm == 0)) {
+	if ((!do_sign && !keys->hash.allow_insecure) ||
+	    (!do_cryp && !keys->enc.allow_insecure) ||
+	    (do_sign && keys->hash.algorithm <= 0) ||
+	    (do_cryp && keys->enc.algorithm <= 0)) {
 		rv = NET2_PENCODE_UNSAFE;
 		goto fail;
 	}
@@ -324,7 +347,7 @@ net2_packet_encode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	 */
 	if (do_cryp) {
 		/* Generate an IV from the packet header. */
-		ivlen = net2_enc_getivlen(conn->n2c_enc.algorithm);
+		ivlen = net2_enc_getivlen(keys->enc.algorithm);
 		if ((ivbuf = net2_ph_to_iv(ctx, ph, ivlen)) == NULL) {
 			rv = NET2_PENCODE_RESOURCE;
 			goto fail;
@@ -334,8 +357,8 @@ net2_packet_encode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 			goto fail;
 		}
 
-		out = net2_encctx_encbuf(conn->n2c_enc.algorithm,
-		    conn->n2c_enc.key, conn->n2c_enc.keylen,
+		out = net2_encctx_encbuf(keys->enc.algorithm,
+		    keys->enc.key, keys->enc.keylen,
 		    iv, ivlen, NET2_ENC_ENCRYPT, payload);
 		if (out == NULL) {
 			rv = NET2_PENCODE_BAD;
@@ -353,8 +376,8 @@ net2_packet_encode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	 * Sign encrypted data.
 	 */
 	if (do_sign) {
-		hash = net2_hashctx_hashbuf(conn->n2c_sign.algorithm,
-		    conn->n2c_sign.key, conn->n2c_sign.keylen, out);
+		hash = net2_hashctx_hashbuf(keys->hash.algorithm,
+		    keys->hash.key, keys->hash.keylen, out);
 		if (hash == NULL) {
 			rv = NET2_PENCODE_RESOURCE;
 			goto fail;

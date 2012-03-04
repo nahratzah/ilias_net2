@@ -62,25 +62,6 @@ struct net2_connection {
 	size_t			 n2c_recvqsz;	/* Size of n2c_recvq. */
 	struct event		*n2c_recv_ev;	/* Handle received data. */
 
-	struct {
-		int		 algorithm;	/* Signing algorithm. */
-		void		*key;		/* Signing key. */
-		size_t		 keylen;	/* Signing key length. */
-		int		 allow_unsigned;/* Allow unsigned packets.
-						 * Turned off on the first
-						 * signed packet. */
-	}			 n2c_sign;	/* Signing algorithm. */
-
-	struct {
-		int		 algorithm;	/* Signing algorithm. */
-		void		*key;		/* Signing key. */
-		size_t		 keylen;	/* Signing key length. */
-		int		 allow_unencrypted;
-						/* Allow unencrypted packets.
-						 * Turned off on the first
-						 * encrypted packet. */
-	}			 n2c_enc;	/* Signing algorithm. */
-
 	struct net2_connwindow	 n2c_window;	/* Low level window. */
 	struct net2_connstats	 n2c_stats;	/* Connection stats. */
 
