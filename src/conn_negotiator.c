@@ -2599,7 +2599,7 @@ cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
 	 */
 	if (net2_cneg_allow_payload(cn, ph->seq))
 		assert(!stealth);
-	if (!stealth && !net2_cneg_allow_payload(cn, ph->seq) &&
+	if (!stealth && (!net2_buffer_empty(buf) || cn->recv_no_send) &&
 	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
 		/*
 		 * Only add poetry on:
@@ -2613,7 +2613,7 @@ cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
 		}
 	}
 
-	if (TAILQ_EMPTY(&transit)) {
+	if (TAILQ_EMPTY(&transit) && net2_buffer_empty(buf)) {
 		net2_buffer_free(buf);
 		return 0;
 	}
@@ -2767,7 +2767,7 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 	 * add empty S2 data to keepalives, since that would elevate them
 	 * to the status of non-keepalive and eat our received poetry).
 	 */
-	if (!net2_buffer_empty(buf) || (!stealth && !want_payload)) {
+	if (!net2_buffer_empty(buf) || (!stealth && cn->recv_no_send)) {
 		if ((net2_buffer_append(buf, fin)) != 0) {
 			error = ENOMEM;
 			goto out;
@@ -2841,6 +2841,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	cn->stage = NET2_CNEG_STAGE_PRISTINE;
 	cn->flags = cn->flags_have = 0;
 	cn->pver_acknowledged = 0;
+	cn->recv_no_send = 0;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE)) {
 		cn->flags |= NET2_CNEG_REQUIRE_ENCRYPTION |
 		    NET2_CNEG_REQUIRE_SIGNING;
@@ -2979,19 +2980,29 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
     struct net2_buffer **bufptr, struct net2_tx_callback *tx, size_t maxlen,
     int stealth, int want_payload)
 {
-	/* Fill stage 1 transmission data. */
-	if (cn->stage == NET2_CNEG_STAGE_PRISTINE) {
-		return cneg_stage1_get_transmit(cn, ph, bufptr, tx, maxlen,
+	int			 error;
+
+	switch (cn->stage) {
+	default:
+		error = 0;
+
+	case NET2_CNEG_STAGE_PRISTINE:
+		/* Fill stage 1 transmission data. */
+		error = cneg_stage1_get_transmit(cn, ph, bufptr, tx, maxlen,
 		    stealth, want_payload);
+		break;
+
+	case NET2_CNEG_STAGE_KEY_EXCHANGE:
+		/* Fill stage 2 transmission data. */
+		error = cneg_stage2_get_transmit(cn, ph, bufptr, tx, maxlen,
+		    stealth, want_payload);
+		break;
 	}
 
-	/* Fill stage 2 transmission data. */
-	if (cn->stage == NET2_CNEG_STAGE_KEY_EXCHANGE) {
-		return cneg_stage2_get_transmit(cn, ph, bufptr, tx, maxlen,
-		    stealth, want_payload);
-	}
+	if (error == 0 && *bufptr != NULL)
+		cn->recv_no_send = 0;
 
-	return 0;
+	return error;
 }
 
 /*
@@ -3028,6 +3039,7 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		/* TODO: conclude stage 2. */
 	}
 
+	cn->recv_no_send = 1;
 	return 0;
 
 fail:

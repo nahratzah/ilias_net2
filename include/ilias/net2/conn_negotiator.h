@@ -63,6 +63,10 @@ struct net2_conn_negotiator {
 	TAILQ_HEAD(, encoded_header)
 				 sendq, waitq;
 
+	int			 recv_no_send;	/* Set each time a packet is
+						 * received, cleared each time
+						 * a packet is sent. */
+
 	struct {
 		struct net2_pvlist
 				 proto;
