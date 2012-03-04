@@ -123,6 +123,7 @@ type net2_protocol (
 #include <sys/types.h>
 #include <bsd_compat/endian.h>
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/memory.h>
 #include <errno.h>
 
 #include <assert.h>
@@ -403,7 +404,7 @@ cp_paddedstring_decode(struct net2_encdec_ctx *c,
 	}
 
 	len = padded_size(end.pos + 1);
-	if ((*s = malloc(len)) == NULL) {
+	if ((*s = net2_malloc(len)) == NULL) {
 		err = ENOMEM;
 		goto out;
 	}
@@ -414,7 +415,7 @@ cp_paddedstring_decode(struct net2_encdec_ctx *c,
 
 out:
 	if (err != 0 && *s != NULL)
-		free(*s);
+		net2_free(*s);
 	return err;
 }
 
@@ -443,7 +444,7 @@ cp_string_decode(struct net2_encdec_ctx *c,
 		goto out;
 	}
 
-	if ((*s = malloc(end.pos + 1)) == NULL) {
+	if ((*s = net2_malloc(end.pos + 1)) == NULL) {
 		err = ENOMEM;
 		goto out;
 	}
@@ -454,7 +455,7 @@ cp_string_decode(struct net2_encdec_ctx *c,
 
 out:
 	if (err != 0 && *s != NULL)
-		free(*s);
+		net2_free(*s);
 	return err;
 }
 ILIAS_NET2_LOCAL int
@@ -469,7 +470,7 @@ cp_string_destroy(struct net2_encdec_ctx *c,
     char**s, const void *cp_arg)
 {
 	if (*s != NULL)
-		free(*s);
+		net2_free(*s);
 	*s = NULL;
 	return 0;
 }
@@ -656,7 +657,7 @@ cp_null_stringlist_decode(struct net2_encdec_ctx *c,
 
 	if ((err = cp_uint16_decode(c, &count, in, cp_arg)) != 0)
 		return err;
-	*slistptr = slist = calloc((size_t)count + 1, sizeof(*slist));
+	*slistptr = slist = net2_calloc((size_t)count + 1, sizeof(*slist));
 	if (slist == NULL) {
 		err = ENOMEM;
 		goto fail;
@@ -673,8 +674,8 @@ cp_null_stringlist_decode(struct net2_encdec_ctx *c,
 fail:
 	if (*slistptr != NULL) {
 		for (slist = *slistptr; *slist != NULL; slist++)
-			free(*slist);
-		free(*slistptr);
+			net2_free(*slist);
+		net2_free(*slistptr);
 		*slistptr = NULL;
 	}
 	return err;
@@ -694,8 +695,8 @@ cp_null_stringlist_destroy(struct net2_encdec_ctx *c,
 
 	if (slistptr != NULL) {
 		for (slist = *slistptr; *slist != NULL; slist++)
-			free(*slist);
-		free(*slistptr);
+			net2_free(*slist);
+		net2_free(*slistptr);
 		*slistptr = NULL;
 	}
 	return 0;

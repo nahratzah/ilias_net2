@@ -462,7 +462,7 @@ init_header_string(struct header *h, const char *value, uint32_t which)
 
 	if (h->flags & F_SET_ELEMENT)
 		return EINVAL;
-	if ((h->payload.string = strdup(value)) == NULL)
+	if ((h->payload.string = net2_strdup(value)) == NULL)
 		return ENOMEM;
 	h->flags |= FT_STRING;
 	return 0;
@@ -516,7 +516,7 @@ init_header_stringset(struct header *h, int seq, const char *value,
 		return EINVAL;
 	if (seq == max_seq)
 		h->flags |= F_SET_LASTELEM;
-	if ((h->payload.string = strdup(value)) == NULL)
+	if ((h->payload.string = net2_strdup(value)) == NULL)
 		return ENOMEM;
 	h->flags |= FT_STRING;
 	return 0;
@@ -700,12 +700,12 @@ net2_add_poetry(struct net2_buffer *b, size_t len)
 		return EINVAL;
 	if (poetry_buf.iov_len == 0 || poetry_buf.iov_len > len)
 		return 0;
+#if 0
 	if (net2_buffer_add(b, poetry_buf.iov_base, poetry_buf.iov_len))
 		return ENOMEM;
-#if 0
+#endif
 	if (net2_buffer_add_reference(b, poetry_buf.iov_base, poetry_buf.iov_len,
 	    NULL, NULL))
 		return ENOMEM;
-#endif
 	return 0;
 }
