@@ -2747,7 +2747,7 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 	/* Encode the fini header. */
 	if ((fin = net2_buffer_new()) == NULL)
 		goto out;
-	if ((error = mk_exchange_msg_fin(&msg)) != 0)
+	if ((error = mk_exchange_msg_fin(&msg, !stealth)) != 0)
 		goto out;
 	error = net2_cp_encode(&ctx, &cp_exchange_msg, fin, &msg, NULL);
 	net2_cp_destroy(&ctx, &cp_exchange_msg, &msg, NULL);

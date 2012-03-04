@@ -25,11 +25,15 @@ struct exchange_msg {
 	uint16_t			 slot;
 #define SLOT_FIN			0xffff
 	uint16_t			 msg_id;
+#define XMSG_POETRY			0x0001	/* Only in SLOT_FIN. */
 #define XMSG_SIGNATURE			0x8000
 #define XMSG_INITBUF			0x0001
 #define XMSG_RESPONSE			0x0002
 
 	union {
+		/* Poetry extension. */
+		char			*poetry;
+
 		/* Signature. */
 		uint32_t		 signature_idx;
 	}				 payload;
@@ -47,7 +51,7 @@ int	 mk_exchange_msg_buf(struct exchange_msg*, int, int);
 ILIAS_NET2_LOCAL
 int	 mk_exchange_msg_signature(struct exchange_msg*, int, int, int);
 ILIAS_NET2_LOCAL
-int	 mk_exchange_msg_fin(struct exchange_msg*);
+int	 mk_exchange_msg_fin(struct exchange_msg*, int);
 
 %%
 #include "exchange.h"
@@ -99,15 +103,26 @@ struct exchange_initbuf (ctype struct exchange_initbuf,
 	short_net2_buffer	xchange_init;
 };
 
+struct exchange_msg__fin_poetry (ctype struct exchange_msg,
+    init NULL,
+    protocol net2_proto) {
+	paddedstring		payload.poetry;
+};
+
 %%
 
 static __inline const struct command_param*
 get_exchange_cp(const struct exchange_msg *msg)
 {
 	if (msg->slot == SLOT_FIN) {
-		if (msg->msg_id != 0)
+		switch (msg->msg_id) {
+		default:
 			return NULL;
-		return &cp_exchange_msg__fin;
+		case 0:
+			return &cp_exchange_msg__fin;
+		case XMSG_POETRY:
+			return &cp_exchange_msg__fin_poetry;
+		}
 	}
 	if (msg->msg_id & XMSG_SIGNATURE)
 		return &cp_exchange_msg__signature;
@@ -213,9 +228,13 @@ mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
 
 /* Create the final message. */
 ILIAS_NET2_LOCAL int
-mk_exchange_msg_fin(struct exchange_msg *msg)
+mk_exchange_msg_fin(struct exchange_msg *msg, int poetry)
 {
 	msg->slot = SLOT_FIN;
-	msg->msg_id = 0;
+	msg->msg_id = (poetry ? XMSG_POETRY : 0);
+	if (poetry)
+		msg->payload.poetry = net2_strdup("");
+	else
+		msg->payload.poetry = NULL;
 	return 0;
 }
