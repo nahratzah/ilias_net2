@@ -2599,21 +2599,16 @@ cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
 	 */
 	if (net2_cneg_allow_payload(cn, ph->seq))
 		assert(!stealth);
-	if (!stealth && (!net2_buffer_empty(buf) || cn->recv_no_send) &&
+	if (!stealth &&
+	    (!want_payload || cn->recv_no_send || !net2_buffer_empty(buf)) &&
 	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
-		/*
-		 * Only add poetry on:
-		 * - packets with negotiation data, or
-		 * - keepalive packets
-		 */
-		if (!(want_payload && TAILQ_EMPTY(&transit))) {
-			/* Ignore failure: this is optional and ignored. */
-			net2_add_poetry(buf, maxlen - FINI_LEN -
-			    net2_buffer_length(buf));
-		}
+		/* Ignore failure: this is optional and ignored. */
+		net2_add_poetry(buf, maxlen - FINI_LEN -
+		    net2_buffer_length(buf));
 	}
 
-	if (TAILQ_EMPTY(&transit) && net2_buffer_empty(buf)) {
+	if (net2_buffer_empty(buf)) {
+		assert(TAILQ_EMPTY(&transit));
 		net2_buffer_free(buf);
 		return 0;
 	}
@@ -2767,10 +2762,17 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 	 * add empty S2 data to keepalives, since that would elevate them
 	 * to the status of non-keepalive and eat our received poetry).
 	 */
-	if (!net2_buffer_empty(buf) || (!stealth && cn->recv_no_send)) {
+	if (!net2_buffer_empty(buf) ||
+	    (!stealth && (!want_payload || cn->recv_no_send))) {
 		if ((net2_buffer_append(buf, fin)) != 0) {
-			error = ENOMEM;
-			goto out;
+			/*
+			 * This is only a failure if it was required
+			 * to close the list of transfers.
+			 */
+			if (!net2_buffer_empty(buf)) {
+				error = ENOMEM;
+				goto out;
+			}
 		}
 	}
 
