@@ -2414,6 +2414,7 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 	cn->stage = NET2_CNEG_STAGE_PROTO_IDLE;
 	/* Disengage stealth. */
 	CNEG_CONN(cn)->n2c_stealth |= NET2_CONN_STEALTH_UNSTEALTH;
+	cneg_ready_to_send(cn);
 
 	return;
 
