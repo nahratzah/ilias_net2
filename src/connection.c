@@ -350,6 +350,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	    &callbacks, avail - winoverhead, stealth, want_payload)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (to_add != NULL) {
+		assert(!net2_buffer_empty(to_add));
 		if (net2_buffer_append(b, to_add)) {
 			rv = ENOMEM;
 			net2_buffer_free(to_add);

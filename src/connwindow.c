@@ -910,7 +910,7 @@ net2_connwindow_accept(const struct net2_connwindow *w,
 	 */
 	if (w->cw_flags & NET2_CW_F_WANTRECV)
 		return (ph->flags & PH_WINUPDATE);
-	else if ((ph->flags & (PH_STALLED|PH_PAYLOAD)) == PH_STALLED)
+	else if ((ph->flags & (PH_STALLED|PH_DATA_PRESENT)) == PH_STALLED)
 		return 1;
 	else if (seq - w->cw_rx_start >= w->cw_rx_windowsz)
 		return 0;	/* Outside acceptance window. */
@@ -988,7 +988,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		fix_txstart(w);
 	}
 
-	if (ph->flags & (PH_STALLED | PH_PAYLOAD | PH_HANDSHAKE)) {
+	if (ph->flags & (PH_STALLED | PH_DATA_PRESENT)) {
 		if (!event_del(w->cw_keepalive))
 			w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
 		if (!event_del(w->cw_stallbackoff))
