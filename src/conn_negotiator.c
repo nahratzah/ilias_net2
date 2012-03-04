@@ -1873,10 +1873,8 @@ net2_cneg_exchange_get_transmit(struct net2_buffer **outptr,
 	/* Apply result. */
 	if (net2_buffer_empty(out))
 		net2_buffer_free(out);
-	else {
-		fprintf(stderr, "%s: %zu bytes transmit data for slot %d\n", __FUNCTION__, net2_buffer_length(out), slot);
+	else
 		*outptr = out;
-	}
 	return 0;
 
 fail:
@@ -1944,7 +1942,6 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 
 	/* Set up xchange if this is a remotely initiated exchange. */
 	if (e->xchange == NULL && cneg_keyex_is_done(&e->initbuf)) {
-		fprintf(stderr, "%s: setup exchange for %d\n", __FUNCTION__, e->s2_slot);
 		if ((initbuf = cneg_keyex_data(&e->initbuf)) == NULL) {
 			error = EINVAL;
 			goto fail;
@@ -1967,8 +1964,6 @@ net2_cneg_exchange_postprocess_cb(struct net2_cneg_exchange *e, void *unused)
 			error = EINVAL;
 			goto fail;
 		}
-
-		fprintf(stderr, "%s: initbuf result alg \"%s\", xchange \"%s\", %zu initbuf\n", __FUNCTION__, xinit.result_name, xinit.xchange_name, net2_buffer_length(xinit.xchange_init));
 
 		/* Figure out exchange alg and result alg. */
 		e->xchange_alg = net2_xchange_findname(xinit.xchange_name);
@@ -2062,7 +2057,6 @@ fail:
 	assert(error != 0);
 	/* Any failure must inform caller, via promise. */
 	net2_promise_set_error(e->key_promise, error, 0);
-	fprintf(stderr, "%s: failed\n", __FUNCTION__);
 out:
 	net2_encdec_ctx_deinit(&ctx);
 	if (initbuf != NULL)
@@ -2373,24 +2367,13 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 	char			*key;
 	size_t			 i;
 	int			 prom_fin;
-	int			 ready;
-
-	fprintf(stderr, "Invoked: %s %p\n", __FUNCTION__, cn);
 
 	/* Check that all promises have completed. */
-	ready = 1;
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
 		if (!net2_promise_is_finished(
-		    cn->stage2.xchanges[i].key_promise)) {
-			fprintf(stderr, "%s %p: Aborting, %zu is not ready.\n",
-			    __FUNCTION__, cn, i);
-			ready = 0;
-		} else
-			fprintf(stderr, "%s %p: %zu is ready.\n",
-			    __FUNCTION__, cn, i);
+		    cn->stage2.xchanges[i].key_promise))
+			return;	/* Not ready. */
 	}
-	if (!ready)
-		return;
 
 	/* Print each output. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
@@ -2405,9 +2388,7 @@ stage2_exchange_cb(evutil_socket_t fd, short what, void *cneg_ptr)
 			break;
 		}
 
-		key = net2_buffer_hex(buf, malloc);
-		fprintf(stderr, "Exchange %zu key: %s\n", i, key);
-		free(key);
+		/* TODO: apply each key (buf). */
 	}
 
 	/* Negotiation complete. */
@@ -2674,7 +2655,6 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 	int			 result_alg, xchange_alg;
 	size_t			 keysize;
 	int			 signature_idx;
-	size_t			 bufsz;
 
 	if ((error = net2_encdec_ctx_newaccsocket(&ctx,
 	    &CNEG_CONN(cn)->n2c_socket)) != 0)
@@ -2698,12 +2678,10 @@ cneg_stage2_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 		case NET2_CNEG_S2_HASH | NET2_CNEG_S2_REMOTE:
 		case NET2_CNEG_S2_ENC | NET2_CNEG_S2_REMOTE:
 			exchange = &cn->stage2.xchanges[msg.slot];
-			bufsz = net2_buffer_length(buf);
 
 			if ((error = net2_cneg_exchange_deliver(exchange, &msg,
 			    &ctx, buf)) != 0)
 				goto out_with_msg;
-			fprintf(stderr, "%s: Delivered %zu bytes to slot %u\n", __FUNCTION__, bufsz - net2_buffer_length(buf), (unsigned int)msg.slot);
 			break;
 		}
 
