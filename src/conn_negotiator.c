@@ -3060,11 +3060,11 @@ net2_cneg_rxkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
 	    struct packet_header *ph)
 {
 	/* Default: receive only unencrypted data. */
-	k->hash.algorithm = -1;
+	k->hash.algorithm = 0;
 	k->hash.key = NULL;
 	k->hash.keylen = 0;
 	k->hash.allow_insecure = 1;
-	k->enc.algorithm = -1;
+	k->enc.algorithm = 0;
 	k->enc.key = NULL;
 	k->enc.keylen = 0;
 	k->enc.allow_insecure = 1;
@@ -3080,11 +3080,11 @@ net2_cneg_txkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
 	    struct packet_header *ph)
 {
 	/* Default: send unencrypted data. */
-	k->hash.algorithm = -1;
+	k->hash.algorithm = 0;
 	k->hash.key = NULL;
 	k->hash.keylen = 0;
 	k->hash.allow_insecure = 1;
-	k->enc.algorithm = -1;
+	k->enc.algorithm = 0;
 	k->enc.key = NULL;
 	k->enc.keylen = 0;
 	k->enc.allow_insecure = 1;
