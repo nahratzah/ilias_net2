@@ -321,7 +321,8 @@ net2_conn_gather_tx(struct net2_connection *c,
 	}
 
 	/* Find keys. */
-	if ((rv = net2_cneg_txkeys(&keys, &c->n2c_negotiator, &ph)) != 0)
+	if ((rv = net2_cneg_txkeys(&keys, &c->n2c_negotiator, &ph,
+	    c->n2c_window.cw_tx_start, &callbacks)) != 0)
 		goto fail_2;	/* TODO: double check if this is correct. */
 	if (keys.hash.algorithm != 0) {
 		ph.flags |= PH_SIGNED;

@@ -112,6 +112,9 @@ struct net2_conn_negotiator {
 		struct net2_cneg_exchange
 				*xchanges; /* Contexts. */
 	}			 stage2;
+
+	struct net2_cneg_key_state
+				*keys;	/* Negotiated keys. */
 };
 
 /*
@@ -137,7 +140,7 @@ int	 net2_cneg_rxkeys(struct net2_cneg_keys*, struct net2_conn_negotiator*,
 	    struct packet_header*);
 ILIAS_NET2_LOCAL
 int	 net2_cneg_txkeys(struct net2_cneg_keys*, struct net2_conn_negotiator*,
-	    struct packet_header*);
+	    struct packet_header*, uint32_t, struct net2_tx_callback*);
 
 ILIAS_NET2_LOCAL
 int	net2_cneg_allow_payload(struct net2_conn_negotiator*, uint32_t);

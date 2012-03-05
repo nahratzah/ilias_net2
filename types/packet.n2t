@@ -25,13 +25,15 @@ struct packet_header {
 	uint32_t		 flags;
 };
 
-#define PH_ENCRYPTED		0x00000001
-#define PH_SIGNED		0x00000002
-#define PH_WINUPDATE		0x00000004
-#define PH_STALLED		0x00000008
-#define PH_PAYLOAD		0x00000010
+#define PH_ENCRYPTED		0x00000001	/* Content is encrypted. */
+#define PH_SIGNED		0x00000002	/* Content is signed. */
+#define PH_WINUPDATE		0x00000004	/* Containing window update. */
+#define PH_STALLED		0x00000008	/* Window stalled. */
+#define PH_PAYLOAD		0x00000010	/* Acceptor content present. */
 #define PH_HANDSHAKE		0x00000020	/* Stage 1 handshake. */
 #define PH_HANDSHAKE_S2		0x00000040	/* Stage 2 handshake. */
+#define PH_ALTKEY		0x80000000	/* Alternate key in use. */
+#define PH_ALTKEY_DROP		0x40000000	/* Alternate key is main. */
 
 /* Any of these flags indicate data is present. */
 #define PH_DATA_PRESENT		(PH_PAYLOAD | PH_HANDSHAKE | PH_HANDSHAKE_S2)

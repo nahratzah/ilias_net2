@@ -124,6 +124,55 @@ struct net2_cneg_exchange {
 };
 
 
+/* Key state. */
+struct net2_cneg_key_state {
+	struct net2_conn_negotiator
+				*cneg;		/* Negotiator. */
+	int			 secure_recv;	/* Set once the first secure
+						 * packet is received. */
+	uint32_t		 winstart_out;	/* Window ID at which outboud
+						 * key was first used. */
+	uint32_t		 winstart_in,	/* Window ID at which inbound
+						 * key was first used. */
+				 winstart_in_alt; /* For alt key. */
+
+	struct event		*expire_ev;	/* Expire event. */
+#define CNEG_KEYSTATE_EXP_TV	{ 60 * 60, 0 }	/* Expire timeout (1 hour). */
+#define CNEG_KEYSTATE_EXP_WIN	0x7fffffff	/* Expire timeout
+						 * (half winid range). */
+#define CNEG_KEYSTATE_EXP_HARD	0xafffffff	/* Point at which we kill the
+						 * connection, rather than
+						 * continue with an expired
+						 * key. */
+
+	/* Keychain constants and data. */
+#define KEYCHAIN_OUT		0x0000		/* Outbound key. */
+#define KEYCHAIN_IN		0x0004		/* Inbound key. */
+#define KEYCHAIN_INOUT_MASK	(KEYCHAIN_IN | KEYCHAIN_OUT)
+#define KEYCHAIN_MAIN		0x0000		/* Main key. */
+#define KEYCHAIN_ALT		0x0002		/* Alternative key. */
+#define KEYCHAIN_ALT_MASK	(KEYCHAIN_ALT | KEYCHAIN_MAIN)
+#define KEYCHAIN_HASH		0x0000		/* Hash key. */
+#define KEYCHAIN_ENC		0x0001		/* Enc key. */
+#define KEYCHAIN_HASHENC_MASK	(KEYCHAIN_HASH | KEYCHAIN_ENC)
+#define KEYCHAIN_SIZE		0x0008		/* Number of keys. */
+	struct {
+		void		*key;		/* Key data. */
+		size_t		 keylen;	/* Length of key. */
+		int		 algorithm;	/* Algorithm. */
+	}			 chain[KEYCHAIN_SIZE]; /* All keys. */
+
+	int			 flags;		/* Keychain state. */
+#define KEYSTATE_F_TX_ALT_PRESENT	0x00000001 /* Alt outbound present. */
+#define KEYSTATE_F_TX_ALT_EXPIRING	0x00000002 /* Expiring ALT_KEY bit. */
+#define KEYSTATE_F_RX_ALT_PRESENT	0x00000004 /* Alt key known. */
+#define KEYSTATE_F_RX_ALT_USED		0x00000008 /* Alt key recv. */
+#define KEYSTATE_F_SECURE_INBOUND	0x00000010 /* Secure received. */
+#define KEYSTATE_F_SECURE_OUTBOUND	0x00000020 /* Secure sent. */
+#define KEYSTATE_F_RX_ALT_IS_OLD	0x00000040 /* Alt key is prev key. */
+};
+
+
 static __inline int
 encode_header(struct net2_buffer *out, const struct header *h)
 {
@@ -259,6 +308,8 @@ static void	 stage2_exchange_cb(evutil_socket_t, short, void*);
 
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
+
+static void	 net2_cneg_key_state_destroy(struct net2_cneg_key_state*);
 
 
 /* Notify connection that we want to send data. */
@@ -2800,6 +2851,24 @@ out:
 }
 
 
+/* Destroy the key state. */
+static void
+net2_cneg_key_state_destroy(struct net2_cneg_key_state *keys)
+{
+	size_t			 i;
+
+	if (keys->expire_ev != NULL)
+		event_free(keys->expire_ev);
+	for (i = 0; i < KEYCHAIN_SIZE; i++) {
+		if (keys->chain[i].key != NULL) {
+			net2_secure_zero(keys->chain[i].key,
+			    keys->chain[i].keylen);
+			net2_free(keys->chain[i].key);
+		}
+	}
+}
+
+
 /*
  * True iff the connection is ready and sufficiently secure
  * to allow payload to cross.
@@ -2844,6 +2913,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	cn->flags = cn->flags_have = 0;
 	cn->pver_acknowledged = 0;
 	cn->recv_no_send = 0;
+	cn->keys = NULL;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE)) {
 		cn->flags |= NET2_CNEG_REQUIRE_ENCRYPTION |
 		    NET2_CNEG_REQUIRE_SIGNING;
@@ -2972,6 +3042,9 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	net2_free(cn->enc.supported);
 	net2_free(cn->xchange.supported);
 	net2_free(cn->sign.supported);
+
+	if (cn->keys != NULL)
+		net2_cneg_key_state_destroy(cn->keys);
 	return;
 }
 
@@ -3054,11 +3127,25 @@ net2_cneg_pvlist(struct net2_conn_negotiator *cn, struct net2_pvlist *pv)
 	return net2_pvlist_merge(pv, &cn->negotiated.proto);
 }
 
-/* Retrieve decoding keys. */
+/*
+ * Retrieve decoding keys.
+ *
+ * Note that this function is called prior to the validation of the message.
+ * Therefore it is imperative that this code does not take decisions, but
+ * operates without modifying ph, cn or cn->keys.
+ */
 ILIAS_NET2_LOCAL int
 net2_cneg_rxkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
-	    struct packet_header *ph)
+    struct packet_header *ph)
 {
+	int			 alt_mask;
+	struct net2_cneg_key_state
+				*keys = cn->keys;
+
+	/* These flags can never be present together. */
+	if (ph->flags & (PH_ALTKEY | PH_ALTKEY_DROP))
+		return EINVAL;
+
 	/* Default: receive only unencrypted data. */
 	k->hash.algorithm = 0;
 	k->hash.key = NULL;
@@ -3069,7 +3156,73 @@ net2_cneg_rxkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
 	k->enc.keylen = 0;
 	k->enc.allow_insecure = 1;
 
-	/* TODO: implement */
+	/* Cannot do alternate keys until we have keys to alternate between. */
+	if (keys == NULL && (ph->flags & (PH_ALTKEY | PH_ALTKEY_DROP)))
+		return EINVAL;
+
+	/* Override no-key result if keys are present. */
+	if (keys != NULL) {
+		if (keys->flags & KEYSTATE_F_SECURE_INBOUND)
+			k->hash.allow_insecure = k->enc.allow_insecure = 0;
+
+		/* Default: main key is valid and to be used. */
+		alt_mask = KEYCHAIN_MAIN;
+
+		/*
+		 * If the packet sequence is consistent with the old key,
+		 * use the old key.
+		 *
+		 * The logic is thus:
+		 * - the old key was valid up until winstart_in
+		 * - the new key is valid starting at winstart_in
+		 * - if alt is not old, then default to the main key
+		 *   (but see override based on ph->flags below).
+		 */
+		if (keys->flags & KEYSTATE_F_RX_ALT_IS_OLD) {
+			/* Check sequence index of new key. */
+			if (keys->flags & KEYSTATE_F_RX_ALT_USED) {
+				if (ph->seq - keys->winstart_in_alt <
+				    keys->winstart_in - keys->winstart_in_alt)
+					alt_mask = KEYCHAIN_ALT;
+				else
+					alt_mask = KEYCHAIN_MAIN;
+			} else
+				alt_mask = KEYCHAIN_ALT;
+		}
+
+		/*
+		 * Override based on ph->flags.
+		 */
+		if (ph->flags & PH_ALTKEY) {
+			if ((keys->flags & KEYSTATE_F_RX_ALT_PRESENT))
+				alt_mask = KEYCHAIN_ALT;
+			/* Otherwise: logic above (usually main key). */
+		} else if ((ph->flags & PH_ALTKEY_DROP) &&
+		    (keys->flags & KEYSTATE_F_RX_ALT_PRESENT)) {
+			/* Drop hasn't happened yet. */
+			alt_mask = KEYCHAIN_ALT;
+		}
+
+		/* Check if we are to hard abort the connection. */
+		if (ph->seq - (alt_mask == KEYCHAIN_MAIN ? keys->winstart_in :
+		    keys->winstart_in_alt) > CNEG_KEYSTATE_EXP_HARD)
+			return EINVAL;
+
+		/* Apply what we learned above. */
+		k->enc.key =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_ENC|alt_mask].key;
+		k->enc.keylen =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_ENC|alt_mask].keylen;
+		k->enc.algorithm =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_ENC|alt_mask].algorithm;
+
+		k->hash.key =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_HASH|alt_mask].key;
+		k->hash.keylen =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_HASH|alt_mask].keylen;
+		k->hash.algorithm =
+		    keys->chain[KEYCHAIN_IN|KEYCHAIN_HASH|alt_mask].algorithm;
+	}
 
 	return 0;
 }
@@ -3077,8 +3230,12 @@ net2_cneg_rxkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
 /* Retrieve encoding keys. */
 ILIAS_NET2_LOCAL int
 net2_cneg_txkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
-	    struct packet_header *ph)
+    struct packet_header *ph, uint32_t tx_winstart, struct net2_tx_callback *tx)
 {
+	int			 alt_mask;
+	struct net2_cneg_key_state
+				*keys = cn->keys;
+
 	/* Default: send unencrypted data. */
 	k->hash.algorithm = 0;
 	k->hash.key = NULL;
@@ -3090,6 +3247,85 @@ net2_cneg_txkeys(struct net2_cneg_keys *k, struct net2_conn_negotiator *cn,
 	k->enc.allow_insecure = 1;
 
 	/* TODO: implement */
+	if (keys != NULL) {
+		if (keys->flags & KEYSTATE_F_SECURE_OUTBOUND)
+			k->hash.allow_insecure = k->enc.allow_insecure = 0;
+
+		/* Default. */
+		alt_mask = KEYCHAIN_MAIN;
+
+		/* Handle alternative keying. */
+		if (keys->flags & KEYSTATE_F_TX_ALT_PRESENT) {
+			if (keys->winstart_out == tx_winstart) {
+				keys->flags |= KEYSTATE_F_TX_ALT_EXPIRING;
+				keys->flags &= ~KEYSTATE_F_TX_ALT_PRESENT;
+
+				/* Secure release of keys. */
+				net2_secure_zero(keys->chain[KEYCHAIN_OUT|
+				    KEYCHAIN_MAIN|KEYCHAIN_HASH].key,
+				    keys->chain[KEYCHAIN_OUT|KEYCHAIN_MAIN|
+				    KEYCHAIN_HASH].keylen);
+				net2_free(keys->chain[KEYCHAIN_OUT|
+				    KEYCHAIN_MAIN|KEYCHAIN_HASH].key);
+
+				net2_secure_zero(keys->chain[KEYCHAIN_OUT|
+				    KEYCHAIN_MAIN|KEYCHAIN_ENC].key,
+				    keys->chain[KEYCHAIN_OUT|KEYCHAIN_MAIN|
+				    KEYCHAIN_ENC].keylen);
+				net2_free(keys->chain[KEYCHAIN_OUT|
+				    KEYCHAIN_MAIN|KEYCHAIN_HASH].key);
+
+				/* Change alt key to main key,
+				 * using struct copy. */
+				keys->chain[KEYCHAIN_OUT|KEYCHAIN_MAIN|
+				    KEYCHAIN_HASH] =
+				    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ALT|
+				    KEYCHAIN_HASH];
+				keys->chain[KEYCHAIN_OUT|KEYCHAIN_MAIN|
+				    KEYCHAIN_ENC] =
+				    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ALT|
+				    KEYCHAIN_ENC];
+				/* Unset alt keys. */
+				keys->chain[KEYCHAIN_OUT|KEYCHAIN_ALT|
+				    KEYCHAIN_HASH].key =
+				    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ALT|
+				    KEYCHAIN_ENC].key = NULL;
+			} else
+				alt_mask = KEYCHAIN_ALT;
+		}
+
+		/* Apply key bits to packet header. */
+		if (alt_mask == KEYCHAIN_ALT)
+			ph->flags |= PH_ALTKEY;
+		if (keys->flags & KEYSTATE_F_TX_ALT_EXPIRING) {
+			assert(!(ph->flags & PH_ALTKEY));
+			assert(alt_mask == KEYCHAIN_MAIN);
+			ph->flags |= PH_ALTKEY_DROP;
+
+			/* TODO: connect callback to tx, on ack,
+			 * clear KEYSTATE_F_ALT_EXPIRING. */
+		}
+
+		/* Activate re-keying. */
+		if (alt_mask == KEYCHAIN_MAIN && keys->expire_ev != NULL &&
+		    ph->seq - keys->winstart_out >= CNEG_KEYSTATE_EXP_WIN)
+			event_active(keys->expire_ev, 0, 1);
+
+		/* Apply active key chain to result. */
+		k->hash.algorithm =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_HASH|alt_mask].algorithm;
+		k->hash.key =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_HASH|alt_mask].key;
+		k->hash.keylen =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_HASH|alt_mask].keylen;
+
+		k->enc.algorithm =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ENC|alt_mask].algorithm;
+		k->enc.key =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ENC|alt_mask].key;
+		k->enc.keylen =
+		    keys->chain[KEYCHAIN_OUT|KEYCHAIN_ENC|alt_mask].keylen;
+	}
 
 	return 0;
 }
