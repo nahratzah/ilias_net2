@@ -358,7 +358,7 @@ if (BUILD_TESTING)
 		test/buffer.c
 		)
 	target_link_libraries (test_buffer ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_buffer COMMAND test_buffer)
 
 	# Carver tests.
@@ -366,7 +366,7 @@ if (BUILD_TESTING)
 		test/carver.c
 		)
 	target_link_libraries (test_carver ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_carver COMMAND test_carver)
 
 	# Encoding/decoding tests.
@@ -374,7 +374,7 @@ if (BUILD_TESTING)
 		test/encdec_ctypes.c
 		)
 	target_link_libraries (test_encdec_ctypes ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
 
 	# Hash tests.
@@ -382,7 +382,7 @@ if (BUILD_TESTING)
 		test/hash.c
 		)
 	target_link_libraries (test_hash ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_hash COMMAND test_hash)
 
 	# Signature tests.
@@ -390,7 +390,7 @@ if (BUILD_TESTING)
 		test/sign.c
 		)
 	target_link_libraries (test_sign ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_sign COMMAND test_sign)
 
 	# Encryption/decryption tests.
@@ -398,7 +398,7 @@ if (BUILD_TESTING)
 		test/enc.c
 		)
 	target_link_libraries (test_enc ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_enc COMMAND test_enc)
 
 	# Key exchange tests.
@@ -406,7 +406,7 @@ if (BUILD_TESTING)
 		test/xchange.c
 		)
 	target_link_libraries (test_xchange ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_xchange COMMAND test_xchange)
 
 	# Net2 eventbase tests.
@@ -414,7 +414,7 @@ if (BUILD_TESTING)
 		test/evbase.c
 		)
 	target_link_libraries (test_evbase ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_evbase COMMAND test_evbase)
 
 	# Connection management tests.
@@ -426,7 +426,7 @@ if (BUILD_TESTING)
 		test/testconn.c
 		)
 	target_link_libraries (test_conn ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_conn COMMAND test_conn)
 
 	# UDP connection tests.
@@ -436,7 +436,7 @@ if (BUILD_TESTING)
 		test/testprotocol.c
 		)
 	target_link_libraries (test_udp_conn ilias_net2 bsd_compat
-	    ${EVENT_LIBRARIES})
+	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
 
 	if (${WITH_EXUDE})
