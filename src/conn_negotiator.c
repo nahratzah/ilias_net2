@@ -309,6 +309,8 @@ static void	 stage2_exchange_cb(evutil_socket_t, short, void*);
 static int	 cneg_stage1_accept(struct net2_conn_negotiator*,
 		    struct packet_header*, struct net2_buffer*);
 
+static struct net2_cneg_key_state
+		*net2_cneg_key_state_new(struct net2_conn_negotiator*);
 static void	 net2_cneg_key_state_destroy(struct net2_cneg_key_state*);
 
 
@@ -2650,7 +2652,7 @@ cneg_stage1_get_transmit(struct net2_conn_negotiator *cn,
 	 */
 	if (net2_cneg_allow_payload(cn, ph->seq))
 		assert(!stealth);
-	if (!stealth &&
+	if (cn->keys == NULL && !stealth &&
 	    (!want_payload || cn->recv_no_send || !net2_buffer_empty(buf)) &&
 	    net2_buffer_length(buf) + FINI_LEN <= maxlen) {
 		/* Ignore failure: this is optional and ignored. */
@@ -2813,8 +2815,8 @@ cneg_stage2_get_transmit(struct net2_conn_negotiator *cn,
 	 * add empty S2 data to keepalives, since that would elevate them
 	 * to the status of non-keepalive and eat our received poetry).
 	 */
-	if (!net2_buffer_empty(buf) ||
-	    (!stealth && (!want_payload || cn->recv_no_send))) {
+	if (!net2_buffer_empty(buf) || (cn->keys == NULL && !stealth &&
+	    (!want_payload || cn->recv_no_send))) {
 		if ((net2_buffer_append(buf, fin)) != 0) {
 			/*
 			 * This is only a failure if it was required
@@ -2851,6 +2853,18 @@ out:
 }
 
 
+/* Initialize key state. */
+static struct net2_cneg_key_state*
+net2_cneg_key_state_new(struct net2_conn_negotiator *cn)
+{
+	struct net2_cneg_key_state	*keys;
+	size_t				 i;
+
+	if ((keys = net2_malloc(sizeof(*keys))) == NULL)
+		return NULL;
+	memset(keys, 0, sizeof(*keys));
+	return keys;
+}
 /* Destroy the key state. */
 static void
 net2_cneg_key_state_destroy(struct net2_cneg_key_state *keys)
