@@ -26,9 +26,9 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/tx_callback.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/minmax.h>
-#include <bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 #include <string.h>
 #include <stdlib.h>
 #include <event2/event.h>

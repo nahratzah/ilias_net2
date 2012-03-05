@@ -21,7 +21,7 @@
 #include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
-#include <bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 #include <event2/event.h>
 #include <event2/thread.h>
 #include <sys/types.h>

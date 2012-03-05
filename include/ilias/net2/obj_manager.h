@@ -22,12 +22,12 @@
 #ifdef BUILDING_ILIAS_NET2
 
 #include <ilias/net2/protocol.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
-#include <bsd_compat/tree.h>
+#include <ilias/net2/bsd_compat/tree.h>
 #endif
 
 #endif /* BUILDING_ILIAS_NET2 */

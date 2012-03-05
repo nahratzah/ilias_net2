@@ -15,21 +15,22 @@
  */
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/sysexits.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/config.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
 #include <windows.h>
 #include <assert.h>
 
-#ifndef HAVE_SYS_QUEUE_H
-#include <bsd_compat/queue.h>
-#else
+#ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 
-#ifndef HAVE_SYSEXITS_H
-#include <bsd_compat/sysexits.h>
-#else
+#ifdef HAVE_SYSEXITS_H
 #include <sys/sysexits.h>
+#else
+#include <ilias/net2/bsd_compat/sysexits.h>
 #endif
 
 struct net2_mutex {

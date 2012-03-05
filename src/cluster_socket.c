@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/error.h>
 #ifdef WIN32
 #include <WinSock2.h>
 #include <ws2ipdef.h>

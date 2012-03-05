@@ -6,20 +6,20 @@
 #include <ilias/net2/xchange.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/bsd_compat.h>
-#include <bsd_compat/clock.h>
+#include <ilias/net2/config.h>
+#include <ilias/net2/bsd_compat/clock.h>
 #include <assert.h>
 #include <errno.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
-#include <bsd_compat/queue.h>
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
-#include <bsd_compat/tree.h>
+#include <ilias/net2/bsd_compat/tree.h>
 #endif
 
 

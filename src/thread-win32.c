@@ -15,7 +15,7 @@
  */
 #include <ilias/net2/ilias_net2_export.h>
 #include <stdlib.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/error.h>
 #include <Windows.h>
 
 struct net2_thread {

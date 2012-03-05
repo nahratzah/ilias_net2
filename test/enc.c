@@ -20,7 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 
 int		 fail = 0;
 const char	*doctor = "Who are you ?\n"

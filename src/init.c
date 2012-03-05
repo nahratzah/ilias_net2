@@ -15,8 +15,8 @@
  */
 #include <ilias/net2/init.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 
 #ifdef WIN32
 #include <Winsock2.h>

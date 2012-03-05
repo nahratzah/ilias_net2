@@ -77,10 +77,53 @@ list (APPEND srcs
 #
 # Enable BSD compatibility.
 #
-find_path (bsd_compat_INCLUDE_DIRS "bsd_compat/bsd_compat.h" PATHS "${LOCALBASE}/include")
-find_library (bsd_compat_LIBS "bsd_compat" PATHS "${LOCALBASE}/lib")
-add_library (bsd_compat SHARED IMPORTED)
-set_property (TARGET bsd_compat PROPERTY IMPORTED_LOCATION "${bsd_compat_LIBS}")
+include (CheckFunctionExists)
+include (CheckIncludeFiles)
+check_function_exists (SHA256Init HAS_SHA2)
+check_function_exists (arc4random HAS_ARC4RANDOM)
+check_function_exists (vasprintf HAS_VASPRINTF)
+check_function_exists (asprintf HAS_ASPRINTF)
+check_function_exists (snprintf HAS_SNPRINTF)
+check_function_exists (vsnprintf HAS_VSNPRINTF)
+check_function_exists (strlcpy HAS_STRLCPY)
+check_function_exists (strlcat HAS_STRLCAT)
+check_include_files (sys/param.h HAVE_SYS_PARAM_H)
+check_include_files (sysexits.h HAVE_SYSEXITS_H)
+check_include_files (sys/time.h HAVE_SYS_TIME_H)
+check_include_files (time.h HAVE_TIME_H)
+check_include_files (sys/ioctl.h HAVE_SYS_IOCTL_H)
+check_include_files (sys/queue.h HAVE_SYS_QUEUE_H)
+check_include_files (sys/tree.h HAVE_SYS_TREE_H)
+check_include_files (getopt.h HAVE_GETOPT_H)
+
+list (APPEND headers
+	include/ilias/net2/bsd_compat/error.h
+	include/ilias/net2/bsd_compat/clock.h
+	include/ilias/net2/bsd_compat/secure_random.h
+	include/ilias/net2/bsd_compat/minmax.h
+	include/ilias/net2/bsd_compat/endian.h
+	)
+list (APPEND srcs
+	src/error.c
+	src/clock.c
+	)
+if (NOT HAS_SHA2)
+	list (APPEND headers include/ilias_net2/bsd_compat/sha2.h)
+	list (APPEND srcs src/sha2.c)
+endif (NOT HAS_SHA2)
+if (NOT HAS_ARC4RANDOM)
+	list (APPEND srcs src/secure_random.c)
+endif (NOT HAS_ARC4RANDOM)
+if (NOT HAVE_GETOPT_H)
+	list (APPEND headers include/ilias_net2/bsd_compat/getopt.h)
+	list (APPEND srcs src/getopt_long.c)
+endif (NOT HAVE_GETOPT_H)
+if (NOT HAVE_SYS_QUEUE_H)
+	list (APPEND headers include/ilias_net2/bsd_compat/queue.h)
+endif (NOT HAVE_SYS_QUEUE_H)
+if (NOT HAVE_SYS_TREE_H)
+	list (APPEND headers include/ilias_net2/bsd_compat/queue.h)
+endif (NOT HAVE_SYS_TREE_H)
 
 #
 # Find exude allocation debugger.
@@ -246,7 +289,6 @@ list (APPEND headers
 
 
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
-include_directories (${bsd_compat_INCLUDE_DIRS})
 include_directories (${EVENT_INCLUDE_DIRS})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
@@ -310,8 +352,8 @@ check_struct_has_member ("struct sockaddr_in" "sin_len"
     "${CMAKE_EXTRA_INCLUDE_FILES}" HAVE_STRUCT_SOCKADDR_IN_SIN_LEN)
 
 
-configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
-list (APPEND srcs ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
+list (APPEND headers ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
 
 add_definitions(-DBUILDING_ILIAS_NET2)
 add_library (ilias_net2 SHARED
@@ -324,7 +366,7 @@ add_library (ilias_net2_static STATIC
 	${headers}
 	${cluster_headers}
 	)
-target_link_libraries (ilias_net2 bsd_compat ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
+target_link_libraries (ilias_net2 ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
 endif (Threads_FOUND)
@@ -357,7 +399,7 @@ if (BUILD_TESTING)
 	add_executable (test_buffer
 		test/buffer.c
 		)
-	target_link_libraries (test_buffer ilias_net2 bsd_compat
+	target_link_libraries (test_buffer ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_buffer COMMAND test_buffer)
 
@@ -365,7 +407,7 @@ if (BUILD_TESTING)
 	add_executable (test_carver
 		test/carver.c
 		)
-	target_link_libraries (test_carver ilias_net2 bsd_compat
+	target_link_libraries (test_carver ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_carver COMMAND test_carver)
 
@@ -373,7 +415,7 @@ if (BUILD_TESTING)
 	add_executable (test_encdec_ctypes
 		test/encdec_ctypes.c
 		)
-	target_link_libraries (test_encdec_ctypes ilias_net2 bsd_compat
+	target_link_libraries (test_encdec_ctypes ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
 
@@ -381,7 +423,7 @@ if (BUILD_TESTING)
 	add_executable (test_hash
 		test/hash.c
 		)
-	target_link_libraries (test_hash ilias_net2 bsd_compat
+	target_link_libraries (test_hash ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_hash COMMAND test_hash)
 
@@ -389,7 +431,7 @@ if (BUILD_TESTING)
 	add_executable (test_sign
 		test/sign.c
 		)
-	target_link_libraries (test_sign ilias_net2 bsd_compat
+	target_link_libraries (test_sign ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_sign COMMAND test_sign)
 
@@ -397,7 +439,7 @@ if (BUILD_TESTING)
 	add_executable (test_enc
 		test/enc.c
 		)
-	target_link_libraries (test_enc ilias_net2 bsd_compat
+	target_link_libraries (test_enc ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_enc COMMAND test_enc)
 
@@ -405,7 +447,7 @@ if (BUILD_TESTING)
 	add_executable (test_xchange
 		test/xchange.c
 		)
-	target_link_libraries (test_xchange ilias_net2 bsd_compat
+	target_link_libraries (test_xchange ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_xchange COMMAND test_xchange)
 
@@ -413,7 +455,7 @@ if (BUILD_TESTING)
 	add_executable (test_evbase
 		test/evbase.c
 		)
-	target_link_libraries (test_evbase ilias_net2 bsd_compat
+	target_link_libraries (test_evbase ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_evbase COMMAND test_evbase)
 
@@ -425,7 +467,7 @@ if (BUILD_TESTING)
 		test/testconn.h
 		test/testconn.c
 		)
-	target_link_libraries (test_conn ilias_net2 bsd_compat
+	target_link_libraries (test_conn ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_conn COMMAND test_conn)
 
@@ -435,7 +477,7 @@ if (BUILD_TESTING)
 		test/testprotocol.h
 		test/testprotocol.c
 		)
-	target_link_libraries (test_udp_conn ilias_net2 bsd_compat
+	target_link_libraries (test_udp_conn ilias_net2
 	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
 

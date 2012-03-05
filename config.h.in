@@ -29,3 +29,52 @@
 
 /* pthread_set_name_np implemented. */
 #cmakedefine HAS_PTHREAD_SET_NAME_NP
+
+/* Set if writev function exists. */
+#cmakedefine HAS_WRITEV
+
+/* Set if sha2 code is supplied by system. */
+#cmakedefine HAS_SHA2
+
+/* Set if arc4random is implemented by system. */
+#cmakedefine HAS_ARC4RANDOM
+
+/* Set if vasprintf function exists. */
+#cmakedefine HAS_VASPRINTF
+/* Set if asprintf function exists. */
+#cmakedefine HAS_ASPRINTF
+
+/* Set if vsnprintf function exists. */
+#cmakedefine HAS_VSNPRINTF
+/* Set if snprintf function exists. */
+#cmakedefine HAS_SNPRINTF
+
+/* Set if strlcpy function exists. */
+#cmakedefine HAS_STRLCPY
+
+/* Set if strlcat function exists. */
+#cmakedefine HAS_STRLCAT
+
+/* Set if sys/param.h include exists. */
+#cmakedefine HAVE_SYS_PARAM_H
+
+/* Set if sysexits.h include exists. */
+#cmakedefine HAVE_SYSEXITS_H
+
+/* Set if sys/time.h include exists. */
+#cmakedefine HAVE_SYS_TIME_H
+
+/* Set if time.h include exists. */
+#cmakedefine HAVE_TIME_H
+
+/* Set if sys/ioctl.h include exists. */
+#cmakedefine HAVE_SYS_IOCTL_H
+
+/* Set if getopt.h include exists. */
+#cmakedefine HAVE_GETOPT_H
+
+/* Set if sys/queue.h exists. */
+#cmakedefine HAVE_SYS_QUEUE_H
+
+/* Set if sys/tree.h exists. */
+#cmakedefine HAVE_SYS_TREE_H

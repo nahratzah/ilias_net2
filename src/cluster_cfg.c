@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/cluster/cfg.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/error.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>

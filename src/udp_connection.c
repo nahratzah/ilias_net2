@@ -36,9 +36,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #endif
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
-#include <bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 #include <assert.h>
 
 

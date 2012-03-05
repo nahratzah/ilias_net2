@@ -16,9 +16,9 @@
 #include <ilias/net2/connstats.h>
 #include <string.h>
 #include <stdio.h>
-#include <bsd_compat/clock.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/clock.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 #ifdef WIN32
 #include <Windows.h>
 #endif

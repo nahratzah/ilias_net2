@@ -21,8 +21,8 @@
 #include <openssl/dh.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
-#include <bsd_compat/secure_random.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/error.h>
 #include <assert.h>
 #include <string.h>
 

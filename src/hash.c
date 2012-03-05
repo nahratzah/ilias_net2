@@ -15,13 +15,13 @@
  */
 #include <ilias/net2/hash.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
 #include <event2/buffer.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 
 #ifdef WIN32
 #include <malloc.h>
@@ -30,7 +30,7 @@
 #ifdef HAS_SHA2
 #include <sha2.h>
 #else
-#include <bsd_compat/sha2.h>
+#include <ilias/net2/bsd_compat/sha2.h>
 #endif
 
 #include <openssl/evp.h>

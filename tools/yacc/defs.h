@@ -38,16 +38,16 @@
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
-#include <bsd_compat/printf.h>
+#include <ilias/net2/bsd_compat/printf.h>
 #include <string.h>
-#include <bsd_compat/string.h>
+#include <ilias/net2/bsd_compat/string.h>
 #include <stdlib.h>
 
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #else
-#include <bsd_compat/getopt.h>
+#include <ilias/net2/bsd_compat/getopt.h>
 #endif
 
 /*  machine-dependent definitions			*/

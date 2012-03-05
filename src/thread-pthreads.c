@@ -15,11 +15,11 @@
  */
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/config.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <bsd_compat/error.h>
-#include "config.h"
+#include <ilias/net2/bsd_compat/error.h>
 
 #ifdef HAVE_PTHREAD_NP_H
 #include <pthread_np.h>

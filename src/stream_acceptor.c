@@ -23,9 +23,9 @@
 #include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/tx_callback.h>
-#include <bsd_compat/minmax.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/config.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -36,7 +36,7 @@
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
-#include <bsd_compat/tree.h>
+#include <ilias/net2/bsd_compat/tree.h>
 #endif
 
 

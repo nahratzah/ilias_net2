@@ -20,8 +20,8 @@
 #include <ilias/net2/tx_callback.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/evbase.h>
-#include <bsd_compat/secure_random.h>
-#include <bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

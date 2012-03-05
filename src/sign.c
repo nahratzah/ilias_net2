@@ -24,11 +24,11 @@
 #include <openssl/pem.h>
 #include <assert.h>
 
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #ifdef HAS_SHA2
 #include <sha2.h>
 #else
-#include <bsd_compat/sha2.h>
+#include <ilias/net2/bsd_compat/sha2.h>
 #endif
 
 

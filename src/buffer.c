@@ -17,14 +17,14 @@
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/types.h>
-#include <bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 
 
 #ifndef NDEBUG

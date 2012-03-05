@@ -29,8 +29,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <bsd_compat/minmax.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/bsd_compat/minmax.h>
+#include <ilias/net2/config.h>
 #include <event2/event.h>
 
 #include <ilias/net2/enc.h>
@@ -43,7 +43,7 @@
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
-#include <bsd_compat/queue.h>
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 
 #define REQUIRE								\

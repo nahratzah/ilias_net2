@@ -17,14 +17,14 @@
 #define ILIAS_NET2_CARVER_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #include <sys/types.h>
 #include <stdint.h>
 
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
-#include <bsd_compat/tree.h>
+#include <ilias/net2/bsd_compat/tree.h>
 #endif
 
 struct net2_carver_range;	/* Internal. */

@@ -17,9 +17,9 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/init.h>
 #include <ilias/net2/sign.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/secure_random.h>
-#include <bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <stdio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>

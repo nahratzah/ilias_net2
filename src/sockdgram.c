@@ -17,12 +17,12 @@
 #include <ilias/net2/connection.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/config.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
-#include "config.h"
 
 #ifdef WIN32
 #include <WinSock2.h>

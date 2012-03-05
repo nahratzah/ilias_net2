@@ -20,8 +20,8 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/cp.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 #include <event2/event.h>
 #include "obj_manager_proto.h"
 #include <stdlib.h>

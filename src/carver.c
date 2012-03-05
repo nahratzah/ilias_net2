@@ -19,15 +19,15 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/tx_callback.h>
-#include <bsd_compat/bsd_compat.h>
-#include <bsd_compat/minmax.h>
+#include <ilias/net2/config.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <assert.h>
 #include <errno.h>
 
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>
 #else
-#include <bsd_compat/tree.h>
+#include <ilias/net2/bsd_compat/tree.h>
 #endif
 
 #include "carver_msg.h"

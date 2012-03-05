@@ -17,8 +17,8 @@
 #include <ilias/net2/sign.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>

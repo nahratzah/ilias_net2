@@ -21,18 +21,18 @@
 %start program
 
 %{
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else /* HAVE_SYS_QUEUE_H */
-#include <bsd_compat/queue.h>
+#include <ilias/net2/bsd_compat/queue.h>
 #endif /* HAVE_SYS_QUEUE_H */
 
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #else /* HAVE_GETOPT_H */
-#include <bsd_compat/getopt.h>
+#include <ilias/net2/bsd_compat/getopt.h>
 #endif /* HAVE_GETOPT_H */
 
 #include <stdint.h>
@@ -42,9 +42,9 @@
 #endif /* WIN32 */
 #include <fcntl.h>
 #include <errno.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
-#include <bsd_compat/printf.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/printf.h>
 #include <assert.h>
 
 #ifdef WIN32

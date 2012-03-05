@@ -18,7 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <stdint.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #ifdef WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>
@@ -30,7 +30,7 @@
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
-#include <bsd_compat/queue.h>
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 
 #ifdef __cplusplus

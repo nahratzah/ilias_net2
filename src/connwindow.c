@@ -22,11 +22,11 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/tx_callback.h>
-#include <bsd_compat/secure_random.h>
-#include <bsd_compat/clock.h>
-#include <bsd_compat/error.h>
-#include <bsd_compat/sysexits.h>
-#include <bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
+#include <ilias/net2/bsd_compat/clock.h>
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <event2/event.h>
 #include <stdlib.h>
 #include <assert.h>

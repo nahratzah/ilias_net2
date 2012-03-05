@@ -17,13 +17,13 @@
 #define ILIAS_NET2_TX_CALLBACK_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <bsd_compat/bsd_compat.h>
+#include <ilias/net2/config.h>
 #include <stdlib.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
 #else
-#include <bsd_compat/queue.h>
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 
 struct net2_evbase;	/* From ilias/net2/evbase.h */

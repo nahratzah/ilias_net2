@@ -33,5 +33,11 @@
 #define ILIAS_NET2_LOCAL
 #endif
 
+#ifdef __GNUC__
+#define ILIAS_NET2__dead                __attribute__((__noreturn__))
+#else
+#define ILIAS_NET2__dead                /* NOTHING */
+#endif
+
 
 #endif /* ILIAS_ILIAS_NET2_EXPORT_H */

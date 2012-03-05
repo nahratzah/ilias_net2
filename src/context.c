@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
-#include <bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/error.h>
 
 
 /*
