@@ -183,10 +183,13 @@ ILIAS_NET2_EXPORT struct net2_buffer*
 net2_xchangectx_final(struct net2_xchange_ctx *x)
 {
 	struct net2_buffer	*b;
+	int			 final_rv;
 
 	if ((b = net2_buffer_new()) == NULL)
 		goto fail_0;
-	if ((*x->fn->final)(x, b))
+	final_rv = (*x->fn->final)(x, b);
+	net2_buffer_sensitive(b);
+	if (final_rv)
 		goto fail_1;
 	return b;
 

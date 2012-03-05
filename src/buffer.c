@@ -16,6 +16,7 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/types.h>
 #include <bsd_compat/minmax.h>
 #include <sys/types.h>
 #include <stdint.h>
@@ -57,8 +58,9 @@ struct net2_buffer_segment_impl {
 	size_t				 use;
 
 	int				 flags;
-#define BUF_STD				0x00000001	/* Standard buffer style. */
-#define BUF_REFERENCE			0x00000002	/* Reference data. */
+#define BUF_STD			0x00000001	/* Standard buffer style. */
+#define BUF_REFERENCE		0x00000002	/* Reference data. */
+#define BUF_SENSITIVE		0x00000004	/* Segment is sensitive. */
 	/* Data after segment. */
 };
 
@@ -186,11 +188,22 @@ segment_impl_release(struct net2_buffer_segment_impl *s)
 		net2_mutex_unlock(s->mtx);
 		net2_mutex_free(s->mtx);
 
+		/*
+		 * We cannot securely delete referenced data:
+		 * the free code may not be an actual free, or could require
+		 * data in its buffer.
+		 */
+		assert((s->flags & (BUF_REFERENCE | BUF_SENSITIVE)) !=
+		    (BUF_REFERENCE | BUF_SENSITIVE));
+
 		if (s->flags & BUF_REFERENCE) {
 			r = get_reference(s);
 			if (r->release != NULL)
 				(*r->release)(r->release_arg);
 		}
+
+		if (s->flags & BUF_SENSITIVE)
+			net2_secure_zero(s, s->len + NET2_BUFSEGMENT_IMPL_SZ);
 
 		net2_free(s);
 		return;
@@ -224,7 +237,8 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 		return -1;	/* overflow */
 
 	assert(s->use >= off);
-	if ((s->flags & BUF_STD) && s->use == off) {
+	if ((s->flags & (BUF_STD | BUF_SENSITIVE)) == BUF_STD &&
+	    s->use == off) {
 		if (s->len - s->use >= add) {
 			s->use += add;
 			rv = 0;
@@ -441,6 +455,22 @@ segment_reserve(struct net2_buffer_segment *s,
 		s->len = iov->iov_len;
 	}
 	return rv;
+}
+
+/* Mark segment as containing sensitive data. */
+static int
+segment_sensitive(struct net2_buffer_segment *s)
+{
+	if (s->data->flags & BUF_REFERENCE)
+		return 1;	/* Cannot mark reference data as sensitive. */
+	else if (s->data->flags & BUF_STD)
+		s->data->flags |= BUF_SENSITIVE;
+	else {
+		errx(EX_SOFTWARE, "unrecognized buffer segment: flags=0x%x",
+		    s->data->flags);
+	}
+
+	return 0;
 }
 
 
@@ -1709,7 +1739,38 @@ net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 	if ((list = net2_recalloc(list, listlen, sizeof(*list))) != NULL)
 		b->list = list;
 
+	kill_reserve(b);
 	ASSERTBUFFER(b);
+}
+
+/*
+ * Mark the entire buffer as sensitive data.
+ *
+ * If the buffer contains references, they will not be marked sensitive.
+ *
+ * Never fails.
+ * Returns 0, unless at least one reference was present, in which case it
+ * returns non-zero.
+ */
+ILIAS_NET2_EXPORT int
+net2_buffer_sensitive(struct net2_buffer *b)
+{
+	int				 rv;
+	struct net2_buffer_segment	*list;
+	size_t				 listlen, i;
+
+	list = b->list;
+	listlen = b->listlen;
+	rv = 0;
+
+	for (i = 0; i < listlen; i++) {
+		if (segment_sensitive(&list[i]))
+			rv = 1;
+	}
+
+	kill_reserve(b);
+	ASSERTBUFFER(b);
+	return rv;
 }
 
 

@@ -132,4 +132,7 @@ ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_buffer_subrange(const struct net2_buffer*,
 			    size_t, size_t);
 
+ILIAS_NET2_EXPORT
+int			 net2_buffer_sensitive(struct net2_buffer*);
+
 #endif /* ILIAS_NET2_BUFFER_H */
