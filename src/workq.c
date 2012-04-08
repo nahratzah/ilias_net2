@@ -2,6 +2,7 @@
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/thread.h>
+#include <ilias/net2/bsd_compat/error.h>
 #include <ev.h>
 #include <assert.h>
 #include <stdio.h>
@@ -49,6 +50,15 @@ struct net2_workq_evbase_worker {
 	struct net2_workq_evbase
 			*evbase;		/* Owner. */
 };
+
+
+static void	 net2_workq_wakeup(struct net2_workq_evbase*);
+static void	*net2_workq_worker(void *);
+static void	 wqev_unlock(struct ev_loop*);
+static void	 wqev_lock(struct ev_loop*);
+static void	 evloop_wakeup(struct ev_loop*, ev_async*, int);
+static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
+static void	 wqev_mtx_unlock(struct net2_workq_evbase*);
 
 
 /*
@@ -217,7 +227,7 @@ net2_workq_worker(void *w_ptr)
 }
 
 /* Change the number of worker threads. */
-int
+ILIAS_NET2_EXPORT int
 net2_workq_set_thread_count(struct net2_workq_evbase *wqev, size_t target)
 {
 	struct net2_workq_evbase_worker	*w;
@@ -327,7 +337,7 @@ evloop_new_event(struct ev_loop *loop, ev_async *w, int events)
 }
 
 /* Create a new workq evbase. */
-struct net2_workq_evbase*
+ILIAS_NET2_EXPORT struct net2_workq_evbase*
 net2_workq_evbase_new(const char *name)
 {
 	struct net2_workq_evbase	*wqev;
@@ -406,4 +416,65 @@ fail_1:
 	net2_free(wqev);
 fail_0:
 	return NULL;
+}
+
+/* Add reference to the workq eventbase. */
+ILIAS_NET2_EXPORT void
+net2_workq_evbase_ref(struct net2_workq_evbase *wqev)
+{
+	net2_mutex_lock(wqev->mtx);
+	wqev->refcnt++;
+	assert(wqev->refcnt > 0);
+	net2_mutex_unlock(wqev->mtx);
+}
+
+/* Remove reference to the workq eventbase. */
+ILIAS_NET2_EXPORT void
+net2_workq_evbase_release(struct net2_workq_evbase *wqev)
+{
+	net2_mutex_lock(wqev->mtx);
+	assert(wqev->refcnt > 0);
+	wqev->refcnt--;
+	wqev_mtx_unlock(wqev);
+}
+
+/*
+ * Unlock the workq eventbase.
+ * Destroys the wqev if it has no references left.
+ */
+static void
+wqev_mtx_unlock(struct net2_workq_evbase *wqev)
+{
+	int			 do_destroy;
+	int			 error;
+
+	/* Test if destruction is required prior to unlocking. */
+	do_destroy = (wqev->refcnt == 0 && TAILQ_EMPTY(&wqev->workq));
+	net2_mutex_unlock(wqev->mtx);		/* UNLOCK: wqev */
+	if (!do_destroy)
+		return; /* Still in use. */
+
+	/* Destroy all threads. */
+	error = net2_workq_set_thread_count(wqev, 0);
+	if (error != 0) {
+		errno = error;
+		warn("net2_workq_evbase: failed to kill all threads in workq eventbase");
+		/*
+		 * Continuing here would cause a segfault once the thread
+		 * tries to access wqev.  If this wouldn't deadlock first
+		 * because the eventloop might have f.i. a file descriptor
+		 * in use while it is being closed.
+		 *
+		 * We'll leak instead (fucked either way...).
+		 */
+		return;
+	}
+
+	/* Destroy all resources used by wqev. */
+	net2_free(wqev->wq_worker_name);
+	net2_cond_free(wqev->thread_death);
+	ev_loop_destroy(wqev->evloop);
+	net2_cond_free(wqev->wakeup);
+	net2_mutex_free(wqev->mtx);
+	net2_free(wqev);
 }

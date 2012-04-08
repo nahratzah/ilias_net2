@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <ilias/net2/config.h>
+#include <ilias/net2/ilias_net2_export.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -46,8 +47,14 @@ struct net2_workq {
 };
 
 
+ILIAS_NET2_EXPORT
 int	 net2_workq_set_thread_count(struct net2_workq_evbase*, size_t);
+ILIAS_NET2_EXPORT
 struct net2_workq_evbase
 	*net2_workq_evbase_new(const char*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_evbase_ref(struct net2_workq_evbase*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_evbase_release(struct net2_workq_evbase*);
 
 #endif /* ILIAS_NET2_WORKQ_H */
