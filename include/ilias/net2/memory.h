@@ -56,6 +56,7 @@ ILIAS_NET2_LOCAL void	 net2_memory_fini();
 
 
 #include <stdlib.h>
+#include <string.h>
 
 #define net2_malloc(s)							\
 	malloc((s))
