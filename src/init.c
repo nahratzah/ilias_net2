@@ -15,8 +15,10 @@
  */
 #include <ilias/net2/init.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/thread.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
+#include <assert.h>
 
 #ifdef WIN32
 #include <Winsock2.h>
@@ -24,38 +26,63 @@
 
 #include "handshake.h"
 
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_EXPORT int
 net2_init()
 {
-	net2_memory_init();
-
 #ifdef WIN32
 	WSADATA	wsa_data;
-	int	rv;
 	int	minor, major;
+#endif
+	int	rv;
 
-	if ((rv = WSAStartup(MAKEWORD(2, 2), &wsa_data)) != 0)
-		errx(EX_OSERR, "WSAStartup fail: %d", rv);
+	net2_memory_init();
+	if ((rv = net2_thread_init()) != 0)
+		goto fail_0;
+
+#ifdef WIN32
+	if ((rv = WSAStartup(MAKEWORD(2, 2), &wsa_data)) != 0) {
+		warnx(EX_OSERR, "WSAStartup fail: %d", rv);
+		goto fail_1;
+	}
 	major = LOBYTE(wsa_data.wVersion);
 	minor = HIBYTE(wsa_data.wVersion);
 	if (minor != 2 && major != 2) {
-		WSACleanup();
-		errx(EX_OSERR, "Winsock %d.%d is too old, "
+		warnx(EX_OSERR, "Winsock %d.%d is too old, "
 		    "upgrade your windows.", major, minor);
+		rv = EINVAL;
+		goto fail_2;
 	}
 #endif
 
-	net2_init_poetry();
+	if ((rv = net2_init_poetry()) != 0)
+		goto fail_2;
+
+	/* No errors. */
+	return 0;
+
+
+fail_3:
+	net2_destroy_poetry();
+fail_2:
+#ifdef WIN32
+	WSACleanup();
+#endif
+fail_1:
+	net2_thread_fini();
+fail_0:
+	net2_memory_fini();
+
+	assert(rv != 0);
+	return rv;
 }
 
 ILIAS_NET2_EXPORT void
 net2_cleanup()
 {
 	net2_destroy_poetry();
-
 #ifdef WIN32
 	WSACleanup();
 #endif
-
+	net2_thread_fini();
 	net2_memory_fini();
 }

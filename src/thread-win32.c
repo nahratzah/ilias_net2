@@ -23,19 +23,44 @@ struct net2_thread {
 	void		*result;
 	void		*(*fn)(void*);
 	void		*arg;
-	DWORD		 tid;
+	unsigned	 tid;
+	int		 detached;
+
+	RB_ENTRY(net2_thread)
+			 rb;
 };
 
-static DWORD WINAPI
+/* Store threads in a set, based on the tid; s is the protector. */
+static CRITICAL_SECTION s;
+static RB_HEAD(win32_threads, net2_thread) global = RB_HEAD_INITIALIZER(&global);
+
+static __inline int
+tid_cmp(struct net2_thread *t1, struct net2_thread *t2)
+{
+	return (t1->tid < t2->tid ? -1 : t1->tid > t2->tid);
+}
+
+RB_PROTOTYPE_STATIC(win32_threads, net2_thread, rb, tid_cmp);
+
+static __stdcall DWORD
 thread_wrapper(void *tptr)
 {
 	struct net2_thread *t = tptr;
 
 	t->result = t->fn(t->arg);
+	_endthreadex(0);
 	return 0;
 }
 
-/* Start a new thread. */
+/*
+ * Start a new thread.
+ *
+ * Note that the critical section (s) is held at startup of the thread,
+ * until the global list of threads has been updated.
+ * This ensures the newly created thread will block before trying to
+ * update global itself (for example because the first instruction in
+ * the thread is to detach itself).
+ */
 ILIAS_NET2_LOCAL struct net2_thread*
 net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 {
@@ -43,14 +68,28 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 
 	if ((t = net2_malloc(sizeof(*t))) == NULL)
 		return NULL;
-	t->handle = CreateThread(NULL, 0, &thread_wrapper, t, 0, &t->tid);
-	if (t->handle == NULL) {
-		net2_free(t);
-		return NULL;
-	}
 	t->fn = fn;
 	t->arg = arg;
 	t->result = NULL;
+
+	EnterCriticalSection(&s);
+	t->handle = (HANDLE)_beginthreadex(NULL, 0, &thread_wrapper, t,
+	    CREATE_SUSPENDED, &t->tid);
+	/*
+	 * Comments on MSDN suggest the function may also return 0.
+	 * Since the result is a HANDLE, NULL is unlikely to be valid.
+	 * Therefore check against both -1 and 0, just to be on the safe side.
+	 */
+	if (t->handle == ((HANDLE)((uintptr_t)-1)) ||
+	    t->handle == ((HANDLE)((uintptr_t) 0))) {
+		LeaveCriticalSection(&s);
+		net2_free(t);
+		return NULL;
+	}
+
+	RB_INSERT(win32_threads, &global, t);
+	LeaveCriticalSection(&s);
+
 	return t;
 }
 
@@ -60,8 +99,13 @@ net2_thread_join(struct net2_thread *t, void **out)
 {
 	if (WaitForSingleObject(t->handle, INFINITE) != WAIT_OBJECT_0)
 		return -1;
+	CloseHandle(t->handle);
 	if (out != NULL)
 		*out = t->result;
+	EnterCriticalSection(&s);
+	RB_REMOVE(win32_threads, &global, t);
+	t->detached = 1;
+	LeaveCriticalSection(&s);
 	return 0;
 }
 
@@ -69,6 +113,10 @@ net2_thread_join(struct net2_thread *t, void **out)
 ILIAS_NET2_LOCAL void
 net2_thread_free(struct net2_thread *t)
 {
+	EnterCriticalSection(&s);
+	if (!detached)
+		RB_REMOVE(win32_threads, &global, t);
+	LeaveCriticalSection(&s);
 	net2_free(t);
 }
 
@@ -78,3 +126,35 @@ net2_thread_is_self(struct net2_thread *t)
 {
 	return t->tid == GetCurrentThreadId();
 }
+
+/* Detach the current thread. */
+ILIAS_NET2_LOCAL void
+net2_thread_detach_self()
+{
+	struct net2_thread	*t, search;
+
+	search->tid = GetCurrentThreadId();
+	EnterCriticalSection(&s);
+	t = RB_FIND(win32_threads, &global, &search);
+	if (t != NULL && !t->detached) {
+		t->detached = 1;
+		RB_REMOVE(win32_threads, &global, t);
+	}
+	LeaveCriticalSection(&s);
+}
+
+/* Initialize thread mutex. */
+ILIAS_NET2_LOCAL int
+net2_thread_init()
+{
+	InitializeCriticalSection(&s);
+}
+
+/* Destroy thread mutex. */
+ILIAS_NET2_LOCAL void
+net2_thread_fini()
+{
+	DeleteCriticalSection(&s);
+}
+
+RB_GENERATE_STATIC(win32_threads, net2_thread, rb, tid_cmp);

@@ -88,3 +88,24 @@ net2_thread_is_self(struct net2_thread *t)
 {
 	return pthread_equal(t->n2t_impl, pthread_self());
 }
+
+/* Detach current thread. */
+ILIAS_NET2_LOCAL void
+net2_thread_detach_self()
+{
+	pthread_detach(pthread_self());
+}
+
+/* Initialize threading. */
+ILIAS_NET2_LOCAL int
+net2_thread_init()
+{
+	return 0; /* Nothing to do. */
+}
+
+/* Deinitialize threading. */
+ILIAS_NET2_LOCAL void
+net2_thread_fini()
+{
+	return; /* Nothing to do. */
+}

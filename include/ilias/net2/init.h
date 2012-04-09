@@ -23,7 +23,7 @@ extern "C" {
 #endif
 
 ILIAS_NET2_EXPORT
-void	net2_init();
+int	net2_init();
 ILIAS_NET2_EXPORT
 void	net2_cleanup();
 
