@@ -1,3 +1,18 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 #include <ilias/net2/workq.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
@@ -8,8 +23,17 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define NET2_WORKQ_ONQUEUE	0x00010000
+/* Internal flags for workq jobs. */
+#define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
 
+/* Internal flags for workq. */
+#define NET2_WQ_F_RUNNING	0x00000001	/* Workq is executing. */
+#define NET2_WQ_F_ONQUEUE	0x00000002	/* Workq is on runqueue. */
+#define NET2_WQ_F_DYING		0x00000004	/* Workq is dying. */
+
+/*
+ * Event base and thread pool.
+ */
 struct net2_workq_evbase {
 	struct net2_mutex
 			*mtx;			/* Mutex. */
@@ -34,7 +58,7 @@ struct net2_workq_evbase {
 	TAILQ_HEAD(, net2_workq_evbase_worker)
 			 dead_threads;		/* Dead threads. */
 
-	const char	*wq_worker_name;	/* Thread name of workers. */
+	char		*wq_worker_name;	/* Thread name of workers. */
 	int		 wakeup_sent;		/* Cleared once awoken thread
 						 * starts execution. */
 	int		 modify_thread_count;	/* Set while thread count is
@@ -42,6 +66,9 @@ struct net2_workq_evbase {
 	size_t		 refcnt;		/* Reference counter. */
 };
 
+/*
+ * A worker thread.
+ */
 struct net2_workq_evbase_worker {
 	TAILQ_ENTRY(net2_workq_evbase_worker)
 			 tq;			/* Link into threads. */
@@ -58,7 +85,7 @@ static void	 wqev_unlock(struct ev_loop*);
 static void	 wqev_lock(struct ev_loop*);
 static void	 evloop_wakeup(struct ev_loop*, ev_async*, int);
 static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
-static void	 wqev_mtx_unlock(struct net2_workq_evbase*);
+static int	 wqev_mtx_unlock(struct net2_workq_evbase*, int);
 
 
 /*
@@ -100,6 +127,7 @@ net2_workq_worker(void *w_ptr)
 	struct net2_workq_evbase	*wqev = w->evbase;
 	struct net2_workq		*run;
 	struct net2_workq_job		*job;
+	int				 died;
 
 	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
 	while (wqev->thread_active <= wqev->thread_target) {
@@ -148,11 +176,15 @@ net2_workq_worker(void *w_ptr)
 		/* If there is more to be run, wakeup another thread. */
 		if (!TAILQ_EMPTY(&wqev->runq))
 			net2_workq_wakeup(wqev);
+		run->flags &= ~NET2_WQ_F_ONQUEUE;
+		run->flags |= NET2_WQ_F_RUNNING;
+
+		died = 0;
+		run->died = &died;
+		run->execing = w->worker;
 		net2_mutex_unlock(wqev->mtx);		/* UNLOCK: wqev */
 
 		net2_mutex_lock(run->mtx);		/* LOCK: run */
-		run->flags &= ~NET2_WQ_F_ONQUEUE;
-		run->flags |= NET2_WQ_F_RUNNING;
 
 		job = TAILQ_FIRST(&run->runqueue);
 		if (job != NULL) {
@@ -167,6 +199,13 @@ net2_workq_worker(void *w_ptr)
 
 			/* Run callback. */
 			(*job->fn)(job->cb_arg[0], job->cb_arg[1]);
+			if (died) {
+				net2_mutex_lock(wqev->mtx);
+				/* Test if the wqev became unreferenced. */
+				if (wqev_mtx_unlock(wqev, 1))
+					goto wqev_destroy_from_within;
+				continue;
+			}
 
 			/* Relock. */
 			net2_mutex_lock(run->mtx);	/* LOCK: run */
@@ -188,19 +227,25 @@ net2_workq_worker(void *w_ptr)
 			}
 		}
 
+		net2_mutex_lock(wqev->mtx);		/* LOCK: wqev */
+		run->died = NULL;
+		run->execing = NULL;
+
 		/*
 		 * Put run back on the queue, if it has more jobs to run.
 		 * No wakeup: this thread will pick it up if no other
 		 * thread will.
+		 *
+		 * If run is dying, signal its completion.
 		 */
-		if (!TAILQ_EMPTY(&run->runqueue)) {
+		run->flags &= ~NET2_WQ_F_RUNNING;
+		if (run->flags & NET2_WQ_F_DYING)
+			net2_cond_broadcast(run->dying);
+		else if (!TAILQ_EMPTY(&run->runqueue)) {
 			run->flags |= NET2_WQ_F_ONQUEUE;
 			TAILQ_INSERT_TAIL(&wqev->runq, run, wqe_runq);
 		}
-		run->flags &= ~NET2_WQ_F_RUNNING;
 		net2_mutex_unlock(run->mtx);		/* UNLOCK: run */
-
-		net2_mutex_lock(wqev->mtx);		/* LOCK: wqev */
 	}
 
 	/*
@@ -223,6 +268,27 @@ net2_workq_worker(void *w_ptr)
 	    wqev->thread_active > wqev->thread_target)
 		net2_workq_wakeup(wqev);
 	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+	return NULL;
+
+
+wqev_destroy_from_within:
+	/*
+	 * Special case dying code: this worker will execute the death.
+	 *
+	 * In this case, the thread cannot be collected and thus, it must free
+	 * its own data structures internally.
+	 */
+	net2_cond_signal(wqev->thread_death);
+	assert(wqev->thread_active > 0);
+	wqev->thread_active--;
+	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+
+	/* Free data structure. */
+	net2_thread_free(w->worker);
+	net2_free(w);
+
+	/* Deamonize the thread, so it won't become a zombie thread. */
+	net2_thread_detach_self();
 	return NULL;
 }
 
@@ -418,6 +484,62 @@ fail_0:
 	return NULL;
 }
 
+/*
+ * Unlock the workq eventbase.
+ * Destroys the wqev if it has no references left.
+ *
+ * If keep_lock is set, the lock will be maintained unless
+ * the wqev dies.  Keep_lock may only be set by a worker thread.
+ * Returns nonzero if the wqev was destroyed.
+ */
+static int
+wqev_mtx_unlock(struct net2_workq_evbase *wqev, int keep_lock)
+{
+	int			 error;
+
+	/*
+	 * Another thread or external function is already destroying
+	 * this.
+	 */
+	if (keep_lock && wqev->thread_target == 0)
+		return 0;
+
+	/* Test if destruction is required prior to unlocking. */
+	if (wqev->refcnt == 0 && TAILQ_EMPTY(&wqev->workq)) {
+		if (!keep_lock)
+			net2_mutex_unlock(wqev->mtx);	/* UNLOCK: wqev */
+		return 0; /* Still in use. */
+	}
+	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+
+	/*
+	 * Destroy all threads.
+	 */
+	error = net2_workq_set_thread_count(wqev, 0);
+	if (error != 0) {
+		errno = error;
+		warn("net2_workq_evbase: failed to kill all threads in workq eventbase");
+		/*
+		 * Continuing here would cause a segfault once the thread
+		 * tries to access wqev.  If this wouldn't deadlock first
+		 * because the eventloop might have f.i. a file descriptor
+		 * in use while it is being closed.
+		 *
+		 * We'll leak instead (fucked either way...).
+		 */
+		return 1;
+	}
+
+	/* Destroy all resources used by wqev. */
+	net2_free(wqev->wq_worker_name);
+	net2_cond_free(wqev->thread_death);
+	ev_loop_destroy(wqev->evloop);
+	net2_cond_free(wqev->wakeup);
+	net2_mutex_free(wqev->mtx);
+	net2_free(wqev);
+	return 1;
+}
+
 /* Add reference to the workq eventbase. */
 ILIAS_NET2_EXPORT void
 net2_workq_evbase_ref(struct net2_workq_evbase *wqev)
@@ -435,46 +557,110 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 	net2_mutex_lock(wqev->mtx);
 	assert(wqev->refcnt > 0);
 	wqev->refcnt--;
-	wqev_mtx_unlock(wqev);
+	wqev_mtx_unlock(wqev, 0);
 }
 
-/*
- * Unlock the workq eventbase.
- * Destroys the wqev if it has no references left.
- */
-static void
-wqev_mtx_unlock(struct net2_workq_evbase *wqev)
-{
-	int			 do_destroy;
-	int			 error;
 
-	/* Test if destruction is required prior to unlocking. */
-	do_destroy = (wqev->refcnt == 0 && TAILQ_EMPTY(&wqev->workq));
-	net2_mutex_unlock(wqev->mtx);		/* UNLOCK: wqev */
-	if (!do_destroy)
+/* Initialize new workq. */
+ILIAS_NET2_EXPORT struct net2_workq*
+net2_workq_new(struct net2_workq_evbase *wqev)
+{
+	struct net2_workq		*wq;
+
+	if (wqev == NULL)
+		return NULL;
+
+	if ((wq = net2_malloc(sizeof(*wq))) == NULL)
+		goto fail_0;
+	if ((wq->mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
+	if ((wq->dying = net2_cond_alloc()) == NULL)
+		goto fail_2;
+	TAILQ_INIT(&wq->runqueue);
+	wq->flags = 0;
+	wq->refcnt = 1;
+
+	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
+	TAILQ_INSERT_TAIL(&wqev->workq, wq, wqe_member);
+	wq->evbase = wqev;
+	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+	return wq;
+
+
+fail_3:
+	net2_cond_free(wq->dying);
+fail_2:
+	net2_mutex_free(wq->mtx);
+fail_1:
+	net2_free(wq);
+fail_0:
+	return NULL;
+}
+
+/* Increment reference count to wq. */
+ILIAS_NET2_EXPORT void
+net2_workq_ref(struct net2_workq *wq)
+{
+	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
+	wq->refcnt++;
+	assert(wq->refcnt > 0);
+	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
+}
+
+/* Destroy workq. */
+ILIAS_NET2_EXPORT void
+net2_workq_release(struct net2_workq *wq)
+{
+	struct net2_workq_evbase	*wqev;
+	int				 do_free;
+
+	if (wq == NULL)
+		return;
+
+	/*
+	 * Decrement reference counter.
+	 */
+	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
+	assert(wq->refcnt > 0);
+	wq->refcnt--;
+	do_free = (wq->refcnt == 0);
+	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
+	if (!do_free)
 		return; /* Still in use. */
 
-	/* Destroy all threads. */
-	error = net2_workq_set_thread_count(wqev, 0);
-	if (error != 0) {
-		errno = error;
-		warn("net2_workq_evbase: failed to kill all threads in workq eventbase");
-		/*
-		 * Continuing here would cause a segfault once the thread
-		 * tries to access wqev.  If this wouldn't deadlock first
-		 * because the eventloop might have f.i. a file descriptor
-		 * in use while it is being closed.
-		 *
-		 * We'll leak instead (fucked either way...).
-		 */
-		return;
-	}
+	wqev = wq->evbase;
+	assert(wqev != NULL);
+	net2_mutex_lock(wqev->mtx);
+	wq->flags |= NET2_WQ_F_DYING;
 
-	/* Destroy all resources used by wqev. */
-	net2_free(wqev->wq_worker_name);
-	net2_cond_free(wqev->thread_death);
-	ev_loop_destroy(wqev->evloop);
-	net2_cond_free(wqev->wakeup);
-	net2_mutex_free(wqev->mtx);
-	net2_free(wqev);
+	if (wq->flags & NET2_WQ_F_ONQUEUE)
+		TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
+
+	/* Ensure the workq isn't running. */
+	if (wq->flags & NET2_WQ_F_RUNNING) {
+		/* Kill in this thread. */
+		if (net2_thread_is_self(wq->execing))
+			*wq->died = 1;
+		else {
+			/* Wait until execing thread is done. */
+			while (wq->flags & NET2_WQ_F_RUNNING)
+				net2_cond_wait(wq->dying, wqev->mtx);
+		}
+	}
+	TAILQ_REMOVE(&wqev->workq, wq, wqe_member);
+
+	/* Free resources. */
+	net2_mutex_free(wq->mtx);
+	net2_cond_free(wq->dying);
+	wq->evbase = NULL;
+
+	/* TODO: remove all jobs. */
+
+	/*
+	 * Unlock wqev.
+	 * Note that we don't use wqev_mtx_unlock, since the worker has
+	 * to clean up the thread.  The worker has to detect the wqev
+	 * destruction case by itself.
+	 */
+	net2_mutex_unlock(wqev->mtx);
 }
