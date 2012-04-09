@@ -29,6 +29,7 @@
 
 struct net2_workq;
 struct net2_workq_evbase;
+typedef void (*net2_workq_cb)(void*, void*);
 
 struct net2_workq_job {
 	struct net2_workq
@@ -36,8 +37,7 @@ struct net2_workq_job {
 	int		 flags;			/* Flags/options. */
 #define NET2_WORKQ_PERSIST	0x00000001	/* Job persists. */
 
-	void		(*fn)(void*, void*);	/* Callback. */
-	void		(*destroy)(void*, void*); /* Optional destructor. */
+	net2_workq_cb	 fn;			/* Callback. */
 	void		*cb_arg[2];		/* Callback arguments. */
 
 	TAILQ_ENTRY(net2_workq_job)
@@ -63,5 +63,11 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_ref(struct net2_workq*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_release(struct net2_workq*);
+
+ILIAS_NET2_EXPORT
+int	 net2_workq_init_work(struct net2_workq_job*, struct net2_workq*,
+	    net2_workq_cb, void*, void*, int);
+ILIAS_NET2_EXPORT
+void	 net2_workq_activate(struct net2_workq_job*);
 
 #endif /* ILIAS_NET2_WORKQ_H */

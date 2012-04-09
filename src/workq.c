@@ -25,6 +25,8 @@
 
 /* Internal flags for workq jobs. */
 #define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
+/* Flags that can be used at job initialization time. */
+#define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
 /* Workq data. */
 struct net2_workq {
@@ -689,4 +691,64 @@ net2_workq_release(struct net2_workq *wq)
 	 * destruction case by itself.
 	 */
 	net2_mutex_unlock(wqev->mtx);
+}
+
+/* Add a job to the workq. */
+ILIAS_NET2_EXPORT int
+net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
+    net2_workq_cb fn, void *arg0, void *arg1, int flags)
+{
+	if ((flags & NET2_WORKQ_VALID_USERFLAGS) != flags)
+		return EINVAL;
+	if (fn == NULL)
+		return EINVAL;
+
+	j->workq = wq;
+	j->flags = flags;
+	j->fn = fn;
+	j->cb_arg[0] = arg0;
+	j->cb_arg[1] = arg1;
+	j->ev = NULL;
+	return 0;
+}
+
+/*
+ * Mark a job as active.
+ * An active job will have its callback run.
+ */
+ILIAS_NET2_EXPORT void
+net2_workq_activate(struct net2_workq_job *j)
+{
+	struct net2_workq		*wq;
+	struct net2_workq_evbase	*wqev;
+	int				 add_me;
+
+	wq = j->workq;
+
+	/* Add job to workq. */
+	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
+	wqev = wq->evbase;
+	if (!(j->flags & NET2_WORKQ_ONQUEUE)) {
+		add_me = TAILQ_EMPTY(&wq->runqueue);
+		TAILQ_INSERT_TAIL(&wq->runqueue, j, readyq);
+		j->flags |= NET2_WORKQ_ONQUEUE;
+	} else
+		add_me = 0;
+	net2_mutex_unlock(wq->mtx);			/* UNLOCK: wq */
+
+	/*
+	 * Workq already had jobs, so it must already be active.
+	 * No scheduling required.
+	 */
+	if (!add_me)
+		return;
+
+	/* Notify the workq evbase. */
+	net2_mutex_lock(wqev->mtx);		/* LOCK: wqev */
+	if (!(wq->flags & (NET2_WQ_F_RUNNING | NET2_WQ_F_ONQUEUE))) {
+		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
+		wq->flags |= NET2_WQ_F_ONQUEUE;
+		net2_workq_wakeup(wqev);
+	}
+	net2_mutex_unlock(wqev->mtx);		/* UNLOCK: wqev */
 }
