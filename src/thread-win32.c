@@ -49,6 +49,9 @@ thread_wrapper(void *tptr)
 
 	t->result = t->fn(t->arg);
 	_endthreadex(0);
+	/* Close the handle ourselves. */
+	if (detached)
+		CloseHandle(t->handle);
 	return 0;
 }
 
