@@ -26,10 +26,36 @@
 /* Internal flags for workq jobs. */
 #define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
 
-/* Internal flags for workq. */
+/* Workq data. */
+struct net2_workq {
+	struct net2_mutex
+			*mtx;			/* Mutex. */
+	struct net2_workq_evbase
+			*evbase;		/* Event base for IO/timers. */
+
+	TAILQ_HEAD(, net2_workq_job)
+			 runqueue;		/* Jobs that are to run now. */
+	TAILQ_ENTRY(net2_workq)
+			 wqe_member;		/* Membership of evbase. */
+	TAILQ_ENTRY(net2_workq)
+			 wqe_runq;		/* Runqueue of evbase. */
+	size_t		 refcnt;		/* Reference counter. */
+
+	/*
+	 * Below is locked using evbase->mtx.
+	 */
+	struct net2_condition
+			*dying;			/* After running, fire. */
+	struct net2_thread
+			*execing;		/* Executing in this thread. */
+	int		 flags;			/* Workq flags. */
 #define NET2_WQ_F_RUNNING	0x00000001	/* Workq is executing. */
 #define NET2_WQ_F_ONQUEUE	0x00000002	/* Workq is on runqueue. */
 #define NET2_WQ_F_DYING		0x00000004	/* Workq is dying. */
+	int		*died;			/* Pointer to boolean, only
+						 * set if thread is in the
+						 * running state. */
+};
 
 /*
  * Event base and thread pool.

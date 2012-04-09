@@ -27,6 +27,9 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+struct net2_workq;
+struct net2_workq_evbase;
+
 struct net2_workq_job {
 	struct net2_workq
 			*workq;			/* Owner workq. */
@@ -42,34 +45,6 @@ struct net2_workq_job {
 
 	struct event	*ev;			/* Libevent event. */
 };
-
-struct net2_workq {
-	struct net2_mutex
-			*mtx;			/* Mutex. */
-	struct net2_workq_evbase
-			*evbase;		/* Event base for IO/timers. */
-
-	TAILQ_HEAD(, net2_workq_job)
-			 runqueue;		/* Jobs that are to run now. */
-	TAILQ_ENTRY(net2_workq)
-			 wqe_member;		/* Membership of evbase. */
-	TAILQ_ENTRY(net2_workq)
-			 wqe_runq;		/* Runqueue of evbase. */
-	size_t		 refcnt;		/* Reference counter. */
-
-	/*
-	 * Below is locked using evbase->mtx.
-	 */
-	struct net2_condition
-			*dying;			/* After running, fire. */
-	struct net2_thread
-			*execing;		/* Executing in this thread. */
-	int		 flags;			/* Workq flags. */
-	int		*died;			/* Pointer to boolean, only
-						 * set if thread is in the
-						 * running state. */
-};
-
 
 ILIAS_NET2_EXPORT
 int	 net2_workq_set_thread_count(struct net2_workq_evbase*, size_t);
