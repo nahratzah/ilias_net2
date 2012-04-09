@@ -31,6 +31,8 @@ ILIAS_NET2_LOCAL
 int			 net2_thread_join(struct net2_thread*, void**);
 ILIAS_NET2_LOCAL
 void			 net2_thread_free(struct net2_thread*);
+ILIAS_NET2_LOCAL
+int			 net2_thread_is_self(struct net2_thread*);
 #endif /* BUILDING_ILIAS_NET2 */
 
 #ifdef __cplusplus

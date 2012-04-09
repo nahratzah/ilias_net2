@@ -81,3 +81,10 @@ net2_thread_free(struct net2_thread *t)
 {
 	net2_free(t);
 }
+
+/* Test if the given thread is the current thread. */
+ILIAS_NET2_LOCAL int
+net2_thread_is_self(struct net2_thread *t)
+{
+	return pthread_equal(t->n2t_impl, pthread_self());
+}

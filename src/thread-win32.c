@@ -23,6 +23,7 @@ struct net2_thread {
 	void		*result;
 	void		*(*fn)(void*);
 	void		*arg;
+	DWORD		 tid;
 };
 
 static DWORD WINAPI
@@ -42,7 +43,7 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 
 	if ((t = net2_malloc(sizeof(*t))) == NULL)
 		return NULL;
-	t->handle = CreateThread(NULL, 0, &thread_wrapper, t, 0, NULL);
+	t->handle = CreateThread(NULL, 0, &thread_wrapper, t, 0, &t->tid);
 	if (t->handle == NULL) {
 		net2_free(t);
 		return NULL;
@@ -69,4 +70,11 @@ ILIAS_NET2_LOCAL void
 net2_thread_free(struct net2_thread *t)
 {
 	net2_free(t);
+}
+
+/* Test if the given thread is the current thread. */
+ILIAS_NET2_LOCAL int
+net2_thread_is_self(struct net2_thread *t)
+{
+	return t->tid == GetCurrentThreadId();
 }
