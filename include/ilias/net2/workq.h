@@ -49,7 +49,7 @@ struct net2_workq_job {
 			 memberq;		/* Link into workq. */
 
 	struct event	*ev;			/* Libevent event. */
-	void		*died;			/* Set only if running. */
+	int		*died;			/* Set only if running. */
 };
 
 ILIAS_NET2_EXPORT

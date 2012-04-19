@@ -37,7 +37,8 @@ struct net2_workq {
 			*evbase;		/* Event base for IO/timers. */
 
 	TAILQ_HEAD(, net2_workq_job)
-			 runqueue;		/* Jobs that are to run now. */
+			 runqueue,		/* Jobs that are to run now. */
+			 members;		/* Jobs on this workq. */
 	TAILQ_ENTRY(net2_workq)
 			 wqe_member;		/* Membership of evbase. */
 	TAILQ_ENTRY(net2_workq)
@@ -115,6 +116,7 @@ static void	 wqev_lock(struct ev_loop*);
 static void	 evloop_wakeup(struct ev_loop*, ev_async*, int);
 static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
 static int	 wqev_mtx_unlock(struct net2_workq_evbase*, int);
+static void	 net2_workq_deactivate_internal(struct net2_workq_job*, int);
 
 
 /*
@@ -432,9 +434,7 @@ evloop_wakeup(struct ev_loop *loop, ev_async *w, int events)
 	ev_break(loop, EVBREAK_ALL);
 }
 
-/*
- * Inform the evloop that new events have been added.
- */
+/* Inform the evloop that new events have been added. */
 static void
 evloop_new_event(struct ev_loop *loop, ev_async *w, int events)
 {
@@ -651,6 +651,7 @@ ILIAS_NET2_EXPORT void
 net2_workq_release(struct net2_workq *wq)
 {
 	struct net2_workq_evbase	*wqev;
+	struct net2_workq_job		*job;
 	int				 do_free;
 
 	if (wq == NULL)
@@ -818,9 +819,7 @@ out:
 	net2_mutex_unlock(j->mtx);
 }
 
-/*
- * Mark job as inactive.
- */
+/* Mark job as inactive. */
 static void
 net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
 {
@@ -838,8 +837,8 @@ net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
 			goto out; /* Not dying, just deactivating. */
 
 		/* Workq is marking all jobs, wait until that has completed. */
-		while (job->workq != NULL)
-			net2_cond_wait(job->wq_death, job->mtx);
+		while (j->workq != NULL)
+			net2_cond_wait(j->wq_death, j->mtx);
 		goto out;
 	}
 
