@@ -32,6 +32,10 @@ struct net2_workq_evbase;
 typedef void (*net2_workq_cb)(void*, void*);
 
 struct net2_workq_job {
+	struct net2_mutex
+			*mtx;			/* Protect workq pointer. */
+	struct net2_condition
+			*wq_death;		/* Workq death event. */
 	struct net2_workq
 			*workq;			/* Owner workq. */
 	int		 flags;			/* Flags/options. */
@@ -41,9 +45,11 @@ struct net2_workq_job {
 	void		*cb_arg[2];		/* Callback arguments. */
 
 	TAILQ_ENTRY(net2_workq_job)
-			 readyq;		/* Link into ready queue. */
+			 readyq,		/* Link into ready queue. */
+			 memberq;		/* Link into workq. */
 
 	struct event	*ev;			/* Libevent event. */
+	void		*died;			/* Set only if running. */
 };
 
 ILIAS_NET2_EXPORT
@@ -68,6 +74,10 @@ ILIAS_NET2_EXPORT
 int	 net2_workq_init_work(struct net2_workq_job*, struct net2_workq*,
 	    net2_workq_cb, void*, void*, int);
 ILIAS_NET2_EXPORT
+void	 net2_workq_deinit_work(struct net2_workq_job*);
+ILIAS_NET2_EXPORT
 void	 net2_workq_activate(struct net2_workq_job*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_deactivate(struct net2_workq_job*);
 
 #endif /* ILIAS_NET2_WORKQ_H */

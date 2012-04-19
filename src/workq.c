@@ -25,6 +25,7 @@
 
 /* Internal flags for workq jobs. */
 #define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
+#define NET2_WORKQ_RUNNING	0x00020000	/* Job is running. */
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
@@ -156,6 +157,7 @@ net2_workq_worker(void *w_ptr)
 	struct net2_workq		*run;
 	struct net2_workq_job		*job;
 	int				 died;
+	int				 jobdied;
 
 	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
 	while (wqev->thread_active <= wqev->thread_target) {
@@ -223,6 +225,8 @@ net2_workq_worker(void *w_ptr)
 			 * Unlock workq, so that the job can alter it while
 			 * running.
 			 */
+			job->died = &jobdied;
+			job->flags |= NET2_WORKQ_RUNNING;
 			net2_mutex_unlock(run->mtx);	/* UNLOCK: run */
 
 			/* Run callback. */
@@ -237,20 +241,27 @@ net2_workq_worker(void *w_ptr)
 
 			/* Relock. */
 			net2_mutex_lock(run->mtx);	/* LOCK: run */
+			if (!jobdied) {
+				job->died = NULL;
+				job->flags &= ~NET2_WORKQ_RUNNING;
 
-			/*
-			 * Put job back, if it is persistent and not already
-			 * added by another thread or the callback itself.
-			 */
-			if ((job->flags &
-			    (NET2_WORKQ_PERSIST | NET2_WORKQ_ONQUEUE)) ==
-			    NET2_WORKQ_PERSIST) {
-				if (job->ev != NULL) {
-					assert(0); /* TODO: event_add. */
-				} else {
-					TAILQ_INSERT_TAIL(&run->runqueue, job,
-					    readyq);
-					job->flags |= NET2_WORKQ_ONQUEUE;
+				/*
+				 * Put job back, if it is persistent and not
+				 * already added by another thread or the
+				 * callback itself.
+				 */
+				if ((job->flags & (NET2_WORKQ_PERSIST |
+				    NET2_WORKQ_ONQUEUE)) ==
+				    NET2_WORKQ_PERSIST) {
+					if (job->ev != NULL) {
+						assert(0); /* TODO */
+					} else {
+						TAILQ_INSERT_TAIL(
+						    &run->runqueue, job,
+						    readyq);
+						job->flags |=
+						    NET2_WORKQ_ONQUEUE;
+					}
 				}
 			}
 		}
@@ -649,18 +660,24 @@ net2_workq_release(struct net2_workq *wq)
 	 * Decrement reference counter.
 	 */
 	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
+	wqev = wq->evbase;
+	assert(wqev != NULL);
 	assert(wq->refcnt > 0);
 	wq->refcnt--;
 	do_free = (wq->refcnt == 0);
+	if (do_free) {
+		net2_mutex_lock(wqev->mtx);
+		/*
+		 * Mark as dying, so that jobs will no longer modify
+		 * the runqueue.
+		 */
+		wq->flags |= NET2_WQ_F_DYING;
+	}
 	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
 	if (!do_free)
 		return; /* Still in use. */
 
-	wqev = wq->evbase;
-	assert(wqev != NULL);
-	net2_mutex_lock(wqev->mtx);
-	wq->flags |= NET2_WQ_F_DYING;
-
+	/* Remove us from the runq. */
 	if (wq->flags & NET2_WQ_F_ONQUEUE)
 		TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
 
@@ -677,13 +694,6 @@ net2_workq_release(struct net2_workq *wq)
 	}
 	TAILQ_REMOVE(&wqev->workq, wq, wqe_member);
 
-	/* Free resources. */
-	net2_mutex_free(wq->mtx);
-	net2_cond_free(wq->dying);
-	wq->evbase = NULL;
-
-	/* TODO: remove all jobs. */
-
 	/*
 	 * Unlock wqev.
 	 * Note that we don't use wqev_mtx_unlock, since the worker has
@@ -691,6 +701,25 @@ net2_workq_release(struct net2_workq *wq)
 	 * destruction case by itself.
 	 */
 	net2_mutex_unlock(wqev->mtx);
+
+	/*
+	 * Remove all jobs.
+	 * Note that until this has completed, jobs may still access
+	 * the workq.
+	 */
+	while ((job = TAILQ_FIRST(&wq->members)) != NULL) {
+		net2_mutex_lock(job->mtx);
+		job->flags &= ~NET2_WORKQ_ONQUEUE;
+		TAILQ_REMOVE(&wq->members, job, memberq);
+		job->workq = NULL;
+		net2_cond_broadcast(job->wq_death);
+		net2_mutex_unlock(job->mtx);
+	}
+
+	/* Free resources. */
+	net2_mutex_free(wq->mtx);
+	net2_cond_free(wq->dying);
+	wq->evbase = NULL;
 }
 
 /* Add a job to the workq. */
@@ -703,6 +732,13 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	if (fn == NULL)
 		return EINVAL;
 
+	if ((j->mtx = net2_mutex_alloc()) == NULL)
+		return ENOMEM;
+	if ((j->wq_death = net2_cond_alloc()) == NULL) {
+		net2_mutex_free(j->mtx);
+		return ENOMEM;
+	}
+
 	j->workq = wq;
 	j->flags = flags;
 	j->fn = fn;
@@ -710,6 +746,23 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	j->cb_arg[1] = arg1;
 	j->ev = NULL;
 	return 0;
+}
+
+/* Destroy workq job. */
+ILIAS_NET2_EXPORT void
+net2_workq_deinit_work(struct net2_workq_job *j)
+{
+	struct net2_workq *wq;
+
+	/* Detach from the workq in a permanent fashion. */
+	net2_workq_deactivate_internal(j, 1);
+
+	if (j->ev != NULL) {
+		assert(j->ev == NULL); /* TODO: implement. */
+	}
+
+	net2_cond_free(j->wq_death);
+	net2_mutex_free(j->mtx);
 }
 
 /*
@@ -723,10 +776,19 @@ net2_workq_activate(struct net2_workq_job *j)
 	struct net2_workq_evbase	*wqev;
 	int				 add_me;
 
+	net2_mutex_lock(j->mtx);
 	wq = j->workq;
+	if (wq == NULL)
+		goto out; /* Queue died. */
 
 	/* Add job to workq. */
 	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
+	if (wq->flags & NET2_WQ_F_DYING) {
+		/* Queue is dying, we cannot activate. */
+		net2_mutex_unlock(wq->mtx);
+		goto out;
+	}
+
 	wqev = wq->evbase;
 	if (!(j->flags & NET2_WORKQ_ONQUEUE)) {
 		add_me = TAILQ_EMPTY(&wq->runqueue);
@@ -741,14 +803,68 @@ net2_workq_activate(struct net2_workq_job *j)
 	 * No scheduling required.
 	 */
 	if (!add_me)
-		return;
+		goto out;
 
 	/* Notify the workq evbase. */
-	net2_mutex_lock(wqev->mtx);		/* LOCK: wqev */
+	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
 	if (!(wq->flags & (NET2_WQ_F_RUNNING | NET2_WQ_F_ONQUEUE))) {
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
 		wq->flags |= NET2_WQ_F_ONQUEUE;
 		net2_workq_wakeup(wqev);
 	}
-	net2_mutex_unlock(wqev->mtx);		/* UNLOCK: wqev */
+	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+
+out:
+	net2_mutex_unlock(j->mtx);
+}
+
+/*
+ * Mark job as inactive.
+ */
+static void
+net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
+{
+	struct net2_workq		*wq;
+
+	net2_mutex_lock(j->mtx);
+	wq = j->workq;
+	if (wq == NULL)
+		goto out;
+
+	net2_mutex_lock(wq->mtx);
+	if (wq->flags & NET2_WQ_F_DYING) {
+		net2_mutex_unlock(wq->mtx);
+		if (!die)
+			goto out; /* Not dying, just deactivating. */
+
+		/* Workq is marking all jobs, wait until that has completed. */
+		while (job->workq != NULL)
+			net2_cond_wait(job->wq_death, job->mtx);
+		goto out;
+	}
+
+	if (j->flags & NET2_WORKQ_ONQUEUE) {
+		TAILQ_REMOVE(&wq->runqueue, j, readyq);
+		j->flags &= ~(NET2_WORKQ_ONQUEUE | NET2_WORKQ_PERSIST);
+	}
+
+	if (j->flags & NET2_WORKQ_RUNNING)
+		*j->died = 1;
+
+	/* If the job dies, it may no longer be a member of the workq. */
+	if (die)
+		TAILQ_REMOVE(&wq->members, j, memberq);
+	net2_mutex_unlock(wq->mtx);
+
+out:
+	if (die)
+		j->workq = NULL;
+	net2_mutex_unlock(j->mtx);
+}
+
+/* Mark job as inactive. */
+ILIAS_NET2_EXPORT void
+net2_workq_deactivate(struct net2_workq_job *j)
+{
+	net2_workq_deactivate_internal(j, 0);
 }
