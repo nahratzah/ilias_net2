@@ -37,7 +37,8 @@ struct net2_workq_job_cb {
 	net2_workq_job_cb
 			 on_activate,
 			 on_deactivate,
-			 on_destroy;
+			 on_destroy,
+			 on_wqdestroy;
 };
 
 struct net2_workq_job {

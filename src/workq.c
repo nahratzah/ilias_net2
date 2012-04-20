@@ -715,6 +715,11 @@ net2_workq_release(struct net2_workq *wq)
 		job->workq = NULL;
 		net2_cond_broadcast(job->wq_death);
 		net2_mutex_unlock(job->mtx);
+
+		/* Inform job of workq destruction. */
+		if (job->callbacks != NULL &&
+		    job->callbacks->on_wqdestroy != NULL)
+			(*job->callbacks->on_wqdestroy)(job);
 	}
 
 	/* Free resources. */
