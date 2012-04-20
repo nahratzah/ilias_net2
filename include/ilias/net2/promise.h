@@ -55,6 +55,9 @@ struct net2_promise_event {
 ILIAS_NET2_EXPORT
 struct net2_promise	*net2_promise_new();
 ILIAS_NET2_EXPORT
+void			 net2_promise_destroy_cb(struct net2_promise*,
+			    void (*fn)(void*, void*), void*, void*);
+ILIAS_NET2_EXPORT
 void			 net2_promise_release(struct net2_promise*);
 ILIAS_NET2_EXPORT
 void			 net2_promise_ref(struct net2_promise*);

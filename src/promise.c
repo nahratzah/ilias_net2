@@ -51,6 +51,13 @@ struct net2_promise {
 	TAILQ_HEAD(, net2_promise_event)
 				 event[NET2_PROM__NUM_EVENTS];
 						/* Events. */
+
+	/* On destruction, run this callback. */
+	struct {
+		void		(*fn)(void*, void*);
+		void		*arg0;
+		void		*arg1;
+	}			 on_destroy;
 };
 
 
@@ -87,6 +94,9 @@ net2_promise_new()
 
 	for (i = 0; i < NET2_PROM__NUM_EVENTS; i++)
 		TAILQ_INIT(&p->event[i]);
+
+	p->on_destroy.fn = NULL;
+	p->on_destroy.arg0 = p->on_destroy.arg1 = NULL;
 
 	return p;
 
@@ -143,8 +153,24 @@ restart:
 		if (p->result != NULL && p->free.fn != NULL)
 			(*p->free.fn)(p->result, p->free.arg);
 
+		/* Invoke on_destroy callback. */
+		if (p->on_destroy.fn != NULL)
+			(*p->on_destroy.fn)(p->on_destroy.arg0, p->on_destroy.arg1);
+
 		net2_free(p);
 	}
+}
+
+/* Set the on-destroy callback. */
+ILIAS_NET2_EXPORT void
+net2_promise_destroy_cb(struct net2_promise *p, void (*fn)(void*, void*),
+    void *arg0, void *arg1)
+{
+	net2_mutex_lock(p->mtx);
+	p->on_destroy.fn = fn;
+	p->on_destroy.arg0 = fn;
+	p->on_destroy.arg1 = fn;
+	net2_mutex_unlock(p->mtx);
 }
 
 /* Read flags on promise. */
