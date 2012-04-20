@@ -17,15 +17,29 @@
 #define ILIAS_NET2_PROMISE_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
 
 struct net2_promise;
 
+/* An event associated with promise. */
+struct net2_promise_event {
+	struct net2_promise	*owner;
+	net2_workq_cb		 fn;
+	TAILQ_ENTRY(net2_promise_event)
+				 promq;
+	struct net2_workq_job	 job;
+	int			 evno;
+	void			*arg0;
+};
+
+
 #define NET2_PROM_FIN_UNFINISHED	0	/* Promise hasn't completed. */
 #define NET2_PROM_FIN_OK		1	/* Executed succesful. */
 #define NET2_PROM_FIN_CANCEL		2	/* Execution cancelled. */
 #define NET2_PROM_FIN_ERROR		3	/* Execution failed. */
+#define NET2_PROM_FIN_UNREF		4	/* Unreferenced at run. */
 #define NET2_PROM_FIN_FAIL		0xf	/* Failed to run. */
 
 #define NET2_PROMFLAG_RELEASE		0x00000001	/* In-call release. */
@@ -65,14 +79,28 @@ int			 net2_promise_dontfree(struct net2_promise*);
 ILIAS_NET2_EXPORT
 int			 net2_promise_is_finished(struct net2_promise*);
 ILIAS_NET2_EXPORT
-struct event		*net2_promise_get_event(struct net2_promise*, int);
-ILIAS_NET2_EXPORT
-int			 net2_promise_set_event(struct net2_promise*, int,
-			    struct event*, struct event**);
-ILIAS_NET2_EXPORT
 int			 net2_promise_get_result(struct net2_promise*,
 			    void**, uint32_t*);
 ILIAS_NET2_EXPORT
 int			 net2_promise_wait(struct net2_promise*);
+
+ILIAS_NET2_EXPORT
+int			 net2_promise_event_init(struct net2_promise_event*,
+			    struct net2_promise*, int, struct net2_workq*,
+			    net2_workq_cb, void*, void*);
+
+/* Convert promise event to workq job. */
+static __inline struct net2_workq_job*
+net2_promise_event_wqjob(struct net2_promise_event *ev)
+{
+	return &ev->job;
+}
+
+/* Deinit promise event. */
+static __inline void
+net2_promise_event_deinit(struct net2_promise_event *ev)
+{
+	net2_workq_deinit_work(net2_promise_event_wqjob((ev)));
+}
 
 #endif /* ILIAS_NET2_PROMISE_H */

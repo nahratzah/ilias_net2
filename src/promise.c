@@ -21,6 +21,12 @@
 #include <assert.h>
 #include <event2/event.h>
 
+/* Pointer magic. */
+#define PROMCB_JOB_OFFSET						\
+	((size_t)(&((struct net2_promise_event*)0)->job))
+#define JOB_2_PROMCB(_ev)						\
+	((struct net2_promise_event*)((char*)(_ev) - PROMCB_JOB_OFFSET))
+
 struct net2_promise {
 	size_t			 refcnt;	/* Reference counter. */
 	struct net2_mutex	*mtx;		/* Promise guard. */
@@ -32,6 +38,7 @@ struct net2_promise {
 #define NET2_PROM_F_FINISHED		0x0000000f	/* Finish mask. */
 #define NET2_PROM_F_FINISH_FIRED	0x00010000	/* Finish has fired. */
 #define NET2_PROM_F_RUN_FIRED		0x00020000	/* Start has fired. */
+#define NET2_PROM_F_NEED_RUN		0x00040000	/* Need to run. */
 
 	uint32_t		 error;		/* Promise error. */
 	void			*result;	/* Promise result. */
@@ -41,9 +48,18 @@ struct net2_promise {
 		void		*arg;
 	}			 free;		/* Result release function. */
 
-	struct event		*event[NET2_PROM__NUM_EVENTS];
+	TAILQ_HEAD(, net2_promise_event)
+				 event[NET2_PROM__NUM_EVENTS];
 						/* Events. */
 };
+
+
+static void net2_promise_unlock(struct net2_promise*);
+static int net2_promise_flags(struct net2_promise*);
+static void prom_on_run(struct net2_promise*);
+static void prom_on_finish(struct net2_promise*);
+static void promise_wqcb(void *pcb_ptr,void*);
+static void pcb_destroy(struct net2_workq_job*);
 
 
 /*
@@ -70,7 +86,7 @@ net2_promise_new()
 	p->free.arg = NULL;
 
 	for (i = 0; i < NET2_PROM__NUM_EVENTS; i++)
-		p->event[i] = NULL;
+		TAILQ_INIT(&p->event[i]);
 
 	return p;
 
@@ -92,7 +108,31 @@ net2_promise_unlock(struct net2_promise *p)
 {
 	int				 do_free;
 
+restart:
 	do_free = (p->refcnt == 0);
+
+	/* Don't free if finish events need to run. */
+	if ((p->flags & NET2_PROM_F_FINISH_FIRED) &&
+	    !TAILQ_EMPTY(&p->event[NET2_PROM_ON_FINISH]))
+		do_free = 0;
+
+	/* Don't free if on-run events need to run. */
+	if ((p->flags & NET2_PROM_F_RUN_FIRED) &&
+	    !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN]))
+		do_free = 0;
+
+	/*
+	 * If the event hasn't finished, complete with unref state.
+	 * Mark it thus.
+	 */
+	if (do_free && !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN]) &&
+	    (p->flags & NET2_PROM_F_FINISHED) == NET2_PROM_FIN_UNFINISHED) {
+		p->flags &= ~(NET2_PROM_F_FINISHED | NET2_PROM_F_RUNNING);
+		p->flags |= NET2_PROM_FIN_UNREF;
+		prom_on_finish(p);
+		goto restart;
+	}
+
 	net2_mutex_unlock(p->mtx);
 
 	if (do_free) {
@@ -123,16 +163,17 @@ net2_promise_flags(struct net2_promise *p)
 static void
 prom_on_finish(struct net2_promise *p)
 {
+	struct net2_promise_event	*pcb;
+
 	/* No locking: this is always called with p locked. */
 
 	/* Fire only once. */
 	if (p->flags & NET2_PROM_F_FINISH_FIRED)
 		return;
 
-	if (p->event[NET2_PROM_ON_FINISH]) {
-		event_active(p->event[NET2_PROM_ON_FINISH], 0, 0);
-		p->flags |= NET2_PROM_F_FINISH_FIRED;
-	}
+	TAILQ_FOREACH(pcb, &p->event[NET2_PROM_ON_FINISH], promq)
+		net2_workq_activate(net2_promise_event_wqjob(pcb));
+	p->flags |= NET2_PROM_F_FINISH_FIRED;
 }
 
 /*
@@ -147,6 +188,8 @@ prom_on_finish(struct net2_promise *p)
 static void
 prom_on_run(struct net2_promise *p)
 {
+	struct net2_promise_event	*pcb;
+
 	/* No locking: this is always called with p locked. */
 
 	/* Fire only once. */
@@ -154,8 +197,12 @@ prom_on_run(struct net2_promise *p)
 	    NET2_PROM_F_FINISHED))
 		return;
 
-	if (p->event[NET2_PROM_ON_RUN]) {
-		event_active(p->event[NET2_PROM_ON_RUN], 0, 0);
+	/* Mark promise as needing to run. */
+	p->flags |= NET2_PROM_F_NEED_RUN;
+
+	if ((pcb = TAILQ_FIRST(&p->event[NET2_PROM_ON_RUN])) != NULL) {
+		assert(TAILQ_NEXT(pcb, promq) == NULL);
+		net2_workq_activate(net2_promise_event_wqjob(pcb));
 		p->flags |= (NET2_PROM_F_RUN_FIRED | NET2_PROM_F_RUNNING);
 	}
 }
@@ -363,6 +410,7 @@ ILIAS_NET2_EXPORT int
 net2_promise_set_running(struct net2_promise *p)
 {
 	int				 error;
+	struct net2_promise_event	*cb;
 
 	net2_mutex_lock(p->mtx);
 
@@ -371,6 +419,13 @@ net2_promise_set_running(struct net2_promise *p)
 	else {
 		p->flags |= NET2_PROM_F_RUNNING;
 		error = 0;
+
+		/* Remove any pending events. */
+		while ((cb = TAILQ_FIRST(&p->event[NET2_PROM_ON_RUN])) !=
+		    NULL) {
+			cb->owner = NULL;
+			TAILQ_REMOVE(&p->event[NET2_PROM_ON_RUN], cb, promq);
+		}
 	}
 
 	net2_mutex_unlock(p->mtx);
@@ -382,41 +437,6 @@ ILIAS_NET2_EXPORT int
 net2_promise_is_finished(struct net2_promise *p)
 {
 	return net2_promise_flags(p) & NET2_PROM_F_FINISHED;
-}
-
-/* Return event pointer. */
-ILIAS_NET2_EXPORT struct event*
-net2_promise_get_event(struct net2_promise *p, int evno)
-{
-	struct event			*ev;
-
-	if (evno < 0 || evno >= NET2_PROM__NUM_EVENTS)
-		return NULL;
-
-	net2_mutex_lock(p->mtx);
-	ev = p->event[evno];
-	net2_mutex_unlock(p->mtx);
-	return ev;
-}
-
-/* Set event pointer. */
-ILIAS_NET2_EXPORT int
-net2_promise_set_event(struct net2_promise *p, int evno,
-    struct event *new_ev, struct event **old_ev)
-{
-	if (evno < 0 || evno >= NET2_PROM__NUM_EVENTS)
-		return EINVAL;
-
-	net2_mutex_lock(p->mtx);
-	if (old_ev)
-		*old_ev = p->event[evno];
-	p->event[evno] = new_ev;
-
-	if (p->flags & NET2_PROM_F_FINISHED)
-		prom_on_finish(p);
-
-	net2_mutex_unlock(p->mtx);
-	return 0;
 }
 
 /*
@@ -488,5 +508,139 @@ net2_promise_wait(struct net2_promise *p)
 
 out:
 	net2_mutex_unlock(p->mtx);
+	return error;
+}
+
+
+/* Event callback, releases promise after completion. */
+static void
+promise_wqcb(void *pcb_ptr, void *arg1)
+{
+	struct net2_promise_event	*pcb;
+	struct net2_promise		*p;
+
+	pcb = pcb_ptr;
+
+	/* Only fire once. */
+	if (p == NULL)
+		return;
+	pcb->owner = NULL;
+
+	p = pcb->owner;
+
+	/* Remove from event list, but keep refcnt to promise. */
+	net2_mutex_lock(p->mtx);
+	TAILQ_REMOVE(&p->event[pcb->evno], pcb, promq);
+	p->refcnt++;
+	net2_mutex_unlock(p->mtx);
+
+	/* Invoke callback. */
+	assert(pcb->fn != NULL);
+	(*pcb->fn)(pcb->arg0, arg1);
+
+	/* Release. */
+	net2_promise_release(p);
+}
+
+/* Handle event queue destruction. */
+static void
+pcb_destroy(struct net2_workq_job *j)
+{
+	struct net2_promise_event	*pcb;
+	struct net2_promise		*p;
+
+	pcb = JOB_2_PROMCB(j);
+	p = pcb->owner;
+
+	if (p != NULL) {
+		pcb->owner = NULL;
+		net2_mutex_lock(p->mtx);
+		TAILQ_REMOVE(&p->event[pcb->evno], pcb, promq);
+		net2_promise_unlock(p);
+	}
+}
+
+static const struct net2_workq_job_cb promcb_cb = {
+	NULL,
+	NULL,
+	&pcb_destroy,
+	&pcb_destroy
+};
+
+/* Add event to promise. */
+ILIAS_NET2_EXPORT int
+net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
+    int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1)
+{
+	int				error = 0;
+
+	if (evno < 0 || evno >= NET2_PROM__NUM_EVENTS) {
+		error = EINVAL;
+		goto fail_0;
+	}
+
+	if ((cb = net2_malloc(sizeof(*cb))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+	net2_mutex_lock(p->mtx);
+	/*
+	 * Can only have 1 on-run event, which can only be set
+	 * when the promise is not running.
+	 */
+	if (evno == NET2_PROM_ON_RUN) {
+		/* We have an event. */
+		if (!TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN])) {
+			error = EBUSY;
+			goto fail_1;
+		}
+		/* We are running or have run. */
+		if (p->flags & (NET2_PROM_F_RUNNING | NET2_PROM_F_FINISHED))
+			error = EBUSY;
+			goto fail_1;
+	}
+
+	/* Add event to promise. */
+	TAILQ_INSERT_TAIL(&p->event[evno], cb, promq);
+	/* Setup. */
+	cb->fn = fn;
+	cb->evno = evno;
+	cb->owner = p;
+	cb->arg0 = arg0;
+
+	/* Create event callback. */
+	if (error = net2_workq_init_work(&cb->job, wq, &promise_wqcb, cb, arg1,
+	    0) != 0)
+		goto fail_1;
+	cb->job.callbacks = &promcb_cb;
+
+	/*
+	 * Handle state.
+	 */
+	switch (evno) {
+	case NET2_PROM_ON_RUN:
+		/* If we have a waiter or on-finish event, fire immediately. */
+		if (p->flags & NET2_PROM_F_NEED_RUN)
+			prom_on_run(p);
+		break;
+	case NET2_PROM_ON_FINISH:
+		/* If the promise is finished, fire immediately. */
+		if (p->flags & NET2_PROM_F_FINISH_FIRED)
+			net2_workq_activate(&cb->job);
+		/* On-finish event: we need to run. */
+		prom_on_run(p);
+		break;
+	}
+
+	net2_mutex_unlock(p->mtx);
+
+	return 0;
+
+
+fail_1:
+	net2_mutex_unlock(p->mtx);
+	net2_free(cb);
+fail_0:
 	return error;
 }
