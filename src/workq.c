@@ -746,6 +746,7 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	j->cb_arg[0] = arg0;
 	j->cb_arg[1] = arg1;
 	j->ev = NULL;
+	j->callbacks = NULL;
 	return 0;
 }
 
@@ -764,6 +765,9 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 
 	net2_cond_free(j->wq_death);
 	net2_mutex_free(j->mtx);
+
+	if (j->callbacks != NULL && j->callbacks->on_destroy != NULL)
+		(*j->callbacks->on_destroy)(j);
 }
 
 /*
@@ -776,6 +780,7 @@ net2_workq_activate(struct net2_workq_job *j)
 	struct net2_workq		*wq;
 	struct net2_workq_evbase	*wqev;
 	int				 add_me;
+	int				 j_added = 0;
 
 	net2_mutex_lock(j->mtx);
 	wq = j->workq;
@@ -795,6 +800,10 @@ net2_workq_activate(struct net2_workq_job *j)
 		add_me = TAILQ_EMPTY(&wq->runqueue);
 		TAILQ_INSERT_TAIL(&wq->runqueue, j, readyq);
 		j->flags |= NET2_WORKQ_ONQUEUE;
+
+		/* Keep the workq alive until after the callback. */
+		wq->refcnt++;
+		j_added = 1;
 	} else
 		add_me = 0;
 	net2_mutex_unlock(wq->mtx);			/* UNLOCK: wq */
@@ -817,6 +826,14 @@ net2_workq_activate(struct net2_workq_job *j)
 
 out:
 	net2_mutex_unlock(j->mtx);
+
+	if (j_added) {
+		if (j->callbacks != NULL &&
+		    j->callbacks->on_activate != NULL)
+			(*j->callbacks->on_activate)(j);
+		/* Undo refcount increment. */
+		net2_workq_release(wq);
+	}
 }
 
 /* Mark job as inactive. */
@@ -824,6 +841,7 @@ static void
 net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
 {
 	struct net2_workq		*wq;
+	int				 deleted = 0;
 
 	net2_mutex_lock(j->mtx);
 	wq = j->workq;
@@ -845,6 +863,7 @@ net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
 	if (j->flags & NET2_WORKQ_ONQUEUE) {
 		TAILQ_REMOVE(&wq->runqueue, j, readyq);
 		j->flags &= ~(NET2_WORKQ_ONQUEUE | NET2_WORKQ_PERSIST);
+		deleted = 1;
 	}
 
 	if (j->flags & NET2_WORKQ_RUNNING)
@@ -859,6 +878,10 @@ out:
 	if (die)
 		j->workq = NULL;
 	net2_mutex_unlock(j->mtx);
+
+	if (deleted && j->callbacks != NULL &&
+	    j->callbacks->on_deactivate != NULL)
+		(*j->callbacks->on_deactivate)(j);
 }
 
 /* Mark job as inactive. */
@@ -866,4 +889,42 @@ ILIAS_NET2_EXPORT void
 net2_workq_deactivate(struct net2_workq_job *j)
 {
 	net2_workq_deactivate_internal(j, 0);
+}
+
+/* Returns the event loop used for the workq. */
+ILIAS_NET2_EXPORT void*
+net2_workq_get_evloop(struct net2_workq *wq)
+{
+	wq->evbase->evloop;
+}
+
+/*
+ * Returns the workq on which this job is running.
+ * Returns NULL if the workq has been destroyed.
+ *
+ * The returned workq has its refcount incremented.
+ * Call net2_workq_release to release the workq again.
+ */
+ILIAS_NET2_EXPORT struct net2_workq*
+net2_workq_get(struct net2_workq_job *j)
+{
+	struct net2_workq		*wq;
+	int				 wq_is_dead = 0;
+
+	/* Read the workq from j. */
+	net2_mutex_lock(j->mtx);
+	wq = j->workq;
+	/* Check if the workq is still alive. */
+	if (wq != NULL) {
+		net2_mutex_lock(wq->mtx);
+		wq_is_dead = (wq->flags & NET2_WQ_F_DYING);
+		/* Keep the workq alive for the return value. */
+		if (!wq_is_dead)
+			wq->refcnt++;
+		net2_mutex_unlock(wq->mtx);
+	}
+
+out:
+	net2_mutex_unlock(j->mtx);
+	return (wq_is_dead ? NULL : wq);
 }

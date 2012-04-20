@@ -28,8 +28,17 @@
 #endif
 
 struct net2_workq;
+struct net2_workq_job;
 struct net2_workq_evbase;
 typedef void (*net2_workq_cb)(void*, void*);
+typedef void (*net2_workq_job_cb)(struct net2_workq_job*);
+
+struct net2_workq_job_cb {
+	net2_workq_job_cb
+			 on_activate,
+			 on_deactivate,
+			 on_destroy;
+};
 
 struct net2_workq_job {
 	struct net2_mutex
@@ -50,6 +59,9 @@ struct net2_workq_job {
 
 	struct event	*ev;			/* Libevent event. */
 	int		*died;			/* Set only if running. */
+
+	const struct net2_workq_job_cb
+			*callbacks;		/* Special callbacks. */
 };
 
 ILIAS_NET2_EXPORT
@@ -79,5 +91,14 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_activate(struct net2_workq_job*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_deactivate(struct net2_workq_job*);
+
+ILIAS_NET2_EXPORT
+void	*net2_workq_get_evloop(struct net2_workq*);
+ILIAS_NET2_EXPORT
+struct net2_workq
+	*net2_workq_get(struct net2_workq_job*);
+
+#define net2_workq_set_callbacks(j, cb)					\
+	do { (j)->callbacks = (cb); } while (0)
 
 #endif /* ILIAS_NET2_WORKQ_H */
