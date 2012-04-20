@@ -1,20 +1,16 @@
 #include <ilias/net2/acceptor.h>
-#include <ilias/net2/evbase.h>
+#include <ilias/net2/workq.h>
 #include <assert.h>
 
-/*
- * Initialize acceptor socket.
- *
- * Steals the reference to the evbase.
- */
+/* Initialize acceptor socket. */
 ILIAS_NET2_EXPORT int
 net2_acceptor_socket_init(struct net2_acceptor_socket *self,
-    struct net2_evbase *evbase, const struct net2_acceptor_socket_fn *fn)
+    struct net2_workq *workq, const struct net2_acceptor_socket_fn *fn)
 {
 	self->fn = fn;
 	self->acceptor = NULL;
-	self->evbase = evbase;
-	net2_evbase_ref(evbase);
+	self->workq = workq;
+	net2_workq_ref(workq);
 	return 0;
 }
 
@@ -23,7 +19,7 @@ ILIAS_NET2_EXPORT void
 net2_acceptor_socket_deinit(struct net2_acceptor_socket *self)
 {
 	net2_acceptor_detach(self);
-	net2_evbase_release(self->evbase);
+	net2_workq_release(self->workq);
 }
 
 /* Acceptor socket destructor. */
@@ -159,24 +155,24 @@ net2_acceptor_socket_pvlist(struct net2_acceptor_socket *s,
 }
 
 /*
- * Returns a pointer to the evbase of this acceptor socket.
+ * Returns a pointer to the workq of this acceptor socket.
  * Does not increment the reference counter.
  */
-ILIAS_NET2_EXPORT struct net2_evbase*
-net2_acceptor_socket_evbase(struct net2_acceptor_socket *s)
+ILIAS_NET2_EXPORT struct net2_workq*
+net2_acceptor_socket_workq(struct net2_acceptor_socket *s)
 {
-	return s->evbase;
+	return s->workq;
 }
 
 /*
- * Returns a pointer to the evbase of this acceptor.
+ * Returns a pointer to the workq of this acceptor.
  * Does not increment the reference counter.
  */
-ILIAS_NET2_EXPORT struct net2_evbase*
-net2_acceptor_evbase(struct net2_acceptor *a)
+ILIAS_NET2_EXPORT struct net2_workq*
+net2_acceptor_workq(struct net2_acceptor *a)
 {
 	if (a->socket != NULL)
-		return net2_acceptor_socket_evbase(a->socket);
+		return net2_acceptor_socket_workq(a->socket);
 	return NULL;
 }
 

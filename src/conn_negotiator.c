@@ -1786,9 +1786,9 @@ net2_cneg_exchange_init(struct net2_conn_negotiator *cn, size_t idx,
 {
 	struct event		*ev;
 	int			 error;
-	struct net2_evbase	*evbase;
+	struct net2_workq	*workq;
 
-	evbase = net2_acceptor_socket_evbase(&CNEG_CONN(cn)->n2c_socket);
+	workq = net2_acceptor_socket_workq(&CNEG_CONN(cn)->n2c_socket);
 
 	/* Mini init: ensure destroying the buffer is safe. */
 	cneg_keyex_ctx_init(&e->initbuf);
