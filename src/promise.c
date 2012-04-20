@@ -511,6 +511,21 @@ out:
 	return error;
 }
 
+/*
+ * Start the promise.
+ * Fires the on-run event if present.
+ *
+ * If an on-run event is set after this call, the on-run event will fire
+ * immediately.
+ */
+ILIAS_NET2_EXPORT void
+net2_promise_start(struct net2_promise *p)
+{
+	net2_mutex_lock(p->mtx);
+	prom_on_run(p);
+	net2_mutex_unlock(p->mtx);
+}
+
 
 /* Event callback, releases promise after completion. */
 static void
