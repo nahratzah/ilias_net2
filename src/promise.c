@@ -29,6 +29,7 @@
 
 struct net2_promise {
 	size_t			 refcnt;	/* Reference counter. */
+	size_t			 combi_refcnt;	/* # combi referencing this. */
 	struct net2_mutex	*mtx;		/* Promise guard. */
 	struct net2_condition	*cnd;		/* Promise cond. var. */
 
@@ -39,6 +40,7 @@ struct net2_promise {
 #define NET2_PROM_F_FINISH_FIRED	0x00010000	/* Finish has fired. */
 #define NET2_PROM_F_RUN_FIRED		0x00020000	/* Start has fired. */
 #define NET2_PROM_F_NEED_RUN		0x00040000	/* Need to run. */
+#define NET2_PROM_F_COMBI		0x10000000	/* Is combi prom. */
 
 	uint32_t		 error;		/* Promise error. */
 	void			*result;	/* Promise result. */
@@ -60,28 +62,43 @@ struct net2_promise {
 	}			 on_destroy;
 };
 
+/* Combined promise. */
+struct net2_promise_combi {
+	struct net2_promise	 base;
 
-static void net2_promise_unlock(struct net2_promise*);
-static int net2_promise_flags(struct net2_promise*);
-static void prom_on_run(struct net2_promise*);
-static void prom_on_finish(struct net2_promise*);
-static void promise_wqcb(void *pcb_ptr,void*);
-static void pcb_destroy(struct net2_workq_job*);
+	/* List of all referenced promises. */
+	struct net2_promise	**prom;
+	/* List of all events on those promises. */
+	struct net2_promise_event
+				*events;
+	/* Number of promises. */
+	size_t			 nprom;
+	/* Number of unfinished promises. */
+	size_t			 need_fin;
+
+	net2_promise_ccb	 fn;
+	struct net2_promise_event
+				 work;
+};
 
 
-/*
- * Allocate a new promise.
- */
-ILIAS_NET2_EXPORT struct net2_promise*
-net2_promise_new()
+static int	net2_promise_init(struct net2_promise*);
+static void	net2_promise_unlock(struct net2_promise*);
+static int	net2_promise_flags(struct net2_promise*);
+static void	prom_on_run(struct net2_promise*);
+static void	prom_on_finish(struct net2_promise*);
+static void	promise_wqcb(void *pcb_ptr,void*);
+static void	pcb_destroy(struct net2_workq_job*);
+
+
+/* Initialize promise. */
+static int
+net2_promise_init(struct net2_promise *p)
 {
-	struct net2_promise		*p;
 	int				 i;
 
-	if ((p = net2_malloc(sizeof(*p))) == NULL)
-		goto fail_0;
-
 	p->refcnt = 1;
+	p->combi_refcnt = 0;
 	if ((p->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
 	if ((p->cnd = net2_cond_alloc()) == NULL)
@@ -98,67 +115,119 @@ net2_promise_new()
 	p->on_destroy.fn = NULL;
 	p->on_destroy.arg0 = p->on_destroy.arg1 = NULL;
 
-	return p;
+	return 0;
 
 fail_2:
 	net2_mutex_free(p->mtx);
 fail_1:
 	net2_free(p);
 fail_0:
-	return NULL;
+	return ENOMEM;
+}
+
+/*
+ * Allocate a new promise.
+ */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_promise_new()
+{
+	struct net2_promise		*p;
+
+	if ((p = net2_malloc(sizeof(*p))) == NULL)
+		return NULL;
+	if (net2_promise_init(p)) {
+		net2_free(p);
+		return NULL;
+	}
+	return p;
 }
 
 /*
  * Unlock a promise.
  *
  * Promise will be destroyed if it has become unreferenced.
+ *
+ * A promise can only stay alive if:
+ * - refcnt > 0
+ * - combi_refcnt > 0 && [has on-run event]
+ *
+ * A promise that has run events, but cannot stay alive, must end
+ * with FIN_UNREF, unless another finish is already in progress.
+ *
+ * If the promise is still referenced by a combi promise, don't free
+ * it, only run the FIN_UNREF callback.
  */
 static void
 net2_promise_unlock(struct net2_promise *p)
 {
 	int				 do_free;
+	struct net2_promise_combi	*combi;
+	size_t				 i;
 
-restart:
-	do_free = (p->refcnt == 0);
+	/* Set combi, if this is a combi event. */
+	if (p->flags & NET2_PROM_F_COMBI) {
+		combi = (struct net2_promise_combi*)p;
+		assert(&combi->base == p);
+	} else
+		combi = NULL;
 
-	/* Don't free if finish events need to run. */
-	if ((p->flags & NET2_PROM_F_FINISH_FIRED) &&
-	    !TAILQ_EMPTY(&p->event[NET2_PROM_ON_FINISH]))
+	/* Check if we can stay alive. */
+	if (p->refcnt > 0 ||
+	    (p->combi_refcnt > 0 && !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN])))
 		do_free = 0;
+	else
+		do_free = 1;
 
-	/* Don't free if on-run events need to run. */
-	if ((p->flags & NET2_PROM_F_RUN_FIRED) &&
-	    !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN]))
-		do_free = 0;
-
-	/*
-	 * If the event hasn't finished, complete with unref state.
-	 * Mark it thus.
-	 */
-	if (do_free && !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN]) &&
-	    (p->flags & NET2_PROM_F_FINISHED) == NET2_PROM_FIN_UNFINISHED) {
-		p->flags &= ~(NET2_PROM_F_FINISHED | NET2_PROM_F_RUNNING);
-		p->flags |= NET2_PROM_FIN_UNREF;
-		prom_on_finish(p);
-		goto restart;
+	/* Check if we need to finish with FIN_UNREF. */
+	if (do_free && !TAILQ_EMPTY(&p->event[NET2_PROM_ON_FINISH])) {
+		if (!(p->flags & NET2_PROM_F_FINISHED)) {
+			p->flags |= NET2_PROM_FIN_UNREF;
+			prom_on_finish(p);
+		}
+		do_free = 0; /* Events will need this promise. */
 	}
+
+	/* If we have combi promise refcount, don't free after all. */
+	if (p->combi_refcnt > 0)
+		do_free = 0;
 
 	net2_mutex_unlock(p->mtx);
 
-	if (do_free) {
-		net2_mutex_free(p->mtx);
-		net2_cond_free(p->cnd);
+	if (!do_free)
+		return;
 
-		/* Release result. */
-		if (p->result != NULL && p->free.fn != NULL)
-			(*p->free.fn)(p->result, p->free.arg);
+	/*
+	 * Free path.
+	 */
 
-		/* Invoke on_destroy callback. */
-		if (p->on_destroy.fn != NULL)
-			(*p->on_destroy.fn)(p->on_destroy.arg0, p->on_destroy.arg1);
+	net2_mutex_free(p->mtx);
+	net2_cond_free(p->cnd);
 
-		net2_free(p);
+	/* Release result. */
+	if (p->result != NULL && p->free.fn != NULL)
+		(*p->free.fn)(p->result, p->free.arg);
+
+	/* Break the combi chain. */
+	if (combi != NULL) {
+		for (i = 0; i < combi->nprom; i++)
+			net2_promise_event_deinit(&combi->events[i]);
+
+		for (i = 0; i < combi->nprom; i++) {
+			net2_mutex_lock(combi->prom[i]->mtx);
+			combi->prom[i]->combi_refcnt--;
+			net2_promise_unlock(combi->prom[i]);
+		}
+
+		net2_free(combi->events);
+		net2_free(combi->prom);
+		net2_promise_deinit_work(&combi->work);
 	}
+
+	/* Invoke on_destroy callback. */
+	if (p->on_destroy.fn != NULL)
+		(*p->on_destroy.fn)(p->on_destroy.arg0, p->on_destroy.arg1);
+
+	net2_free(p);
 }
 
 /* Set the on-destroy callback. */
@@ -215,6 +284,9 @@ static void
 prom_on_run(struct net2_promise *p)
 {
 	struct net2_promise_event	*pcb;
+	struct net2_promise_combi	*c;
+	struct net2_promise		**pp;
+	int				 do_recurse;
 
 	/* No locking: this is always called with p locked. */
 
@@ -224,12 +296,36 @@ prom_on_run(struct net2_promise *p)
 		return;
 
 	/* Mark promise as needing to run. */
+	do_recurse = !(p->flags & NET2_PROM_F_NEED_RUN);
 	p->flags |= NET2_PROM_F_NEED_RUN;
+
+	/* Combi event needs to wait until all dependant events completed. */
+	if (p->flags & NET2_PROM_F_COMBI) {
+		c = (struct net2_promise_combi*)p;
+		assert(&c->base == p);
+
+		if (c->need_fin > 0)
+			return;
+	}
 
 	if ((pcb = TAILQ_FIRST(&p->event[NET2_PROM_ON_RUN])) != NULL) {
 		assert(TAILQ_NEXT(pcb, promq) == NULL);
 		net2_workq_activate(net2_promise_event_wqjob(pcb));
 		p->flags |= (NET2_PROM_F_RUN_FIRED | NET2_PROM_F_RUNNING);
+	}
+
+	/*
+	 * Recurse into referenced promises of combi promise.
+	 */
+	if (do_recurse && (p->flags & NET2_PROM_F_COMBI)) {
+		c = (struct net2_promise_combi*)p;
+		assert(&c->base == p);
+
+		for (pp = c->prom; pp < c->prom + c->nprom; pp++) {
+			net2_mutex_lock((*pp)->mtx);
+			prom_on_run(*pp);
+			net2_mutex_unlock((*pp)->mtx);
+		}
 	}
 }
 
@@ -608,10 +704,10 @@ static const struct net2_workq_job_cb promcb_cb = {
 	&pcb_destroy
 };
 
-/* Add event to promise. */
-ILIAS_NET2_EXPORT int
-net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
-    int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1)
+static int
+net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
+    int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1,
+    int fire)
 {
 	int				error = 0;
 
@@ -637,9 +733,15 @@ net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
 			goto fail_1;
 		}
 		/* We are running or have run. */
-		if (p->flags & (NET2_PROM_F_RUNNING | NET2_PROM_F_FINISHED))
+		if (p->flags & (NET2_PROM_F_RUNNING | NET2_PROM_F_FINISHED)) {
 			error = EBUSY;
 			goto fail_1;
+		}
+		/* May not be set on combi events. */
+		if (p->flags & NET2_PROM_F_COMBI) {
+			error = EBUSY;
+			goto fail_1;
+		}
 	}
 
 	/* Add event to promise. */
@@ -670,7 +772,8 @@ net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
 		if (p->flags & NET2_PROM_F_FINISH_FIRED)
 			net2_workq_activate(&cb->job);
 		/* On-finish event: we need to run. */
-		prom_on_run(p);
+		if (fire)
+			prom_on_run(p);
 		break;
 	}
 
@@ -684,4 +787,183 @@ fail_1:
 	net2_free(cb);
 fail_0:
 	return error;
+}
+
+/* Add event to promise. */
+ILIAS_NET2_EXPORT int
+net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
+    int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1)
+{
+	return net2_promise_event_initf(cb, p, evno, wq, fn, arg0, arg1, 1);
+}
+
+
+/*
+ * Promise callback, marks specific promise as done in the given combi.
+ */
+static void
+combi_cb(void *c_ptr, void *ev_ptr)
+{
+	struct net2_promise_combi	*c = c_ptr;
+	struct net2_promise_event	*ev = ev_ptr;
+	struct net2_promise		*pp;
+	size_t				 idx;
+
+	idx = (size_t)(ev - c->events);
+	assert(idx < c->nprom);
+	pp = c->prom[idx];
+
+	net2_mutex_lock(c->base.mtx);
+	assert(c->need_fin > 0);
+	c->need_fin--;
+
+	/*
+	 * Be selective with firing the on-run event.
+	 * We cannot run until all events have completed.
+	 *
+	 * By only firing at that moment, we can release our old promises
+	 * soon (thereby claiming less memory).  By not firing on any other
+	 * occasion, we don't cause unstarted promises to run after all,
+	 * thus we save CPU cycles.
+	 */
+	if (c->need_fin == 0)
+		prom_on_run(&c->base);
+
+	net2_promise_unlock(&c->base);
+}
+
+static void
+combi_cb_invoke(void *c_ptr, void *arg)
+{
+	struct net2_promise_combi	*c = c_ptr;
+	struct net2_promise_event	*events;
+	struct net2_promise		**prom;
+	size_t				 nprom, i;
+
+	assert(c->need_fin == 0);
+	assert(c->fn != NULL);
+	assert(c->base.flags & NET2_PROM_F_RUNNING);
+
+	/* Invoke combiner function. */
+	(*c->fn)(&c->base, c->prom, c->nprom, arg);
+
+	net2_mutex_lock(c->base.mtx);
+
+	/* Detach all promises, in order to release them now. */
+	events = c->events;
+	c->events = NULL;
+	prom = c->prom;
+	c->prom = NULL;
+	nprom = c->nprom;
+	c->nprom = 0;
+
+	net2_promise_unlock(&c->base);
+
+	/* Release all promises and events. */
+	for (i = 0; i < nprom; i++) {
+		net2_promise_event_deinit(&events[i]);
+		net2_mutex_lock(prom[i]->mtx);
+		assert(prom[i]->combi_refcnt > 0);
+		prom[i]->combi_refcnt--;
+		net2_promise_unlock(prom[i]);
+	}
+}
+
+/*
+ * Create a promise that combines multiple promises.
+ */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_promise_combine(struct net2_workq *wq, net2_promise_ccb fn,
+    void *arg, struct net2_promise **pp, size_t np)
+{
+	struct net2_promise_combi	*c;
+	struct net2_promise		*p;
+	size_t				 i;
+	size_t				 pdone;
+
+	if (pp == NULL || np == 0)
+		return NULL;
+	/* Require a function pointer to handle the combined result. */
+	if (fn == NULL || wq == NULL)
+		return NULL;
+
+	if ((c = net2_malloc(sizeof(*c))) == NULL)
+		goto fail_0;
+	p = &c->base;
+	if (net2_promise_init(p))
+		goto fail_1;
+
+	/* Fill in depend chain, but don't reference the promises yet. */
+	c->prom = net2_calloc(np, sizeof(*c->prom));
+	c->events = net2_calloc(np, sizeof(*c->events));
+	if (c->prom == NULL || c->events == NULL)
+		goto fail_2;
+	for (i = 0; i < np; i++) {
+		if ((c->prom[i] = pp[i]) == NULL)
+			goto fail_2;
+	}
+
+	/* Set up the combine function. */
+	c->fn = fn;
+	if (net2_promise_event_initf(&c->work, p, NET2_PROM_ON_RUN, wq,
+	    &combi_cb_invoke, c, arg, 0))
+		goto fail_2;
+
+	/*
+	 * Lock mutex, to prevent callbacks from modifying state
+	 * prematurely.
+	 */
+	net2_mutex_lock(p->mtx);
+
+	/* Reference all promises. */
+	for (pdone = 0; pdone < np; pdone++) {
+		if (net2_promise_event_initf(&c->events[pdone],
+		    c->prom[pdone], NET2_PROM_ON_FINISH, wq, &combi_cb,
+		    c, &c->events[pdone], 0))
+			goto fail_4;
+
+		/* Combi now has a reference to this mutex. */
+		net2_mutex_lock(c->prom[pdone]->mtx);
+		c->prom[pdone]->combi_refcnt++;
+		net2_mutex_unlock(c->prom[pdone]->mtx);
+	}
+
+	/*
+	 * From this point on, no failures are permitted.
+	 */
+	c->need_fin = c->nprom = pdone;
+
+	/* Set flag to indicate this is a combined promise. */
+	p->flags |= NET2_PROM_F_COMBI;
+
+	net2_mutex_unlock(p->mtx);
+
+	return p;
+
+
+fail_4:
+	while (pdone-- > 0) {
+		/* Decrease reference count. */
+		net2_mutex_lock(c->prom[pdone]->mtx);
+		assert(c->prom[pdone]->combi_refcnt > 0);
+		c->prom[pdone]->combi_refcnt--;
+		/* mutex_unlock: promise is referenced by caller. */
+		net2_mutex_unlock(c->prom[pdone]->mtx);
+
+		net2_promise_event_deinit(&c->events[pdone]);
+	}
+fail_3:
+	net2_promise_event_deinit(&c->work);
+fail_2:
+	if (c->prom != NULL)
+		net2_free(c->prom);
+	if (c->events != NULL)
+		net2_free(c->events);
+	net2_promise_release(p);
+	c = NULL;
+fail_1:
+	if (c != NULL)
+		net2_free(c);
+fail_0:
+	return NULL;
 }

@@ -22,6 +22,9 @@
 #include <stdint.h>
 
 struct net2_promise;
+/* Combined promise callback. */
+typedef void (*net2_promise_ccb)(struct net2_promise*, struct net2_promise**,
+    size_t, void*);
 
 /* An event associated with promise. */
 struct net2_promise_event {
@@ -93,6 +96,11 @@ ILIAS_NET2_EXPORT
 int			 net2_promise_event_init(struct net2_promise_event*,
 			    struct net2_promise*, int, struct net2_workq*,
 			    net2_workq_cb, void*, void*);
+
+ILIAS_NET2_EXPORT
+struct net2_promise	*net2_promise_combine(struct net2_workq*,
+			    net2_promise_ccb, void*,
+			    struct net2_promise**, size_t);
 
 /* Convert promise event to workq job. */
 static __inline struct net2_workq_job*
