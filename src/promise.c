@@ -220,7 +220,7 @@ net2_promise_unlock(struct net2_promise *p)
 
 		net2_free(combi->events);
 		net2_free(combi->prom);
-		net2_promise_deinit_work(&combi->work);
+		net2_promise_event_deinit(&combi->work);
 	}
 
 	/* Invoke on_destroy callback. */
@@ -753,8 +753,8 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 	cb->arg0 = arg0;
 
 	/* Create event callback. */
-	if (error = net2_workq_init_work(&cb->job, wq, &promise_wqcb, cb, arg1,
-	    0) != 0)
+	if ((error = net2_workq_init_work(&cb->job, wq, &promise_wqcb, cb, arg1,
+	    0)) != 0)
 		goto fail_1;
 	cb->job.callbacks = &promcb_cb;
 
