@@ -23,7 +23,6 @@ list (APPEND headers
 	include/ilias/net2/context_xchange.h
 	include/ilias/net2/cp.h
 	include/ilias/net2/encdec_ctx.h
-	include/ilias/net2/evbase.h
 	include/ilias/net2/enc.h
 	include/ilias/net2/hash.h
 	include/ilias/net2/init.h
@@ -61,7 +60,6 @@ list (APPEND srcs
 	src/context_xchange.c
 	src/cp.c
 	src/encdec_ctx.c
-	src/evbase.c
 	src/enc.c
 	src/hash.c
 	src/init.c
@@ -449,14 +447,6 @@ if (BUILD_TESTING)
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_xchange COMMAND test_xchange)
 
-	# Net2 eventbase tests.
-	add_executable (test_evbase
-		test/evbase.c
-		)
-	target_link_libraries (test_evbase ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_evbase COMMAND test_evbase)
-
 	# Connection management tests.
 	add_executable (test_conn
 		test/conn.c
@@ -487,7 +477,6 @@ if (BUILD_TESTING)
 		target_link_libraries (test_sign debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_enc debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_xchange debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_evbase debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_conn debug ${exude_LIBS} debug ${clog_LIBS})
 		target_link_libraries (test_udp_conn debug ${exude_LIBS} debug ${clog_LIBS})
 
@@ -498,7 +487,6 @@ if (BUILD_TESTING)
 		set_property (TARGET test_sign PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_enc PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_xchange PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_evbase PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_udp_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 	endif (${WITH_EXUDE})
