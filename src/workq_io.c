@@ -15,8 +15,11 @@
  */
 
 #include <ilias/net2/workq_io.h>
-#include <ilias/net2/memory.h>
+#include <ilias/net2/buffer.h>
 #include <ilias/net2/connection.h> /* For net2_conn_receive (TODO: kill the bastard). */
+#include <ilias/net2/memory.h>
+#include <ilias/net2/mutex.h>
+#include <ilias/net2/sockdgram.h>
 #include <assert.h>
 
 /* Pointer magic. */
@@ -127,7 +130,8 @@ dgram_evcb_read(struct ev_loop *loop, ev_io *w, int revents)
 	ev = EV_2_DGRAM(w);
 	b->addrlen = sizeof(b->addr);
 	recv = NULL;
-	err = net2_sockdgram_recv(w->fd, &recv, &b->addr, &b->addrlen);
+	err = net2_sockdgram_recv(w->fd, &recv, (struct sockaddr*)&b->addr,
+	    &b->addrlen);
 	b->data = recv->buf;
 	b->error = recv->error;
 
@@ -142,12 +146,12 @@ dgram_evcb_read(struct ev_loop *loop, ev_io *w, int revents)
 		net2_free(b);
 	else {
 		/* Add the received packet to the queue. */
-		net2_mutex_lock(&ev->bufmtx);
+		net2_mutex_lock(ev->bufmtx);
 		if (TAILQ_EMPTY(&ev->buffers))
 			net2_workq_activate(&ev->job);
 		TAILQ_INSERT_TAIL(&ev->buffers, b, bufq);
 		ev->buflen++;
-		net2_mutex_unlock(&ev->bufmtx);
+		net2_mutex_unlock(ev->bufmtx);
 
 		/* Back off. */
 		if (ev->buflen >= MAX_BUFLEN && ev_is_active(&ev->watcher))
