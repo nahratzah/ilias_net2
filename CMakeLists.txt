@@ -14,6 +14,7 @@ list (APPEND headers
 	include/ilias/net2/bitset.h
 	include/ilias/net2/buffer.h
 	include/ilias/net2/carver.h
+	include/ilias/net2/cneg_stage1.h
 	include/ilias/net2/conn_negotiator.h
 	include/ilias/net2/connection.h
 	include/ilias/net2/connstats.h
@@ -51,6 +52,7 @@ list (APPEND srcs
 	src/bitset.c
 	src/buffer.c
 	src/carver.c
+	src/cneg_stage1.c
 	src/conn_negotiator.c
 	src/connection.c
 	src/connstats.c
