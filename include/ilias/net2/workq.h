@@ -58,7 +58,6 @@ struct net2_workq_job {
 			 readyq,		/* Link into ready queue. */
 			 memberq;		/* Link into workq. */
 
-	struct event	*ev;			/* Libevent event. */
 	int		*died;			/* Set only if running. */
 
 	const struct net2_workq_job_cb

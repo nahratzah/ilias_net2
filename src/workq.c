@@ -26,6 +26,7 @@
 /* Internal flags for workq jobs. */
 #define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
 #define NET2_WORKQ_RUNNING	0x00020000	/* Job is running. */
+#define NET2_WORKQ_ACTIVE	0x00040000	/* Job is (re)queued. */
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
@@ -222,6 +223,8 @@ net2_workq_worker(void *w_ptr)
 		if (job != NULL) {
 			/* Take job off the runqueue. */
 			TAILQ_REMOVE(&run->runqueue, job, readyq);
+			/* Job must be active. */
+			assert(job->flags & NET2_WORKQ_ACTIVE);
 
 			/*
 			 * Unlock workq, so that the job can alter it while
@@ -229,6 +232,11 @@ net2_workq_worker(void *w_ptr)
 			 */
 			job->died = &jobdied;
 			job->flags |= NET2_WORKQ_RUNNING;
+			/*
+			 * If the job is not persistent, deactivate it now.
+			 */
+			if (!(job->flags & NET2_WORKQ_PERSIST))
+				job->flags &= ~NET2_WORKQ_ACTIVE;
 			net2_mutex_unlock(run->mtx);	/* UNLOCK: run */
 
 			/* Run callback. */
@@ -252,18 +260,12 @@ net2_workq_worker(void *w_ptr)
 				 * already added by another thread or the
 				 * callback itself.
 				 */
-				if ((job->flags & (NET2_WORKQ_PERSIST |
+				if ((job->flags & (NET2_WORKQ_ACTIVE |
 				    NET2_WORKQ_ONQUEUE)) ==
-				    NET2_WORKQ_PERSIST) {
-					if (job->ev != NULL) {
-						assert(0); /* TODO */
-					} else {
-						TAILQ_INSERT_TAIL(
-						    &run->runqueue, job,
-						    readyq);
-						job->flags |=
-						    NET2_WORKQ_ONQUEUE;
-					}
+				    NET2_WORKQ_ACTIVE) {
+					TAILQ_INSERT_TAIL(&run->runqueue, job,
+					    readyq);
+					job->flags |= NET2_WORKQ_ONQUEUE;
 				}
 			}
 		}
@@ -735,8 +737,7 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 {
 	if ((flags & NET2_WORKQ_VALID_USERFLAGS) != flags)
 		return EINVAL;
-	if (fn == NULL)
-		return EINVAL;
+	/* fn == NULL is allowed: it won't ever activate however. */
 
 	if ((j->mtx = net2_mutex_alloc()) == NULL)
 		return ENOMEM;
@@ -750,7 +751,6 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	j->fn = fn;
 	j->cb_arg[0] = arg0;
 	j->cb_arg[1] = arg1;
-	j->ev = NULL;
 	j->callbacks = NULL;
 	return 0;
 }
@@ -763,10 +763,6 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 
 	/* Detach from the workq in a permanent fashion. */
 	net2_workq_deactivate_internal(j, 1);
-
-	if (j->ev != NULL) {
-		assert(j->ev == NULL); /* TODO: implement. */
-	}
 
 	net2_cond_free(j->wq_death);
 	net2_mutex_free(j->mtx);
@@ -788,6 +784,8 @@ net2_workq_activate(struct net2_workq_job *j)
 	int				 j_added = 0;
 
 	net2_mutex_lock(j->mtx);
+	if (j->fn == NULL)
+		goto out; /* Noop. */
 	wq = j->workq;
 	if (wq == NULL)
 		goto out; /* Queue died. */
@@ -801,6 +799,7 @@ net2_workq_activate(struct net2_workq_job *j)
 	}
 
 	wqev = wq->evbase;
+	j->flags |= NET2_WORKQ_ACTIVE;
 	if (!(j->flags & NET2_WORKQ_ONQUEUE)) {
 		add_me = TAILQ_EMPTY(&wq->runqueue);
 		TAILQ_INSERT_TAIL(&wq->runqueue, j, readyq);
@@ -865,9 +864,10 @@ net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
 		goto out;
 	}
 
+	j->flags &= ~NET2_WORKQ_ACTIVE;
 	if (j->flags & NET2_WORKQ_ONQUEUE) {
 		TAILQ_REMOVE(&wq->runqueue, j, readyq);
-		j->flags &= ~(NET2_WORKQ_ONQUEUE | NET2_WORKQ_PERSIST);
+		j->flags &= ~NET2_WORKQ_ONQUEUE;
 		deleted = 1;
 	}
 
@@ -900,7 +900,7 @@ net2_workq_deactivate(struct net2_workq_job *j)
 ILIAS_NET2_EXPORT void*
 net2_workq_get_evloop(struct net2_workq *wq)
 {
-	wq->evbase->evloop;
+	return wq->evbase->evloop;
 }
 
 /*
