@@ -1113,7 +1113,7 @@ sa_get_transmit(struct net2_sa_tx *sa, struct net2_buffer **bufptr,
 	 * Register delivery callbacks.
 	 */
 	if ((error = net2_txcb_add(tx,
-	    net2_acceptor_socket_evbase(socket),
+	    net2_acceptor_socket_workq(socket),
 	    sa_transit_timeout,
 	    sa_transit_ack,
 	    sa_transit_nack,
