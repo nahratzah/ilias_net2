@@ -1192,7 +1192,8 @@ nsa_get_transmit(struct net2_acceptor *sa_ptr, struct net2_buffer **bufptr,
  * Attach to a connection.
  */
 ILIAS_NET2_LOCAL int
-nsa_attach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
+nsa_attach(struct net2_acceptor_socket * ILIAS_NET2__unused s,
+    struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
 
@@ -1211,7 +1212,8 @@ nsa_attach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
  * Detach from a connection.
  */
 ILIAS_NET2_LOCAL void
-nsa_detach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
+nsa_detach(struct net2_acceptor_socket * ILIAS_NET2__unused s,
+    struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
 

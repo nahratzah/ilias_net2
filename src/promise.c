@@ -237,8 +237,8 @@ net2_promise_destroy_cb(struct net2_promise *p, void (*fn)(void*, void*),
 {
 	net2_mutex_lock(p->mtx);
 	p->on_destroy.fn = fn;
-	p->on_destroy.arg0 = fn;
-	p->on_destroy.arg1 = fn;
+	p->on_destroy.arg0 = arg0;
+	p->on_destroy.arg1 = arg1;
 	net2_mutex_unlock(p->mtx);
 }
 

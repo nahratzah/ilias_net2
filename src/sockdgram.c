@@ -182,7 +182,8 @@ fail:
 }
 
 ILIAS_NET2_LOCAL int
-net2_sockdgram_send(evutil_socket_t sock, struct net2_connection *c,
+net2_sockdgram_send(evutil_socket_t sock,
+    struct net2_connection * ILIAS_NET2__unused c,
     struct net2_buffer *txbuf,
     struct sockaddr *remote, socklen_t remotelen)
 {
