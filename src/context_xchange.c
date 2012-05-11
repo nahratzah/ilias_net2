@@ -308,8 +308,7 @@ new_promise(struct scope *s, int alg, size_t keysize)
 	 * If a key exists, simply assign it and immediately return.
 	 */
 	if ((key = find_key_unexpired(s, alg, keysize)) != NULL) {
-		apply_result_to_promise(j->promise,
-		    key->xchange, key->initbuf);
+		apply_result_to_promise(p, key->xchange, key->initbuf);
 		net2_mutex_unlock(s->mtx);	/* UNLOCK */
 		return p;
 	}
