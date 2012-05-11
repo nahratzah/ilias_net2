@@ -145,6 +145,9 @@ txcbq_activate(struct net2_tx_callback *tx, int which)
 	struct txcb		*t;
 	size_t			 i;
 
+	assert(which > 0 &&
+	    (size_t)which < sizeof(tx->queue) / sizeof(tx->queue[0]));
+
 	/*
 	 * Destroy all queues that cannot fire after this operation.
 	 * Note: Q_TIMEOUT will always allow the other queues to fire.
@@ -152,7 +155,7 @@ txcbq_activate(struct net2_tx_callback *tx, int which)
 	if (which != Q_TIMEOUT) {
 		for (i = 0; i < sizeof(tx->queue) / sizeof(tx->queue[0]);
 		    i++) {
-			if (i == which)
+			if (i == (size_t)which)
 				continue;
 			if (tx->queue[i] == NULL)
 				continue;
