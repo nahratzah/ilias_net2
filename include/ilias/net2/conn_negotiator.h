@@ -21,6 +21,7 @@
 #include <ilias/net2/protocol.h>
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/signset.h>
+#include <ilias/net2/promise.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -36,7 +37,6 @@ struct net2_buffer;			/* From ilias/net2/buffer.h */
 struct encoded_header;			/* Internal. */
 struct net2_conn_negotiator_set;	/* Internal. */
 struct net2_tx_callback;		/* From ilias/net2/tx_callback.h */
-struct net2_promise;			/* From ilias/net2/promise.h */
 struct packet_header;			/* From ilias/net2/packet.h */
 
 /*
@@ -67,6 +67,7 @@ struct net2_conn_negotiator {
 						 * received, cleared each time
 						 * a packet is sent. */
 
+#if 0 /* Stage 1 old code. */
 	struct {
 		struct net2_pvlist
 				 proto;
@@ -81,6 +82,8 @@ struct net2_conn_negotiator {
 		size_t		 rcv_expected;	/* Expected received size. */
 		int		 flags;		/* Negotiated flags. */
 	}			 negotiated;	/* Negotiated settings. */
+#endif /* Stage 1 old code. */
+	struct net2_cneg_stage1	*stage1;	/* First stage negotiation. */
 
 	struct {
 		int		*supported;	/* Algorithm set. */
@@ -111,7 +114,12 @@ struct net2_conn_negotiator {
 #define NET2_CNEG_S2_MAX	4	/* Number of stage 2 exchanges. */
 		struct net2_cneg_exchange
 				*xchanges; /* Contexts. */
+		struct net2_promise
+				*complete; /* S2 completion promise. */
 	}			 stage2;
+
+	struct net2_promise_event
+				 initdone; /* Event end of initialization. */
 
 	struct net2_cneg_key_state
 				*keys;	/* Negotiated keys. */
