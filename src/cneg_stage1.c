@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/cneg_stage1.h>
+#include <ilias/net2/config.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/memory.h>
@@ -27,6 +28,12 @@
 
 #include "handshake.h"
 #include "exchange.h"
+
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
+#endif
 
 
 /* Define the unknown length. */
@@ -69,6 +76,16 @@ struct sets_elem {
 	struct value		 val;	/* Value logic. */
 };
 
+/* List of to-be-transmitted headers. */
+struct txh {
+	struct net2_workq_job	 dummy;		/* Detect workq destruction. */
+	TAILQ_ENTRY(txh)	 q;		/* Link into queue. */
+	struct header		 header;	/* Header contents. */
+	struct net2_buffer	*buf;		/* Encoded header (lazy). */
+};
+/* All to-be-transmitted headers. */
+TAILQ_HEAD(txh_head, txh);
+
 /* Stage 1 negotiation data. */
 struct net2_cneg_stage1 {
 	/* Single-value property receival state. */
@@ -80,31 +97,39 @@ struct net2_cneg_stage1 {
 
 	/* Sets receival state. */
 	struct sets		 sets;
+
+	struct txh_head		 tx,		/* To-be-transmitted. */
+				 wait;		/* To-be-acked. */
 };
 
 
-static int	sv_get(struct net2_cneg_stage1*, uint32_t, struct value**);
-static int	sv_process(struct net2_cneg_stage1*, struct header*, uint32_t);
-static int	sv_expected(struct net2_cneg_stage1*, uint32_t);
+static int	 sv_get(struct net2_cneg_stage1*, uint32_t, struct value**);
+static int	 sv_process(struct net2_cneg_stage1*, struct header*, uint32_t);
+static int	 sv_expected(struct net2_cneg_stage1*, uint32_t);
 
-static int	val_errfin(struct value*, int);
-static int	val_setfin(struct value*);
-static int	val_setcancel(struct value*);
-static int	val_init(struct value*);
-static void	val_deinit(struct value*);
-static int	val_process(struct value*, struct header*);
+static int	 val_errfin(struct value*, int);
+static int	 val_setfin(struct value*);
+static int	 val_setcancel(struct value*);
+static int	 val_init(struct value*);
+static void	 val_deinit(struct value*);
+static int	 val_process(struct value*, struct header*);
 
-static int	sets_setfin(struct sets*, uint32_t);
-static int	sets_setcancel(struct sets*, uint32_t);
-static int	sets_elem_init(struct sets_elem*);
-static void	sets_elem_deinit(struct sets_elem*);
-static int	sets_elem_errfin(struct sets*, uint32_t, int);
-static int	sets_elem_testfin(struct sets*, uint32_t);
-static int	sets_get(struct sets*, uint32_t, struct sets_elem**);
-static int	sets_setsize(struct sets*, uint32_t, uint32_t);
-static int	sets_recv(struct sets*, struct header*, uint32_t, uint32_t);
-static int	sets_init(struct sets*);
-static void	sets_deinit(struct sets*);
+static int	 sets_setfin(struct sets*, uint32_t);
+static int	 sets_setcancel(struct sets*, uint32_t);
+static int	 sets_elem_init(struct sets_elem*);
+static void	 sets_elem_deinit(struct sets_elem*);
+static int	 sets_elem_errfin(struct sets*, uint32_t, int);
+static int	 sets_elem_testfin(struct sets*, uint32_t);
+static int	 sets_get(struct sets*, uint32_t, struct sets_elem**);
+static int	 sets_setsize(struct sets*, uint32_t, uint32_t);
+static int	 sets_recv(struct sets*, struct header*, uint32_t, uint32_t);
+static int	 sets_init(struct sets*);
+static void	 sets_deinit(struct sets*);
+
+static struct txh
+		*txh_new();
+static void
+		 txh_destroy(struct txh*);
 
 
 static __inline int
@@ -395,7 +420,7 @@ sets_setfin(struct sets *s, uint32_t idx)
  * Fires the cancel event.
  */
 static int
-sets_setcancel(struct sets *s, uint32_t idx)
+sets_setcancel(struct sets *s, uint32_t ILIAS_NET2__unused idx)
 {
 	int			 error;
 
@@ -436,7 +461,7 @@ sets_elem_errfin(struct sets *s, uint32_t idx, int err)
 	struct sets_elem	*se;
 	int			 error;
 
-	assert(error > 0);
+	assert(err > 0);
 	assert(idx < s->len);
 	se = &s->rcv[idx];
 
@@ -671,6 +696,39 @@ sets_deinit(struct sets *s)
 }
 
 
+/* Create a new (barely initialized) stage 1 transmit header. */
+static struct txh*
+txh_new()
+{
+	struct txh		*out;
+
+	if ((out = net2_malloc(sizeof(*out))) == NULL)
+		goto fail_0;
+	if (net2_cp_init(NULL, &cp_header, &out->header, NULL))
+		goto fail_1;
+	out->buf = NULL;
+	return out;
+
+
+fail_2:
+	net2_cp_destroy(NULL, &cp_header, &out->header, NULL);
+fail_1:
+	net2_free(out);
+fail_0:
+	return NULL;
+}
+
+/* Destroy a stage 1 transmit header. */
+static void
+txh_destroy(struct txh *txh)
+{
+	if (txh->buf != NULL)
+		net2_buffer_free(txh->buf);
+	net2_cp_destroy(NULL, &cp_header, &txh->header, NULL);
+	net2_free(txh);
+}
+
+
 /* Create a new stage1 negotiator. */
 ILIAS_NET2_LOCAL struct net2_cneg_stage1*
 cneg_stage1_new()
@@ -689,8 +747,14 @@ cneg_stage1_new()
 	if ((s->sv_complete = net2_promise_new()) == NULL)
 		goto fail_2;
 
+	TAILQ_INIT(&s->tx);
+	TAILQ_INIT(&s->wait);
+
 	return s;
 
+fail_3:
+	if (s->sv_complete != NULL)
+		net2_promise_release(s->sv_complete);
 fail_2:
 	net2_bitset_deinit(&s->received);
 	sets_deinit(&s->sets);
@@ -704,6 +768,8 @@ fail_0:
 ILIAS_NET2_LOCAL void
 cneg_stage1_free(struct net2_cneg_stage1 *s)
 {
+	struct txh		*txh;
+
 	/* Break the single-value promise. */
 	if (s->sv_complete != NULL) {
 		net2_promise_set_cancel(s->sv_complete, 0);
@@ -720,13 +786,24 @@ cneg_stage1_free(struct net2_cneg_stage1 *s)
 	/* De-init all sets. */
 	sets_deinit(&s->sets);
 
+	/* Destroy all tx headers. */
+	while ((txh = TAILQ_FIRST(&s->tx)) != NULL) {
+		TAILQ_REMOVE(&s->tx, txh, q);
+		txh_destroy(txh);
+	}
+	while ((txh = TAILQ_FIRST(&s->wait)) != NULL) {
+		TAILQ_REMOVE(&s->wait, txh, q);
+		txh_destroy(txh);
+	}
+
 	/* Free stage1. */
 	net2_free(s);
 }
 
 /* Stage1 network acceptor. */
 ILIAS_NET2_LOCAL int
-cneg_stage1_accept(struct net2_cneg_stage1 *s, struct packet_header *ph,
+cneg_stage1_accept(struct net2_cneg_stage1 *s,
+    struct packet_header * ILIAS_NET2__unused ph,
     struct net2_buffer *buf)
 {
 	struct header		 h;
