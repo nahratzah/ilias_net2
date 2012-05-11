@@ -848,7 +848,7 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 
 /* Ack setup receival. */
 static void
-carver_setup_ack(void *c_ptr, void *unusued)
+carver_setup_ack(void *c_ptr, void * ILIAS_NET2__unused unusued)
 {
 	struct net2_carver	*c = c_ptr;
 
@@ -859,7 +859,7 @@ carver_setup_ack(void *c_ptr, void *unusued)
 
 /* Setup receival failed. */
 static void
-carver_setup_nack(void *c_ptr, void *unusued)
+carver_setup_nack(void *c_ptr, void * ILIAS_NET2__unused unusued)
 {
 	struct net2_carver	*c = c_ptr;
 

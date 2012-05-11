@@ -19,24 +19,26 @@
 
 #if defined(WIN32)
 #ifdef ilias_net2_EXPORTS
-#define ILIAS_NET2_EXPORT __declspec(dllexport)
-#define ILIAS_NET2_LOCAL
+#define ILIAS_NET2_EXPORT	__declspec(dllexport)
+#define ILIAS_NET2_LOCAL	/* nothing */
 #else
-#define ILIAS_NET2_EXPORT __declspec(dllimport)
-#define ILIAS_NET2_LOCAL
+#define ILIAS_NET2_EXPORT	__declspec(dllimport)
+#define ILIAS_NET2_LOCAL	/* nothing */
 #endif /* ilias_common_EXPORT */
-#elif defined(__GNUC__)
-#define ILIAS_NET2_EXPORT __attribute__ ((visibility ("default")))
-#define ILIAS_NET2_LOCAL  __attribute__ ((visibility ("hidden")))
+#elif defined(__GNUC__) || defined(__clang__)
+#define ILIAS_NET2_EXPORT	__attribute__ ((visibility ("default")))
+#define ILIAS_NET2_LOCAL	__attribute__ ((visibility ("hidden")))
 #else
-#define ILIAS_NET2_EXPORT
-#define ILIAS_NET2_LOCAL
+#define ILIAS_NET2_EXPORT	/* nothing */
+#define ILIAS_NET2_LOCAL	/* nothing */
 #endif
 
-#ifdef __GNUC__
-#define ILIAS_NET2__dead                __attribute__((__noreturn__))
+#if defined(__GNUC__) || defined(__clang__)
+#define ILIAS_NET2__dead	__attribute__((__noreturn__))
+#define ILIAS_NET2__unused	__attribute__ ((__unused__))
 #else
-#define ILIAS_NET2__dead                /* NOTHING */
+#define ILIAS_NET2__dead	/* nothing */
+#define ILIAS_NET2__unused	/* nothing */
 #endif
 
 
