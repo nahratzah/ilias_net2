@@ -277,7 +277,7 @@ segment_impl_append(struct net2_buffer_segment_impl **sptr,
 	struct net2_buffer_segment_impl *s;
 
 	net2_mutex_lock((*sptr)->mtx);
-	rv = segment_impl_grow(sptr, off, len, 1);
+	rv = segment_impl_grow(sptr, off, len, do_realloc);
 	s = *sptr;
 	if (rv != 0) {
 		net2_mutex_unlock(s->mtx);
