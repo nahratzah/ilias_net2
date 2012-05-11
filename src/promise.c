@@ -657,13 +657,12 @@ promise_wqcb(void *pcb_ptr, void *arg1)
 	struct net2_promise		*p;
 
 	pcb = pcb_ptr;
+	p = pcb->owner;
 
 	/* Only fire once. */
 	if (p == NULL)
 		return;
 	pcb->owner = NULL;
-
-	p = pcb->owner;
 
 	/* Remove from event list, but keep refcnt to promise. */
 	net2_mutex_lock(p->mtx);
