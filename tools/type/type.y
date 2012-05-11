@@ -1111,7 +1111,8 @@ parse()
 		if (fprintf(cfile, "%s\n", definitions->sd_pre) < 0)
 			err(EX_OSERR, "fprintf");
 	}
-	if (fprintf(cfile, "%s\n%s\n%s\n%s\n\n",
+	if (fprintf(cfile, "%s\n%s\n%s\n%s\n%s\n\n",
+	    "#include <ilias/net2/ilias_net2_export.h>",
 	    "#include <ilias/net2/cp.h>",
 	    "#include <ilias/net2/encdec_ctx.h>",
 	    "#include <ilias/net2/connection.h>",
@@ -1379,18 +1380,30 @@ create_compound_encoder(struct np_struct *s)
 	const char		*indent;
 	int			 do_if;
 	char			 cond[128];
+	char			*argtype_unused, *buf_unused;
+
+	if (strcmp(s->nps_spec.argtype, "void") == 0)
+		argtype_unused = " ILIAS_NET2__unused ";
+	else
+		argtype_unused = "";
+	if (TAILQ_EMPTY(&s->nps_members))
+		buf_unused = " ILIAS_NET2__unused ";
+	else
+		buf_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "npcompound_%s_encode(struct net2_encdec_ctx *c,\n"
-	    "    struct net2_buffer *out, const %s%s%s%s*val,\n"
-	    "    const %s *cp_arg)\n",
+	    "npcompound_%s_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
+	    "    struct net2_buffer *%sout, const %s%s%s%s*%sval,\n"
+	    "    const %s *%scp_arg)\n",
 	    s->nps_name,
+	    buf_unused,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
 	    make_pointer(s->nps_spec.is_ptr, ""),
+	    buf_unused,
 	    (s->nps_spec.is_ptr ? "const" : ""),
-	    s->nps_spec.argtype
+	    s->nps_spec.argtype, argtype_unused
 	    ) < 0)
 		err(EX_OSERR, "fprintf");
 
@@ -1465,17 +1478,29 @@ create_compound_decoder(struct np_struct *s)
 	const char		*indent;
 	int			 do_if;
 	char			 cond[128];
+	char			*argtype_unused, *buf_unused;
+
+	if (strcmp(s->nps_spec.argtype, "void") == 0)
+		argtype_unused = " ILIAS_NET2__unused ";
+	else
+		argtype_unused = "";
+	if (TAILQ_EMPTY(&s->nps_members))
+		buf_unused = " ILIAS_NET2__unused ";
+	else
+		buf_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "npcompound_%s_decode(struct net2_encdec_ctx *c,\n"
-	    "    %s%s%s*val, struct net2_buffer *in,\n"
-	    "    const %s *cp_arg)\n",
+	    "npcompound_%s_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
+	    "    %s%s%s*%sval, struct net2_buffer *%sin,\n"
+	    "    const %s *%scp_arg)\n",
 	    s->nps_name,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
 	    make_pointer(s->nps_spec.is_ptr, ""),
-	    s->nps_spec.argtype
+	    buf_unused,
+	    buf_unused,
+	    s->nps_spec.argtype, argtype_unused
 	    ) < 0)
 		err(EX_OSERR, "fprintf");
 
@@ -1551,18 +1576,24 @@ create_compound_initfun(struct np_struct *s)
 {
 	struct np_structmember	*sm;
 	int			 idx, top_idx;
+	char			*argtype_unused;
+
+	if (strcmp(s->nps_spec.argtype, "void") == 0)
+		argtype_unused = " ILIAS_NET2__unused ";
+	else
+		argtype_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx *c,\n"
+	    "%s(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
 	    "    %s%s%s%s*val,\n"
-	    "    const %s *cp_arg)\n",
+	    "    const %s *%scp_arg)\n",
 	    s->nps_spec.init,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
 	    make_pointer(s->nps_spec.is_ptr, ""),
 	    (s->nps_spec.is_ptr ? "const" : ""),
-	    s->nps_spec.argtype
+	    s->nps_spec.argtype, argtype_unused
 	    ) < 0)
 		err(EX_OSERR, "fprintf");
 
@@ -1626,18 +1657,24 @@ void
 create_compound_destroyfun(struct np_struct *s)
 {
 	struct np_structmember	*sm;
+	char			*argtype_unused;
+
+	if (strcmp(s->nps_spec.argtype, "void") == 0)
+		argtype_unused = " ILIAS_NET2__unused ";
+	else
+		argtype_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx *c,\n"
+	    "%s(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
 	    "    %s%s%s%s*val,\n"
-	    "    const %s *cp_arg)\n",
+	    "    const %s *%scp_arg)\n",
 	    s->nps_spec.destroy,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
 	    make_pointer(s->nps_spec.is_ptr, ""),
 	    (s->nps_spec.is_ptr ? "const" : ""),
-	    s->nps_spec.argtype
+	    s->nps_spec.argtype, argtype_unused
 	    ) < 0)
 		err(EX_OSERR, "fprintf");
 

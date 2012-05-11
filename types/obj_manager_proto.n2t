@@ -399,8 +399,9 @@ n2omp_encode_supersede(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 
 static int
-n2om_resp_init(struct net2_encdec_ctx *c, struct net2_objman_response *r,
-    const struct net2_objman_proto_header *h)
+n2om_resp_init(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+    struct net2_objman_response *r,
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	r->result_type = NULL;
 	r->result = NULL;
@@ -409,7 +410,7 @@ n2om_resp_init(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 
 static int
 n2om_resp_destroy(struct net2_encdec_ctx *c, struct net2_objman_response *r,
-    const struct net2_objman_proto_header *h)
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	int				 error;
 
@@ -511,8 +512,9 @@ n2om_resp_decode(struct net2_encdec_ctx *c, struct net2_objman_response *r,
 
 
 static int
-n2om_req_init(struct net2_encdec_ctx *c, struct net2_objman_request *r,
-    const struct net2_objman_proto_header *h)
+n2om_req_init(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+    struct net2_objman_request *r,
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	r->method = NULL;
 	r->in_param = NULL;
@@ -522,7 +524,7 @@ n2om_req_init(struct net2_encdec_ctx *c, struct net2_objman_request *r,
 
 static int
 n2om_req_destroy(struct net2_encdec_ctx *c, struct net2_objman_request *r,
-    const struct net2_objman_proto_header *h)
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	int			 error;
 
@@ -540,7 +542,7 @@ n2om_req_destroy(struct net2_encdec_ctx *c, struct net2_objman_request *r,
 static int
 n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
     const struct net2_objman_request *r,
-    const struct net2_objman_proto_header *h)
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	int				 error;
 
@@ -573,7 +575,8 @@ n2om_req_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 static int
 n2om_req_decode(struct net2_encdec_ctx *c, struct net2_objman_request *r,
-    struct net2_buffer *in, const struct net2_objman_proto_header *h)
+    struct net2_buffer *in,
+    const struct net2_objman_proto_header * ILIAS_NET2__unused h)
 {
 	int				 error;
 	const struct net2_protocol	*protocol;

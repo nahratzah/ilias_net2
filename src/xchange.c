@@ -239,8 +239,9 @@ net2_xchangectx_clone(const struct net2_xchange_ctx *x)
 
 /* Initialize NIL, nil key exchange always fails, for lack of implementation. */
 static int
-NIL_init_fn(struct net2_xchange_ctx *x, size_t keylen,
-    struct net2_buffer *initbuf)
+NIL_init_fn(struct net2_xchange_ctx * ILIAS_NET2__unused x,
+    size_t ILIAS_NET2__unused keylen,
+    struct net2_buffer * ILIAS_NET2__unused initbuf)
 {
 	return -1;
 }

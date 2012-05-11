@@ -106,14 +106,17 @@ dgram_wqcb(void *ev_ptr, void *arg0)
 
 /* Event loop callback, writes a packet and dequeues it. */
 static void
-dgram_evcb_write(struct ev_loop *loop, ev_io *w, int revents)
+dgram_evcb_write(struct ev_loop * ILIAS_NET2__unused loop,
+    ev_io * ILIAS_NET2__unused w,
+    int ILIAS_NET2__unused revents)
 {
 	assert(0); /* TODO: implement. */
 }
 
 /* Event loop callback, reads a packet and dequeues it. */
 static void
-dgram_evcb_read(struct ev_loop *loop, ev_io *w, int revents)
+dgram_evcb_read(struct ev_loop * ILIAS_NET2__unused loop, ev_io *w,
+    int ILIAS_NET2__unused revents)
 {
 	struct net2_workq_dgram	*ev;
 	struct net2_conn_receive*recv;

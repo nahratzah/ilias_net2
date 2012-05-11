@@ -104,8 +104,9 @@ type windowheader (
 
 %%
 static int
-whinit(struct net2_encdec_ctx *c, struct windowheader *wh,
-    const void *cp_arg)
+whinit(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+    struct windowheader *wh,
+    const void * ILIAS_NET2__unused cp_arg)
 {
 	wh->tx_start = 0;
 	wh->flags = 0;
@@ -119,8 +120,9 @@ whinit(struct net2_encdec_ctx *c, struct windowheader *wh,
 }
 
 static int
-whdestroy(struct net2_encdec_ctx *c, struct windowheader *wh,
-    const void *cp_arg)
+whdestroy(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+    struct windowheader *wh,
+    const void * ILIAS_NET2__unused cp_arg)
 {
 	if (wh->recv != NULL) {
 		net2_free(wh->recv);
@@ -139,7 +141,8 @@ whdestroy(struct net2_encdec_ctx *c, struct windowheader *wh,
 
 static int
 whencode(struct net2_encdec_ctx *c, struct net2_buffer *out,
-    const struct windowheader *wh, const void *cp_arg)
+    const struct windowheader *wh,
+    const void * ILIAS_NET2__unused cp_arg)
 {
 	size_t		i;
 	uint32_t	pad = 0;
@@ -200,7 +203,8 @@ fail:
 
 static int
 whdecode(struct net2_encdec_ctx *c, struct windowheader *wh,
-    struct net2_buffer *in, const void *cp_arg)
+    struct net2_buffer *in,
+    const void * ILIAS_NET2__unused cp_arg)
 {
 	size_t		i;
 	uint32_t	pad;

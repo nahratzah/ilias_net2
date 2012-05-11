@@ -431,14 +431,17 @@ wqev_lock(struct ev_loop *loop)
 
 /* Stop the event loop (async wakeup callback). */
 static void
-evloop_wakeup(struct ev_loop *loop, ev_async *w, int events)
+evloop_wakeup(struct ev_loop *loop, ev_async * ILIAS_NET2__unused w,
+    int ILIAS_NET2__unused events)
 {
 	ev_break(loop, EVBREAK_ALL);
 }
 
 /* Inform the evloop that new events have been added. */
 static void
-evloop_new_event(struct ev_loop *loop, ev_async *w, int events)
+evloop_new_event(struct ev_loop * ILIAS_NET2__unused loop,
+    ev_async * ILIAS_NET2__unused w,
+    int ILIAS_NET2__unused events)
 {
 	/* Do nothing: desired behaviour is a side effect from invocation. */
 }
