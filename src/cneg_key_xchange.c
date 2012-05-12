@@ -21,12 +21,14 @@
 #include <ilias/net2/memory.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/sign.h>
+#include <ilias/net2/tx_callback.h>
 
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
 
+#include "exchange.h"
 #include "signature.h"
 
 
@@ -90,14 +92,14 @@ struct signed_carver {
 	struct net2_carver	 payload;	/* TX data. */
 	struct net2_carver	*signatures;	/* Signatures on data. */
 	struct net2_promise	*complete;	/* TX complete. */
-	size_t			 num_signatures; /* # signatures. */
+	uint32_t		 num_signatures; /* # signatures. */
 };
 /* Signed receive handler. */
 struct signed_combiner {
 	struct net2_combiner	 payload;	/* RX data. */
 	struct net2_combiner	*signatures;	/* Signatures on data. */
 	struct net2_promise	*complete;	/* RX complete. */
-	size_t			 num_signatures; /* # signatures. */
+	uint32_t		 num_signatures; /* # signatures. */
 };
 
 /* Additional data for signctx validation function. */
@@ -115,6 +117,9 @@ struct xchange_shared {
 	int			 xchange_alg;	/* Xchange method. */
 	int			 hash_alg;	/* Signature hash algorithm. */
 	uint32_t		 keysize;	/* Negotiated key size. */
+
+	uint16_t		 dstslot;	/* Destination slot. */
+	uint16_t		 rcvslot;	/* Receive slot. */
 };
 
 /* Locally initialized key negotiation. */
@@ -151,7 +156,7 @@ static void	 signed_carver_completion(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
 static struct signed_carver
 		*signed_carver_new(struct net2_workq*, struct net2_encdec_ctx*,
-		    struct net2_buffer*, int, size_t, struct net2_sign_ctx**);
+		    struct net2_buffer*, int, uint32_t, struct net2_sign_ctx**);
 static void	 signed_carver_destroy(struct signed_carver*);
 
 static void	 signed_combiner_completion(struct net2_promise*,
@@ -167,8 +172,23 @@ static struct net2_promise
 		    struct net2_sign_ctx*);
 static struct signed_combiner
 		*signed_combiner_init(struct net2_workq*,
-		    struct net2_encdec_ctx*, size_t, struct net2_sign_ctx**);
+		    struct net2_encdec_ctx*, uint32_t, struct net2_sign_ctx**);
 static void	 signed_combiner_deinit(struct signed_combiner*);
+
+static struct net2_buffer
+		*signed_carver_get_transmit_pl_header(struct net2_encdec_ctx*,
+		    uint16_t, uint16_t);
+static struct net2_buffer
+		*signed_carver_get_transmit_sig_header(struct net2_encdec_ctx*,
+		    uint16_t, uint16_t, uint32_t);
+
+static int	 signed_carver_get_transmit(struct signed_carver*,
+		    uint16_t, uint16_t, struct net2_encdec_ctx*,
+		    struct net2_workq*, struct net2_buffer*,
+		    struct net2_tx_callback*, size_t);
+static int	 signed_combiner_accept(struct signed_combiner*,
+		    const struct exchange_msg*,
+		    struct net2_encdec_ctx*, struct net2_buffer*);
 
 
 /*
@@ -480,7 +500,7 @@ fail_0:
 /* Construct a new signed carver. */
 static struct signed_carver*
 signed_carver_new(struct net2_workq *wq, struct net2_encdec_ctx *c,
-    struct net2_buffer *payload, int hash_alg, size_t num_signatures,
+    struct net2_buffer *payload, int hash_alg, uint32_t num_signatures,
     struct net2_sign_ctx **signatures)
 {
 	struct signed_carver	*sc;
@@ -489,7 +509,7 @@ signed_carver_new(struct net2_workq *wq, struct net2_encdec_ctx *c,
 	struct net2_promise	**in;
 	size_t			 i;
 
-	if (num_signatures + 1 == 0)
+	if ((size_t)num_signatures + 1 == 0)
 		goto fail_0;	/* Overflow. */
 
 	if ((sc = net2_malloc(sizeof(*sc))) == NULL)
@@ -528,13 +548,13 @@ loop_fail_0:
 	}
 
 	/* Collect all promises required for completion promise. */
-	in = net2_calloc(num_signatures + 1, sizeof(*in));
+	in = net2_calloc((size_t)num_signatures + 1, sizeof(*in));
 	in[0] = net2_carver_prom_ready(&sc->payload);
 	for (i = 0; i < num_signatures; i++)
 		in[i + 1] = net2_carver_prom_ready(&sc->signatures[i]);
 	/* Initialize completion promise. */
 	sc->complete = net2_promise_combine(wq, &signed_carver_completion,
-	    NULL, in, num_signatures + 1);
+	    NULL, in, (size_t)num_signatures + 1);
 	/*
 	 * Release all promises again (note that we didn't reference them,
 	 * hence do not release either.
@@ -580,20 +600,22 @@ signed_carver_destroy(struct signed_carver *sc)
 	net2_free(sc);
 }
 
+
 /* Construct a new signed combiner. */
 static struct signed_combiner*
 signed_combiner_init(struct net2_workq *wq, struct net2_encdec_ctx *c,
-    size_t num_signatures, struct net2_sign_ctx **signatures)
+    uint32_t num_signatures, struct net2_sign_ctx **signatures)
 {
 	struct signed_combiner		*sc;
 	struct net2_promise		**in;
 	size_t				 insz;
 
 	in = NULL;
-	if (num_signatures + 1 == 0)
+	if ((size_t)num_signatures + 1 == 0)
 		goto fail_0;	/* Overflow. */
 
-	if ((in = net2_calloc(num_signatures + 1, sizeof(*in))) == NULL)
+	if ((in = net2_calloc((size_t)num_signatures + 1,
+	    sizeof(*in))) == NULL)
 		goto fail_0;
 	if ((sc = net2_malloc(sizeof(*sc))) == NULL)
 		goto fail_0;
@@ -627,7 +649,7 @@ signed_combiner_init(struct net2_workq *wq, struct net2_encdec_ctx *c,
 			goto fail_4;
 	}
 	sc->complete = net2_promise_combine(wq, &signed_combiner_completion,
-	    NULL, in, num_signatures + 1);
+	    NULL, in, (size_t)num_signatures + 1);
 	if (sc->complete == NULL)
 		goto fail_4;
 
@@ -678,4 +700,295 @@ signed_combiner_deinit(struct signed_combiner *sc)
 	net2_free(sc->signatures);
 
 	net2_free(sc);
+}
+
+
+/* Retrieve payload transmission. */
+static __inline int
+signed_carver_get_transmit_pl(struct signed_carver *sc,
+    struct net2_encdec_ctx *c, struct net2_workq *wq,
+    struct net2_buffer *out, struct net2_tx_callback *txcb,
+    size_t maxsz)
+{
+	return net2_carver_get_transmit(&sc->payload, c, wq, out, txcb, maxsz);
+}
+
+/* Retrieve signature transmission. */
+static __inline int
+signed_carver_get_transmit_sig(struct signed_carver *sc, uint32_t sigidx,
+    struct net2_encdec_ctx *c, struct net2_workq *wq,
+    struct net2_buffer *out, struct net2_tx_callback *txcb,
+    size_t maxsz)
+{
+	if (sigidx < 0 || sigidx >= sc->num_signatures)
+		return EINVAL;
+	return net2_carver_get_transmit(&sc->signatures[sigidx], c, wq,
+	    out, txcb, maxsz);
+}
+
+/* Get combiner to accept payload data. */
+static __inline int
+signed_combiner_accept_pl(struct signed_combiner *sc,
+    struct net2_encdec_ctx *c, struct net2_buffer *buf)
+{
+	return net2_combiner_accept(&sc->payload, c, buf);
+}
+
+/* Get combiner to accept signature data. */
+static __inline int
+signed_combiner_accept_sig(struct signed_combiner *sc, uint32_t sigidx,
+    struct net2_encdec_ctx *c, struct net2_buffer *buf)
+{
+	if (sigidx < 0 || sigidx >= sc->num_signatures)
+		return EINVAL;
+	return net2_combiner_accept(&sc->signatures[sigidx], c, buf);
+}
+
+/* Returns the number of signatures on carver. */
+static __inline size_t
+signed_carver_num_sigs(struct signed_carver *sc)
+{
+	return sc->num_signatures;
+}
+
+/* Returns the number of signatures on combiner. */
+static __inline size_t
+signed_combiner_num_sigs(struct signed_combiner *sc)
+{
+	return sc->num_signatures;
+}
+
+
+/* Generate payload header for signed carver. */
+static struct net2_buffer*
+signed_carver_get_transmit_pl_header(struct net2_encdec_ctx *c,
+    uint16_t dstslot, uint16_t xmsg_type)
+{
+	struct net2_buffer	*out;
+	struct exchange_msg	 msg;
+	size_t			 outlen;
+
+	assert(dstslot != SLOT_FIN);
+	assert(xmsg_type == XMSG_INITBUF || xmsg_type == XMSG_RESPONSE);
+
+	if ((out = net2_buffer_new()) == NULL)
+		goto fail_0;
+	if (mk_exchange_msg_buf(&msg, dstslot, xmsg_type) != 0)
+		goto fail_1;
+	if (net2_cp_encode(c, &cp_exchange_msg, out, &msg, NULL) != 0)
+		goto fail_2;
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+
+	return out;
+
+
+fail_2:
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+fail_1:
+	net2_buffer_free(out);
+fail_0:
+	return NULL;
+}
+/* Generate signature header for signed carver. */
+static struct net2_buffer*
+signed_carver_get_transmit_sig_header(struct net2_encdec_ctx *c,
+    uint16_t dstslot, uint16_t xmsg_type, uint32_t sigidx)
+{
+	struct net2_buffer	*out;
+	struct exchange_msg	 msg;
+	size_t			 outlen;
+
+	assert(dstslot != SLOT_FIN);
+	assert(xmsg_type == XMSG_INITBUF || xmsg_type == XMSG_RESPONSE);
+
+	if ((out = net2_buffer_new()) == NULL)
+		goto fail_0;
+	if (mk_exchange_msg_signature(&msg, dstslot,
+	    xmsg_type | XMSG_SIGNATURE, sigidx) != 0)
+		goto fail_1;
+	if (net2_cp_encode(c, &cp_exchange_msg, out, &msg, NULL) != 0)
+		goto fail_2;
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+
+	return out;
+
+
+fail_2:
+	net2_cp_destroy(c, &cp_exchange_msg, &msg, NULL);
+fail_1:
+	net2_buffer_free(out);
+fail_0:
+	return NULL;
+}
+
+
+/*
+ * Get transmission data for signed carver.
+ *
+ * The out buffer will be filled up with as many messages this signed carver
+ * has available.  Headers will be generated for each of the messages, using
+ * the supplied dstslot and xmsg_type as appropriate.
+ */
+static int
+signed_carver_get_transmit(struct signed_carver *sc,
+    uint16_t dstslot, uint16_t xmsg_type,
+    struct net2_encdec_ctx *c, struct net2_workq *wq, struct net2_buffer *out,
+    struct net2_tx_callback *txcb, size_t maxsz)
+{
+	struct net2_buffer	*header = NULL, *carver = NULL;
+	size_t			 out_header_len;	/* |out| + |header| */
+	int			 do_break;
+	struct net2_tx_callback	 tmp_txcb;
+	uint32_t		 sigidx;
+	int			 error;
+
+	assert(net2_buffer_empty(out));
+	assert(dstslot != SLOT_FIN);
+	assert(xmsg_type == XMSG_INITBUF || xmsg_type == XMSG_RESPONSE);
+
+	/*
+	 * Temporary txcb.
+	 */
+	if ((error = net2_txcb_init(&tmp_txcb)) != 0)
+		goto fail_0;
+
+	/*
+	 * Try and load payload data into out.
+	 *
+	 * Since the header for each payload is the same,
+	 * we reuse it across the loop.
+	 */
+	if ((header = signed_carver_get_transmit_pl_header(c,
+	    dstslot, xmsg_type)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	do_break = 0;
+	while (!do_break && (out_header_len = net2_buffer_length(out) +
+	    net2_buffer_length(header)) < maxsz) {
+		if ((carver = net2_buffer_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+		if ((error = signed_carver_get_transmit_pl(sc, c, wq, carver,
+		    &tmp_txcb, maxsz - out_header_len)) != 0)
+			goto fail_1;
+
+		if (!net2_buffer_empty(carver)) {
+			if (net2_buffer_append(out, header) ||
+			    net2_buffer_append(out, carver)) {
+				error = ENOMEM;
+				/*
+				 * Reduce out length back to
+				 * the size prior to failure.
+				 */
+				net2_buffer_truncate(out, out_header_len);
+				net2_txcb_nack(&tmp_txcb);
+				goto fail_1;
+			}
+		} else
+			do_break = 1;
+
+		net2_txcb_merge(txcb, &tmp_txcb);
+		net2_buffer_free(carver);
+		carver = NULL;
+	}
+	/* Release header. */
+	net2_buffer_free(header);
+	header = NULL;
+
+	/*
+	 * Generate transmission for each signature.
+	 */
+	for (sigidx = 0; sigidx < signed_carver_num_sigs(sc); sigidx++) {
+		if ((header = signed_carver_get_transmit_sig_header(c, dstslot,
+		    xmsg_type, sigidx)) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+
+		do_break = 0;
+		while (!do_break && (out_header_len = net2_buffer_length(out) +
+		    net2_buffer_length(header)) < maxsz) {
+			if ((carver = net2_buffer_new()) == NULL) {
+				error = ENOMEM;
+				goto fail_1;
+			}
+			if ((error = signed_carver_get_transmit_sig(sc, sigidx,
+			    c, wq, carver, &tmp_txcb,
+			    maxsz - out_header_len)) != 0)
+				goto fail_1;
+
+			if (!net2_buffer_empty(carver)) {
+				if (net2_buffer_append(out, header) ||
+				    net2_buffer_append(out, carver)) {
+					error = ENOMEM;
+					/*
+					 * Reduce out length back to
+					 * the size prior to failure.
+					 */
+					net2_buffer_truncate(out,
+					    out_header_len);
+					net2_txcb_nack(&tmp_txcb);
+					goto fail_1;
+				}
+			} else
+				do_break = 1;
+
+			net2_txcb_merge(txcb, &tmp_txcb);
+			net2_buffer_free(carver);
+			carver = NULL;
+		}
+		/* Release header. */
+		net2_buffer_free(header);
+		header = NULL;
+	}
+
+	/* All messages have been stored in out. */
+	error = 0;
+
+	/* FALLTHROUGH: allow failure code to perform cleanup. */
+
+
+fail_1:
+	net2_txcb_deinit(&tmp_txcb);
+fail_0:
+	if (carver != NULL)
+		net2_buffer_free(carver);
+	if (header != NULL)
+		net2_buffer_free(header);
+
+	/* If we ran out of memory, retry in next request. */
+	if (error == ENOMEM && !net2_buffer_empty(out))
+		error = 0;
+
+	return error;
+}
+
+/*
+ * Accept message for combiner.
+ *
+ * Supplied header has been decoded by caller.
+ */
+static int
+signed_combiner_accept(struct signed_combiner *sc,
+    const struct exchange_msg *msg,
+    struct net2_encdec_ctx *c, struct net2_buffer *buf)
+{
+	int			 is_sig;
+	uint32_t		 sig_idx;
+	uint16_t		 xmsg_type;
+
+	xmsg_type = (msg->msg_id & ~XMSG_SIGNATURE);
+	is_sig = (msg->msg_id & XMSG_SIGNATURE);
+	assert(xmsg_type == XMSG_INITBUF || xmsg_type == XMSG_RESPONSE);
+	assert(msg->slot != SLOT_FIN);
+
+	if (is_sig) {
+		sig_idx = msg->payload.signature_idx;
+
+		return signed_combiner_accept_sig(sc, sig_idx, c, buf);
+	} else
+		return signed_combiner_accept_pl(sc, c, buf);
 }
