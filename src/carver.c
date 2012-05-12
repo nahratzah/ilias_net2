@@ -19,6 +19,7 @@
 #include <ilias/net2/cp.h>
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/tx_callback.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/config.h>
 #include <ilias/net2/bsd_compat/minmax.h>
 #include <assert.h>
@@ -86,6 +87,7 @@ static int	 combiner_msg_combine(struct net2_combiner*,
 		    struct net2_carver_range*);
 static struct net2_buffer
 		*combiner_data(struct net2_combiner*);
+static void	 combiner_result_free(void*, void*);
 
 static enum net2_carver_type
 		 flags_to_type(int);
@@ -117,7 +119,7 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
     struct net2_buffer *data)
 {
 	size_t			 maxbyte;
-	struct net2_carver_range*r;
+	struct net2_carver_range*r = NULL;
 
 	if (c == NULL || data == NULL)
 		return EINVAL;
@@ -129,8 +131,6 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 	/* Clean callback. */
 	c->rts_fn = NULL;
 	c->rts_arg0 = c->rts_arg1 = NULL;
-	c->ready_fn = NULL;
-	c->ready_arg0 = c->ready_arg1 = NULL;
 
 	switch (type) {
 	case NET2_CARVER_16BIT:
@@ -162,6 +162,16 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 		RB_INSERT(net2_carver_ranges, &c->ranges, r);
 	}
 
+	/* Initialize completion promise. */
+	if ((c->ready = net2_promise_new()) == NULL) {
+		if (r != NULL) {
+			net2_buffer_free(r->data);
+			net2_free(r);
+		}
+		return ENOMEM;
+	}
+	net2_promise_set_running(c->ready);
+
 	return 0;
 }
 
@@ -183,6 +193,11 @@ net2_carver_deinit(struct net2_carver *c)
 			net2_free(r);
 		}
 	}
+
+	if (net2_promise_is_running(c->ready))
+		net2_promise_set_cancel(c->ready, NET2_PROMFLAG_RELEASE);
+	else
+		net2_promise_release(c->ready);
 }
 
 /* Initialize combiner. */
@@ -192,10 +207,6 @@ net2_combiner_init(struct net2_combiner *c, enum net2_carver_type type)
 	c->flags = 0;
 	c->expected_size = (size_t)-1;
 	RB_INIT(&c->ranges);
-
-	/* Clean callback. */
-	c->ready_fn = NULL;
-	c->ready_arg0 = c->ready_arg1 = NULL;
 
 	switch (type) {
 	case NET2_CARVER_16BIT:
@@ -207,6 +218,10 @@ net2_combiner_init(struct net2_combiner *c, enum net2_carver_type type)
 	default:
 		return EINVAL;
 	}
+
+	if ((c->ready = net2_promise_new()) == NULL)
+		return ENOMEM;
+	net2_promise_set_running(c->ready);
 
 	return 0;
 }
@@ -223,6 +238,11 @@ net2_combiner_deinit(struct net2_combiner *c)
 			net2_buffer_free(r->data);
 		net2_free(r);
 	}
+
+	if (net2_promise_is_running(c->ready))
+		net2_promise_set_cancel(c->ready, NET2_PROMFLAG_RELEASE);
+	else
+		net2_promise_release(c->ready);
 }
 
 /* Test if the carver has sent all data. */
@@ -371,6 +391,7 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	struct carver_msg_header header;
 	uint32_t		 msg_type;
 	struct net2_carver_range*r;
+	struct net2_buffer	*result;
 
 	/* Decode header to read message type. */
 	if ((error = net2_cp_init(ctx, &cp_carver_msg_header, &header,
@@ -384,26 +405,30 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 
 	switch (msg_type) {
 	default:
-		return EINVAL;
+		error = EINVAL;
+		break;
 	case CARVER_MSGTYPE_SETUP:
 		error = combiner_setup_msg(c, ctx, in);
 		break;
 	case CARVER_MSGTYPE_DATA:
-		if ((r = net2_malloc(sizeof(*r))) == NULL)
-			return ENOMEM;
+		if ((r = net2_malloc(sizeof(*r))) == NULL) {
+			error = ENOMEM;
+			break;
+		}
 		r->flags = 0;
 		r->offset = 0;
 		r->data = NULL;
 		if ((error = combiner_msg_to_range(c, r, ctx, in)) != 0) {
 			net2_free(r);
-			return error;
+			break;
 		}
 		if ((error = combiner_msg_combine(c, r)) != 0) {
 			if (r->data)
 				net2_buffer_free(r->data);
 			net2_free(r);
-			return error;
+			break;
 		}
+
 		/*
 		 * Don't free r: combiner_msg_combine will have done this,
 		 * or inserted r directly into the tree.
@@ -412,8 +437,24 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 		break;
 	}
 
-	if (error == 0 && c->ready_fn != NULL && net2_combiner_is_done(c))
-		(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
+out:
+	/* Assign result or error to promise. */
+	if (net2_promise_is_running(c->ready)) {
+		if (error != 0)
+			net2_promise_set_error(c->ready, error, 0);
+		else if (net2_combiner_is_done(c)) {
+			if ((result = net2_combiner_data(c)) == NULL) {
+				error = ENOMEM;
+				goto out; /* Assign error code to result. */
+			}
+
+			if ((error = net2_promise_set_finok(c->ready, result,
+			    &combiner_result_free, NULL, 0)) != 0) {
+				net2_buffer_free(result);
+				goto out; /* Assign error code to result. */
+			}
+		}
+	}
 	return error;
 }
 
@@ -799,6 +840,15 @@ combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
 	return 0;
 }
 
+/* Combiner promise data release function. */
+static void
+combiner_result_free(void *bufptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_buffer	*buf = bufptr;
+
+	net2_buffer_free(buf);
+}
+
 /* Extract carver/combiner type from flags. */
 static enum net2_carver_type
 flags_to_type(int flags)
@@ -821,8 +871,9 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 
 	if (!(r->flags & RANGE_DETACHED)) {
 		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
-		if (c->ready_fn != NULL && net2_carver_is_done(c))
-			(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
+		if (net2_promise_is_running(c->ready) &&
+		    net2_carver_is_done(c))
+			net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
 	}
 
 	net2_buffer_free(r->data);
@@ -853,8 +904,8 @@ carver_setup_ack(void *c_ptr, void * ILIAS_NET2__unused unusued)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags |= NET2_CARVER_F_KNOWN_SZ;
-	if (c->ready_fn != NULL && net2_carver_is_done(c))
-		(*c->ready_fn)(c->ready_arg0, c->ready_arg1);
+	if (net2_promise_is_running(c->ready) && net2_carver_is_done(c))
+		net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
 }
 
 /* Setup receival failed. */

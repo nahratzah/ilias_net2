@@ -57,10 +57,7 @@ struct net2_carver {
 	void			*rts_arg0;	/* Argument 1 to rts_fn. */
 	void			*rts_arg1;	/* Argument 2 to rts_fn. */
 
-	void			(*ready_fn)(void*, void*);
-						/* Carver ready callback. */
-	void			*ready_arg0;	/* Argument 1 to ready_fn. */
-	void			*ready_arg1;	/* Argument 2 to ready_fn. */
+	struct net2_promise	*ready;		/* Carver ready promise. */
 };
 
 /*
@@ -74,10 +71,7 @@ struct net2_combiner {
 				 ranges;
 	size_t			 expected_size;
 
-	void			(*ready_fn)(void*, void*);
-						/* Combiner ready callback. */
-	void			*ready_arg0;	/* Argument 1 to ready_fn. */
-	void			*ready_arg1;	/* Argument 2 to ready_fn. */
+	struct net2_promise	*ready;		/* Combiner ready promise. */
 };
 
 
@@ -123,24 +117,17 @@ net2_carver_set_rts(struct net2_carver *c, void (*fn)(void*, void*),
 	c->rts_arg1 = arg1;
 }
 
-/* Set carver ready callback. */
-static __inline void
-net2_carver_set_ready(struct net2_carver *c, void (*fn)(void*, void*),
-    void *arg0, void *arg1)
+/* Retrieve the carver completion promise. */
+static __inline struct net2_promise*
+net2_carver_prom_ready(struct net2_carver *c)
 {
-	c->ready_fn = fn;
-	c->ready_arg0 = arg0;
-	c->ready_arg1 = arg1;
+	return c->ready;
 }
-
-/* Set Combiner ready callback. */
-static __inline void
-net2_combiner_set_ready(struct net2_combiner *c, void (*fn)(void*, void*),
-    void *arg0, void *arg1)
+/* Retrieve the combiner completion promise. */
+static __inline struct net2_promise*
+net2_combiner_prom_ready(struct net2_combiner *c)
 {
-	c->ready_fn = fn;
-	c->ready_arg0 = arg0;
-	c->ready_arg1 = arg1;
+	return c->ready;
 }
 
 #endif /* ILIAS_NET2_CARVER_H */
