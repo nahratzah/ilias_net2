@@ -115,7 +115,7 @@ struct xchange_shared {
 
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Xchange method. */
-	int			 hash_alg;	/* Signature hash algorithm. */
+	int			 sighash_alg;	/* Signature hash algorithm. */
 	uint32_t		 keysize;	/* Negotiated key size. */
 
 	uint16_t		 dstslot;	/* Destination slot. */
@@ -126,18 +126,17 @@ struct xchange_shared {
 struct xchange_local {
 	struct xchange_shared	 shared;	/* Shared state. */
 
-	struct signed_carver	 init;		/* Initialization buffer. */
-	struct signed_carver	 export;	/* Export buffer. */
-	struct signed_combiner	 import;	/* Import buffer. */
+	struct signed_carver	*init;		/* Initialization buffer. */
+	struct signed_carver	*export;	/* Export buffer. */
+	struct signed_combiner	*import;	/* Import buffer. */
 };
 /* Remotely initialized key negotiation. */
 struct xchange_remote {
 	struct xchange_shared	 shared;	/* Shared state. */
 
-	struct signed_combiner	 init;		/* Initialization buffer. */
-	struct signed_carver	 export;	/* Export buffer. */
-	struct signed_combiner	 import;	/* Import buffer. */
-	int			 export_inited;	/* Set: export is inited. */
+	struct signed_combiner	*init;		/* Initialization buffer. */
+	struct signed_carver	*export;	/* Export buffer. */
+	struct signed_combiner	*import;	/* Import buffer. */
 };
 
 /* Key negotiation handler. */
@@ -171,9 +170,9 @@ static struct net2_promise
 		    struct net2_promise*, struct net2_promise*,
 		    struct net2_sign_ctx*);
 static struct signed_combiner
-		*signed_combiner_init(struct net2_workq*,
+		*signed_combiner_new(struct net2_workq*,
 		    struct net2_encdec_ctx*, uint32_t, struct net2_sign_ctx**);
-static void	 signed_combiner_deinit(struct signed_combiner*);
+static void	 signed_combiner_destroy(struct signed_combiner*);
 
 static struct net2_buffer
 		*signed_carver_get_transmit_pl_header(struct net2_encdec_ctx*,
@@ -603,7 +602,7 @@ signed_carver_destroy(struct signed_carver *sc)
 
 /* Construct a new signed combiner. */
 static struct signed_combiner*
-signed_combiner_init(struct net2_workq *wq, struct net2_encdec_ctx *c,
+signed_combiner_new(struct net2_workq *wq, struct net2_encdec_ctx *c,
     uint32_t num_signatures, struct net2_sign_ctx **signatures)
 {
 	struct signed_combiner		*sc;
@@ -685,7 +684,7 @@ fail_0:
 
 /* Destroy a signed combiner. */
 static void
-signed_combiner_deinit(struct signed_combiner *sc)
+signed_combiner_destroy(struct signed_combiner *sc)
 {
 	/* Release completion promise. */
 	net2_promise_cancel(sc->complete);
@@ -991,4 +990,30 @@ signed_combiner_accept(struct signed_combiner *sc,
 		return signed_combiner_accept_sig(sc, sig_idx, c, buf);
 	} else
 		return signed_combiner_accept_pl(sc, c, buf);
+}
+
+
+/* Initialize shared portion of xchange_{local,remote}. */
+static int
+xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
+    int xchange_alg, int sighash_alg, uint16_t dstslot, uint16_t rcvslot)
+{
+	xs->xchange = NULL;
+	xs->key_promise = NULL;
+	xs->alg = alg;
+	xs->xchange_alg = xchange_alg;
+	xs->sighash_alg = sighash_alg;
+	xs->keysize = keysize;
+	xs->dstslot = dstslot;
+	xs->rcvslot = rcvslot;
+	return 0;
+}
+/* Release shared portion of xchange_{local,remote}. */
+static void
+xchange_shared_deinit(struct xchange_shared *xs)
+{
+	if (xs->xchange != NULL)
+		net2_xchangectx_free(xs->xchange);
+	if (xs->key_promise != NULL)
+		net2_promise_release(xs->key_promise);
 }
