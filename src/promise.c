@@ -715,11 +715,6 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 		goto fail_0;
 	}
 
-	if ((cb = net2_malloc(sizeof(*cb))) == NULL) {
-		error = ENOMEM;
-		goto fail_0;
-	}
-
 	net2_mutex_lock(p->mtx);
 	/*
 	 * Can only have 1 on-run event, which can only be set
@@ -755,7 +750,7 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 	if ((error = net2_workq_init_work(&cb->job, wq, &promise_wqcb, cb, arg1,
 	    0)) != 0)
 		goto fail_1;
-	cb->job.callbacks = &promcb_cb;
+	net2_workq_set_callbacks(&cb->job, &promcb_cb);
 
 	/*
 	 * Handle state.
@@ -783,7 +778,6 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 
 fail_1:
 	net2_mutex_unlock(p->mtx);
-	net2_free(cb);
 fail_0:
 	return error;
 }
