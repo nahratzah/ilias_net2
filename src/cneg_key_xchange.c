@@ -106,7 +106,8 @@ struct xchange_carver_setup_data {
  */
 struct xchange_shared {
 	struct net2_promise	*xchange;	/* Xchange context. */
-	struct net2_promise	*key_promise;	/* Completion promise. */
+	struct net2_promise	*key_promise;	/* Key ready promise. */
+	struct net2_promise	*complete;	/* Completion promise. */
 
 	int			 alg;		/* Algorithm ID. */
 	int			 xchange_alg;	/* Xchange method. */
@@ -192,6 +193,8 @@ xchange_shared_deinit(struct xchange_shared *xs)
 		net2_promise_release(xs->xchange);
 	if (xs->key_promise != NULL)
 		net2_promise_release(xs->key_promise);
+	if (xs->complete != NULL)
+		net2_promise_release(xs->complete);
 	if (xs->out_xcsd != NULL)
 		xchange_carver_setup_data_free(xs->out_xcsd);
 }
@@ -427,6 +430,117 @@ fail_0:
 	xchange_carver_setup_data_free(xcsd);
 }
 
+static void
+prom_buffer_free(void *buf, void * ILIAS_NET2__unused unused)
+{
+	net2_buffer_free(buf);
+}
+/* Combine import buffer and xchange. */
+static void
+xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void * ILIAS_NET2__unused unused)
+{
+	struct net2_ctx_xchange_factory_result
+				*xch;
+	struct net2_buffer	*import, *key;
+	uint32_t		 xch_err, import_err;
+	int			 xch_fin, import_fin;
+	int			 error;
+
+	assert(insz == 2);
+
+	/* Handle out cancellation. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Read result. */
+	xch_fin = net2_promise_get_result(in[0], (void**)&xch, &xch_err);
+	import_fin = net2_promise_get_result(in[1], (void**)&import, &import_err);
+
+	/* Cascade ENOMEM. */
+	if ((xch_fin == NET2_PROM_FIN_ERROR && xch_err == ENOMEM) ||
+	    (import_fin == NET2_PROM_FIN_ERROR && import_err == ENOMEM)) {
+		net2_promise_set_error(out, ENOMEM, 0);
+		return;
+	}
+
+	/* Any other end -> EIO failure. */
+	if (xch_fin != NET2_PROM_FIN_OK || import_fin != NET2_PROM_FIN_OK) {
+		net2_promise_set_error(out, EIO, 0);
+		return;
+	}
+
+	/* Input succeeded. */
+	assert(xch != NULL && xch->ctx != NULL && import != NULL);
+	if ((error = net2_xchangectx_import(xch->ctx, import)) != 0) {
+		net2_promise_set_error(out, error, 0);
+		return;
+	}
+
+	/* Retrieve final key. */
+	key = net2_xchangectx_final(xch->ctx);
+	error = net2_promise_set_finok(out, key, &prom_buffer_free, NULL, 0);
+	if (error != 0) {
+		/* Assignment failure. */
+		net2_buffer_free(key);
+		net2_promise_set_error(out, error, 0);
+	}
+}
+/* Combine verified import buffer with negotiated key. */
+static void
+key_verified_combine(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void * ILIAS_NET2__unused unused)
+{
+	struct net2_buffer	*key;
+	uint32_t		 key_err, verify_err;
+	int			 error;
+
+	assert(insz == 2);
+
+	/* Handle out cancellation. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Check if all signatures were ok. */
+	switch (net2_promise_get_result(in[1], NULL, &verify_err)) {
+	case NET2_PROM_FIN_OK:
+		break;
+	case NET2_PROM_FIN_ERROR:
+		net2_promise_set_error(out, verify_err, 0);
+		return;
+	default:
+		net2_promise_set_error(out, EIO, 0);
+		return;
+	}
+
+	/* Check if key was generated succesfully. */
+	switch (net2_promise_get_result(in[0], (void**)&key, &key_err)) {
+	case NET2_PROM_FIN_OK:
+		break;
+	case NET2_PROM_FIN_ERROR:
+		net2_promise_set_error(out, key_err, 0);
+		return;
+	default:
+		net2_promise_set_error(out, EIO, 0);
+		return;
+	}
+
+	/* Key was succesfully generated and all signatures matched. */
+	if ((key = net2_buffer_copy(key)) == NULL) {
+		net2_promise_set_error(out, ENOMEM, 0);
+		return;
+	}
+	if ((error = net2_promise_set_finok(out, key, &prom_buffer_free, NULL,
+	    0)) != 0) {
+		net2_buffer_free(key);
+		net2_promise_set_error(out, error, 0);
+	}
+}
+
 /*
  * Initialize local xchange.
  *
@@ -444,6 +558,8 @@ xchange_local_init(
     )
 {
 	int			 error;
+	struct net2_promise	*key_unverified;
+	struct net2_promise	*prom2[2]; /* tmp references. */
 
 	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
 	    xchange_alg, sighash_alg, dstslot, rcvslot)) != 0)
@@ -476,6 +592,20 @@ xchange_local_init(
 	if ((xl->import = net2_signed_combiner_new(wq, ectx,
 	    num_insigs, insigs)) == NULL)
 		goto fail_1;
+	/* Set up xchange+import promise. */
+	prom2[0] = xl->shared.xchange;
+	prom2[1] = net2_signed_combiner_payload(xl->import);
+	if ((key_unverified = net2_promise_combine(wq, &xchange_import_combine,
+	    NULL, prom2, 2)) == NULL)
+		goto fail_2;
+	/* Set up verified key promise. */
+	prom2[0] = key_unverified;
+	prom2[1] = net2_signed_combiner_complete(xl->import);
+	if ((xl->shared.key_promise = net2_promise_combine(wq,
+	    &key_verified_combine, NULL, prom2, 2)) == NULL)
+		goto fail_3;
+	net2_promise_release(key_unverified);
+	key_unverified = NULL;	/* Free floating promise. */
 
 
 
@@ -491,6 +621,9 @@ event_1:
 event_0:
 
 
+fail_3:
+	if (key_unverified != NULL)
+		net2_promise_release(key_unverified);
 fail_2:
 	net2_signed_combiner_destroy(xl->import);
 fail_1:
