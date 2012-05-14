@@ -24,7 +24,7 @@
 #else
 #define ILIAS_NET2_EXPORT	__declspec(dllimport)
 #define ILIAS_NET2_LOCAL	/* nothing */
-#endif /* ilias_common_EXPORT */
+#endif /* ilias_net2_EXPORTS */
 #elif defined(__GNUC__) || defined(__clang__)
 #define ILIAS_NET2_EXPORT	__attribute__ ((visibility ("default")))
 #define ILIAS_NET2_LOCAL	__attribute__ ((visibility ("hidden")))
