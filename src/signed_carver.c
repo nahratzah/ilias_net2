@@ -14,7 +14,6 @@
 #include <assert.h>
 #include <errno.h>
 
-#include "exchange.h"
 #include "signature.h"
 #include "signed_carver_header.h"
 
@@ -669,7 +668,6 @@ signed_combiner_sig_header(signed_carver_sigidx *sigidx,
  */
 ILIAS_NET2_EXPORT int
 net2_signed_carver_get_transmit(struct net2_signed_carver *sc,
-    uint16_t dstslot, uint16_t xmsg_type,
     struct net2_encdec_ctx *c, struct net2_workq *wq, struct net2_buffer *out,
     struct net2_tx_callback *txcb_out, size_t maxsz)
 {
@@ -683,8 +681,6 @@ net2_signed_carver_get_transmit(struct net2_signed_carver *sc,
 				 sch;
 
 	assert(net2_buffer_empty(out));
-	assert(dstslot != SLOT_FIN);
-	assert(xmsg_type == XMSG_INITBUF || xmsg_type == XMSG_RESPONSE);
 
 	sch.pl_segs = sch.sig_segs = 0;
 	if (maxsz <= SIGNED_CARVER_HEADERSZ)

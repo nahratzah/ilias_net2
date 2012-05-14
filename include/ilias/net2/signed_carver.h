@@ -33,7 +33,7 @@ void		 net2_signed_combiner_destroy(struct net2_signed_combiner*);
 
 ILIAS_NET2_EXPORT
 int		 net2_signed_carver_get_transmit(struct net2_signed_carver*,
-		    uint16_t, uint16_t, struct net2_encdec_ctx*,
+		    struct net2_encdec_ctx*,
 		    struct net2_workq*, struct net2_buffer*,
 		    struct net2_tx_callback*, size_t);
 ILIAS_NET2_EXPORT
