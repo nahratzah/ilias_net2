@@ -1,0 +1,28 @@
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/ctypes.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+struct signed_carver_header {
+	uint16_t	pl_segs;
+	uint16_t	sig_segs;
+};
+
+#define SIGNED_CARVER_MAXSEGS	0xffff	/* 16-bit counter. */
+#define SIGNED_CARVER_HEADERSZ	4	/* 2 16-bit values. */
+
+/* Forward signed_carver_sigidx to ctypes.h */
+#define signed_carver_sigidx	uint32_t
+#define cp_signed_carver_sigidx	cp_uint32
+
+%%
+#include "signed_carver_header.h"
+%%
+
+struct signed_carver_header (ctype struct signed_carver_header,
+    protocol net2_proto,
+    init NULL,
+    destroy NULL) {
+	uint16		pl_segs;
+	uint16		sig_segs;
+};

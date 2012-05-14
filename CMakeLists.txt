@@ -23,6 +23,7 @@ list (APPEND headers
 	include/ilias/net2/bitset.h
 	include/ilias/net2/buffer.h
 	include/ilias/net2/carver.h
+	include/ilias/net2/signed_carver.h
 	include/ilias/net2/cneg_stage1.h
 	include/ilias/net2/cneg_key_xchange.h
 	include/ilias/net2/conn_negotiator.h
@@ -62,6 +63,7 @@ list (APPEND srcs
 	src/bitset.c
 	src/buffer.c
 	src/carver.c
+	src/signed_carver.c
 	src/cneg_stage1.c
 	src/cneg_key_xchange.c
 	src/conn_negotiator.c
@@ -270,6 +272,12 @@ net2type(srcs "types/carver_msg.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_CARVER_MSG_H")
+net2type(srcs "types/signed_carver_header.n2t"
+    "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.h"
+    "static"
+    "ILIAS_NET2_LOCAL"
+    "ILIAS_NET2_SIGNED_CARVER_HEADER_H")
 net2type(srcs "types/connwindow_cp.n2t"
     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.c"
     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.h"
