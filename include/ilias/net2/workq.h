@@ -98,7 +98,12 @@ ILIAS_NET2_EXPORT
 struct net2_workq
 	*net2_workq_get(struct net2_workq_job*);
 
-#define net2_workq_set_callbacks(j, cb)					\
-	do { (j)->callbacks = (cb); } while (0)
+/* Assign callbacks for workq modifications. */
+static __inline void
+net2_workq_set_callbacks(struct net2_workq_job *j,
+    struct net2_workq_job_cb *cb)
+{
+	j->callbacks = cb;
+}
 
 #endif /* ILIAS_NET2_WORKQ_H */
