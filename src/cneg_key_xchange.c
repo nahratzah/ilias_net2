@@ -15,13 +15,18 @@
  */
 #include <ilias/net2/cneg_key_xchange.h>
 
+#include <ilias/net2/buffer.h>
 #include <ilias/net2/carver.h>
+#include <ilias/net2/context.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/sign.h>
 #include <ilias/net2/tx_callback.h>
+
+#include <ilias/net2/sign.h>
+#include <ilias/net2/xchange.h>
 
 #include <sys/types.h>
 #include <assert.h>
@@ -107,10 +112,22 @@ struct signctx_validate_arg {
 	struct net2_sign_ctx	*sctx;		/* Signature validator. */
 	struct net2_encdec_ctx	 ectx;		/* Encoder/decoder context. */
 };
+/* Additional information required to set up carver. */
+struct xchange_carver_setup_data {
+	struct net2_encdec_ctx	 ectx;
+	struct net2_workq	*wq;
+	struct net2_sign_ctx	**sigs;
+	uint32_t		 num_sigs;
+};
 
-/* State shared between xchange_local, xchange_remote. */
+/*
+ * State shared between xchange_local, xchange_remote.
+ *
+ * xchange: promise yielding net2_ctx_xchange_factory_result.
+ * key_promise: promise yielding net2_cneg_key_result.
+ */
 struct xchange_shared {
-	struct net2_xchange_ctx	*xchange;	/* Xchange context. */
+	struct net2_promise	*xchange;	/* Xchange context. */
 	struct net2_promise	*key_promise;	/* Completion promise. */
 
 	int			 alg;		/* Algorithm ID. */
@@ -120,6 +137,10 @@ struct xchange_shared {
 
 	uint16_t		 dstslot;	/* Destination slot. */
 	uint16_t		 rcvslot;	/* Receive slot. */
+
+	struct xchange_carver_setup_data
+				*out_xcsd,
+				*in_xcsd;
 };
 
 /* Locally initialized key negotiation. */
@@ -129,6 +150,9 @@ struct xchange_local {
 	struct signed_carver	*init;		/* Initialization buffer. */
 	struct signed_carver	*export;	/* Export buffer. */
 	struct signed_combiner	*import;	/* Import buffer. */
+
+	struct net2_promise_event
+				 setup_carvers;	/* Event setting up carvers. */
 };
 /* Remotely initialized key negotiation. */
 struct xchange_remote {
@@ -137,6 +161,9 @@ struct xchange_remote {
 	struct signed_combiner	*init;		/* Initialization buffer. */
 	struct signed_carver	*export;	/* Export buffer. */
 	struct signed_combiner	*import;	/* Import buffer. */
+
+	struct net2_promise_event
+				 setup_carvers;	/* Event setting up carvers. */
 };
 
 /* Key negotiation handler. */
@@ -188,6 +215,11 @@ static int	 signed_carver_get_transmit(struct signed_carver*,
 static int	 signed_combiner_accept(struct signed_combiner*,
 		    const struct exchange_msg*,
 		    struct net2_encdec_ctx*, struct net2_buffer*);
+
+static void	 xchange_carver_setup_data_free(void*, void*);
+static struct xchange_carver_setup_data*
+		 xchange_carver_setup_data(struct net2_workq*,
+		    struct net2_encdec_ctx*, uint32_t, struct net2_sign_ctx**);
 
 
 /*
@@ -1006,6 +1038,7 @@ xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
 	xs->keysize = keysize;
 	xs->dstslot = dstslot;
 	xs->rcvslot = rcvslot;
+	xs->out_xcsd = xs->in_xcsd = NULL;
 	return 0;
 }
 /* Release shared portion of xchange_{local,remote}. */
@@ -1013,7 +1046,308 @@ static void
 xchange_shared_deinit(struct xchange_shared *xs)
 {
 	if (xs->xchange != NULL)
-		net2_xchangectx_free(xs->xchange);
+		net2_promise_release(xs->xchange);
 	if (xs->key_promise != NULL)
 		net2_promise_release(xs->key_promise);
+	if (xs->out_xcsd != NULL)
+		xchange_carver_setup_data_free(xs->out_xcsd, NULL);
+	if (xs->in_xcsd != NULL)
+		xchange_carver_setup_data_free(xs->in_xcsd, NULL);
+}
+
+
+/* Direct initialization (i.e. without factory) of xchange promise. */
+struct pdirect_data {
+	int			 xchange_alg;
+	size_t			 keysize;
+
+	struct net2_promise_event
+				 ev;
+};
+/* Run event for direct xchange promise. */
+static void
+xchange_promise_pdd_job(void *prom_ptr, void *pdd_ptr)
+{
+	struct net2_promise	*prom = prom_ptr;
+	struct pdirect_data	*pdd = pdd_ptr;
+	struct net2_ctx_xchange_factory_result
+				*result;
+	uint32_t		 error;
+
+	assert(prom != NULL && pdd != NULL);
+
+	/* Don't do any work if the promise was canceled. */
+	if (net2_promise_is_cancelreq(prom)) {
+		net2_promise_set_cancel(prom, 0);
+		return;
+	}
+
+	if ((result = net2_malloc(sizeof(*result))) == NULL) {
+		error = ENOMEM;
+		goto fail;
+	}
+	result->initbuf = NULL;
+	result->ctx = NULL;
+
+	if ((result->initbuf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail;
+	}
+	if ((result->ctx = net2_xchangectx_prepare(pdd->xchange_alg,
+	    pdd->keysize, NET2_XCHANGE_F_INITIATOR,
+	    result->initbuf)) == NULL) {
+		error = ENOMEM;
+		goto fail;
+	}
+
+	if ((error = net2_promise_set_finok(prom, result,
+	    &net2_ctx_xchange_factory_result_free, NULL, 0)) != 0)
+		goto fail;
+	return;
+
+
+fail:
+	net2_ctx_xchange_factory_result_free(result, NULL);
+	net2_promise_set_error(prom, error, 0);
+}
+/* Free direct xchange promise argument. */
+static void
+xchange_promise_pdd_release(void *pdd_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct pdirect_data	*pdd = pdd_ptr;
+
+	net2_promise_event_deinit(&pdd->ev);
+	net2_free(pdd);
+}
+/* Create new direct xchange promise. */
+static struct net2_promise*
+xchange_promise_direct_new(struct net2_workq *wq, int xchange_alg, size_t keysize)
+{
+	struct pdirect_data	*pdd;
+	struct net2_promise	*prom;
+
+	if ((pdd = net2_malloc(sizeof(*pdd))) == NULL)
+		goto fail_0;
+	pdd->xchange_alg = xchange_alg;
+	pdd->keysize = keysize;
+
+	if ((prom = net2_promise_new()) == NULL)
+		goto fail_1;
+	if (net2_promise_event_init(&pdd->ev, prom, NET2_PROM_ON_RUN, wq,
+	    &xchange_promise_pdd_job, prom, pdd) != 0)
+		goto fail_2;
+
+	net2_promise_destroy_cb(prom, xchange_promise_pdd_release, pdd, NULL);
+	pdd = NULL;	/* Now owned by prom. */
+
+	return prom;
+
+
+fail_3:
+	if (pdd != NULL)
+		net2_promise_event_deinit(&pdd->ev);
+fail_2:
+	net2_promise_cancel(prom);
+	net2_promise_release(prom);
+fail_1:
+	if (pdd != NULL)
+		net2_free(pdd);
+fail_0:
+	return NULL;
+}
+
+
+/* Release xchange_carver_setup_data. */
+static void
+xchange_carver_setup_data_free(void *xcsd_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct xchange_carver_setup_data
+				*xcsd = xcsd_ptr;
+	size_t			 i;
+
+	xcsd->wq = NULL;	/* Borrowed only. */
+	for (i = 0; i < xcsd->num_sigs; i++)
+		net2_signctx_free(xcsd->sigs[i]);
+	net2_free(xcsd->sigs);
+	net2_encdec_ctx_deinit(&xcsd->ectx);
+	net2_free(xcsd);
+}
+/* Create xchange_carver_setup_data. */
+static struct xchange_carver_setup_data*
+xchange_carver_setup_data(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
+    uint32_t num_sigs, struct net2_sign_ctx **sigs)
+{
+	struct xchange_carver_setup_data
+				*xcsd;
+
+	if ((xcsd = net2_malloc(sizeof(*xcsd))) == NULL)
+		goto fail_0;
+	xcsd->wq = wq;
+	if ((xcsd->sigs = net2_calloc(num_sigs, sizeof(*xcsd->sigs))) == NULL)
+		goto fail_1;
+
+	/* Clone each signature. */
+	for (xcsd->num_sigs = 0; xcsd->num_sigs < num_sigs; xcsd->num_sigs++) {
+		if ((sigs[xcsd->num_sigs] =
+		    net2_signctx_clone(sigs[xcsd->num_sigs])) == NULL)
+			goto fail_3;
+	}
+
+	if (net2_encdec_ctx_init(&xcsd->ectx, &ectx->ed_proto, NULL) != 0)
+		goto fail_3;
+
+	return xcsd;
+
+
+fail_4:
+	net2_encdec_ctx_deinit(&xcsd->ectx);
+fail_3:
+	while (xcsd->num_sigs-- > 0)
+		net2_signctx_free(xcsd->sigs[xcsd->num_sigs]);
+fail_2:
+	net2_free(xcsd->sigs);
+fail_1:
+	net2_free(xcsd);
+fail_0:
+	return NULL;
+}
+
+/*
+ * xchange_local event callback.
+ *
+ * Event: xchange promise completion.
+ * Initializes initbuf carver for sending data.
+ */
+static void
+xchange_local_on_xchange(void *xl_ptr, void *xcsd_ptr)
+{
+	struct xchange_local	*xl = xl_ptr;
+	struct xchange_carver_setup_data
+				*xcsd = xcsd_ptr;
+	struct net2_ctx_xchange_factory_result
+				*result;
+	uint32_t		 xch_err;
+	int			 fin;
+	struct net2_buffer	*exportbuf;
+
+	fin = net2_promise_get_result(xl->shared.xchange,
+	    (void**)&result, &xch_err);
+	assert(fin != NET2_PROM_FIN_UNFINISHED);
+
+	/* Test if the promise finished succesfully. */
+	if (fin != NET2_PROM_FIN_OK)
+		goto fail_0;
+
+	assert(result->ctx != NULL && result->initbuf != NULL);
+	assert(xl->init == NULL && xl->export == NULL);
+
+	/* Setup init signed_carver. */
+	xl->init = signed_carver_new(xcsd->wq, &xcsd->ectx, result->initbuf,
+	    xl->shared.sighash_alg, xcsd->num_sigs, xcsd->sigs);
+
+	/* Setup export signed_carver. */
+	if ((exportbuf = net2_xchangectx_export(result->ctx)) == NULL)
+		goto fail_0;
+	xl->export = signed_carver_new(xcsd->wq, &xcsd->ectx, exportbuf,
+	    xl->shared.sighash_alg, xcsd->num_sigs, xcsd->sigs);
+	net2_buffer_free(exportbuf);
+	exportbuf = NULL;
+
+	/* Handle signed_carver initialization failure. */
+	if (xl->init == NULL || xl->export == NULL)
+		goto fail_1;
+
+	return;
+
+
+fail_1:
+	if (xl->init != NULL) {
+		signed_carver_destroy(xl->init);
+		xl->init = NULL;	/* Prevent double free. */
+	}
+	if (xl->export != NULL) {
+		signed_carver_destroy(xl->export);
+		xl->export = NULL;	/* Prevent double free. */
+	}
+fail_0:
+	/* Set error value. */
+	if (fin != NET2_PROM_FIN_OK &&
+	    (fin != NET2_PROM_FIN_ERROR || xch_err != ENOMEM))
+		net2_promise_set_error(xl->shared.key_promise, EIO, 0);
+	else
+		net2_promise_set_error(xl->shared.key_promise, ENOMEM, 0);
+}
+
+/*
+ * Initialize local xchange.
+ *
+ * nctx: allowed to be null
+ */
+static int
+xchange_local_init(
+    struct xchange_local *xl,
+    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
+    struct net2_ctx *nctx,
+    int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
+    uint16_t dstslot, uint16_t rcvslot,
+    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
+    uint32_t num_insigs, struct net2_sign_ctx **insigs
+    )
+{
+	int			 error;
+
+	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
+	    xchange_alg, sighash_alg, dstslot, rcvslot)) != 0)
+		goto fail_0;
+
+	/* Setup carver setup data. */
+	if ((xl->shared.out_xcsd = xchange_carver_setup_data(wq, ectx,
+	    num_outsigs, outsigs)) == NULL ||
+	    (xl->shared.in_xcsd = xchange_carver_setup_data(wq, ectx,
+	    num_insigs, insigs)) == NULL)
+		goto fail_1;
+
+	/*
+	 * Set up xchange promise.
+	 * If nctx is NULL or fails to create a promise,
+	 * create an in-thread promise instead.
+	 */
+	if (xl->shared.xchange == NULL && nctx != NULL) {
+		/* Try to use net2_ctx. */
+		xl->shared.xchange = net2_ctx_get_xchange(nctx,
+		    xchange_alg, keysize);
+	}
+	if (xl->shared.xchange == NULL) {
+		/* Create direct promise. */
+		xl->shared.xchange = xchange_promise_direct_new(wq,
+		    xchange_alg, keysize);
+	}
+	if (xl->shared.xchange == NULL)
+		goto fail_1;
+
+	/* Set up import combiner. */
+	if ((xl->import = signed_combiner_new(wq, ectx,
+	    num_insigs, insigs)) == NULL)
+		goto fail_1;
+
+
+
+	/* Event: create carvers from xchange. */
+	if ((error = net2_promise_event_init(&xl->setup_carvers,
+	    xl->shared.xchange, NET2_PROM_ON_RUN, wq,
+	    &xchange_local_on_xchange, xl, xl->shared.out_xcsd)) != 0)
+		goto event_0;
+
+
+event_1:
+	net2_promise_event_deinit(&xl->setup_carvers);
+event_0:
+
+
+fail_2:
+	signed_combiner_destroy(xl->import);
+fail_1:
+	xchange_shared_deinit(&xl->shared);
+fail_0:
+	return error;
 }
