@@ -557,9 +557,9 @@ xchange_local_init(
     uint32_t num_insigs, struct net2_sign_ctx **insigs
     )
 {
-	int			 error;
 	struct net2_promise	*key_unverified;
 	struct net2_promise	*prom2[2]; /* tmp references. */
+	int			 error;
 
 	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
 	    xchange_alg, sighash_alg, dstslot, rcvslot)) != 0)
@@ -616,6 +616,7 @@ xchange_local_init(
 		goto event_0;
 
 
+
 event_1:
 	net2_promise_event_deinit(&xl->setup_carvers);
 event_0:
@@ -630,4 +631,21 @@ fail_1:
 	xchange_shared_deinit(&xl->shared);
 fail_0:
 	return error;
+}
+/* Release all resources held by local xchange. */
+static void
+xchange_local_deinit(struct xchange_local *xl)
+{
+	/* First, destroy events (to ensure they won't run). */
+	net2_promise_event_deinit(&xl->setup_carvers);
+
+	/* Release carvers/combiners. */
+	if (xl->init)
+		net2_signed_carver_destroy(xl->init);
+	if (xl->import)
+		net2_signed_combiner_destroy(xl->import);
+	if (xl->export)
+		net2_signed_carver_destroy(xl->export);
+
+	xchange_shared_deinit(&xl->shared);
 }
