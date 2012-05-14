@@ -81,6 +81,9 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_ref(struct net2_workq*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_release(struct net2_workq*);
+ILIAS_NET2_EXPORT
+struct net2_workq_evbase
+	*net2_workq_evbase(struct net2_workq*);
 
 ILIAS_NET2_EXPORT
 int	 net2_workq_init_work(struct net2_workq_job*, struct net2_workq*,
@@ -101,7 +104,7 @@ struct net2_workq
 /* Assign callbacks for workq modifications. */
 static __inline void
 net2_workq_set_callbacks(struct net2_workq_job *j,
-    struct net2_workq_job_cb *cb)
+    const struct net2_workq_job_cb *cb)
 {
 	j->callbacks = cb;
 }

@@ -733,6 +733,16 @@ net2_workq_release(struct net2_workq *wq)
 	wq->evbase = NULL;
 }
 
+/*
+ * Returns the workq_evbase that manages this workq.
+ * Returned evbase is not referenced.
+ */
+ILIAS_NET2_EXPORT struct net2_workq_evbase*
+net2_workq_evbase(struct net2_workq *wq)
+{
+	return wq->evbase;	/* No lock required: is only set once. */
+}
+
 /* Add a job to the workq. */
 ILIAS_NET2_EXPORT int
 net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
