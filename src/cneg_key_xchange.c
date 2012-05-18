@@ -133,6 +133,11 @@ struct xchange_shared {
 
 	struct xchange_carver_setup_data
 				*out_xcsd;
+
+	struct {
+		void		(*fn)(void*, void*);
+		void		*arg0, *arg1;
+	}			 rts;		/* Ready-to-send event. */
 };
 
 /* Locally initialized key negotiation. */
@@ -205,7 +210,8 @@ struct pdirect_data {
 
 
 static int	 xchange_shared_init(struct xchange_shared*, int, uint32_t,
-		    int, int, uint16_t, uint16_t);
+		    int, int, uint16_t, uint16_t,
+		    void (*)(void*, void*), void*, void*);
 static void	 xchange_shared_deinit(struct xchange_shared*);
 
 static void	 xchange_promise_pdd_job(void*, void*);
@@ -233,7 +239,8 @@ static void	 xchange_remote_complete(void*, void*);
 /* Initialize shared portion of xchange_{local,remote}. */
 static int
 xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
-    int xchange_alg, int sighash_alg, uint16_t dstslot, uint16_t rcvslot)
+    int xchange_alg, int sighash_alg, uint16_t dstslot, uint16_t rcvslot,
+    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1)
 {
 	xs->xchange = NULL;
 	xs->key_promise = NULL;
@@ -245,6 +252,9 @@ xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
 	xs->dstslot = dstslot;
 	xs->rcvslot = rcvslot;
 	xs->out_xcsd = NULL;
+	xs->rts.fn = rts_fn;
+	xs->rts.arg0 = rts_arg0;
+	xs->rts.arg1 = rts_arg1;
 	return 0;
 }
 /* Release shared portion of xchange_{local,remote}. */
@@ -467,6 +477,12 @@ xchange_local_on_xchange(void *xl_ptr, void * ILIAS_NET2__unused unused)
 	/* Free no longer needed xcsd. */
 	xchange_carver_setup_data_free(xcsd);
 
+	/* Set ready-to-send callback. */
+	net2_signed_carver_set_rts(xl->init, xl->shared.rts.fn,
+	    xl->shared.rts.arg0, xl->shared.rts.arg1);
+	net2_signed_carver_set_rts(xl->export, xl->shared.rts.fn,
+	    xl->shared.rts.arg0, xl->shared.rts.arg1);
+
 	return;
 
 
@@ -542,6 +558,10 @@ xchange_remote_on_xchange(void *xr_ptr, void * ILIAS_NET2__unused unused)
 
 	/* Free no longer needed xcsd. */
 	xchange_carver_setup_data_free(xcsd);
+
+	/* Assign ready-to-send callback. */
+	net2_signed_carver_set_rts(xr->export, xr->shared.rts.fn,
+	    xr->shared.rts.arg0, xr->shared.rts.arg1);
 
 	return;
 
@@ -854,6 +874,7 @@ xchange_local_init(
     struct net2_ctx *nctx,
     int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
     uint16_t dstslot, uint16_t rcvslot,
+    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
     uint32_t num_insigs, struct net2_sign_ctx **insigs)
 {
@@ -862,7 +883,8 @@ xchange_local_init(
 	int			 error;
 
 	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
-	    xchange_alg, sighash_alg, dstslot, rcvslot)) != 0)
+	    xchange_alg, sighash_alg, dstslot, rcvslot,
+	    rts_fn, rts_arg0, rts_arg1)) != 0)
 		goto fail_0;
 
 	/* Setup carver setup data. */
@@ -985,6 +1007,7 @@ xchange_remote_init(
     struct net2_ctx * ILIAS_NET2__unused nctx,
     int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
     uint16_t dstslot, uint16_t rcvslot,
+    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
     uint32_t num_insigs, struct net2_sign_ctx **insigs)
 {
@@ -993,7 +1016,8 @@ xchange_remote_init(
 	int			 error;
 
 	if ((error = xchange_shared_init(&xr->shared, alg, keysize,
-	    xchange_alg, sighash_alg, dstslot, rcvslot)) != 0)
+	    xchange_alg, sighash_alg, dstslot, rcvslot,
+	    rts_fn, rts_arg0, rts_arg1)) != 0)
 		goto fail_0;
 
 	/* Set up init combiner. */
@@ -1095,5 +1119,3 @@ xchange_remote_deinit(struct xchange_remote *xr)
 
 	xchange_shared_deinit(&xr->shared);
 }
-
-
