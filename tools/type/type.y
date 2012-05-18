@@ -36,6 +36,7 @@
 #endif /* HAVE_GETOPT_H */
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
 #ifndef WIN32
 #include <unistd.h>
@@ -46,6 +47,7 @@
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <ilias/net2/bsd_compat/printf.h>
 #include <assert.h>
+#include <string.h>
 
 #ifdef WIN32
 #include <io.h>
@@ -231,6 +233,7 @@ smq_move(struct np_structmemberq *dst, struct np_structmemberq *src)
 }
 
 
+void yyerror(const char*);
 %}
 
 %%
@@ -325,14 +328,14 @@ identifier_chain: identifier
 				strcat(strcat($$, "."), $3);
 				free($3);
 			}
-		| identifier_chain '->' identifier
+		| identifier_chain '-' '>' identifier
 			{
-				$$ = realloc($1, strlen($1) + 1 + strlen($3) + 1);
+				$$ = realloc($1, strlen($1) + 1 + strlen($4) + 1);
 				if ($$ == NULL)
 					err(EX_OSERR, "realloc");
 
-				strcat(strcat($$, "->"), $3);
-				free($3);
+				strcat(strcat($$, "->"), $4);
+				free($4);
 			}
 		;
 number		: NUMBER
