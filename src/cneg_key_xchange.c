@@ -134,6 +134,12 @@ struct xchange_local {
 
 	struct net2_promise_event
 				 setup_carvers;	/* Event setting up carvers. */
+	struct net2_promise_event
+				 key_promise_complete;	/* key_complete ->
+							 * complete */
+	struct net2_promise_event
+				 carver_complete;	/* carver_complete ->
+							 * complete */
 };
 /* Remotely initialized key negotiation. */
 struct xchange_remote {
@@ -161,12 +167,38 @@ struct net2_cneg_key_xchange {
 	struct net2_promise	*complete;	/* Completion promise. */
 };
 
+/* Direct initialization (i.e. without factory) of xchange promise. */
+struct pdirect_data {
+	int			 xchange_alg;
+	size_t			 keysize;
+
+	struct net2_promise_event
+				 ev;
+};
+
+
+static int	 xchange_shared_init(struct xchange_shared*, int, uint32_t,
+		    int, int, uint16_t, uint16_t);
+static void	 xchange_shared_deinit(struct xchange_shared*);
+
+static void	 xchange_promise_pdd_job(void*, void*);
+static void	 xchange_promise_pdd_release(void*, void*);
+static struct net2_promise
+		*xchange_promise_direct_new(struct net2_workq*, int, size_t);
 
 static void	 xchange_carver_setup_data_free(
 		    struct xchange_carver_setup_data*);
 static struct xchange_carver_setup_data*
 		 xchange_carver_setup_data(struct net2_workq*,
 		    struct net2_encdec_ctx*, uint32_t, struct net2_sign_ctx**);
+
+static void	 xchange_local_on_xchange(void*, void*);
+static void	 prom_buffer_free(void*, void*);
+static void	 xchange_import_combine(struct net2_promise*,
+		    struct net2_promise**, size_t, void*);
+static void	 key_verified_combine(struct net2_promise*,
+		    struct net2_promise**, size_t, void*);
+static void	 xchange_local_complete(void*, void*);
 
 
 /* Initialize shared portion of xchange_{local,remote}. */
@@ -176,6 +208,7 @@ xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
 {
 	xs->xchange = NULL;
 	xs->key_promise = NULL;
+	xs->complete = net2_promise_new();
 	xs->alg = alg;
 	xs->xchange_alg = xchange_alg;
 	xs->sighash_alg = sighash_alg;
@@ -200,14 +233,6 @@ xchange_shared_deinit(struct xchange_shared *xs)
 }
 
 
-/* Direct initialization (i.e. without factory) of xchange promise. */
-struct pdirect_data {
-	int			 xchange_alg;
-	size_t			 keysize;
-
-	struct net2_promise_event
-				 ev;
-};
 /* Run event for direct xchange promise. */
 static void
 xchange_promise_pdd_job(void *prom_ptr, void *pdd_ptr)
@@ -404,6 +429,12 @@ xchange_local_on_xchange(void *xl_ptr, void * ILIAS_NET2__unused unused)
 	if (xl->init == NULL || xl->export == NULL)
 		goto fail_1;
 
+	/* Add completion callback to new carver. */
+	if (net2_promise_event_init(&xl->carver_complete,
+	    net2_signed_carver_complete(xl->export), NET2_PROM_ON_FINISH,
+	    xcsd->wq, &xchange_local_complete, xl, NULL) != 0)
+		goto fail_1;
+
 	/* Free no longer needed xcsd. */
 	xchange_carver_setup_data_free(xcsd);
 
@@ -540,6 +571,58 @@ key_verified_combine(struct net2_promise *out, struct net2_promise **in,
 		net2_promise_set_error(out, error, 0);
 	}
 }
+/* xchange_local completion test. */
+static void
+xchange_local_complete(void *xl_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct xchange_local	*xl = xl_ptr;
+	struct net2_promise	*p_export, *p_key;
+	int			 fin_export, fin_key;
+	struct net2_buffer	*key;
+
+	/* Don't attempt to assign to a finished promise. */
+	if (net2_promise_is_finished(xl->shared.complete))
+		return;
+	/* If the promise is canceled, stop it now. */
+	if (net2_promise_is_cancelreq(xl->shared.complete)) {
+		net2_promise_set_cancel(xl->shared.complete, 0);
+		return;
+	}
+
+	/* Test if export is complete. */
+	if (xl->export == NULL)
+		return;
+	p_export = net2_signed_carver_complete(xl->export);
+	fin_export = net2_promise_is_finished(p_export);
+	if (fin_export == NET2_PROM_FIN_UNFINISHED)
+		return;
+	else if (fin_export != NET2_PROM_FIN_OK)
+		goto fail;
+
+	/* Test if key promise is complete. */
+	p_key = xl->shared.key_promise;
+	fin_key = net2_promise_get_result(p_key, (void**)&key, NULL);
+	if (fin_key == NET2_PROM_FIN_UNFINISHED)
+		return;
+	else if (fin_key != NET2_PROM_FIN_OK)
+		goto fail;
+
+	/* All promises are complete. */
+	assert(key != NULL);
+	if ((key = net2_buffer_copy(key)) == NULL)
+		goto fail;
+
+	/* Assign key result. */
+	if (net2_promise_set_finok(xl->shared.complete, key, &prom_buffer_free, NULL, 0) != 0) {
+		net2_buffer_free(key);
+		goto fail;
+	}
+
+	return;
+
+fail:
+	net2_promise_set_error(xl->shared.complete, EIO, 0);
+}
 
 /*
  * Initialize local xchange.
@@ -608,15 +691,25 @@ xchange_local_init(
 	key_unverified = NULL;	/* Free floating promise. */
 
 
-
 	/* Event: create carvers from xchange. */
 	if ((error = net2_promise_event_init(&xl->setup_carvers,
 	    xl->shared.xchange, NET2_PROM_ON_RUN, wq,
 	    &xchange_local_on_xchange, xl, NULL)) != 0)
 		goto event_0;
 
+	/* Assign event to completion routine. */
+	if ((error = net2_promise_event_init(&xl->key_promise_complete,
+	    xl->shared.key_promise, NET2_PROM_ON_FINISH, wq,
+	    &xchange_local_complete, xl, NULL)) != 0)
+		goto event_1;
+	if ((error = net2_promise_set_running(xl->shared.complete)) != 0)
+		goto event_1;
+
+	return 0;
 
 
+event_2:
+	net2_promise_event_deinit(&xl->key_promise_complete);
 event_1:
 	net2_promise_event_deinit(&xl->setup_carvers);
 event_0:
@@ -638,6 +731,9 @@ xchange_local_deinit(struct xchange_local *xl)
 {
 	/* First, destroy events (to ensure they won't run). */
 	net2_promise_event_deinit(&xl->setup_carvers);
+	net2_promise_event_deinit(&xl->key_promise_complete);
+	if (xl->export != NULL)
+		net2_promise_event_deinit(&xl->carver_complete);
 
 	/* Release carvers/combiners. */
 	if (xl->init)
