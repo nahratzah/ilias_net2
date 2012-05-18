@@ -24,17 +24,18 @@ struct net2_buffer;	/* From ilias/net2/buffer.h */
 
 /* Result output of key negotiation. */
 struct net2_cneg_key_result {
-	const void		*key;
-	size_t			 keylen;
+	struct {
+		const void	*key;
+		size_t		 keylen;
+	}			 local, remote;
 };
 
 ILIAS_NET2_EXPORT
 void	 net2_cneg_key_result_deinit(struct net2_cneg_key_result*);
 ILIAS_NET2_EXPORT
-int	 net2_cneg_key_result_init(struct net2_cneg_key_result*, const void*,
-	    size_t);
+int	 net2_cneg_key_result_init(struct net2_cneg_key_result*);
 ILIAS_NET2_EXPORT
 int	 net2_cneg_key_result_initbuf(struct net2_cneg_key_result*,
-	    struct net2_buffer*);
+	    struct net2_buffer*, struct net2_buffer*);
 
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */

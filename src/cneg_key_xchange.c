@@ -39,54 +39,68 @@
 ILIAS_NET2_EXPORT void
 net2_cneg_key_result_deinit(struct net2_cneg_key_result *k)
 {
-	if (k->key) {
-		net2_secure_zero((void*)k->key, k->keylen);
-		net2_free((void*)k->key);
+	if (k->local.key) {
+		net2_secure_zero((void*)k->local.key, k->local.keylen);
+		net2_free((void*)k->local.key);
+	}
+	if (k->remote.key) {
+		net2_secure_zero((void*)k->remote.key, k->remote.keylen);
+		net2_free((void*)k->remote.key);
 	}
 }
 /* Create key result from memory. */
 ILIAS_NET2_EXPORT int
-net2_cneg_key_result_init(struct net2_cneg_key_result *k,
-    const void *data, size_t len)
+net2_cneg_key_result_init(struct net2_cneg_key_result *k)
 {
-	if (len == 0) {
-		k->key = NULL;
-		k->keylen = 0;
-		return 0;
-	}
-
-	if (data == NULL)
-		return EINVAL;
-	k->keylen = len;
-	if ((k->key = net2_malloc(len)) == NULL)
-		return ENOMEM;
-	memcpy((void*)k->key, data, len);
+	k->local.key = k->remote.key = NULL;
+	k->local.keylen = k->remote.keylen = 0;
 	return 0;
 }
 /* Create key result from buffer. */
 ILIAS_NET2_EXPORT int
 net2_cneg_key_result_initbuf(struct net2_cneg_key_result *k,
-    struct net2_buffer *buf)
+    struct net2_buffer *local, struct net2_buffer *remote)
 {
-	if (buf == NULL)
+	if (local == NULL || remote == NULL)
 		return EINVAL;
-	k->keylen = net2_buffer_length(buf);
-	if (k->keylen == 0) {
-		k->key = NULL;
-		return 0;
+	k->local.keylen = net2_buffer_length(local);
+	k->remote.keylen = net2_buffer_length(remote);
+
+	if (k->local.keylen == 0) {
+		k->local.key = NULL;
+	} else {
+		if ((k->local.key = net2_malloc(k->local.keylen)) == NULL)
+			goto enomem_fail;
+		if (net2_buffer_copyout(local, (void*)k->local.key,
+		    k->local.keylen) != k->local.keylen)
+			goto eio_fail;
 	}
 
-	if ((k->key = net2_malloc(k->keylen)) == NULL)
-		return ENOMEM;
-	if (net2_buffer_copyout(buf, (void*)k->key, k->keylen) != k->keylen)
-		return EIO;
+	if (k->remote.keylen == 0) {
+		k->remote.key = NULL;
+	} else {
+		if ((k->remote.key = net2_malloc(k->remote.keylen)) == NULL)
+			goto enomem_fail;
+		if (net2_buffer_copyout(remote, (void*)k->remote.key,
+		    k->remote.keylen) != k->remote.keylen)
+			goto eio_fail;
+	}
+
 	return 0;
+
+enomem_fail:
+	net2_cneg_key_result_deinit(k);
+	return ENOMEM;
+eio_fail:
+	net2_cneg_key_result_deinit(k);
+	return EIO;
 }
-/* Release function for key result (supplied to promise). */
+/* Free function for key result (supplied to promise). */
 static void
 cneg_key_result_deinit2(void *k_ptr, void * ILIAS_NET2__unused unused)
 {
 	net2_cneg_key_result_deinit(k_ptr);
+	net2_free(k_ptr);
 }
 
 
