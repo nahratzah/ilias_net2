@@ -178,13 +178,20 @@ struct xchange_remote {
 
 /* Key negotiation handler. */
 struct net2_cneg_key_xchange {
-#define NET2_CNEG_S2_HASH	0	/* Hash key negotiation. */
-#define NET2_CNEG_S2_ENC	1	/* Exchange key negotiation. */
-#define NET2_CNEG_S2_MAX	2	/* # exchanges. */
+#define NET2_CNEG_S2_HASH	0x0	/* Hash key negotiation. */
+#define NET2_CNEG_S2_ENC	0x2	/* Exchange key negotiation. */
+#define NET2_CNEG_S2_MAX	0x4	/* # exchanges. */
+
+#define NET2_CNEG_LOCAL		0x0	/* Local inited exchange. */
+#define NET2_CNEG_REMOTE	0x1	/* Remote inited exchange. */
+
+#define NET2_CNEG__LRMASK	0x1	/* Mask local/remote bit. */
+#define NET2_CNEG_S2__MASK	(~NET2_CNEG_S2__LRMASK)
 
 	struct xchange_local	 local[NET2_CNEG_S2_MAX];
 	struct xchange_remote	 remote[NET2_CNEG_S2_MAX];
-	struct net2_promise	*complete;	/* Completion promise. */
+	struct net2_promise	*keys;	/* Unverified keys are ready. */
+	struct net2_promise	*complete; /* Completion promise. */
 };
 
 /* Direct initialization (i.e. without factory) of xchange promise. */
@@ -1088,3 +1095,5 @@ xchange_remote_deinit(struct xchange_remote *xr)
 
 	xchange_shared_deinit(&xr->shared);
 }
+
+
