@@ -126,6 +126,16 @@ if (NOT HAVE_SYS_TREE_H)
 endif (NOT HAVE_SYS_TREE_H)
 
 #
+# Use locally defined cmake package rules.
+#
+# Include necessary submodules
+set (CMAKE_MODULE_PATH
+    "${IliasNet2_SOURCE_DIR}/CMake"
+    "${IliasNet2_SOURCE_DIR}/CMake/Packages"
+)
+
+
+#
 # Find exude allocation debugger.
 #
 find_library (exude_LIBS "exude" PATHS "${LOCALBASE}/lib")
@@ -151,6 +161,7 @@ add_subdirectory (tools)
 
 find_package (OpenSSL REQUIRED)
 find_package (Threads)
+find_package (Libevent REQUIRED)
 
 
 if (CMAKE_COMPILER_IS_GNUCXX)
@@ -173,29 +184,6 @@ if (WIN32)
 	set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /LARGEADDRESSAWARE /NXCOMPAT /INCREMENTAL:NO")
 	set (CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} /LARGEADDRESSAWARE /NXCOMPAT /INCREMENTAL:NO")
 endif (WIN32)
-
-
-#
-# Find libevent.
-#
-set (_event_libs event_core)
-if (Threads_FOUND)
-	list (APPEND _event_libs event_pthreads)
-else (Threads_FOUND)
-	message (WARNING "Thread library not found, not searching for libevent_pthreads")
-endif (Threads_FOUND)
-find_path (EVENT_INCLUDE_DIRS event2/event.h PATHS "${LOCALBASE}/include")
-foreach (EVENT_LIB ${_event_libs})
-	find_library (EVENT_${EVENT_LIB} ${EVENT_LIB} PATHS "${LOCALBASE}/lib")
-	if (NOT EVENT_${EVENT_LIB}-NOTFOUND)
-		list (APPEND EVENT_LIBRARIES ${EVENT_${EVENT_LIB}})
-	endif (NOT EVENT_${EVENT_LIB}-NOTFOUND)
-endforeach (EVENT_LIB)
-unset (_event_libs)
-# Inform of result.
-message (STATUS "libevent include dirs: ${EVENT_INCLUDE_DIRS}")
-message (STATUS "libevent libs: ${EVENT_LIBRARIES}")
-
 
 
 add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/type_lex.c"
@@ -289,7 +277,7 @@ list (APPEND headers
 
 
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
-include_directories (${EVENT_INCLUDE_DIRS})
+include_directories (${LIBEVENT_INCLUDE_DIR})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})
@@ -366,7 +354,7 @@ add_library (ilias_net2_static STATIC
 	${headers}
 	${cluster_headers}
 	)
-target_link_libraries (ilias_net2 ${EVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
+target_link_libraries (ilias_net2 ${LIBEVENT_LIBRARIES} ${OPENSSL_LIBRARIES})
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
 endif (Threads_FOUND)
@@ -400,7 +388,7 @@ if (BUILD_TESTING)
 		test/buffer.c
 		)
 	target_link_libraries (test_buffer ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_buffer COMMAND test_buffer)
 
 	# Carver tests.
@@ -408,7 +396,7 @@ if (BUILD_TESTING)
 		test/carver.c
 		)
 	target_link_libraries (test_carver ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_carver COMMAND test_carver)
 
 	# Encoding/decoding tests.
@@ -416,7 +404,7 @@ if (BUILD_TESTING)
 		test/encdec_ctypes.c
 		)
 	target_link_libraries (test_encdec_ctypes ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
 
 	# Hash tests.
@@ -424,7 +412,7 @@ if (BUILD_TESTING)
 		test/hash.c
 		)
 	target_link_libraries (test_hash ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_hash COMMAND test_hash)
 
 	# Signature tests.
@@ -432,7 +420,7 @@ if (BUILD_TESTING)
 		test/sign.c
 		)
 	target_link_libraries (test_sign ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_sign COMMAND test_sign)
 
 	# Encryption/decryption tests.
@@ -440,7 +428,7 @@ if (BUILD_TESTING)
 		test/enc.c
 		)
 	target_link_libraries (test_enc ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_enc COMMAND test_enc)
 
 	# Key exchange tests.
@@ -448,7 +436,7 @@ if (BUILD_TESTING)
 		test/xchange.c
 		)
 	target_link_libraries (test_xchange ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_xchange COMMAND test_xchange)
 
 	# Net2 eventbase tests.
@@ -456,7 +444,7 @@ if (BUILD_TESTING)
 		test/evbase.c
 		)
 	target_link_libraries (test_evbase ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_evbase COMMAND test_evbase)
 
 	# Connection management tests.
@@ -468,7 +456,7 @@ if (BUILD_TESTING)
 		test/testconn.c
 		)
 	target_link_libraries (test_conn ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_conn COMMAND test_conn)
 
 	# UDP connection tests.
@@ -478,7 +466,7 @@ if (BUILD_TESTING)
 		test/testprotocol.c
 		)
 	target_link_libraries (test_udp_conn ilias_net2
-	    ${EVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	    ${LIBEVENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
 
 	if (${WITH_EXUDE})
