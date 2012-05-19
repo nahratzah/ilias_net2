@@ -18,6 +18,7 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/cp.h>
+#include <ilias/net2/ctypes.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/promise.h>
@@ -1118,4 +1119,132 @@ xchange_remote_deinit(struct xchange_remote *xr)
 		net2_signed_carver_destroy(xr->export);
 
 	xchange_shared_deinit(&xr->shared);
+}
+
+
+/*
+ * For data originating from a local exchange, these two bits
+ * determine what data is present.
+ */
+#define XL_INIT		0x01	/* Init buffer was sent. */
+#define XL_EXPORT	0x02	/* Export buffer was sent. */
+
+/* Get transmission for xchange_remote. */
+static __inline int
+xchange_remote_get_transmit(struct xchange_remote *xr,
+    struct net2_encdec_ctx *ectx, struct net2_workq *wq,
+    struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
+{
+	/* Only 1 carver is present. */
+	if (xr->export == NULL)
+		return 0;
+	return net2_signed_carver_get_transmit(xr->export, ectx, wq, buf,
+	    txcb, maxsz);
+}
+
+/* Get transmission for xchange_local. */
+static int
+xchange_local_get_transmit(struct xchange_local *xl,
+    struct net2_encdec_ctx *ectx, struct net2_workq *wq,
+    struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
+{
+	struct net2_tx_callback	 tmp_txcb;
+	struct net2_buffer	*tmp_buf;
+	int			 error;
+	size_t			 len = 0;
+	uint8_t			 status = (XL_INIT | XL_EXPORT);
+
+	assert(net2_buffer_empty(buf));
+
+	if ((error = net2_txcb_init(&tmp_txcb)) != 0)
+		goto fail_0;
+	if ((tmp_buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Send init. */
+	error = net2_signed_carver_get_transmit(xl->init, ectx, wq, tmp_buf,
+	    &tmp_txcb, maxsz - len);
+	if (error != 0)
+		goto fail_2;
+
+	if (net2_buffer_empty(tmp_buf)) {
+		status &= ~XL_INIT;
+	} else {
+		/* Append to output buf. */
+		len = net2_buffer_length(tmp_buf);
+		assert(net2_buffer_length(buf) + len <= maxsz);
+		net2_buffer_remove_buffer(tmp_buf, buf, len);
+	}
+
+	/* Send export. */
+	error = net2_signed_carver_get_transmit(xl->export, ectx, wq, tmp_buf,
+	    &tmp_txcb, maxsz - len);
+	if (error != 0)
+		goto fail_2;
+
+	if (net2_buffer_empty(tmp_buf)) {
+		status &= ~XL_EXPORT;
+	} else {
+		/* Append to output buf. */
+		len = net2_buffer_length(tmp_buf);
+		assert(net2_buffer_length(buf) + len <= maxsz);
+		net2_buffer_remove_buffer(tmp_buf, buf, len);
+	}
+
+	/* Write status byte. */
+	if (status) {
+		if ((error = net2_cp_encode(ectx, &cp_uint8, tmp_buf, &status,
+		    NULL)) != 0)
+			goto fail_2;
+		net2_buffer_prepend(buf, tmp_buf);
+	}
+
+	net2_txcb_merge(txcb, &tmp_txcb);
+	error = 0;	/* Use failure path for cleanup. */
+
+fail_2:
+	net2_buffer_free(tmp_buf);
+fail_1:
+	net2_txcb_nack(&tmp_txcb);
+	net2_txcb_deinit(&tmp_txcb);
+fail_0:
+	if (error != 0)
+		net2_buffer_truncate(buf, 0);
+	return error;
+}
+
+/* Accept data sent to xchange_remote. */
+static int
+xchange_remote_accept(struct xchange_remote *xl,
+    struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
+{
+	uint8_t			 status;
+	int			 error;
+
+	assert(xl->init != NULL && xl->import != NULL);
+	if ((error = net2_cp_decode(ectx, &cp_uint8, &status, buf, NULL)) != 0)
+		goto fail;
+
+	if (status & XL_INIT) {
+		if ((error = net2_signed_combiner_accept(xl->init, ectx, buf)) != 0)
+			goto fail;
+	}
+	if (status & XL_EXPORT) {
+		if ((error = net2_signed_combiner_accept(xl->import, ectx, buf)) != 0)
+			goto fail;
+	}
+
+fail:
+	return error;
+}
+
+/* Accept data sent to xchange_local. */
+static __inline int
+xchange_local_accept(struct xchange_local *xl,
+    struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
+{
+	assert(xl->import != NULL);
+	return net2_signed_combiner_accept(xl->import, ectx, buf);
 }
