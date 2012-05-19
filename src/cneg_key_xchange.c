@@ -1715,7 +1715,7 @@ ILIAS_NET2_LOCAL int
 net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
     struct net2_encdec_ctx *ectx, struct net2_workq *wq,
     struct net2_buffer *out, struct net2_tx_callback *txcb, size_t maxsz,
-    int add_poetry)
+    int add_poetry, int empty_poetry)
 {
 	struct net2_tx_callback	 tmp_txcb;
 	struct net2_buffer	*tmp_buf, *poetry;
@@ -1800,6 +1800,11 @@ net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
 			net2_txcb_nack(&tmp_txcb);
 		}
 	}
+
+	if (poetry != NULL && empty_poetry &&
+	    net2_buffer_length(out) + net2_buffer_length(poetry) + SLOT_LEN <=
+	    maxsz)
+		net2_buffer_append(out, poetry); /* Failure is fine. */
 
 	/* Encode fin token. */
 	if (!net2_buffer_empty(out)) {
