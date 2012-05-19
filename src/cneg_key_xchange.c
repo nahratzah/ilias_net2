@@ -22,6 +22,7 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/promise.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 #include <ilias/net2/signed_carver.h>
 #include <ilias/net2/tx_callback.h>
 
@@ -32,8 +33,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
-
-#include "exchange.h"
 
 
 /* Free a key set. */
@@ -170,7 +169,7 @@ struct net2_cneg_key_xchange {
 #define NET2_CNEG_REMOTE	0x8000	/* Remote inited exchange. */
 
 #define NET2_CNEG__LRMASK	0x8000	/* Mask local/remote bit. */
-#define NET2_CNEG__MASK		(~NET2_CNEG_LRMASK) /* Slot index mask. */
+#define NET2_CNEG__MASK		(~NET2_CNEG__LRMASK) /* Slot index mask. */
 
 	struct xchange_local	 local[NET2_CNEG_S2_MAX];
 	struct xchange_remote	 remote[NET2_CNEG_S2_MAX];
@@ -1592,4 +1591,294 @@ key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
 		net2_cneg_keyset_free(keys);
 		net2_promise_set_error(out, EIO, 0);
 	}
+}
+
+
+#define SLOT_FIN	0xffff
+#define SLOT_POETRY	0x7fff
+#define CP_POETRY	cp_paddedstring
+#define SLOT_LEN	2	/* 2 bytes to encode slot identifier. */
+
+static struct net2_buffer*
+mk_poetry(struct net2_encdec_ctx *ectx)
+{
+	static const uint16_t	 slot = SLOT_POETRY;
+	static const char	*poetry_txts[] = {
+	    "Secrecy and security aren't the same, "
+	    "even though it may seem that way. "
+	    "Only bad security relies on secrecy; "
+	    "good security works even if all the details of it "
+	    "are public. -- Bruce Schneier",
+
+	    "With the first link, the chain is forged.  "
+	    "The first speech censored, "
+	    "the first thought forbidden, "
+	    "the first freedom denied - "
+	    "chains us all, irrevocably. -- from Startrek TNG: The Drumhead",
+	};
+
+	int			 idx;
+	struct net2_buffer	*out;
+
+	if ((out = net2_buffer_new()) == NULL)
+		return NULL;
+
+	idx = secure_random_uniform(sizeof(poetry_txts) /
+	    sizeof(poetry_txts[0]));
+
+	if (net2_cp_encode(ectx, &cp_uint16, out, &slot, NULL) != 0)
+		goto fail_1;
+	if (net2_cp_encode(ectx, &CP_POETRY, out, &poetry_txts[idx],
+	    NULL) != 0)
+		goto fail_1;
+
+	return out;
+
+
+fail_1:
+	net2_buffer_free(out);
+fail_0:
+	return NULL;
+}
+
+/*
+ * Merge generated buffers into result.
+ * If poetry is set, attempts to add poetry as well (and resets it on succes).
+ *
+ * Sets do_break on recoverable failure.
+ */
+static int
+add_buffer(struct net2_buffer *out, struct net2_tx_callback *txcb,
+    struct net2_encdec_ctx *ectx,
+    struct net2_buffer *tmp_buf, struct net2_tx_callback *tmp_txcb,
+    uint16_t slot, struct net2_buffer **poetry, int *do_break, size_t maxsz)
+{
+	int			 error;
+	size_t			 outlen, inlen;
+
+	assert((slot & NET2_CNEG__MASK) < NET2_CNEG_S2_MAX);
+
+	*do_break = 0;
+	outlen = net2_buffer_length(out);
+	inlen = net2_buffer_length(tmp_buf);
+
+	/* Nothing to append. */
+	if (net2_buffer_empty(tmp_buf)) {
+		error = 0;
+		goto out;
+	}
+
+	/* Encode destination slot number. */
+	error = net2_cp_encode(ectx, &cp_uint16, out, &slot, NULL);
+	if (error != 0)
+		goto out;
+
+	/* Append data. */
+	if (net2_buffer_remove_buffer(tmp_buf, out, (size_t)-1) == 0) {
+		error = ENOMEM;
+		goto out;
+	}
+
+	/* Merge tx callbacks. */
+	net2_txcb_merge(txcb, tmp_txcb);
+	error = 0;	/* No failures permitted past this point. */
+
+	/* Try to add poetry.  Failure is silently ignored. */
+	if (*poetry != NULL &&
+	    outlen + inlen + SLOT_LEN + net2_buffer_length(*poetry) <= maxsz) {
+		if (net2_buffer_remove_buffer(out, *poetry, (size_t)-1) != 0) {
+			net2_buffer_free(*poetry);
+			*poetry = NULL;
+		}
+	}
+
+
+out:
+	net2_txcb_nack(tmp_txcb);
+	if (error != 0)
+		net2_buffer_truncate(out, outlen);
+
+	/* Check code above is correct. */
+	assert(error != 0 || net2_buffer_empty(tmp_buf));
+
+	/* Error is recoverable: let next transmission attempt again. */
+	if (error == ENOMEM && outlen > 0) {
+		*do_break = 1;
+		error = 0;
+	}
+
+	return error;
+}
+
+/* Generate outgoing transmission. */
+ILIAS_NET2_EXPORT int
+net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
+    struct net2_encdec_ctx *ectx, struct net2_workq *wq,
+    struct net2_buffer *out, struct net2_tx_callback *txcb, size_t maxsz,
+    int add_poetry)
+{
+	struct net2_tx_callback	 tmp_txcb;
+	struct net2_buffer	*tmp_buf, *poetry;
+	size_t			 lmax;
+	size_t			 i, lr;
+	int			 do_break;
+	int			 error;
+	uint16_t		 dstslot;
+
+	assert(net2_buffer_empty(out));
+
+	/* Initialize temporaries. */
+	if ((error = net2_txcb_init(&tmp_txcb)) != 0)
+		goto fail_0;
+	if ((tmp_buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	if ((poetry = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
+
+	/* Create poetry buffer. */
+	if (add_poetry)
+		poetry = mk_poetry(ectx);
+	else
+		poetry = NULL;
+
+	do_break = 0;
+	for (i = 0; !do_break && i < NET2_CNEG_S2_MAX; i++) {
+		for (lr = 0; !do_break && lr < 2; lr++) {
+			lmax = maxsz - net2_buffer_length(out);
+			if (lmax <= SLOT_LEN)
+				break;
+			lmax -= 2 * SLOT_LEN;	/* This slot + final slot. */
+
+			/*
+			 * Add local transmission.
+			 */
+			switch (lr) {
+			case 0: /* Local. */
+				error = xchange_local_get_transmit(
+				    &ke->local[i], ectx, wq,
+				    tmp_buf, &tmp_txcb, lmax);
+				dstslot = flip_slot(i | NET2_CNEG_LOCAL);
+				break;
+			case 1: /* Remote. */
+				error = xchange_remote_get_transmit(
+				    &ke->remote[i], ectx, wq,
+				    tmp_buf, &tmp_txcb, lmax);
+				dstslot = flip_slot(i | NET2_CNEG_REMOTE);
+				break;
+			default:
+				assert(0);
+				error = 0; /* Buffer should be empty. */
+				break;
+			}
+
+			/*
+			 * Can we recover from this error?
+			 * If so, send what we have so far.
+			 */
+			if (error == ENOMEM && !net2_buffer_empty(out))
+				break;
+			if (error != 0)
+				goto fail_3;
+
+			/* Empty buffer? Nothing to do. */
+			if (net2_buffer_empty(tmp_buf))
+				continue;
+
+			/* Append buffer. */
+			error = add_buffer(out, txcb, ectx,
+			    tmp_buf, &tmp_txcb, dstslot,
+			    &poetry, &do_break, maxsz - SLOT_LEN);
+			if (error != 0)
+				goto fail_3;
+
+			/* Clear. */
+			net2_buffer_truncate(tmp_buf, 0);
+			net2_txcb_nack(&tmp_txcb);
+		}
+	}
+
+	/* Encode fin token. */
+	if (!net2_buffer_empty(out)) {
+		dstslot = SLOT_FIN;
+		error = net2_cp_encode(ectx, &cp_uint16, out, &dstslot, NULL);
+	} else
+		error = 0;
+
+
+fail_3:
+	if (poetry != NULL)
+		net2_buffer_free(poetry);
+fail_2:
+	net2_buffer_free(tmp_buf);
+fail_1:
+	net2_txcb_deinit(&tmp_txcb);
+fail_0:
+	if (error != 0)
+		net2_buffer_truncate(out, 0);
+	return error;
+}
+
+/* Handle received transmission. */
+ILIAS_NET2_EXPORT int
+net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange *ke,
+    struct net2_encdec_ctx *ectx, struct net2_buffer *in)
+{
+	int			 error;
+	uint16_t		 slot;
+	char			*poetry;
+
+	for (;;) {
+		/* Decode slot identifier. */
+		if ((error = net2_cp_decode(ectx, &cp_uint16, &slot, in,
+		    NULL)) != 0)
+			goto fail;
+		if (slot == SLOT_FIN)
+			break;	/* GUARD */
+
+		/* Decode poetry payload. */
+		if (slot == SLOT_POETRY) {
+			if ((error = net2_cp_init(ectx, &CP_POETRY,
+			    &poetry, NULL)) != 0)
+				goto fail;
+			if ((error = net2_cp_decode(ectx, &CP_POETRY,
+			    &poetry, in, NULL)) != 0) {
+				net2_cp_destroy(ectx, &CP_POETRY, &poetry, NULL);
+				goto fail;
+			}
+			if ((error = net2_cp_destroy(ectx, &CP_POETRY,
+			    &poetry, NULL)) != 0)
+				goto fail;
+			continue;
+		}
+
+		/* Test slot validity. */
+		if ((slot & NET2_CNEG__MASK) >= NET2_CNEG_S2_MAX) {
+			error = EINVAL;
+			goto fail;
+		}
+
+		/* Decode data. */
+		switch (slot & NET2_CNEG__LRMASK) {
+		case NET2_CNEG_LOCAL:
+			error = xchange_local_accept(
+			    &ke->local[slot & NET2_CNEG__MASK], ectx, in);
+			break;
+		case NET2_CNEG_REMOTE:
+			error = xchange_remote_accept(
+			    &ke->remote[slot & NET2_CNEG__MASK], ectx, in);
+			break;
+		default:
+			error = EINVAL;
+			break;
+		}
+		if (error != 0)
+			goto fail;
+	}
+
+fail:
+	return error;
 }
