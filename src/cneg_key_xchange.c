@@ -192,7 +192,7 @@ struct net2_cneg_key_xchange {
 #define NET2_CNEG_REMOTE	0x1	/* Remote inited exchange. */
 
 #define NET2_CNEG__LRMASK	0x1	/* Mask local/remote bit. */
-#define NET2_CNEG_S2__MASK	(~NET2_CNEG_S2__LRMASK)
+#define NET2_CNEG_S2__MASK	(~NET2_CNEG__LRMASK)
 
 	struct xchange_local	 local[NET2_CNEG_S2_MAX];
 	struct xchange_remote	 remote[NET2_CNEG_S2_MAX];
@@ -701,8 +701,8 @@ static void
 xchange_local_complete(void *xl_ptr, void * ILIAS_NET2__unused unused)
 {
 	struct xchange_local	*xl = xl_ptr;
-	struct net2_promise	*p_export, *p_key;
-	int			 fin_export, fin_key;
+	struct net2_promise	*p_export, *p_init, *p_key;
+	int			 fin_export, fin_init, fin_key;
 	struct net2_buffer	*key;
 
 	/* Don't attempt to assign to a finished promise. */
@@ -716,21 +716,42 @@ xchange_local_complete(void *xl_ptr, void * ILIAS_NET2__unused unused)
 
 	/* Test if export is complete. */
 	if (xl->export == NULL)
-		return;
-	p_export = net2_signed_carver_complete(xl->export);
-	fin_export = net2_promise_is_finished(p_export);
-	if (fin_export == NET2_PROM_FIN_UNFINISHED)
-		return;
-	else if (fin_export != NET2_PROM_FIN_OK)
-		goto fail;
+		fin_export = NET2_PROM_FIN_UNFINISHED;
+	else {
+		p_export = net2_signed_carver_complete(xl->export);
+		fin_export = net2_promise_is_finished(p_export);
+		if (fin_export != NET2_PROM_FIN_OK &&
+		    fin_export != NET2_PROM_FIN_UNFINISHED)
+			goto fail;
+	}
+
+	/* Test if init is complete. */
+	if (xl->init == NULL)
+		fin_init = NET2_PROM_FIN_UNFINISHED;
+	else {
+		p_init = net2_signed_carver_complete(xl->init);
+		fin_init = net2_promise_is_finished(p_init);
+		if (fin_init != NET2_PROM_FIN_OK &&
+		    fin_init != NET2_PROM_FIN_UNFINISHED)
+			goto fail;
+	}
 
 	/* Test if key promise is complete. */
 	p_key = xl->shared.key_promise;
 	fin_key = net2_promise_get_result(p_key, (void**)&key, NULL);
-	if (fin_key == NET2_PROM_FIN_UNFINISHED)
-		return;
-	else if (fin_key != NET2_PROM_FIN_OK)
+	if (fin_key != NET2_PROM_FIN_OK &&
+	    fin_key != NET2_PROM_FIN_UNFINISHED)
 		goto fail;
+
+	/*
+	 * No failures so far.
+	 * If any dependancy is unfinished, stop now and recheck on next
+	 * invocation.
+	 */
+	if (fin_key == NET2_PROM_FIN_UNFINISHED ||
+	    fin_init == NET2_PROM_FIN_UNFINISHED ||
+	    fin_export == NET2_PROM_FIN_UNFINISHED)
+		return;
 
 	/* All promises are complete. */
 	assert(key != NULL);
@@ -769,21 +790,30 @@ xchange_remote_complete(void *xr_ptr, void * ILIAS_NET2__unused unused)
 
 	/* Test if export is complete. */
 	if (xr->export == NULL)
-		return;
-	p_export = net2_signed_carver_complete(xr->export);
-	fin_export = net2_promise_is_finished(p_export);
-	if (fin_export == NET2_PROM_FIN_UNFINISHED)
-		return;
-	else if (fin_export != NET2_PROM_FIN_OK)
-		goto fail;
+		fin_export = NET2_PROM_FIN_UNFINISHED;
+	else {
+		p_export = net2_signed_carver_complete(xr->export);
+		fin_export = net2_promise_is_finished(p_export);
+		if (fin_export != NET2_PROM_FIN_OK ||
+		    fin_export != NET2_PROM_FIN_UNFINISHED)
+			goto fail;
+	}
 
 	/* Test if key promise is complete. */
 	p_key = xr->shared.key_promise;
 	fin_key = net2_promise_get_result(p_key, (void**)&key, NULL);
-	if (fin_key == NET2_PROM_FIN_UNFINISHED)
-		return;
-	else if (fin_key != NET2_PROM_FIN_OK)
+	if (fin_key != NET2_PROM_FIN_OK &&
+	    fin_key != NET2_PROM_FIN_UNFINISHED)
 		goto fail;
+
+	/*
+	 * No errors so far.
+	 * If any promise still needs to complete, return now and recheck
+	 * on next invocation.
+	 */
+	if (fin_key == NET2_PROM_FIN_UNFINISHED ||
+	    fin_export == NET2_PROM_FIN_UNFINISHED)
+		return;
 
 	/* All promises are complete. */
 	assert(key != NULL);
@@ -1247,4 +1277,12 @@ xchange_local_accept(struct xchange_local *xl,
 {
 	assert(xl->import != NULL);
 	return net2_signed_combiner_accept(xl->import, ectx, buf);
+}
+
+
+/* Flip a slot from local to remote. */
+static __inline uint16_t
+flip_slot(uint16_t slot)
+{
+	return slot ^ NET2_CNEG__LRMASK;
 }
