@@ -22,20 +22,20 @@
 
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 
+#define NET2_CNEG_S2_HASH	0	/* Secure hash key. */
+#define NET2_CNEG_S2_ENC	1	/* Encryption key. */
+#define NET2_CNEG_S2_MAX	2	/* # exchanges. */
+
 /* Result output of key negotiation. */
-struct net2_cneg_key_result {
-	struct {
-		const void	*key;
-		size_t		 keylen;
-	}			 local, remote;
+struct net2_cneg_keyset {
+	struct net2_buffer	*tx[NET2_CNEG_S2_MAX];
+	struct net2_buffer	*rx[NET2_CNEG_S2_MAX];
 };
 
 ILIAS_NET2_EXPORT
-void	 net2_cneg_key_result_deinit(struct net2_cneg_key_result*);
+void	 net2_cneg_keyset_free(struct net2_cneg_keyset*);
 ILIAS_NET2_EXPORT
-int	 net2_cneg_key_result_init(struct net2_cneg_key_result*);
-ILIAS_NET2_EXPORT
-int	 net2_cneg_key_result_initbuf(struct net2_cneg_key_result*,
-	    struct net2_buffer*, struct net2_buffer*);
+struct net2_cneg_keyset
+	*net2_cneg_keyset_dup(struct net2_cneg_keyset*);
 
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */
