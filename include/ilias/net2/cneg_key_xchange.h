@@ -20,7 +20,12 @@
 #include <sys/types.h>
 #include <stdint.h>
 
-struct net2_buffer;	/* From ilias/net2/buffer.h */
+struct net2_buffer;		/* From ilias/net2/buffer.h */
+struct net2_encdec_ctx;		/* From ilias/net2/encdec_ctx.h */
+struct net2_workq;		/* From ilias/net2/workq.h */
+struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
+struct net2_ctx;		/* From ilias/net2/context.h */
+struct net2_sign_ctx;		/* From ilias/net2/sign.h */
 
 #define NET2_CNEG_S2_HASH	0	/* Secure hash key. */
 #define NET2_CNEG_S2_ENC	1	/* Encryption key. */
@@ -32,10 +37,29 @@ struct net2_cneg_keyset {
 	struct net2_buffer	*rx[NET2_CNEG_S2_MAX];
 };
 
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void	 net2_cneg_keyset_free(struct net2_cneg_keyset*);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 struct net2_cneg_keyset
 	*net2_cneg_keyset_dup(struct net2_cneg_keyset*);
+
+ILIAS_NET2_LOCAL
+struct net2_cneg_key_xchange
+	*net2_cneg_key_xchange_new(struct net2_workq*, struct net2_encdec_ctx*,
+	    struct net2_ctx*,
+	    int, int, uint32_t, uint32_t,
+	    int, int,
+	    void (*)(void*, void*), void*, void*,
+	    uint32_t, struct net2_sign_ctx**,
+	    uint32_t, struct net2_sign_ctx**);
+ILIAS_NET2_LOCAL
+void	 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+int	 net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange*,
+	    struct net2_encdec_ctx*, struct net2_workq*, struct net2_buffer*,
+	    struct net2_tx_callback*, size_t, int);
+ILIAS_NET2_LOCAL
+int	 net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange*,
+	    struct net2_encdec_ctx*, struct net2_buffer*);
 
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */

@@ -36,7 +36,7 @@
 
 
 /* Free a key set. */
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_LOCAL void
 net2_cneg_keyset_free(struct net2_cneg_keyset *ks)
 {
 	size_t			 i;
@@ -50,7 +50,7 @@ net2_cneg_keyset_free(struct net2_cneg_keyset *ks)
 	net2_free(ks);
 }
 /* Duplicate a keyset. */
-ILIAS_NET2_EXPORT struct net2_cneg_keyset*
+ILIAS_NET2_LOCAL struct net2_cneg_keyset*
 net2_cneg_keyset_dup(struct net2_cneg_keyset *ks)
 {
 	struct net2_cneg_keyset	*copy;
@@ -1711,7 +1711,7 @@ out:
 }
 
 /* Generate outgoing transmission. */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
     struct net2_encdec_ctx *ectx, struct net2_workq *wq,
     struct net2_buffer *out, struct net2_tx_callback *txcb, size_t maxsz,
@@ -1823,7 +1823,7 @@ fail_0:
 }
 
 /* Handle received transmission. */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_LOCAL int
 net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange *ke,
     struct net2_encdec_ctx *ectx, struct net2_buffer *in)
 {
