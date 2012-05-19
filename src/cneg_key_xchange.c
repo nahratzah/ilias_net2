@@ -1053,7 +1053,7 @@ xchange_remote_init(
 
 	/* Set up init combiner. */
 	if ((xr->init = net2_signed_combiner_new(wq, ectx,
-	    num_outsigs, outsigs)) == NULL) {
+	    num_insigs, insigs)) == NULL) {
 		error = ENOMEM;
 		goto fail_1;
 	}
