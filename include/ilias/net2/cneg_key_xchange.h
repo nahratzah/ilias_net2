@@ -57,7 +57,7 @@ void	 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange*);
 ILIAS_NET2_LOCAL
 int	 net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange*,
 	    struct net2_encdec_ctx*, struct net2_workq*, struct net2_buffer*,
-	    struct net2_tx_callback*, size_t, int);
+	    struct net2_tx_callback*, size_t, int, int);
 ILIAS_NET2_LOCAL
 int	 net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange*,
 	    struct net2_encdec_ctx*, struct net2_buffer*);

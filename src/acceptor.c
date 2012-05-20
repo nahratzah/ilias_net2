@@ -10,7 +10,7 @@ net2_acceptor_socket_init(struct net2_acceptor_socket *self,
 	self->fn = fn;
 	self->acceptor = NULL;
 	self->workq = workq;
-	net2_workq_ref(workq);
+	net2_workq_ref(self->workq);
 	return 0;
 }
 

@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/connection.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
@@ -41,7 +40,7 @@
 
 
 ILIAS_NET2_LOCAL
-void		 net2_conn_handle_recv(int, short, void*);
+void		 net2_conn_handle_recv(void*, void*);
 
 
 /*
@@ -52,12 +51,14 @@ void		 net2_conn_handle_recv(int, short, void*);
  */
 ILIAS_NET2_EXPORT int
 net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
-    struct net2_evbase *evbase,
+    struct net2_workq *workq,
     const struct net2_acceptor_socket_fn *functions)
 {
+	int			 error;
+
 	memset(conn, 0, sizeof(*conn));
 
-	if (evbase == NULL || functions == NULL)
+	if (workq == NULL || functions == NULL)
 		goto fail_0;
 
 	TAILQ_INIT(&conn->n2c_recvq);
@@ -66,18 +67,21 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	conn->n2c_stealth_bytes = 0;
 	conn->n2c_stealth = 0;
 
-	if (net2_acceptor_socket_init(&conn->n2c_socket, evbase, functions))
+	if ((error = net2_acceptor_socket_init(&conn->n2c_socket, workq,
+	    functions)) != 0)
 		goto fail_0;
-	if (net2_cneg_init(&conn->n2c_negotiator, ctx))
+	if ((error = net2_cneg_init(&conn->n2c_negotiator, ctx)) != 0)
 		goto fail_1;
-	if ((conn->n2c_recv_ev = event_new(evbase->evbase, -1, 0,
-	    &net2_conn_handle_recv, conn)) == NULL)
+	if ((error = net2_workq_init_work(&conn->n2c_recv_ev, workq,
+	    &net2_conn_handle_recv, conn, NULL, 0)) != 0)
 		goto fail_2;
-	if ((conn->n2c_recvmtx = net2_mutex_alloc()) == NULL)
+	if ((conn->n2c_recvmtx = net2_mutex_alloc()) == NULL) {
+		error = ENOMEM;
 		goto fail_3;
-	if (net2_connwindow_init(&conn->n2c_window, conn))
+	}
+	if ((error = net2_connwindow_init(&conn->n2c_window, conn)) != 0)
 		goto fail_4;
-	if (net2_connstats_init(&conn->n2c_stats, conn))
+	if ((error = net2_connstats_init(&conn->n2c_stats, conn)) != 0)
 		goto fail_5;
 
 	return 0;
@@ -89,13 +93,13 @@ fail_5:
 fail_4:
 	net2_mutex_free(conn->n2c_recvmtx);
 fail_3:
-	event_free(conn->n2c_recv_ev);
+	net2_workq_deinit_work(&conn->n2c_recv_ev);
 fail_2:
 	net2_cneg_deinit(&conn->n2c_negotiator);
 fail_1:
 	net2_acceptor_socket_deinit(&conn->n2c_socket);
 fail_0:
-	return -1;
+	return error;
 }
 
 /*
@@ -110,7 +114,7 @@ net2_connection_deinit(struct net2_connection *conn)
 	net2_cneg_deinit(&conn->n2c_negotiator);
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);
-	event_free(conn->n2c_recv_ev);
+	net2_workq_deinit_work(&conn->n2c_recv_ev);
 	while ((r = TAILQ_FIRST(&conn->n2c_recvq)) != NULL) {
 		TAILQ_REMOVE(&conn->n2c_recvq, r, recvq);
 		if (r->buf)
@@ -139,7 +143,7 @@ net2_connection_recv(struct net2_connection *conn,
 	TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
 	conn->n2c_recvqsz++;
 
-	event_active(conn->n2c_recv_ev, 0, 0);
+	net2_workq_activate(&conn->n2c_recv_ev);
 	net2_mutex_unlock(conn->n2c_recvmtx);
 }
 
@@ -154,7 +158,7 @@ net2_connection_destroy(struct net2_connection *conn)
 
 /* Handle each received datagram in receive queue. */
 ILIAS_NET2_LOCAL void
-net2_conn_handle_recv(evutil_socket_t fd, short what, void *cptr)
+net2_conn_handle_recv(void *cptr, void * ILIAS_NET2__unused unused)
 {
 	struct net2_connection	*c = cptr;
 	struct net2_conn_receive*r;

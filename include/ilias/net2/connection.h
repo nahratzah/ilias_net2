@@ -21,6 +21,7 @@
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/conn_negotiator.h>
 #include <ilias/net2/acceptor.h>
+#include <ilias/net2/workq.h>
 
 struct packet_header;
 
@@ -60,7 +61,7 @@ struct net2_connection {
 	TAILQ_HEAD(, net2_conn_receive)
 				 n2c_recvq;	/* List of received data. */
 	size_t			 n2c_recvqsz;	/* Size of n2c_recvq. */
-	struct event		*n2c_recv_ev;	/* Handle received data. */
+	struct net2_workq_job	 n2c_recv_ev;	/* Handle received data. */
 
 	struct net2_connwindow	 n2c_window;	/* Low level window. */
 	struct net2_connstats	 n2c_stats;	/* Connection stats. */
@@ -78,7 +79,7 @@ struct net2_connection {
 
 ILIAS_NET2_EXPORT
 int	net2_connection_init(struct net2_connection*,
-	    struct net2_ctx*, struct net2_evbase*,
+	    struct net2_ctx*, struct net2_workq*,
 	    const struct net2_acceptor_socket_fn*);
 ILIAS_NET2_EXPORT
 void	net2_connection_deinit(struct net2_connection*);

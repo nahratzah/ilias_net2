@@ -16,7 +16,6 @@
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/connstats.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/cp.h>
@@ -27,7 +26,6 @@
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <ilias/net2/bsd_compat/minmax.h>
-#include <event2/event.h>
 #include <stdlib.h>
 #include <assert.h>
 #include "connwindow_cp.h"
@@ -366,7 +364,7 @@ update_stalled(struct net2_connwindow *w)
 
 /* Clear the stallbackoff flag. */
 static void
-stallbackoff(int fd, short what, void *wptr)
+stallbackoff(void *wptr, void * ILIAS_NET2__unused unused)
 {
 	struct net2_connwindow		*w = wptr;
 
@@ -377,7 +375,7 @@ stallbackoff(int fd, short what, void *wptr)
 }
 /* Fire a new keepalive. */
 static void
-keepalive(int fd, short what, void *wptr)
+keepalive(void *wptr, void * ILIAS_NET2__unused unused)
 {
 	struct net2_connwindow		*w = wptr;
 
@@ -400,7 +398,7 @@ static void	dup_ack(struct net2_connwindow*);
  * - Any next timeout activates the WANTBAD state.
  */
 static void
-tx_timeout(int fd, short what, void *txptr)
+tx_timeout(void *txptr, void * ILIAS_NET2__unused unused)
 {
 	struct net2_cw_tx		*tx = txptr;
 	struct net2_connwindow		*w = tx->cwt_owner;
@@ -427,7 +425,7 @@ tx_timeout(int fd, short what, void *txptr)
  * - A request for ack transmission is put forth.
  */
 static void
-rx_timeout(int fd, short what, void *rxptr)
+rx_timeout(void *rxptr, void * ILIAS_NET2__unused unused)
 {
 	struct net2_cw_rx		*rx = rxptr;
 	struct net2_connwindow		*w = rx->cwr_owner;
@@ -445,10 +443,10 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 {
 	struct net2_cw_tx		*tx;
 	struct net2_connection		*c;
-	struct net2_evbase		*evbase;
+	struct net2_workq		*workq;
 
 	c = w->cw_conn;
-	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
+	workq = net2_acceptor_socket_workq(&c->n2c_socket);
 
 	if ((tx = net2_malloc(sizeof(*tx))) == NULL)
 		goto fail_0;
@@ -489,10 +487,10 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 {
 	struct net2_cw_rx		*rx;
 	struct net2_connection		*c;
-	struct net2_evbase		*evbase;
+	struct net2_workq		*workq;
 
 	c = w->cw_conn;
-	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
+	workq = net2_acceptor_socket_workq(&c->n2c_socket);
 
 	if ((rx = net2_malloc(sizeof(*rx))) == NULL)
 		goto fail_0;
@@ -827,9 +825,9 @@ fail:
 ILIAS_NET2_LOCAL int
 net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 {
-	struct net2_evbase	*evbase;
+	struct net2_workq	*workq;
 
-	evbase = net2_acceptor_socket_evbase(&c->n2c_socket);
+	workq = net2_acceptor_socket_workq(&c->n2c_socket);
 	w->cw_conn = c;
 	w->cw_tx_start = w->cw_tx_nextseq = secure_random();
 	w->cw_rx_windowsz = MAX_WINDOW_SIZE;
