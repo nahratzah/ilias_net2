@@ -55,35 +55,15 @@ struct net2_conn_negotiator {
 #define NET2_CNEG_STAGE_KEY_EXCHANGE	0x00000001	/* Exchanging keys. */
 #define NET2_CNEG_STAGE_PROTO_IDLE	0xffffffff	/* Nothing to do. */
 
-	int			 pver_acknowledged;
-						/* True iff pver was received
-						 * by remote endpoint. */
 	struct net2_ctx		*context;	/* Network metadata. */
-
-	TAILQ_HEAD(, encoded_header)
-				 sendq, waitq;
 
 	int			 recv_no_send;	/* Set each time a packet is
 						 * received, cleared each time
 						 * a packet is sent. */
 
-#if 0 /* Stage 1 old code. */
-	struct {
-		struct net2_pvlist
-				 proto;
-
-		size_t		 sets_expected;	/* Expected sets_count. */
-		size_t		 sets_count;	/* Number of collections. */
-		struct net2_conn_negotiator_set
-				*sets;		/* Collections. */
-
-		struct net2_bitset
-				 received;	/* Received commands. */
-		size_t		 rcv_expected;	/* Expected received size. */
-		int		 flags;		/* Negotiated flags. */
-	}			 negotiated;	/* Negotiated settings. */
-#endif /* Stage 1 old code. */
 	struct net2_cneg_stage1	*stage1;	/* First stage negotiation. */
+	struct net2_cneg_key_xchange
+				*keyx;		/* Key xchange stage. */
 
 	struct {
 		int		*supported;	/* Algorithm set. */
@@ -92,37 +72,6 @@ struct net2_conn_negotiator {
 				 enc,		/* Supported encoders. */
 				 xchange,	/* Supported xchange. */
 				 sign;		/* Supported sign. */
-	struct net2_signset	 remote_signs;	/* Known remote signatures. */
-
-	struct {
-		struct net2_sign_ctx
-				**signatures;	/* Signatures. */
-		size_t		 size;		/* Signature count. */
-	}			 signature_list; /* Signatures that must be
-						  * used to sign messages.
-						  * Order is significant and
-						  * decided by remote host. */
-
-	struct {
-/* Stage 2 exchange codes. */
-#define NET2_CNEG_S2_HASH	0	/* Hash key negotiation. */
-#define NET2_CNEG_S2_ENC	2	/* Enc key negotiation. */
-#define NET2_CNEG_S2_REMOTE	1	/* Or-ed with above for remote
-					 * counterpart. */
-#define NET2_CNEG_S2_LOCAL	0	/* Or-ed with above for local
-					 * counterpart. */
-#define NET2_CNEG_S2_MAX	4	/* Number of stage 2 exchanges. */
-		struct net2_cneg_exchange
-				*xchanges; /* Contexts. */
-		struct net2_promise
-				*complete; /* S2 completion promise. */
-	}			 stage2;
-
-	struct net2_promise_event
-				 initdone; /* Event end of initialization. */
-
-	struct net2_cneg_key_state
-				*keys;	/* Negotiated keys. */
 };
 
 /*
