@@ -97,6 +97,14 @@ net2_workq_set_callbacks(struct net2_workq_job *j,
 	j->callbacks = cb;
 }
 
+/* Initialize a null workq job. */
+static __inline void
+net2_workq_init_work_null(struct net2_workq_job *j)
+{
+	j->internal = NULL;
+	j->callbacks = NULL;
+}
+
 #ifdef ilias_net2_EXPORTS
 ILIAS_NET2_LOCAL
 struct ev_loop
