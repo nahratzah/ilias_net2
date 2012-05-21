@@ -50,6 +50,7 @@ list (APPEND headers
 	include/ilias/net2/stream_acceptor.h
 	include/ilias/net2/tx_callback.h
 	include/ilias/net2/workq.h
+	include/ilias/net2/workq_timer.h
 	include/ilias/net2/workq_io.h
 	include/ilias/net2/xchange.h
 	)
@@ -90,6 +91,7 @@ list (APPEND srcs
 	src/types.c
 	src/tx_callback.c
 	src/workq.c
+	src/workq_timer.c
 	src/workq_io.c
 	src/xchange.c
 	src/cluster_cfg.c
