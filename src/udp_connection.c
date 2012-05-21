@@ -16,7 +16,6 @@
 #include <ilias/net2/udp_connection.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/acceptor.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/sockdgram.h>
 #include <ilias/net2/buffer.h>
@@ -107,7 +106,7 @@ struct net2_udpsocket {
 	size_t			 refcnt;	/* Reference counter. */
 	struct net2_mutex	*guard;		/* Protect against races. */
 	struct event		*ev;		/* Send/receive event. */
-	struct net2_evbase	*evbase;	/* Thread context. */
+	struct net2_workq	*workq;		/* Thread context. */
 
 	struct net2_udpsocket_conns
 				 conns;		/* Active connections. */
@@ -183,10 +182,11 @@ RB_GENERATE_STATIC(net2_udpsocket_conns, net2_conn_p2p, np2p_socktree,
  */
 ILIAS_NET2_EXPORT struct net2_connection*
 net2_conn_p2p_create_fd(struct net2_ctx *ctx,
-    struct net2_evbase *evbase, evutil_socket_t sock,
+    struct net2_workq_evbase *wqev, evutil_socket_t sock,
     struct sockaddr *remote, socklen_t remotelen)
 {
 	struct net2_conn_p2p	*c;
+	struct net2_workq	*wq;
 
 	/* Check arguments. */
 	if (sock == -1)
@@ -210,8 +210,13 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 	c->np2p_flags = 0;
 
 	/* Perform base connection initialization. */
-	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn))
+	if ((wq = net2_workq_new(wqev)) == NULL)
 		goto fail_2;
+	if (net2_connection_init(&c->np2p_conn, ctx, wq, &udp_conn_fn)) {
+		net2_workq_release(wq);
+		goto fail_2;
+	}
+	net2_workq_release(wq);
 
 	/* Set socket to nonblocking mode. */
 	if (net2_sockdgram_nonblock(sock) ||
@@ -239,16 +244,15 @@ fail_0:
  * Create a new peer-to-peer connection.
  */
 ILIAS_NET2_EXPORT struct net2_connection*
-net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
+net2_conn_p2p_create(struct net2_ctx *ctx,
     struct net2_udpsocket *sock, struct sockaddr *remote, socklen_t remotelen)
 {
 	struct net2_conn_p2p	*c;
+	struct net2_workq	*wq = NULL;
 
 	/* Check arguments. */
 	if (ctx == NULL || sock == NULL)
 		return NULL;
-	if (evbase == NULL)
-		evbase = sock->evbase;
 
 	if ((c = net2_malloc(sizeof(*c))) == NULL)
 		return NULL;
@@ -266,12 +270,17 @@ net2_conn_p2p_create(struct net2_ctx *ctx, struct net2_evbase *evbase,
 		c->np2p_remotelen = remotelen;
 	}
 
-	if (net2_connection_init(&c->np2p_conn, ctx, evbase, &udp_conn_fn))
+	if ((wq = net2_workq_new(net2_workq_evbase(sock->workq))) == NULL)
+		goto fail;
+	if (net2_connection_init(&c->np2p_conn, ctx, wq, &udp_conn_fn))
 		goto fail;
 
+	net2_workq_release(wq); /* Still alive because of connection. */
 	return &c->np2p_conn;
 
 fail:
+	if (wq)
+		net2_workq_release(wq);
 	if (c->np2p_remote)
 		net2_free(c->np2p_remote);
 	net2_free(c);
@@ -282,21 +291,25 @@ fail:
  * Create a UDP socket that can handle multiple connections.
  */
 ILIAS_NET2_EXPORT struct net2_udpsocket*
-net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
+net2_conn_p2p_socket(struct net2_workq_evbase *wqev, struct sockaddr *bindaddr,
     socklen_t bindaddrlen)
 {
 	evutil_socket_t		 fd = -1;
 	int			 saved_errno;
 	struct net2_udpsocket	*rv;
+	struct net2_workq	*wq = NULL;
 
 	/* Check argument. */
-	if (bindaddr == NULL || evbase == NULL) {
+	if (bindaddr == NULL || wqev == NULL) {
 		errno = EINVAL;
 		goto fail;
 	}
 
 	/* Increase reference count to evbase. */
-	net2_evbase_ref(evbase);
+	if ((wq = net2_workq_new(wqev)) == NULL) {
+		errno = ENOMEM;
+		goto fail;
+	}
 
 	/* Create socket. */
 	if ((fd = socket(bindaddr->sa_family, SOCK_DGRAM, 0)) == -1)
@@ -309,7 +322,7 @@ net2_conn_p2p_socket(struct net2_evbase *evbase, struct sockaddr *bindaddr,
 	/* Allocate result. */
 	if ((rv = net2_malloc(sizeof(*rv))) == NULL)
 		goto fail;
-	rv->evbase = evbase;
+	rv->workq = wq;
 	rv->sock = fd;
 	rv->refcnt = 1;
 	if ((rv->guard = net2_mutex_alloc()) == NULL)
@@ -339,7 +352,8 @@ fail:
 #endif
 		errno = saved_errno;
 	}
-	net2_evbase_release(evbase);
+	if (wq != NULL)
+		net2_workq_release(wq);
 	return NULL;
 }
 
