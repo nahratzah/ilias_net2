@@ -105,10 +105,8 @@ net2_workq_init_work_null(struct net2_workq_job *j)
 	j->callbacks = NULL;
 }
 
-#ifdef ilias_net2_EXPORTS
 ILIAS_NET2_LOCAL
 struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq*);
-#endif /* ilias_net2_EXPORTS */
 
 #endif /* ILIAS_NET2_WORKQ_H */
