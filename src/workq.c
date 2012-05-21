@@ -828,13 +828,16 @@ net2_workq_deinit_work(struct net2_workq_job *jj)
 	jj->internal = NULL;
 
 	/* Detach from the workq in a permanent fashion. */
-	net2_workq_deactivate_internal(j, 1);
+	if (j != NULL) {
+		net2_workq_deactivate_internal(j, 1);
 
-	net2_cond_free(j->wq_death);
-	net2_mutex_free(j->mtx);
+		net2_cond_free(j->wq_death);
+		net2_mutex_free(j->mtx);
+	}
 
 	if (jj->callbacks != NULL && jj->callbacks->on_destroy != NULL)
 		(*jj->callbacks->on_destroy)(jj);
+	jj->callbacks = NULL;
 
 	net2_free(j);
 }
