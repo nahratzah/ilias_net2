@@ -87,7 +87,8 @@ timer_evcb(struct ev_loop *loop, ev_timer *t,
 
 /* Make the timer expire after the given delay. */
 ILIAS_NET2_EXPORT void
-net2_workq_timer_set(struct net2_workq_timer *ev, struct timeval *delay_tv)
+net2_workq_timer_set(struct net2_workq_timer *ev,
+    const struct timeval *delay_tv)
 {
 	ev_tstamp		 timeo_at;
 	ev_tstamp		 delay;

@@ -22,7 +22,7 @@ struct net2_workq_timer;
 struct timeval;
 
 ILIAS_NET2_EXPORT
-void	 net2_workq_timer_set(struct net2_workq_timer*, struct timeval*);
+void	 net2_workq_timer_set(struct net2_workq_timer*, const struct timeval*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_timer_stop(struct net2_workq_timer*);
 ILIAS_NET2_EXPORT
