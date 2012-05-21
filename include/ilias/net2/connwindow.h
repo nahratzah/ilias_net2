@@ -17,6 +17,7 @@
 #define ILIAS_NET2_CONNWINDOW_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/workq_timer.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -78,8 +79,10 @@ struct net2_connwindow {
 	RB_HEAD(net2_cw_recvs, net2_cw_rx)
 			 cw_rx_id;		/* Receives per ID. */
 
-	struct event	*cw_stallbackoff;	/* Stall backoff event. */
-	struct event	*cw_keepalive;		/* Keepalive timer. */
+	struct net2_workq_timer
+			*cw_stallbackoff;	/* Stall backoff event. */
+	struct net2_workq_timer
+			*cw_keepalive;		/* Keepalive timer. */
 	int		 cw_flags;		/* Connection window state. */
 #define NET2_CW_F_WANTRECV	0x00000001	/* Need to recv 1st packet. */
 #define NET2_CW_F_STALLED	0x00000002	/* Damocles pending. */

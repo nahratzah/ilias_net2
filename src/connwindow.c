@@ -105,7 +105,8 @@ struct net2_cw_tx {
 
 	struct net2_tx_callback
 			 cwt_txcb;		/* Callback queue. */
-	struct event	*cwt_timeout;		/* Nack timer. */
+	struct net2_workq_timer
+			*cwt_timeout;		/* Nack timer. */
 
 	RB_ENTRY(net2_cw_tx)
 			 cwt_entry_id;		/* Allow lookup by ID. */
@@ -138,7 +139,8 @@ struct net2_cw_rx {
 	uint32_t	 cwr_seq;		/* Window sequence. */
 	size_t		 cwr_wire_sz;		/* Wire size. */
 
-	struct event	*cwr_timeout;		/* Nack timer. */
+	struct net2_workq_timer
+			*cwr_timeout;		/* Nack timer. */
 
 	RB_ENTRY(net2_cw_rx)
 			 cwr_entry_id;		/* Allow lookup by ID. */
@@ -356,7 +358,7 @@ update_stalled(struct net2_connwindow *w)
 {
 	if (w->cw_tx_nextseq - w->cw_tx_start < w->cw_tx_windowsz) {
 		if (w->cw_stallbackoff != NULL)
-			evtimer_del(w->cw_stallbackoff);
+			net2_workq_timer_stop(w->cw_stallbackoff);
 		w->cw_flags &= ~(NET2_CW_F_STALLED | NET2_CW_F_STALLBACKOFF);
 	} else
 		w->cw_flags |= NET2_CW_F_STALLED;
@@ -412,7 +414,7 @@ tx_timeout(void *txptr, void * ILIAS_NET2__unused unused)
 		/* Add wantbad event. */
 		net2_connstats_timeout(&w->cw_conn->n2c_stats, &next_timeout,
 		    TIMEOUT_TX_BAD);
-		event_add(tx->cwt_timeout, &next_timeout);
+		net2_workq_timer_set(tx->cwt_timeout, &next_timeout);
 	} else if (!(tx->cwt_flags & NET2_CWTX_F_WANTBAD)) {
 		cw_tx_wantbad_insert(w, tx, 0);
 		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
@@ -455,8 +457,8 @@ tx_new(uint32_t seq, struct net2_connwindow *w)
 	tx->cwt_wire_sz = 0;	/* No idea how large yet. */
 	if (net2_txcb_init(&tx->cwt_txcb))
 		goto fail_1;
-	if ((tx->cwt_timeout = evtimer_new(evbase->evbase, tx_timeout, tx)) ==
-	    NULL)
+	if ((tx->cwt_timeout = net2_workq_timer_new(workq,
+	    &tx_timeout, tx, NULL)) == NULL)
 		goto fail_2;
 	tx->cwt_flags = NET2_CWTX_F_ALLOC;
 	tx->cwt_stalled = 0;
@@ -476,7 +478,7 @@ tx_free(struct net2_cw_tx *tx)
 {
 	assert(tx->cwt_flags & NET2_CWTX_F_ALLOC);
 	assert(!(tx->cwt_flags & NET2_CWTX_QUEUEMASK));
-	event_free(tx->cwt_timeout);
+	net2_workq_timer_free(tx->cwt_timeout);
 	net2_txcb_deinit(&tx->cwt_txcb);
 	assert(RB_FIND(net2_cw_transmits, &tx->cwt_owner->cw_tx_id, tx) != tx);
 	net2_free(tx);
@@ -498,8 +500,8 @@ rx_new(uint32_t seq, struct net2_connwindow *w)
 	rx->cwr_seq = seq;
 	rx->cwr_wire_sz = 0;	/* No idea. */
 	rx->cwr_flags = NET2_CWRX_F_ALLOC;
-	if ((rx->cwr_timeout = evtimer_new(evbase->evbase, rx_timeout, rx)) ==
-	    NULL)
+	if ((rx->cwr_timeout = net2_workq_timer_new(workq,
+	    &rx_timeout, rx, NULL)) == NULL)
 		goto fail_1;
 
 	return rx;
@@ -515,7 +517,7 @@ rx_free(struct net2_cw_rx *rx)
 {
 	assert(rx->cwr_flags & NET2_CWRX_F_ALLOC);
 	assert(!(rx->cwr_flags & NET2_CWRX_QUEUEMASK));
-	event_free(rx->cwr_timeout);
+	net2_workq_timer_free(rx->cwr_timeout);
 	net2_free(rx);
 }
 
@@ -564,21 +566,10 @@ get_recv(struct net2_connwindow *w, uint32_t seq, int stalled)
 		if ((found = rx_new(first_seq, w)) == NULL)
 			goto fail_1;
 		/* Mark it for timeout, unless its the requested ID. */
-		if (first_seq != seq) {
-			if (evtimer_add(found->cwr_timeout, &timeout_lost)) {
-				rx_free(found);
-				goto fail_1;
-			}
-		} else {
-			/*
-			 * Work around a libevent bug: event_del requires an
-			 * added event despite what the documentation says.
-			 */
-			if (evtimer_add(found->cwr_timeout, &timeout_ack)) {
-				rx_free(found);
-				goto fail_1;
-			}
-		}
+		if (first_seq != seq)
+			net2_workq_timer_set(found->cwr_timeout, &timeout_lost);
+		else
+			net2_workq_timer_set(found->cwr_timeout, &timeout_ack);
 		/* Push into the recv set. */
 		cw_recvs_insert(w, found, 0);
 
@@ -751,7 +742,7 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 		if (!(rx->cwr_flags & NET2_CWRX_F_WANTACK))
 			cw_rx_wantack_insert(w, rx, 0);
 		/* No need for timing out on not receiving this. */
-		event_del(rx->cwr_timeout);
+		net2_workq_timer_stop(rx->cwr_timeout);
 
 		/*
 		 * If this is a bad transmit for a succesfully received packet,
@@ -839,17 +830,20 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	TAILQ_INIT(&w->cw_rx_wantack);
 	RB_INIT(&w->cw_rx_id);
 	w->cw_flags = NET2_CW_F_WANTRECV;
-	if ((w->cw_stallbackoff = evtimer_new(evbase->evbase,
-	    stallbackoff, w)) == NULL)
+	if ((w->cw_stallbackoff = net2_workq_timer_new(workq,
+	    &stallbackoff, w, NULL)) == NULL)
 		goto fail_0;
-	if ((w->cw_keepalive = evtimer_new(evbase->evbase,
-	    keepalive, w)) == NULL)
+	if ((w->cw_keepalive = net2_workq_timer_new(workq,
+	    &keepalive, w, NULL)) == NULL)
 		goto fail_1;
 
 	return 0;
 
+
+fail_2:
+	net2_workq_timer_free(w->cw_keepalive);
 fail_1:
-	event_free(w->cw_stallbackoff);
+	net2_workq_timer_free(w->cw_stallbackoff);
 fail_0:
 	return -1;
 }
@@ -873,8 +867,8 @@ net2_connwindow_deinit(struct net2_connwindow *w)
 		cw_transmits_remove(w, tx);
 		tx_free(tx);
 	}
-	event_free(w->cw_stallbackoff);
-	event_free(w->cw_keepalive);
+	net2_workq_timer_free(w->cw_stallbackoff);
+	net2_workq_timer_free(w->cw_keepalive);
 }
 
 /*
@@ -987,10 +981,10 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	}
 
 	if (ph->flags & (PH_STALLED | PH_DATA_PRESENT)) {
-		if (!event_del(w->cw_keepalive))
-			w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
-		if (!event_del(w->cw_stallbackoff))
-			w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
+		net2_workq_timer_stop(w->cw_keepalive);
+		w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
+		net2_workq_timer_stop(w->cw_stallbackoff);
+		w->cw_flags &= ~NET2_CW_F_STALLBACKOFF;
 		net2_acceptor_socket_ready_to_send(&w->cw_conn->n2c_socket);
 	}
 
@@ -1227,18 +1221,12 @@ skip:			/* All goto skip continue here. */
 	TAILQ_FOREACH(rx, &rxq, cwr_entry_rx) {
 		assert(!(rx->cwr_flags & NET2_CWRX_F_WANTACK));
 		rx->cwr_flags |= NET2_CWRX_F_ACKED;
-		if (evtimer_pending(rx->cwr_timeout, NULL))
-			event_del(rx->cwr_timeout);
-		if (event_add(rx->cwr_timeout, &rx_ack_timeout))
-			warnx("event_add fail, window may misbehave...");
+		net2_workq_timer_set(rx->cwr_timeout, &rx_ack_timeout);
 	}
 	/* Unwant all tx. */
 	TAILQ_FOREACH(tx, &txq, cwt_entry_txbad) {
 		tx->cwt_flags |= NET2_CWTX_F_SENTBAD;
-		if (evtimer_pending(tx->cwt_timeout, NULL))
-			event_del(tx->cwt_timeout);
-		if (event_add(tx->cwt_timeout, &tx_bad_timeout))
-			warnx("event_add fail, window may misbehave...");
+		net2_workq_timer_set(tx->cwt_timeout, &tx_bad_timeout);
 	}
 
 	/* Result. */
@@ -1309,7 +1297,8 @@ fail_0:
  * Commit a connwindow transmission.
  */
 ILIAS_NET2_LOCAL void
-net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
+net2_connwindow_tx_commit(struct net2_cw_tx *tx,
+    struct packet_header * ILIAS_NET2__unused ph,
     size_t wire_sz, struct net2_tx_callback *callbacks)
 {
 	static const struct timeval	 stalltimeout = { 0, 250000 };
@@ -1319,23 +1308,23 @@ net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
 
 	/* Backoff when stalled. */
 	if (tx->cwt_stalled) {
-		if (!evtimer_add(w->cw_stallbackoff, &stalltimeout))
-			w->cw_flags |= NET2_CW_F_STALLBACKOFF;
+		net2_workq_timer_set(w->cw_stallbackoff, &stalltimeout);
+		w->cw_flags |= NET2_CW_F_STALLBACKOFF;
 
 		tx_free(tx);
 		return;
 	}
 
-	if (!evtimer_del(w->cw_keepalive)) {
-		w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
+	net2_workq_timer_stop(w->cw_keepalive);
+	w->cw_flags &= ~NET2_CW_F_KEEPALIVE;
 
-		/*
-		 * Don't do keepalives on stalled connection:
-		 * stall timer will handle this for us.
-		 */
-		if (!tx->cwt_stalled &&
-		    !evtimer_add(w->cw_keepalive, &ka_timeout))
-			w->cw_flags |= NET2_CW_F_KEEPALIVE;
+	/*
+	 * Don't do keepalives on stalled connection:
+	 * stall timer will handle this for us.
+	 */
+	if (!tx->cwt_stalled) {
+		net2_workq_timer_set(w->cw_keepalive, &ka_timeout);
+		w->cw_flags |= NET2_CW_F_KEEPALIVE;
 	}
 
 	net2_connstats_timeout(&w->cw_conn->n2c_stats, &timeout,
@@ -1344,7 +1333,7 @@ net2_connwindow_tx_commit(struct net2_cw_tx *tx, struct packet_header *ph,
 	if (tv_clock_gettime(CLOCK_MONOTONIC, &tx->cwt_timestamp))
 		err(EX_OSERR, "clock_gettime fail");
 	tx->cwt_wire_sz = wire_sz;
-	event_add(tx->cwt_timeout, &timeout);
+	net2_workq_timer_set(tx->cwt_timeout, &timeout);
 
 	net2_txcb_merge(&tx->cwt_txcb, callbacks);
 }
