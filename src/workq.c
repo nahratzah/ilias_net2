@@ -30,6 +30,28 @@
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
+/* Internal data for workq job. */
+struct net2_workq_job_internal {
+	struct net2_mutex
+			*mtx;			/* Protect workq pointer. */
+	struct net2_condition
+			*wq_death;		/* Workq death event. */
+	struct net2_workq
+			*workq;			/* Owner workq. */
+	int		 flags;			/* Flags/options. */
+
+	net2_workq_cb	 fn;			/* Callback. */
+	void		*cb_arg[2];		/* Callback arguments. */
+
+	TAILQ_ENTRY(net2_workq_job_internal)
+			 readyq,		/* Link into ready queue. */
+			 memberq;		/* Link into workq. */
+
+	int		*died;			/* Set only if running. */
+	struct net2_workq_job
+			*backptr;		/* Point back to job. */
+};
+
 /* Workq data. */
 struct net2_workq {
 	struct net2_mutex
@@ -37,7 +59,7 @@ struct net2_workq {
 	struct net2_workq_evbase
 			*evbase;		/* Event base for IO/timers. */
 
-	TAILQ_HEAD(, net2_workq_job)
+	TAILQ_HEAD(, net2_workq_job_internal)
 			 runqueue,		/* Jobs that are to run now. */
 			 members;		/* Jobs on this workq. */
 	TAILQ_ENTRY(net2_workq)
@@ -117,7 +139,8 @@ static void	 wqev_lock(struct ev_loop*);
 static void	 evloop_wakeup(struct ev_loop*, ev_async*, int);
 static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
 static int	 wqev_mtx_unlock(struct net2_workq_evbase*, int);
-static void	 net2_workq_deactivate_internal(struct net2_workq_job*, int);
+static void	 net2_workq_deactivate_internal(
+		    struct net2_workq_job_internal*, int);
 
 
 /*
@@ -158,7 +181,7 @@ net2_workq_worker(void *w_ptr)
 	struct net2_workq_evbase_worker	*w = w_ptr;
 	struct net2_workq_evbase	*wqev = w->evbase;
 	struct net2_workq		*run;
-	struct net2_workq_job		*job;
+	struct net2_workq_job_internal	*job;
 	int				 died;
 	int				 jobdied;
 
@@ -656,7 +679,7 @@ ILIAS_NET2_EXPORT void
 net2_workq_release(struct net2_workq *wq)
 {
 	struct net2_workq_evbase	*wqev;
-	struct net2_workq_job		*job;
+	struct net2_workq_job_internal	*job;
 	int				 do_free;
 
 	if (wq == NULL)
@@ -722,9 +745,9 @@ net2_workq_release(struct net2_workq *wq)
 		net2_mutex_unlock(job->mtx);
 
 		/* Inform job of workq destruction. */
-		if (job->callbacks != NULL &&
-		    job->callbacks->on_wqdestroy != NULL)
-			(*job->callbacks->on_wqdestroy)(job);
+		if (job->backptr->callbacks != NULL &&
+		    job->backptr->callbacks->on_wqdestroy != NULL)
+			(*job->backptr->callbacks->on_wqdestroy)(job->backptr);
 	}
 
 	/* Free resources. */
@@ -745,18 +768,32 @@ net2_workq_evbase(struct net2_workq *wq)
 
 /* Add a job to the workq. */
 ILIAS_NET2_EXPORT int
-net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
+net2_workq_init_work(struct net2_workq_job *jj, struct net2_workq *wq,
     net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
+	struct net2_workq_job_internal	*j;
+	int				 error;
+
+	jj->internal = NULL;
+	jj->callbacks = NULL;
+
 	if ((flags & NET2_WORKQ_VALID_USERFLAGS) != flags)
 		return EINVAL;
 	/* fn == NULL is allowed: it won't ever activate however. */
 
-	if ((j->mtx = net2_mutex_alloc()) == NULL)
-		return ENOMEM;
+	if ((j = net2_malloc(sizeof(*j))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	j->backptr = jj;
+
+	if ((j->mtx = net2_mutex_alloc()) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
 	if ((j->wq_death = net2_cond_alloc()) == NULL) {
-		net2_mutex_free(j->mtx);
-		return ENOMEM;
+		error = ENOMEM;
+		goto fail_2;
 	}
 
 	j->workq = wq;
@@ -764,15 +801,31 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	j->fn = fn;
 	j->cb_arg[0] = arg0;
 	j->cb_arg[1] = arg1;
-	j->callbacks = NULL;
+
+	jj->internal = j;
 	return 0;
+
+
+fail_3:
+	net2_cond_free(j->wq_death);
+fail_2:
+	net2_mutex_free(j->mtx);
+fail_1:
+	net2_free(j);
+fail_0:
+	assert(error != 0);
+	return error;
 }
 
 /* Destroy workq job. */
 ILIAS_NET2_EXPORT void
-net2_workq_deinit_work(struct net2_workq_job *j)
+net2_workq_deinit_work(struct net2_workq_job *jj)
 {
-	struct net2_workq *wq;
+	struct net2_workq		*wq;
+	struct net2_workq_job_internal	*j;
+
+	j = jj->internal;
+	jj->internal = NULL;
 
 	/* Detach from the workq in a permanent fashion. */
 	net2_workq_deactivate_internal(j, 1);
@@ -780,8 +833,10 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	net2_cond_free(j->wq_death);
 	net2_mutex_free(j->mtx);
 
-	if (j->callbacks != NULL && j->callbacks->on_destroy != NULL)
-		(*j->callbacks->on_destroy)(j);
+	if (jj->callbacks != NULL && jj->callbacks->on_destroy != NULL)
+		(*jj->callbacks->on_destroy)(jj);
+
+	net2_free(j);
 }
 
 /*
@@ -789,10 +844,11 @@ net2_workq_deinit_work(struct net2_workq_job *j)
  * An active job will have its callback run.
  */
 ILIAS_NET2_EXPORT void
-net2_workq_activate(struct net2_workq_job *j)
+net2_workq_activate(struct net2_workq_job *jj)
 {
 	struct net2_workq		*wq;
 	struct net2_workq_evbase	*wqev;
+	struct net2_workq_job_internal	*j = jj->internal;
 	int				 add_me;
 	int				 j_added = 0;
 
@@ -845,9 +901,9 @@ out:
 	net2_mutex_unlock(j->mtx);
 
 	if (j_added) {
-		if (j->callbacks != NULL &&
-		    j->callbacks->on_activate != NULL)
-			(*j->callbacks->on_activate)(j);
+		if (jj->callbacks != NULL &&
+		    jj->callbacks->on_activate != NULL)
+			(*jj->callbacks->on_activate)(jj);
 		/* Undo refcount increment. */
 		net2_workq_release(wq);
 	}
@@ -855,7 +911,7 @@ out:
 
 /* Mark job as inactive. */
 static void
-net2_workq_deactivate_internal(struct net2_workq_job *j, int die)
+net2_workq_deactivate_internal(struct net2_workq_job_internal *j, int die)
 {
 	struct net2_workq		*wq;
 	int				 deleted = 0;
@@ -897,20 +953,20 @@ out:
 		j->workq = NULL;
 	net2_mutex_unlock(j->mtx);
 
-	if (deleted && j->callbacks != NULL &&
-	    j->callbacks->on_deactivate != NULL)
-		(*j->callbacks->on_deactivate)(j);
+	if (deleted && j->backptr->callbacks != NULL &&
+	    j->backptr->callbacks->on_deactivate != NULL)
+		(*j->backptr->callbacks->on_deactivate)(j->backptr);
 }
 
 /* Mark job as inactive. */
 ILIAS_NET2_EXPORT void
 net2_workq_deactivate(struct net2_workq_job *j)
 {
-	net2_workq_deactivate_internal(j, 0);
+	net2_workq_deactivate_internal(j->internal, 0);
 }
 
 /* Returns the event loop used for the workq. */
-ILIAS_NET2_EXPORT void*
+ILIAS_NET2_LOCAL struct ev_loop*
 net2_workq_get_evloop(struct net2_workq *wq)
 {
 	return wq->evbase->evloop;
@@ -924,8 +980,9 @@ net2_workq_get_evloop(struct net2_workq *wq)
  * Call net2_workq_release to release the workq again.
  */
 ILIAS_NET2_EXPORT struct net2_workq*
-net2_workq_get(struct net2_workq_job *j)
+net2_workq_get(struct net2_workq_job *jj)
 {
+	struct net2_workq_job_internal	*j = jj->internal;
 	struct net2_workq		*wq;
 	int				 wq_is_dead = 0;
 

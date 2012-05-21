@@ -27,11 +27,17 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+struct ev_loop;		/* From libev. */
+
 struct net2_workq;
 struct net2_workq_job;
 struct net2_workq_evbase;
+struct net2_workq_job_internal;
+struct net2_workq_job_io;
 typedef void (*net2_workq_cb)(void*, void*);
 typedef void (*net2_workq_job_cb)(struct net2_workq_job*);
+
+#define NET2_WORKQ_PERSIST	0x00000001	/* Job persists. */
 
 struct net2_workq_job_cb {
 	net2_workq_job_cb
@@ -42,24 +48,8 @@ struct net2_workq_job_cb {
 };
 
 struct net2_workq_job {
-	struct net2_mutex
-			*mtx;			/* Protect workq pointer. */
-	struct net2_condition
-			*wq_death;		/* Workq death event. */
-	struct net2_workq
-			*workq;			/* Owner workq. */
-	int		 flags;			/* Flags/options. */
-#define NET2_WORKQ_PERSIST	0x00000001	/* Job persists. */
-
-	net2_workq_cb	 fn;			/* Callback. */
-	void		*cb_arg[2];		/* Callback arguments. */
-
-	TAILQ_ENTRY(net2_workq_job)
-			 readyq,		/* Link into ready queue. */
-			 memberq;		/* Link into workq. */
-
-	int		*died;			/* Set only if running. */
-
+	struct net2_workq_job_internal
+			*internal;		/* Internal data. */
 	const struct net2_workq_job_cb
 			*callbacks;		/* Special callbacks. */
 };
@@ -96,8 +86,6 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_deactivate(struct net2_workq_job*);
 
 ILIAS_NET2_EXPORT
-void	*net2_workq_get_evloop(struct net2_workq*);
-ILIAS_NET2_EXPORT
 struct net2_workq
 	*net2_workq_get(struct net2_workq_job*);
 
@@ -108,5 +96,11 @@ net2_workq_set_callbacks(struct net2_workq_job *j,
 {
 	j->callbacks = cb;
 }
+
+#ifdef ilias_net2_EXPORTS
+ILIAS_NET2_LOCAL
+struct ev_loop
+	*net2_workq_get_evloop(struct net2_workq*);
+#endif /* ilias_net2_EXPORTS */
 
 #endif /* ILIAS_NET2_WORKQ_H */
