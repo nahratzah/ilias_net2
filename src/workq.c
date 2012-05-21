@@ -855,6 +855,9 @@ net2_workq_activate(struct net2_workq_job *jj)
 	int				 add_me;
 	int				 j_added = 0;
 
+	if (j == NULL)
+		return;
+
 	net2_mutex_lock(j->mtx);
 	if (j->fn == NULL)
 		goto out; /* Noop. */
@@ -965,6 +968,8 @@ out:
 ILIAS_NET2_EXPORT void
 net2_workq_deactivate(struct net2_workq_job *j)
 {
+	if (j->internal == NULL)
+		return;
 	net2_workq_deactivate_internal(j->internal, 0);
 }
 
@@ -988,6 +993,9 @@ net2_workq_get(struct net2_workq_job *jj)
 	struct net2_workq_job_internal	*j = jj->internal;
 	struct net2_workq		*wq;
 	int				 wq_is_dead = 0;
+
+	if (j == NULL)
+		return NULL;
 
 	/* Read the workq from j. */
 	net2_mutex_lock(j->mtx);
