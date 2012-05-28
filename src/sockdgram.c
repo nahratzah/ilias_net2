@@ -67,7 +67,7 @@ net2_sockdgram_recv(evutil_socket_t sock, int *error_ptr,
 	ssize_t			 recvlen;
 	int			 error;
 
-	*recvptr = NULL;
+	*buf_ptr = NULL;
 	buf = NULL;
 	error = NET2_CONNRECV_OK;
 
@@ -172,13 +172,11 @@ net2_sockdgram_recv(evutil_socket_t sock, int *error_ptr,
 		assert(error != 0);
 
 	/* Succes. */
-	if ((*recvptr = net2_malloc(sizeof(**recvptr))) == NULL)
-		goto fail;
 	if (error_ptr != NULL)
 		*error_ptr = error;
 	if (buf_ptr != NULL)
 		*buf_ptr = buf;
-	else
+	else if (buf != NULL)
 		net2_buffer_free(buf);
 	return 0;
 
