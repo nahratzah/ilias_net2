@@ -89,6 +89,25 @@ net2_thread_is_self(struct net2_thread *t)
 	return pthread_equal(t->n2t_impl, pthread_self());
 }
 
+/* Compare 2 threads for equality. */
+ILIAS_NET2_LOCAL int
+net2_thread_eq(struct net2_thread *t1, struct net2_thread *t2)
+{
+	return pthread_equal(t1->n2t_impl, t2->n2t_impl);
+}
+
+/* Returns this thread. */
+ILIAS_NET2_LOCAL struct net2_thread*
+net2_thread_self()
+{
+	struct net2_thread	*t;
+
+	if ((t = net2_malloc(sizeof(*t))) == NULL)
+		return NULL;
+	t->n2t_impl = pthread_self();
+	return t;
+}
+
 /* Detach current thread. */
 ILIAS_NET2_LOCAL void
 net2_thread_detach_self()

@@ -120,7 +120,7 @@ ILIAS_NET2_LOCAL void
 net2_thread_free(struct net2_thread *t)
 {
 	EnterCriticalSection(&s);
-	if (!detached)
+	if (!t->detached)
 		RB_REMOVE(win32_threads, &global, t);
 	LeaveCriticalSection(&s);
 	net2_free(t);
@@ -131,6 +131,26 @@ ILIAS_NET2_LOCAL int
 net2_thread_is_self(struct net2_thread *t)
 {
 	return t->tid == GetCurrentThreadId();
+}
+
+/* Compare 2 threads for equality. */
+ILIAS_NET2_LOCAL int
+net2_thread_eq(struct net2_thread *t1, struct net2_thread *t2)
+{
+	return t1->tid == t2->tid;
+}
+
+/* Acquire the current thread. */
+ILIAS_NET2_LOCAL struct net2_thread*
+net2_thread_self()
+{
+	struct net2_thread	*t;
+
+	if ((t = net2_malloc(sizeof(*t))) == NULL)
+		return NULL;
+	t->detached = 1;
+	t->tid = GetCurrentThreadId();
+	return t;
 }
 
 /* Detach the current thread. */
