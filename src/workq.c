@@ -51,6 +51,10 @@ struct net2_workq_job_internal {
 	int		*died;			/* Set only if running. */
 	struct net2_workq_job
 			*backptr;		/* Point back to job. */
+
+	struct net2_condition
+			*exe_complete;		/* Execution finished with
+						 * WANT_EXE set. */
 };
 
 /* Workq data. */
@@ -83,6 +87,10 @@ struct net2_workq {
 	int		*died;			/* Pointer to boolean, only
 						 * set if thread is in the
 						 * running state. */
+
+	size_t		 wanted;		/* Want to suspend workq. */
+	struct net2_condition
+			*wanted_cond;		/* Ready for suspension. */
 };
 
 /*
@@ -142,7 +150,7 @@ static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
 static int	 wqev_mtx_unlock(struct net2_workq_evbase*, int);
 static void	 net2_workq_deactivate_internal(
 		    struct net2_workq_job_internal*, int);
-static void	 run_wq(struct net2_workq_evbase*, struct net2_workq*);
+static int	 run_wq(struct net2_workq_evbase*, struct net2_workq*);
 static void	 run_job(struct net2_workq*, struct net2_workq_job_internal*);
 
 
@@ -760,6 +768,10 @@ net2_workq_init_work(struct net2_workq_job *jj, struct net2_workq *wq,
 		error = ENOMEM;
 		goto fail_2;
 	}
+	if ((j->exe_complete = net2_cond_alloc()) == NULL) {
+		error = ENOMEM;
+		goto fail_3;
+	}
 
 	j->workq = wq;
 	j->flags = flags;
@@ -771,6 +783,8 @@ net2_workq_init_work(struct net2_workq_job *jj, struct net2_workq *wq,
 	return 0;
 
 
+fail_4:
+	net2_cond_free(j->exe_complete);
 fail_3:
 	net2_cond_free(j->wq_death);
 fail_2:
@@ -1009,8 +1023,10 @@ out:
  * If wq is NULL, a workq will be selected.
  *
  * Called with wqev locked, returns with wqev locked.
+ *
+ * If wq dies, returns 1, otherwise 0.
  */
-static void
+static int
 run_wq(struct net2_workq_evbase *wqev, struct net2_workq *wq)
 {
 	int			 died;
@@ -1019,11 +1035,11 @@ run_wq(struct net2_workq_evbase *wqev, struct net2_workq *wq)
 	/* If no workq was selected, select one manually. */
 	if (wq == NULL) {
 		if ((wq = TAILQ_FIRST(&wqev->runq)) == NULL)
-			return;
+			return 0;
 	}
 	/* Acquire this thread. */
 	if ((th_self = net2_thread_self()) == NULL)
-		return;
+		return 0;
 
 	TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
 	wq->flags &= ~NET2_WQ_F_ONQUEUE;
@@ -1050,16 +1066,17 @@ run_wq(struct net2_workq_evbase *wqev, struct net2_workq *wq)
 	if (wq->flags & NET2_WQ_F_DYING)
 		net2_cond_broadcast(wq->dying);
 	else if (wq->wanted > 0)
-		net2_cond_wakeup(wq->wanted_cond);
+		net2_cond_signal(wq->wanted_cond);
 	else if (!TAILQ_EMPTY(&wq->runqueue)) {
 		wq->flags |= NET2_WQ_F_ONQUEUE;
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
 	}
 
-	net2_workq_unlock(wq->mtx);
+	net2_mutex_unlock(wq->mtx);
 
 out:
 	net2_thread_free(th_self);
+	return died;
 }
 
 /*
@@ -1106,7 +1123,7 @@ run_job(struct net2_workq *wq, struct net2_workq_job_internal *j)
 	if (!died) {
 		/* Clear modifications. */
 		j->died = NULL;
-		j->flags &= ~NET2_WORKQ_RUNNNG;
+		j->flags &= ~NET2_WORKQ_RUNNING;
 	}
 	if (died || *wq_died) {
 		/*
@@ -1127,7 +1144,7 @@ run_job(struct net2_workq *wq, struct net2_workq_job_internal *j)
 	}
 	/* Signal that the job has completed. */
 	if (j->flags & NET2_WORKQ_WANT_EXE)
-		net2_cond_broadcast(j->exe_cond);
+		net2_cond_broadcast(j->exe_complete);
 }
 
 /*

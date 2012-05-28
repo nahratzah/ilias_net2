@@ -18,8 +18,19 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/sockdgram.h>
 #include <assert.h>
+#include <ev.h>
+#include <errno.h>
+
+#ifdef WIN32
+#include <WinSock2.h>
+#include <ws2def.h>
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#endif
 
 
 /* rx workq job. */
@@ -29,7 +40,7 @@ struct dgram_rx {
 	struct sockaddr_storage	 addr;
 	socklen_t		 addrlen;
 
-	int			 errno;
+	int			 error;
 	struct net2_buffer	*data;
 
 	TAILQ_ENTRY(dgram_rx)	 q;
@@ -56,12 +67,12 @@ struct net2_workq_io {
 	struct net2_workq	*wq;		/* Workq. */
 
 	ev_io			 rx_watcher;	/* RX IO watcher. */
-	net2_mutex		*rx_guard;	/* Protect rx queues. */
+	struct net2_mutex	*rx_guard;	/* Protect rx queues. */
 	TAILQ_HEAD(, dgram_rx)	 rx_queue;	/* Outstanding requests. */
 	TAILQ_HEAD(, dgram_rx)	 rx_spare;	/* Unused/avail. */
 
 	ev_io			 tx_watcher;	/* TX IO watcher. */
-	net2_mutex		*tx_guard;	/* Protect tx queues. */
+	struct net2_mutex	*tx_guard;	/* Protect tx queues. */
 	TAILQ_HEAD(, dgram_tx)	 tx_queue;	/* Outstanding requests. */
 	TAILQ_HEAD(, dgram_tx)	 tx_rts;	/* Ready to send. */
 	TAILQ_HEAD(, dgram_tx)	 tx_spare;	/* Unused/avail. */
@@ -75,19 +86,36 @@ struct net2_workq_io {
 
 
 /* Pointer magic. */
-#define DGRAM_RXEV_OFFSET						\
-	((size_t)(&((struct net2_workq_dgram*)0)->rx_watcher))
-#define DGRAM_TXEV_OFFSET						\
-	((size_t)(&((struct net2_workq_dgram*)0)->tx_watcher))
+#define DGRAM_EVRX_OFFSET						\
+	((size_t)(&((struct net2_workq_io*)0)->rx_watcher))
+#define DGRAM_EVTX_OFFSET						\
+	((size_t)(&((struct net2_workq_io*)0)->tx_watcher))
 #define EVRX_2_DGRAM(_ev)						\
-	((struct net2_workq_dgram*)((char*)(_ev) - DGRAM_EVRX_OFFSET))
+	((struct net2_workq_io*)((char*)(_ev) - DGRAM_EVRX_OFFSET))
 #define EVTX_2_DGRAM(_ev)						\
-	((struct net2_workq_dgram*)((char*)(_ev) - DGRAM_EVTX_OFFSET))
+	((struct net2_workq_io*)((char*)(_ev) - DGRAM_EVTX_OFFSET))
 
 /* Max number of unprocessed input buffers. */
 #define MAX_RX		128
 /* Max number of outstanding tx promises. */
 #define MAX_TX		128
+
+
+static struct net2_promise*
+		 dgram_get_tx_promise(struct net2_workq_io*);
+static void	 dgram_rx_activate(struct net2_workq_io*);
+static void	 dgram_rx_deactivate(struct net2_workq_io*);
+static void	 dgram_tx_activate(struct net2_workq_io*);
+static void	 dgram_tx_deactivate(struct net2_workq_io*);
+static void	 rx_evcb(struct ev_loop*, struct ev_io*, int);
+static void	 rx_callback(void*, void*);
+static int	 rx_new(struct net2_workq_io*, size_t);
+static void	 rx_free(struct dgram_rx*);
+static void	 tx_evcb(struct ev_loop*, struct ev_io*, int);
+static void	 tx_callback(void*, void*);
+static int	 tx_new(struct net2_workq_io*, size_t);
+static void	 tx_free(struct dgram_tx*);
+static void	 tx_ask(void*, void*);
 
 
 /* Acquire transmission promise. */
@@ -173,9 +201,10 @@ dgram_tx_deactivate(struct net2_workq_io *dg)
 
 /* Lib-ev callback for rx. */
 static void
-rx_evcb(struct ev_loop *loop, struct ev_io *ev, int ILIAS_NET2__unused revents)
+rx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
+    int ILIAS_NET2__unused revents)
 {
-	struct net2_workq_io	*dg = DGRAM_RXEV_OFFSET(ev);
+	struct net2_workq_io	*dg = EVRX_2_DGRAM(ev);
 	struct dgram_rx		*dgrx;
 
 	/* Acquire spare rx event. */
@@ -194,15 +223,15 @@ rx_evcb(struct ev_loop *loop, struct ev_io *ev, int ILIAS_NET2__unused revents)
 	dgrx->data = NULL;
 	dgrx->addrlen = sizeof(dgrx->addr);
 	if (net2_sockdgram_recv(dg->socket, &dgrx->error, &dgrx->data,
-	    &dgrx->addr, &dgrx->addrlen) != 0)
+	    (struct sockaddr*)&dgrx->addr, &dgrx->addrlen) != 0)
 		goto put_back;
 	if (dgrx->error == 0 && dgrx->data == NULL)
 		goto put_back;
 
 	/* Put datagram on execution queue. */
-	net2_mutex_lock(&dg->rx_guard);
-	TAILQ_INSERT_TAIL(&dg->rx_queue, dgrx, 0);
-	net2_mutex_unlock(&dg->rx_guard);
+	net2_mutex_lock(dg->rx_guard);
+	TAILQ_INSERT_TAIL(&dg->rx_queue, dgrx, q);
+	net2_mutex_unlock(dg->rx_guard);
 
 	/* Activate event. */
 	net2_workq_activate(&dgrx->impl);
@@ -211,11 +240,11 @@ rx_evcb(struct ev_loop *loop, struct ev_io *ev, int ILIAS_NET2__unused revents)
 
 
 put_back:
-	net2_mutex_lock(&dg->rx_guard);
+	net2_mutex_lock(dg->rx_guard);
 	if (TAILQ_EMPTY(&dg->rx_spare))
 		dgram_rx_activate(dg);
 	TAILQ_INSERT_HEAD(&dg->rx_spare, dgrx, q);
-	net2_mutx_unlock(&dg->rx_guard);
+	net2_mutex_unlock(dg->rx_guard);
 	return;
 }
 /* Event callback. */
@@ -226,11 +255,10 @@ rx_callback(void *dg_ptr, void *dgrx_ptr)
 	struct dgram_rx		*dgrx = dgrx_ptr;
 	struct net2_dgram_rx	 invoc;
 
-	assert(dgrx->flags & DG_ONQUEUE);
 	assert(dgrx->addrlen <= sizeof(invoc.addr));
 
 	/* Setup invocation. */
-	memcpy(&invoc.addr, dgrx->addr, dgrx->addrlen);
+	memcpy(&invoc.addr, &dgrx->addr, dgrx->addrlen);
 	invoc.addrlen = dgrx->addrlen;
 	invoc.error = dgrx->error;
 	invoc.data = dgrx->data;
@@ -256,7 +284,7 @@ rx_callback(void *dg_ptr, void *dgrx_ptr)
  * New events are added to rx_spare.
  */
 static int
-rx_new(struct net2_dgram *dg, size_t count)
+rx_new(struct net2_workq_io *dg, size_t count)
 {
 	struct dgram_rx		*dgrx;
 	size_t			 i;
@@ -268,9 +296,8 @@ rx_new(struct net2_dgram *dg, size_t count)
 			goto fail_0;
 		}
 		if ((error = net2_workq_init_work(&dgrx->impl, dg->wq,
-		    &rx_callback, dg, dgrx)) != 0)
+		    &rx_callback, dg, dgrx, 0)) != 0)
 			goto fail_1;
-		dgrx->flags = 0;
 		dgrx->data = NULL;
 
 		TAILQ_INSERT_HEAD(&dg->rx_spare, dgrx, q);
@@ -292,21 +319,22 @@ fail_0:
 }
 /* Free rx event. */
 static void
-rx_free(struct dgram_rx *rx)
+rx_free(struct dgram_rx *dgrx)
 {
 	net2_workq_deinit_work(&dgrx->impl);
 	if (dgrx->data)
 		net2_buffer_free(dgrx->data);
 	net2_free(dgrx);
-	return NULL;
+	return;
 }
 
 
 /* Lib-ev callback for rx. */
 static void
-tx_evcb(struct ev_loop *loop, struct ev_io *ev, int ILIAS_NET2__unused revents)
+tx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
+    int ILIAS_NET2__unused revents)
 {
-	struct net2_workq_io	*dg = DGRAM_TXEV_OFFSET(ev);
+	struct net2_workq_io	*dg = EVTX_2_DGRAM(ev);
 	struct dgram_tx		*dgtx;
 	struct net2_dgram_tx_promdata
 				*result;
@@ -333,7 +361,7 @@ tx_evcb(struct ev_loop *loop, struct ev_io *ev, int ILIAS_NET2__unused revents)
 
 	/* Put buffer on the wire. */
 	send_err = net2_sockdgram_send(dg->socket, result->data,
-	    &result->addr, result->addrlen);
+	    (struct sockaddr*)&result->addr, result->addrlen);
 	if (result->tx_done != NULL) {
 		assert(net2_promise_is_running(result->tx_done));
 		if (send_err == 0) {
@@ -372,7 +400,7 @@ tx_callback(void *dg_ptr, void *dgtx_ptr)
 	/* Remove event. */
 	net2_promise_event_deinit(&dgtx->tx_promdata_ready);
 	/* Acquire result. */
-	fin = net2_promise_is_get_result(dgtx->tx_promdata,
+	fin = net2_promise_get_result(dgtx->tx_promdata,
 	    (void**)&result, NULL);
 	assert(fin != NET2_PROM_FIN_UNFINISHED);
 
@@ -393,23 +421,12 @@ ready_to_send:
 #endif
 
 		/* Mark conclusion as progressing. */
-		if (dgtx->tx_done != NULL) {
-			if (net2_promise_set_running(dgtx->tx_done)) {
-				assert(0 /* Promise was already running... */);
-				/*
-				 * Promise already running?
-				 */
-				net2_promise_release(dgtx->tx_done);
-				tx_done = NULL;
-				net2_buffer_free(result->data);
-				result->data = NULL;
-				return;
-			}
-		}
+		if (result->tx_done != NULL)
+			net2_promise_set_running(result->tx_done);
 
 		/* Place on ready-to-send queue. */
 		net2_mutex_lock(dg->tx_guard);
-		TAILQ_REMOVE(&dg->tx_queued, dgtx, q);
+		TAILQ_REMOVE(&dg->tx_queue, dgtx, q);
 		if (TAILQ_EMPTY(&dg->tx_rts))
 			dgram_tx_activate(dg);
 		TAILQ_INSERT_TAIL(&dg->tx_rts, dgtx, q);
@@ -421,7 +438,7 @@ ready_to_send:
 	net2_promise_release(dgtx->tx_promdata);
 
 	/* Attempt to acquire a new promise. */
-	if ((dgtx->tx_promdata = dgram_get_txpromise(dg)) != NULL) {
+	if ((dgtx->tx_promdata = dgram_get_tx_promise(dg)) != NULL) {
 		/*
 		 * If this promise is already completed succesfully,
 		 * push it onto the ready-queue immediately.
@@ -437,7 +454,7 @@ ready_to_send:
 
 		/* Add event callback. */
 		if ((net2_promise_event_init(&dgtx->tx_promdata_ready,
-		    dgtx->tx_promdata, dg->wq, NET2_PROM_ON_FINISH,
+		    dgtx->tx_promdata, NET2_PROM_ON_FINISH, dg->wq,
 		    &tx_callback, dg, dgtx)) != 0) {
 			/*
 			 * Adding the event callback failed.
@@ -449,7 +466,7 @@ ready_to_send:
 			net2_promise_release(dgtx->tx_promdata);
 			dgtx->tx_promdata = NULL;
 
-			net2_workq_activate(&dgtx->ask_for_tx);
+			net2_workq_activate(&dg->ask_for_tx);
 
 			goto no_new_tx;
 		}
@@ -459,7 +476,7 @@ ready_to_send:
 no_new_tx:
 	/* Put dgtx on spare queue. */
 	net2_mutex_lock(dg->tx_guard);
-	TAILQ_REMOVE(&dg->tx_queued, dgtx, q);
+	TAILQ_REMOVE(&dg->tx_queue, dgtx, q);
 	TAILQ_REMOVE(&dg->tx_spare, dgtx, q);
 	net2_mutex_unlock(dg->tx_guard);
 }
@@ -468,7 +485,7 @@ no_new_tx:
  * New events are added to tx_spare.
  */
 static int
-tx_new(struct net2_dgram *dg, size_t count)
+tx_new(struct net2_workq_io *dg, size_t count)
 {
 	struct dgram_tx		*dgtx;
 	size_t			 i;
@@ -497,26 +514,30 @@ fail_0:
 }
 /* Free tx event. */
 static void
-tx_free(struct dgram_tx *tx)
+tx_free(struct dgram_tx *dgtx)
 {
 	struct net2_dgram_tx_promdata
 				*result;
 
-	if (tx->tx_promdata) {
-		net2_promise_event_deinit(&tx->tx_promdata_ready);
-		net2_promise_cancel(tx->tx_promdata);
+	if (dgtx->tx_promdata) {
+		net2_promise_event_deinit(&dgtx->tx_promdata_ready);
+		net2_promise_cancel(dgtx->tx_promdata);
 
-		if (net2_promise_get_result(tx->tx_promdata,
+		if (net2_promise_get_result(dgtx->tx_promdata,
 		    (void**)&result, NULL) == NET2_PROM_FIN_OK) {
-			/* Try to set tx_done to canceled. */
+			/*
+			 * Try to set tx_done to canceled.
+			 * While incorrect, it hopefully prevents dangling
+			 * promises.
+			 */
 			if (result->tx_done != NULL)
-				net2_promise_set_cancel(result->tx_done);
+				net2_promise_set_cancel(result->tx_done, 0);
 		}
 
-		net2_promise_release(tx->tx_promdata);
+		net2_promise_release(dgtx->tx_promdata);
 	}
 
-	net2_free(tx);
+	net2_free(dgtx);
 }
 static void
 tx_ask(void *dg_ptr, void * ILIAS_NET2__unused unused)
@@ -527,7 +548,7 @@ tx_ask(void *dg_ptr, void * ILIAS_NET2__unused unused)
 	/* Acquire dgtx if available. */
 	net2_mutex_lock(dg->tx_guard);
 	if ((dgtx = TAILQ_FIRST(&dg->tx_spare)) == NULL) {
-		net2_promise_deactivate(&dgtx->ask_for_tx);
+		net2_workq_deactivate(&dg->ask_for_tx);
 		net2_mutex_unlock(dg->tx_guard);
 		return;
 	}
@@ -538,7 +559,7 @@ tx_ask(void *dg_ptr, void * ILIAS_NET2__unused unused)
 	if ((dgtx->tx_promdata = dgram_get_tx_promise(dg)) == NULL) {
 no_new_tx:
 		net2_mutex_lock(dg->tx_guard);
-		net2_workq_deactivate(&dgtx->ask_for_tx);
+		net2_workq_deactivate(&dg->ask_for_tx);
 		net2_mutex_unlock(dg->tx_guard);
 		return;
 	}
@@ -551,9 +572,9 @@ no_new_tx:
 		net2_mutex_unlock(dg->tx_guard);
 		return;
 	}
-	/* Attach promise completion event and add dgtx to tx_queued. */
+	/* Attach promise completion event and add dgtx to tx_queue. */
 	if ((net2_promise_event_init(&dgtx->tx_promdata_ready,
-	    dgtx->tx_promdata, dg->wq, NET2_PROM_ON_FINISH,
+	    dgtx->tx_promdata, NET2_PROM_ON_FINISH, dg->wq,
 	    &tx_callback, dg, dgtx)) != 0) {
 		/*
 		 * Adding the event callback failed.
@@ -565,7 +586,7 @@ no_new_tx:
 		net2_promise_release(dgtx->tx_promdata);
 		dgtx->tx_promdata = NULL;
 
-		net2_workq_activate(&dgtx->ask_for_tx);
+		net2_workq_activate(&dg->ask_for_tx);
 
 		goto no_new_tx;
 	}
@@ -580,6 +601,8 @@ net2_workq_io_new(struct net2_workq *wq, net2_socket_t socket,
     net2_workq_io_recv rx_cb, net2_workq_io_send tx_cb, void *cb_arg)
 {
 	struct net2_workq_io	*dg;
+	struct dgram_rx		*dgrx;
+	struct dgram_tx		*dgtx;
 
 	/* Argument validation. */
 	if (wq == NULL)
@@ -668,7 +691,7 @@ net2_workq_io_destroy(struct net2_workq_io *dg)
 	int			 workq_acquired;
 
 	/* Synchronize into the workq. */
-	workq_acquired = net2_workq_want(dg->wq);
+	workq_acquired = net2_workq_want(dg->wq, 0);
 	assert(workq_acquired == 0 || workq_acquired == EDEADLK);
 
 	/* Mark as dying. */
@@ -677,8 +700,8 @@ net2_workq_io_destroy(struct net2_workq_io *dg)
 	net2_mutex_unlock(dg->fguard);
 
 	/* Stop IO. */
-	net2_workq_deactivate_rx(dg);
-	net2_workq_deactivate_tx(dg);
+	dgram_rx_deactivate(dg);
+	dgram_tx_deactivate(dg);
 
 	/* Stop ask-for-tx. */
 	net2_workq_deinit_work(&dg->ask_for_tx);
@@ -734,16 +757,13 @@ net2_workq_io_activate_rx(struct net2_workq_io *dg)
 
 	if (dg->rx_cb == NULL)
 		return;
-	loop = net2_workq_get_evloop(wq);
+	loop = net2_workq_get_evloop(dg->wq);
 
 	net2_mutex_lock(dg->rx_guard);
 	net2_mutex_lock(dg->fguard);
-	if (!(dg->flags & IO_FLAG_RX)) {
-		dg->flags |= IO_FLAG_RX;
-
-		if (!TAILQ_EMPTY(dg->rx_spare))
-			dgram_rx_activate(dg);
-	}
+	dg->flags |= IO_FLAG_RX;
+	if (!TAILQ_EMPTY(&dg->rx_spare))
+		dgram_rx_activate(dg);
 	net2_mutex_unlock(dg->fguard);
 	net2_mutex_unlock(dg->rx_guard);
 }
@@ -753,7 +773,7 @@ net2_workq_io_deactivate_rx(struct net2_workq_io *dg)
 {
 	struct ev_loop		*loop;
 
-	loop = net2_workq_get_evloop(wq);
+	loop = net2_workq_get_evloop(dg->wq);
 
 	net2_mutex_lock(dg->rx_guard);
 	net2_mutex_lock(dg->fguard);
@@ -770,10 +790,8 @@ net2_workq_io_activate_tx(struct net2_workq_io *dg)
 		return;
 
 	net2_mutex_lock(dg->fguard);
-	if (!(dg->fguard & IO_FLAG_TX)) {
-		dg->flags |= IO_FLAG_TX;
-		net2_workq_activate(&dg->ask_for_tx);
-	}
+	dg->flags |= IO_FLAG_TX;
+	net2_workq_activate(&dg->ask_for_tx);
 	net2_mutex_unlock(dg->fguard);
 }
 /* Disable listening for write events. */
@@ -781,9 +799,23 @@ ILIAS_NET2_EXPORT void
 net2_workq_io_deactivate_tx(struct net2_workq_io *dg)
 {
 	net2_mutex_lock(dg->fguard);
-	if (dg->fguard & IO_FLAG_TX) {
-		dg->flags |= IO_FLAG_TX;
-		net2_workq_deactivate(&dg->ask_for_tx);
-	}
+	dg->flags &= ~IO_FLAG_TX;
+	net2_workq_deactivate(&dg->ask_for_tx);
 	net2_mutex_unlock(dg->fguard);
+}
+
+/* Free tx promise data. */
+ILIAS_NET2_EXPORT void
+net2_workq_io_tx_pdata_free(void *pd_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_dgram_tx_promdata
+				*pd = pd_ptr;
+
+	if (pd->data != NULL)
+		net2_free(pd->data);
+	if (pd->tx_done != NULL) {
+		net2_promise_set_cancel(pd->tx_done, 0);
+		net2_promise_release(pd->tx_done);
+	}
+	net2_free(pd);
 }

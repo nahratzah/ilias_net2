@@ -19,6 +19,7 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
 #include <ilias/net2/workq.h>
+#include <ilias/net2/types.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -85,12 +86,15 @@ struct net2_workq_io
 ILIAS_NET2_EXPORT
 void	 net2_workq_io_destroy(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
-void	 net2_workq_activate_rx(struct net2_workq_io*);
+void	 net2_workq_io_activate_rx(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
-void	 net2_workq_deactivate_rx(struct net2_workq_io*);
+void	 net2_workq_io_deactivate_rx(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
-void	 net2_workq_activate_tx(struct net2_workq_io*);
+void	 net2_workq_io_activate_tx(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
-void	 net2_workq_deactivate_tx(struct net2_workq_io*);
+void	 net2_workq_io_deactivate_tx(struct net2_workq_io*);
+
+ILIAS_NET2_EXPORT
+void	 net2_workq_io_tx_pdata_free(void*, void*);
 
 #endif /* ILIAS_NET2_WORKQ_IO_H */
