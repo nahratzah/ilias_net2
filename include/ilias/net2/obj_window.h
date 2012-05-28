@@ -17,6 +17,7 @@
 #define ILIAS_NET2_OBJ_WINDOW_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <ilias/net2/config.h>
@@ -27,12 +28,6 @@
 #include <ilias/net2/bsd_compat/tree.h>
 #endif
 
-#ifdef HAVE_SYS_QUEUE_H
-#include <sys/queue.h>
-#else
-#include <ilias/net2/bsd_compat/queue.h>
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,7 +35,7 @@ extern "C" {
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
 struct net2_objwin_tx;
-struct net2_buffer;
+struct net2_buffer;		/* From ilias/net2/buffer.h */
 
 /* Free implementation for data_ptr. */
 typedef void (*net2_objwin_dataptr_free)(void*);
@@ -112,7 +107,7 @@ struct net2_objwin_tx	*n2ow_tx_add(struct net2_objwin_stub*,
 			    const struct net2_buffer*, int);
 ILIAS_NET2_LOCAL
 int			 n2ow_stub_set_event(struct net2_objwin_stub*, int,
-			    struct event*, struct event**);
+			    struct net2_workq*, net2_workq_cb, void*, void*);
 ILIAS_NET2_LOCAL
 struct event		*n2ow_stub_get_event(struct net2_objwin_stub*, int);
 

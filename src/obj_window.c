@@ -620,7 +620,7 @@ struct net2_objwin_stub {
 	struct net2_mutex	*mtx;			/* Guard. */
 	size_t			 refcnt;
 
-	struct event		*event[NET2_OBJWIN_STUB__NUM_EVENTS];
+	struct net2_workq_job	 event[NET2_OBJWIN_STUB__NUM_EVENTS];
 							/* Event list. */
 };
 
@@ -661,11 +661,10 @@ RB_PROTOTYPE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 
 /* Fire ready-to-send event; called with w locked. */
-void
+static __inline void
 n2ow_stub_ready_to_send(struct net2_objwin_stub *w)
 {
-	if (w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND] != NULL)
-		event_active(w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND], 0, 0);
+	net2_workq_activate(&w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND]);
 }
 
 /* Initialize stub. */
@@ -688,7 +687,7 @@ n2ow_new_stub()
 
 	/* Initialize null events. */
 	for (i = 0; i < NET2_OBJWIN_STUB__NUM_EVENTS; i++)
-		w->event[i] = NULL;
+		net2_workq_init_work_null(&w->event[i]);
 
 	return w;
 
@@ -1070,32 +1069,33 @@ fail:
 
 /* Assign event. */
 ILIAS_NET2_LOCAL int
-n2ow_stub_set_event(struct net2_objwin_stub *w, int evno, struct event *ev,
-    struct event **old)
+n2ow_stub_set_event(struct net2_objwin_stub *w, int evno,
+    struct net2_workq *wq, net2_workq_cb wqcb, void *arg0, void *arg1)
 {
+	int			 error;
+
 	if (evno < 0 || evno >= NET2_OBJWIN_STUB__NUM_EVENTS)
 		return -1;
 
 	net2_mutex_lock(w->mtx);
-	if (old != NULL)
-		*old = w->event[evno];
-	w->event[evno] = ev;
+	net2_workq_deinit_work(&w->event[evno]);
+	error = net2_workq_init_work(&w->event[evno], wq, wqcb, arg0, arg1, 0);
+	if (error != 0)
+		net2_workq_init_work_null(&w->event[evno]);
 	net2_mutex_unlock(w->mtx);
 
 	return 0;
 }
 
 /* Read event. */
-ILIAS_NET2_LOCAL struct event*
-n2ow_stub_get_event(struct net2_objwin_stub *w, int evno)
+ILIAS_NET2_LOCAL void
+n2ow_stub_clear_event(struct net2_objwin_stub *w, int evno)
 {
-	struct event		*ev;
-
 	if (evno < 0 || evno >= NET2_OBJWIN_STUB__NUM_EVENTS)
-		return NULL;
+		return;
 
 	net2_mutex_lock(w->mtx);
-	ev = w->event[evno];
+	net2_workq_deinit_work(&w->event[evno]);
+	net2_workq_init_work_null(&w->event[evno]);
 	net2_mutex_unlock(w->mtx);
-	return ev;
 }
