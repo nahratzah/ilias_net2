@@ -22,6 +22,7 @@
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/tx_callback.h>
 #include <ilias/net2/bsd_compat/minmax.h>
 #include <ilias/net2/bsd_compat/error.h>
@@ -76,7 +77,8 @@ struct net2_sa_tx {
 #define SATX_CLOSED			0x00000004	/* close received */
 #define SATX_LOWBUFFER_FIRED		0x01000000	/* low buffer event */
 
-	struct event			*event[NET2_SATX__NUM_EVENTS];
+	struct net2_promise		*fin;		/* TX complete. */
+	struct net2_workq_job		 event[NET2_SATX__NUM_EVENTS];
 							/* events */
 };
 
@@ -107,7 +109,8 @@ struct net2_sa_rx {
 	int				 flags;		/* state flags */
 #define SARX_CLOSING			0x00000001	/* close detected */
 
-	struct event			*event[NET2_SARX__NUM_EVENTS];
+	struct net2_promise		*fin;		/* RX complete. */
+	struct net2_workq_job		 event[NET2_SARX__NUM_EVENTS];
 							/* events */
 };
 
@@ -121,6 +124,7 @@ struct net2_stream_acceptor {
 	struct net2_sa_tx		 tx;		/* TX side of stream */
 	struct net2_sa_rx		 rx;		/* RX side of stream */
 
+	struct net2_promise		*fin;		/* TX/RX complete. */
 	int				 flags;		/* stream flags */
 #define SA_ATTACHED			0x80000000	/* attached */
 };
@@ -157,8 +161,6 @@ void	sa_ready_to_send(struct net2_sa_tx*);
 
 ILIAS_NET2_LOCAL
 void	sa_on_finish(struct net2_sa_tx*);
-ILIAS_NET2_LOCAL
-void	sa_on_detach(struct net2_sa_tx*);
 
 ILIAS_NET2_LOCAL
 void	nsa_ready_to_send(struct net2_sa_tx*);
@@ -189,8 +191,6 @@ ILIAS_NET2_LOCAL
 void	sa_rx_on_recv(struct net2_sa_rx*);
 ILIAS_NET2_LOCAL
 void	sa_rx_on_finish(struct net2_sa_rx*);
-ILIAS_NET2_LOCAL
-void	sa_rx_on_detach(struct net2_sa_rx*);
 
 ILIAS_NET2_LOCAL
 int	sa_rx_init(struct net2_sa_rx*);
@@ -885,34 +885,11 @@ sa_ready_to_send(struct net2_sa_tx *sa)
 		(*sa->ready_to_send)(sa);
 }
 
-/* Execute on-detach event. */
-ILIAS_NET2_LOCAL void
-sa_on_detach(struct net2_sa_tx *sa)
-{
-	struct timeval now = { 0, 0 };
-
-	net2_mutex_lock(sa->sendbuf_mtx);
-
-	if (sa->event[NET2_SATX_ON_DETACH])
-		event_add(sa->event[NET2_SATX_ON_DETACH], &now);
-	sa->event[NET2_SATX_ON_DETACH] = NULL;
-
-	net2_mutex_unlock(sa->sendbuf_mtx);
-}
-
 /* Execute on-finish event. */
 ILIAS_NET2_LOCAL void
 sa_on_finish(struct net2_sa_tx *sa)
 {
-	struct timeval now = { 0, 0 };
-
-	net2_mutex_lock(sa->sendbuf_mtx);
-
-	if (sa->event[NET2_SATX_ON_FINISH])
-		event_add(sa->event[NET2_SATX_ON_FINISH], &now);
-	sa->event[NET2_SATX_ON_FINISH] = NULL;
-
-	net2_mutex_unlock(sa->sendbuf_mtx);
+	net2_promise_set_finok(sa->fin, NULL, NULL, NULL, 0);
 }
 
 /* Execute low-buffer event. */
@@ -925,9 +902,7 @@ sa_on_lowbuffer(struct net2_sa_tx *sa)
 	 */
 
 	if (!(sa->flags & SATX_LOWBUFFER_FIRED)) {
-		if (sa->event[NET2_SATX_ON_LOWBUFFER] != NULL) {
-			event_active(sa->event[NET2_SATX_ON_LOWBUFFER], 0, 0);
-		}
+		net2_workq_activate(&sa->event[NET2_SATX_ON_LOWBUFFER]);
 		sa->flags |= SATX_LOWBUFFER_FIRED;
 	}
 }
@@ -1217,8 +1192,6 @@ nsa_detach(struct net2_acceptor_socket * ILIAS_NET2__unused s,
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
-	sa_on_detach(&nsa->tx);
-	sa_rx_on_detach(&nsa->rx);
 
 	return;
 }
@@ -1389,6 +1362,7 @@ ILIAS_NET2_LOCAL int
 sa_tx_init(struct net2_sa_tx *sa, void (*ready_to_send)(struct net2_sa_tx*))
 {
 	int				 i;
+	int				 error;
 
 	sa->ready_to_send = ready_to_send;
 
@@ -1398,11 +1372,15 @@ sa_tx_init(struct net2_sa_tx *sa, void (*ready_to_send)(struct net2_sa_tx*))
 	RB_INIT(&sa->retrans);
 
 	/* Create empty buffer. */
-	if ((sa->sendbuf = net2_buffer_new()) == NULL)
+	if ((sa->sendbuf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
 		goto fail_0;
+	}
 	/* Create mutex. */
-	if ((sa->sendbuf_mtx = net2_mutex_alloc()) == NULL)
+	if ((sa->sendbuf_mtx = net2_mutex_alloc()) == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
 
 	/* Setup window start and flags. */
 	sa->low_watermark = 0;
@@ -1411,12 +1389,23 @@ sa_tx_init(struct net2_sa_tx *sa, void (*ready_to_send)(struct net2_sa_tx*))
 
 	/* Setup events. */
 	for (i = 0; i < NET2_SATX__NUM_EVENTS; i++)
-		sa->event[i] = NULL;
+		net2_workq_init_work_null(&sa->event[i]);
+
+	/* Setup completion promise. */
+	if ((sa->fin = net2_promise_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
 
 	return 0;
 
-fail_1:
+
+fail_3:
+	net2_promise_release(sa->fin);
+fail_2:
 	net2_mutex_free(sa->sendbuf_mtx);
+fail_1:
+	net2_buffer_free(sa->sendbuf);
 fail_0:
 	return -1;
 }
@@ -1692,36 +1681,27 @@ ILIAS_NET2_LOCAL void
 sa_rx_on_recv(struct net2_sa_rx *sa)
 {
 	/* No locking: this is always called with recvbuf_mtx locked. */
+	net2_workq_activate(&sa->event[NET2_SARX_ON_RECV]);
+}
 
-	if (sa->event[NET2_SARX_ON_RECV] != NULL)
-		event_active(sa->event[NET2_SARX_ON_RECV], 0, 0);
+/* Helper for sa_rx_on_finish. */
+static void
+buffree2(void *buf, void * ILIAS_NET2__unused unused)
+{
+	net2_buffer_free(buf);
 }
 
 /* Fire on_finish event. */
 ILIAS_NET2_LOCAL void
 sa_rx_on_finish(struct net2_sa_rx *sa)
 {
-	struct timeval			 now = { 0, 0 };
+	struct net2_buffer		*copy;
 
 	net2_mutex_lock(sa->recvbuf_mtx);
-	if (sa->event[NET2_SARX_ON_FINISH]) {
-		event_add(sa->event[NET2_SARX_ON_FINISH], &now);
-		sa->event[NET2_SARX_ON_FINISH] = NULL;
-	}
-	net2_mutex_unlock(sa->recvbuf_mtx);
-}
-
-/* Fire on_detach event. */
-ILIAS_NET2_LOCAL void
-sa_rx_on_detach(struct net2_sa_rx *sa)
-{
-	struct timeval			 now = { 0, 0 };
-
-	net2_mutex_lock(sa->recvbuf_mtx);
-	if (sa->event[NET2_SARX_ON_DETACH]) {
-		event_add(sa->event[NET2_SARX_ON_DETACH], &now);
-		sa->event[NET2_SARX_ON_DETACH] = NULL;
-	}
+	if ((copy = net2_buffer_copy(sa->recvbuf)) == NULL)
+		net2_promise_set_error(sa->fin, ENOMEM, 0);
+	else if (net2_promise_set_finok(sa->fin, copy, &buffree2, NULL, 0))
+		net2_buffer_free(copy);
 	net2_mutex_unlock(sa->recvbuf_mtx);
 }
 
@@ -1732,21 +1712,36 @@ ILIAS_NET2_LOCAL int
 sa_rx_init(struct net2_sa_rx *sa)
 {
 	int				 i;
+	int				 error;
 
 	RB_INIT(&sa->recv);
 	sa->win_start = 0;
 	/* sa->win_close = uninitialized */
-	if ((sa->recvbuf = net2_buffer_new()) == NULL)
+	if ((sa->recvbuf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
 		goto fail_0;
-	if ((sa->recvbuf_mtx = net2_mutex_alloc()) == NULL)
+	}
+	if ((sa->recvbuf_mtx = net2_mutex_alloc()) == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
 	sa->flags = 0;
 
 	for (i = 0; i < NET2_SARX__NUM_EVENTS; i++)
-		sa->event[i] = NULL;
+		net2_workq_init_work_null(&sa->event[i]);
+
+	if ((sa->fin = net2_promise_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
 
 	return 0;
 
+
+fail_3:
+	net2_promise_release(sa->fin);
+fail_2:
+	net2_mutex_free(sa->recvbuf_mtx);
 fail_1:
 	net2_buffer_free(sa->recvbuf);
 fail_0:
@@ -1867,36 +1862,38 @@ net2_sa_rx_eof_pending(struct net2_sa_rx *sa)
  * If old is not NULL, the old event will be returned.
  */
 ILIAS_NET2_EXPORT int
-net2_sa_tx_set_event(struct net2_sa_tx *sa, int evno, struct event *ev,
-    struct event **old)
+net2_sa_tx_set_event(struct net2_sa_tx *sa, int evno, struct net2_workq *wq,
+    net2_workq_cb wqcb, void *arg0, void *arg1)
 {
+	int			 error;
+
 	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
-		return -1;
+		return EINVAL;
 
 	net2_mutex_lock(sa->sendbuf_mtx);
-	if (old != NULL)
-		*old = sa->event[evno];
-	sa->event[evno] = ev;
+	net2_workq_deinit_work(&sa->event[evno]);
+	error = net2_workq_init_work(&sa->event[evno], wq,
+	    wqcb, arg0, arg1, 0);
+	if (error != 0)
+		net2_workq_init_work_null(&sa->event[evno]);
 	net2_mutex_unlock(sa->sendbuf_mtx);
 
-	return 0;
+	return error;
 }
 
 /*
  * Return the event bound to this specific action.
  */
-ILIAS_NET2_EXPORT struct event*
-net2_sa_tx_get_event(struct net2_sa_tx *sa, int evno)
+ILIAS_NET2_EXPORT void
+net2_sa_tx_clear_event(struct net2_sa_tx *sa, int evno)
 {
-	struct event			*ev;
-
 	if (evno < 0 || evno >= NET2_SATX__NUM_EVENTS)
-		return NULL;
+		return;
 
 	net2_mutex_lock(sa->sendbuf_mtx);
-	ev = sa->event[evno];
+	net2_workq_deinit_work(&sa->event[evno]);
+	net2_workq_init_work_null(&sa->event[evno]);
 	net2_mutex_unlock(sa->sendbuf_mtx);
-	return ev;
 }
 
 
@@ -1905,34 +1902,36 @@ net2_sa_tx_get_event(struct net2_sa_tx *sa, int evno)
  * If old is not NULL, the old event will be returned.
  */
 ILIAS_NET2_EXPORT int
-net2_sa_rx_set_event(struct net2_sa_rx *sa, int evno, struct event *ev,
-    struct event **old)
+net2_sa_rx_set_event(struct net2_sa_rx *sa, int evno, struct net2_workq *wq,
+    net2_workq_cb wqcb, void *arg0, void *arg1)
 {
+	int			 error;
+
 	if (evno < 0 || evno >= NET2_SARX__NUM_EVENTS)
-		return -1;
+		return EINVAL;
 
 	net2_mutex_lock(sa->recvbuf_mtx);
-	if (old != NULL)
-		*old = sa->event[evno];
-	sa->event[evno] = ev;
+	net2_workq_deinit_work(&sa->event[evno]);
+	error = net2_workq_init_work(&sa->event[evno], wq,
+	    wqcb, arg0, arg1, 0);
+	if (error != 0)
+		net2_workq_init_work_null(&sa->event[evno]);
 	net2_mutex_unlock(sa->recvbuf_mtx);
 
-	return 0;
+	return error;
 }
 
 /*
  * Return the event bound to this specific action.
  */
-ILIAS_NET2_EXPORT struct event*
+ILIAS_NET2_EXPORT void
 net2_sa_rx_get_event(struct net2_sa_rx *sa, int evno)
 {
-	struct event			*ev;
-
 	if (evno < 0 || evno >= NET2_SARX__NUM_EVENTS)
-		return NULL;
+		return;
 
 	net2_mutex_lock(sa->recvbuf_mtx);
-	ev = sa->event[evno];
+	net2_workq_deinit_work(&sa->event[evno]);
+	net2_workq_init_work_null(&sa->event[evno]);
 	net2_mutex_unlock(sa->recvbuf_mtx);
-	return ev;
 }

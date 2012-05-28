@@ -18,6 +18,7 @@
 
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -46,10 +47,8 @@ struct net2_sa_tx;
  * LOWBUFFER will be called each time the transmit buffer drops
  * below the low water mark since the last write.
  */
-#define NET2_SATX_ON_FINISH	0	/* Transmission complete. */
-#define NET2_SATX_ON_DETACH	1	/* Connection detached. */
-#define NET2_SATX_ON_LOWBUFFER	2	/* Buffer crossed low-water mark. */
-#define NET2_SATX__NUM_EVENTS	3	/* Number of events. */
+#define NET2_SATX_ON_LOWBUFFER	0	/* Buffer crossed low-water mark. */
+#define NET2_SATX__NUM_EVENTS	1	/* Number of events. */
 
 /*
  * Stream receive side.
@@ -64,10 +63,8 @@ struct net2_sa_rx;
  * ON_FINISH will be called once all data has been received and the remote
  * end closed the stream.
  */
-#define NET2_SARX_ON_FINISH	0	/* Transmission complete. */
-#define NET2_SARX_ON_DETACH	1	/* Connection detached. */
-#define NET2_SARX_ON_RECV	2	/* New data received. */
-#define NET2_SARX__NUM_EVENTS	3	/* Number of events. */
+#define NET2_SARX_ON_RECV	0	/* New data received. */
+#define NET2_SARX__NUM_EVENTS	1	/* Number of events. */
 
 
 /* Cast stream acceptor to conn acceptor. */
@@ -122,14 +119,14 @@ int			 net2_sa_rx_eof_pending(struct net2_sa_rx*);
 
 ILIAS_NET2_EXPORT
 int			 net2_sa_tx_set_event(struct net2_sa_tx*, int,
-			    struct event*, struct event**);
+			    struct net2_workq*, net2_workq_cb, void*, void*);
 ILIAS_NET2_EXPORT
-struct event		*net2_sa_tx_get_event(struct net2_sa_tx*, int);
+void			 net2_sa_tx_clear_event(struct net2_sa_tx*, int);
 
 ILIAS_NET2_EXPORT
 int			 net2_sa_rx_set_event(struct net2_sa_rx*, int,
-			    struct event*, struct event**);
+			    struct net2_workq*, net2_workq_cb, void*, void*);
 ILIAS_NET2_EXPORT
-struct event		*net2_sa_rx_get_event(struct net2_sa_rx*, int);
+void			 net2_sa_rx_clear_event(struct net2_sa_rx*, int);
 
 #endif /* ILIAS_NET2_STREAM_ACCEPTOR_H */
