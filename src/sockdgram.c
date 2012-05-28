@@ -57,8 +57,8 @@
  * *bufptr is NULL if no data is available.
  */
 ILIAS_NET2_LOCAL int
-net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
-    struct sockaddr *from, socklen_t *fromlen)
+net2_sockdgram_recv(evutil_socket_t sock, int *error_ptr,
+    struct net2_buffer **buf_ptr, struct sockaddr *from, socklen_t *fromlen)
 {
 	int			 rdsz;
 	struct net2_buffer	*buf;
@@ -108,6 +108,10 @@ net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
 		case EWOULDBLOCK: /* No data available. */
 		case EINTR:	/* Interrupted, let libevent deal with it. */
 			net2_buffer_free(buf);
+			if (error_ptr != NULL)
+				*error_ptr = 0;
+			if (buf_ptr != NULL)
+				*buf_ptr = NULL;
 			return 0;
 #ifdef WIN32
 		case WSAEHOSTUNREACH:
@@ -144,6 +148,10 @@ net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
 	} else if (recvlen == 0) {
 		/* Don't push empty packets up the chain. */
 		net2_buffer_free(buf);
+		if (error_ptr != NULL)
+			*error_ptr = 0;
+		if (buf_ptr != NULL)
+			*buf_ptr = NULL;
 		return 0;
 	}
 
@@ -166,16 +174,16 @@ net2_sockdgram_recv(evutil_socket_t sock, struct net2_conn_receive **recvptr,
 	/* Succes. */
 	if ((*recvptr = net2_malloc(sizeof(**recvptr))) == NULL)
 		goto fail;
-	(*recvptr)->error = error;
-	(*recvptr)->buf = buf;
+	if (error_ptr != NULL)
+		*error_ptr = error;
+	if (buf_ptr != NULL)
+		*buf_ptr = buf;
+	else
+		net2_buffer_free(buf);
 	return 0;
 
 fail:
 	/* Failure. Release resources and return error. */
-	if (*recvptr != NULL) {
-		net2_free(*recvptr);
-		*recvptr = NULL;
-	}
 	if (buf != NULL)
 		net2_buffer_free(buf);
 	return -1;
@@ -183,7 +191,6 @@ fail:
 
 ILIAS_NET2_LOCAL int
 net2_sockdgram_send(evutil_socket_t sock,
-    struct net2_connection * ILIAS_NET2__unused c,
     struct net2_buffer *txbuf,
     struct sockaddr *remote, socklen_t remotelen)
 {

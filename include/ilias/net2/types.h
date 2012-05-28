@@ -29,6 +29,12 @@ struct			net2_obj;
 struct			net2_objtype;
 struct			net2_window;
 
+#ifdef WIN32
+typedef HANDLE		net2_socket_t;
+#else
+typedef int		net2_socket_t;
+#endif
+
 #ifdef BUILDING_ILIAS_NET2
 /* Not a type, but it needs to be defined somewhere... */
 ILIAS_NET2_LOCAL
