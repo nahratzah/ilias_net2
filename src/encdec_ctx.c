@@ -102,7 +102,12 @@ ILIAS_NET2_EXPORT int
 net2_encdec_ctx_newobjman(struct net2_encdec_ctx *ctx,
     struct net2_objmanager *m)
 {
-	return net2_encdec_ctx_init(ctx, &m->pvlist, m);
+	if (ctx == NULL || m == NULL)
+		return EINVAL;
+
+	/* XXX: return net2_encdec_ctx_init(ctx, &m->pvlist, m); */
+	assert(0);
+	return ENOMEM;
 }
 
 

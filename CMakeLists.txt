@@ -288,12 +288,6 @@ net2type(srcs "types/stream_packet.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_STREAM_PACKET_H")
-net2type(srcs "types/obj_manager_proto.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/obj_manager_proto.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/obj_manager_proto.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_OBJ_MANAGER_PROTO_H")
 net2type(srcs "types/signature.n2t"
     "${CMAKE_CURRENT_BINARY_DIR}/signature.c"
     "${CMAKE_CURRENT_BINARY_DIR}/signature.h"
