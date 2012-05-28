@@ -19,7 +19,8 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
 #include <ilias/net2/workq.h>
-#include <ev.h>
+#include <sys/types.h>
+#include <stdint.h>
 
 #ifdef WIN32
 #include <WinSock2.h>
@@ -29,52 +30,67 @@
 #include <sys/socket.h>
 #endif
 
-#ifdef HAVE_SYS_QUEUE_H
-#include <sys/queue.h>
-#else
-#include <ilias/net2/bsd_compat/queue.h>
-#endif
+#define NET2_WORKQ_IO_MAXLEN	((size_t)64 * 1024)
 
 /* Received data. */
-struct net2_dgram {
-	struct sockaddr_storage
-			 addr;
-	socklen_t	 addrlen;
-	int		 error;
-	struct net2_buffer
-			*data;
+struct net2_dgram_rx {
+	struct sockaddr_storage	 addr;		/* Origin address. */
+	socklen_t		 addrlen;
 
-	TAILQ_ENTRY(net2_dgram)
-			 bufq;
+	int			 error;		/* Received error. */
+	struct net2_buffer	*data;		/* Received data. */
 };
 
-typedef void (*net2_workq_io_recv)(void*, struct net2_dgram*);
-typedef void (*net2_workq_io_send)(void*, void*);
+/*
+ * Transmit data promise.
+ *
+ * tx_promise: will be filled in with net2_dgram_tx_promdata.
+ * - if the promise completes with FIN_OK, it will contain the data
+ *   that is to be transmitted.
+ * - if the promise fails or is canceled, no data will be transmitted.
+ * - when the sender is destroyed, the outstanding promises will have
+ *   cancel_req set.
+ */
+struct net2_dgram_tx_promdata {
+	struct sockaddr_storage	 addr;		/* Destination address. */
+	socklen_t		 addrlen;
+
+	struct net2_buffer	*data;		/* Data to transmit. */
+	struct net2_promise	*tx_done;	/* Optional: tx done event. */
+};
+
+/* Invoked for a received packet. */
+typedef void (*net2_workq_io_recv)(void*, struct net2_dgram_rx*);
+/*
+ * Invoked when a packet needs to be created to transmit on the wire.
+ *
+ * The promise must yield:
+ * - net2_dgram_tx (put the net2_dgram_tx on the wire)
+ * - error (nothing to send, request will be reposted)
+ * - if NULL is returned, write will be suspended.
+ *   Otherwise, the requst will be repeated.
+ *
+ * The maxlen argument will be set to the wire limit.  If the implementation
+ * cannot deduce the wire limit, it will be set to a NET2_WORKQ_IO_MAXLEN.
+ */
+typedef struct net2_promise *(*net2_workq_io_send)(void*, size_t maxlen);
 
 /* Datagram event. */
-struct net2_workq_dgram {
-	struct net2_workq_job
-			 job;		/* Base job implementation. */
-	ev_io		 watcher;	/* Watcher implementation. */
-	net2_workq_io_recv
-			 recv;		/* External callback. */
-	net2_workq_io_send
-			 send;		/* External callback. */
-
-	struct net2_mutex
-			*bufmtx;	/* Protect buffers. */
-	TAILQ_HEAD(, net2_dgram)
-			 buffers;
-	size_t		 buflen;	/* # buffers. */
-
-	struct ev_loop	*loop;
-};
+struct net2_workq_io;
 
 ILIAS_NET2_EXPORT
-int	net2_workq_dgram_init(struct net2_workq_dgram*, int,
-	    struct net2_workq*, net2_workq_io_recv, net2_workq_io_send,
-	    void*);
+struct net2_workq_io
+	*net2_workq_io_new(struct net2_workq*, net2_socket_t,
+	    net2_workq_io_recv, net2_workq_io_send, void*);
 ILIAS_NET2_EXPORT
-void	net2_workq_dgram_deinit(struct net2_workq_dgram*);
+void	 net2_workq_io_destroy(struct net2_workq_io*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_activate_rx(struct net2_workq_io*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_deactivate_rx(struct net2_workq_io*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_activate_tx(struct net2_workq_io*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_deactivate_tx(struct net2_workq_io*);
 
 #endif /* ILIAS_NET2_WORKQ_IO_H */
