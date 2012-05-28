@@ -58,10 +58,11 @@ int net2_cp_destroy_alloc(struct net2_encdec_ctx*, const struct command_param*,
     void**, const void*);
 
 
-struct net2_invocation_ctx;
-struct net2_objmanager;
-typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
-    void*, void*);
+struct net2_objmanager;	/* From ilias/net2/obj_manager.h */
+struct net2_promise;	/* From ilias/net2/promise.h */
+
+typedef void (*net2_cm_invocation) (struct net2_promise*,
+    struct net2_encdec_ctx *ctx, void*);
 
 struct command_method {
 	const struct net2_protocol
@@ -79,38 +80,8 @@ struct command_method {
 };
 
 ILIAS_NET2_EXPORT
-struct net2_invocation_ctx
-		*net2_invocation_ctx_new(struct net2_objmanager*,
+struct net2_promise
+		*net2_invoke(struct net2_objmanager*,
 		    const struct command_method*, void*);
-ILIAS_NET2_EXPORT
-void		 net2_invocation_ctx_free(struct net2_invocation_ctx*);
-ILIAS_NET2_EXPORT
-void		 net2_invocation_ctx_cancel(struct net2_invocation_ctx*);
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_is_cancelled(struct net2_invocation_ctx*);
-
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_run(struct net2_invocation_ctx*);
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_fin(struct net2_invocation_ctx*, int);
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_is_running(struct net2_invocation_ctx*);
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_finished(struct net2_invocation_ctx*);
-ILIAS_NET2_EXPORT
-struct event	*net2_invocation_ctx_get_event(struct net2_invocation_ctx*,
-		    int);
-ILIAS_NET2_EXPORT
-int		 net2_invocation_ctx_set_event(struct net2_invocation_ctx*,
-		    int, struct event*, struct event**);
-
-#define NET2_IVCTX_FIN_UNFINISHED	0	/* Invoc hasn't finished. */
-#define NET2_IVCTX_FIN_OK		1	/* Executed succesful. */
-#define NET2_IVCTX_FIN_CANCEL		2	/* Execution cancelled. */
-#define NET2_IVCTX_FIN_ERROR		3	/* Execution failed. */
-#define NET2_IVCTX_FIN_FAIL		0xf	/* Failed to run. */
-
-#define NET2_IVCTX_ON_FINISH		0	/* Finish event. */
-#define NET2_IVCTX__NUM_EVENTS		1	/* Number of events. */
 
 #endif /* ILIAS_NET2_CP_H */
