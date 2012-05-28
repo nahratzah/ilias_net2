@@ -120,6 +120,7 @@ struct net2_sa_rx {
  */
 struct net2_stream_acceptor {
 	struct net2_acceptor		 base;		/* acceptor */
+	struct net2_promise_event	*txrx_handler;	/* Cascade tx/rx fin. */
 
 	struct net2_sa_tx		 tx;		/* TX side of stream */
 	struct net2_sa_rx		 rx;		/* RX side of stream */
@@ -197,6 +198,9 @@ int	sa_rx_init(struct net2_sa_rx*);
 ILIAS_NET2_LOCAL
 void	sa_rx_deinit(struct net2_sa_rx*);
 
+static
+void	buffree2(void*, void*);
+
 
 /* Function dispatch table for stream acceptor. */
 static const struct net2_acceptor_fn nsa_fn = {
@@ -211,12 +215,14 @@ ILIAS_NET2_EXPORT struct net2_stream_acceptor*
 net2_stream_acceptor_new()
 {
 	struct net2_stream_acceptor	*nsa;
+	struct net2_promise		*prom_array[2];
 
 	if ((nsa = net2_malloc(sizeof(*nsa))) == NULL)
 		goto fail_0;
 	if (net2_acceptor_init(&nsa->base, &nsa_fn))
 		goto fail_1;
 	nsa->flags = 0;
+	nsa->txrx_handler = NULL;
 
 	if (sa_tx_init(&nsa->tx, &nsa_ready_to_send))
 		goto fail_2;
@@ -224,6 +230,9 @@ net2_stream_acceptor_new()
 		goto fail_3;
 	return nsa;
 
+
+fail_4:
+	sa_rx_deinit(&nsa->rx);
 fail_3:
 	sa_tx_deinit(&nsa->tx);
 fail_2:
@@ -238,6 +247,13 @@ fail_0:
 ILIAS_NET2_EXPORT void
 net2_stream_acceptor_destroy(struct net2_stream_acceptor *nsa)
 {
+	if (nsa->txrx_handler != NULL) {
+		net2_promise_event_deinit(nsa->txrx_handler);
+		net2_free(nsa->txrx_handler);
+	}
+	net2_promise_set_cancel(nsa->fin, 0);
+	net2_promise_release(nsa->fin);
+
 	sa_rx_deinit(&nsa->rx);
 	sa_tx_deinit(&nsa->tx);
 	net2_free(nsa);
@@ -1162,23 +1178,143 @@ nsa_get_transmit(struct net2_acceptor *sa_ptr, struct net2_buffer **bufptr,
 	    net2_acceptor_socket(&nsa->base), tx, first, maxlen);
 }
 
+static void
+rx_complete_event(void *nsa_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_stream_acceptor
+				*nsa = nsa_ptr;
+	uint32_t		 err;
+	int			 fin, error;
+	struct net2_buffer	*result;
+
+	/* Bail out early if cancelation was requested. */
+	if (net2_promise_is_cancelreq(nsa->fin)) {
+		net2_promise_set_cancel(nsa->fin, 0);
+		return;
+	}
+
+	/* Get TX result. */
+	fin = net2_promise_get_result(nsa->rx.fin, (void**)&result, &err);
+
+	/* Cancel event. */
+	net2_promise_event_deinit(nsa->txrx_handler);
+	net2_free(nsa->txrx_handler);
+	nsa->txrx_handler = NULL;
+
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		assert(result != NULL);
+		result = net2_buffer_copy(result);
+		if (result == NULL) {
+			net2_promise_set_error(nsa->fin, ENOMEM, 0);
+			return;
+		}
+		if ((error = net2_promise_set_finok(nsa->fin, result,
+		    &buffree2, NULL, 0)) != 0)
+			net2_promise_set_error(nsa->fin, error, 0);
+		break;
+
+	default:
+		err = EIO;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_ERROR:
+		net2_promise_set_error(nsa->fin, err, 0);
+		break;
+	}
+}
+
+/*
+ * TX completion event.
+ * Enqueues RX completion event, unless an error occured.
+ */
+static void
+tx_complete_event(void *nsa_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_stream_acceptor
+				*nsa = nsa_ptr;
+	uint32_t		 err;
+	int			 fin, error;
+	struct net2_workq	*wq;
+
+	/* Bail out early if cancelation was requested. */
+	if (net2_promise_is_cancelreq(nsa->fin)) {
+		net2_promise_set_cancel(nsa->fin, 0);
+		return;
+	}
+
+	/* Get TX result. */
+	fin = net2_promise_get_result(nsa->tx.fin, NULL, &err);
+
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		/* Switch to rx_complete_event. */
+		wq = net2_workq_get(net2_promise_event_wqjob(
+		    nsa->txrx_handler));
+		assert(wq != NULL);
+
+		net2_promise_event_deinit(nsa->txrx_handler);
+		error = net2_promise_event_init(nsa->txrx_handler, nsa->rx.fin,
+		    NET2_PROM_ON_FINISH, wq,
+		    &rx_complete_event, nsa_ptr, NULL);
+		if (error != 0) {
+			net2_promise_set_error(nsa->fin, error, 0);
+			net2_free(nsa->txrx_handler);
+			nsa->txrx_handler = NULL;
+		}
+
+		net2_workq_release(wq);
+		break;
+
+	default:
+		err = EIO;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_ERROR:
+		net2_promise_set_error(nsa->fin, err, 0);
+		net2_promise_event_deinit(nsa->txrx_handler);
+		net2_free(nsa->txrx_handler);
+		nsa->txrx_handler = NULL;
+		break;
+	}
+}
+
 /*
  * Attach to a connection.
  */
 ILIAS_NET2_LOCAL int
-nsa_attach(struct net2_acceptor_socket * ILIAS_NET2__unused s,
-    struct net2_acceptor *sa_ptr)
+nsa_attach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
+	struct net2_workq		*wq;
+	int				 error;
+
+	wq = net2_acceptor_socket_workq(s);
+	assert(wq != NULL);
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
 	/* Prevent reattaching the stream. */
 	if (nsa->flags & SA_ATTACHED)
-		return -1;
-	nsa->flags |= SA_ATTACHED;
+		return EINVAL;
 
+	/*
+	 * Attach events to rx and tx that will combine the
+	 * completion promise.
+	 */
+	assert(nsa->txrx_handler == NULL);
+	if ((nsa->txrx_handler = net2_malloc(sizeof(*nsa->txrx_handler))) ==
+	    NULL)
+		return ENOMEM;
+	if ((error = net2_promise_event_init(nsa->txrx_handler, nsa->tx.fin,
+	    NET2_PROM_ON_FINISH, wq,
+	    &tx_complete_event, nsa, NULL)) != 0) {
+		net2_free(nsa->txrx_handler);
+		nsa->txrx_handler = NULL;
+		return error;
+	}
+
+	nsa->flags |= SA_ATTACHED;
 	if (!net2_buffer_empty(nsa->tx.sendbuf))
 		net2_acceptor_ready_to_send(sa_ptr);
+
 	return 0;
 }
 
@@ -1417,6 +1553,18 @@ ILIAS_NET2_LOCAL void
 sa_tx_deinit(struct net2_sa_tx *sa)
 {
 	struct range			*r;
+	int				 i;
+
+	/* Remove all events. */
+	for (i = 0; i < NET2_SATX__NUM_EVENTS; i++)
+		net2_workq_deinit_work(&sa->event[i]);
+
+	/*
+	 * Mark fin promise as canceled, if the promise has already
+	 * completed, this will fail.
+	 */
+	net2_promise_set_cancel(sa->fin, 0);
+	net2_promise_release(sa->fin);
 
 	/* Remove all acks. */
 	while ((r = RB_ROOT(&sa->ack)) != NULL) {
@@ -1684,13 +1832,6 @@ sa_rx_on_recv(struct net2_sa_rx *sa)
 	net2_workq_activate(&sa->event[NET2_SARX_ON_RECV]);
 }
 
-/* Helper for sa_rx_on_finish. */
-static void
-buffree2(void *buf, void * ILIAS_NET2__unused unused)
-{
-	net2_buffer_free(buf);
-}
-
 /* Fire on_finish event. */
 ILIAS_NET2_LOCAL void
 sa_rx_on_finish(struct net2_sa_rx *sa)
@@ -1755,6 +1896,18 @@ ILIAS_NET2_LOCAL void
 sa_rx_deinit(struct net2_sa_rx *sa)
 {
 	struct fragment			*f;
+	int				 i;
+
+	/* Destroy all events. */
+	for (i = 0; i < NET2_SARX__NUM_EVENTS; i++)
+		net2_workq_deinit_work(&sa->event[i]);
+
+	/*
+	 * Mark fin promise as canceled.  This will fail if the promise
+	 * has already completed.
+	 */
+	net2_promise_set_cancel(sa->fin, 0);
+	net2_promise_release(sa->fin);
 
 	/* Remove all acks. */
 	while ((f = RB_ROOT(&sa->recv)) != NULL) {
@@ -1934,4 +2087,11 @@ net2_sa_rx_get_event(struct net2_sa_rx *sa, int evno)
 	net2_workq_deinit_work(&sa->event[evno]);
 	net2_workq_init_work_null(&sa->event[evno]);
 	net2_mutex_unlock(sa->recvbuf_mtx);
+}
+
+/* Free buffer result on promise. */
+static void
+buffree2(void *buf, void * ILIAS_NET2__unused unused)
+{
+	net2_buffer_free(buf);
 }
