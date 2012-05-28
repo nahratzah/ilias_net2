@@ -153,9 +153,14 @@ struct net2_invocation_ctx {
  * in_arg will be owned by the resulting promise.
  */
 ILIAS_NET2_EXPORT struct net2_promise*
-net2_invoke(struct net2_objmanager *man, const struct command_param *cp,
+net2_invoke(struct net2_objmanager *man, const struct command_method *cm,
     void *in_arg)
 {
+	if (man == NULL || cm == NULL)
+		return NULL;
+	if (cm->cm_in != NULL && in_arg == NULL)
+		return NULL;
+
 	assert(0); /* XXX implement. */
 	return NULL;
 }
