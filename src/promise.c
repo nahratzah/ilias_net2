@@ -605,7 +605,7 @@ net2_promise_get_result(struct net2_promise *p, void **result_ptr, uint32_t *err
  * 0:		event has finished
  * EDEADLK:	event is not running
  */
-ILIAS_NET2_EXPORT int
+ILIAS_NET2_EXPORT void
 net2_promise_wait(struct net2_promise *p)
 {
 	int				 error;
@@ -616,20 +616,10 @@ net2_promise_wait(struct net2_promise *p)
 	 * completed. */
 	prom_on_run(p);
 
-	while (!(p->flags & NET2_PROM_F_FINISHED)) {
-		if (!(p->flags & NET2_PROM_F_RUNNING)) {
-			error = EDEADLK;
-			goto out;
-		}
-
+	while (!(p->flags & NET2_PROM_F_FINISHED))
 		net2_cond_wait(p->cnd, p->mtx);
-	}
 
-	error = 0;
-
-out:
 	net2_mutex_unlock(p->mtx);
-	return error;
 }
 
 /*

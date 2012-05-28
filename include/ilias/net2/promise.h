@@ -88,7 +88,7 @@ ILIAS_NET2_EXPORT
 int			 net2_promise_get_result(struct net2_promise*,
 			    void**, uint32_t*);
 ILIAS_NET2_EXPORT
-int			 net2_promise_wait(struct net2_promise*);
+void			 net2_promise_wait(struct net2_promise*);
 ILIAS_NET2_EXPORT
 void			 net2_promise_start(struct net2_promise*);
 
