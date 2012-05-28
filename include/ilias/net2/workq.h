@@ -63,6 +63,8 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_evbase_ref(struct net2_workq_evbase*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_evbase_release(struct net2_workq_evbase*);
+ILIAS_NET2_EXPORT
+void	 net2_workq_evbase_evloop_changed(struct net2_workq_evbase*);
 
 ILIAS_NET2_EXPORT
 struct net2_workq
@@ -88,6 +90,11 @@ void	 net2_workq_deactivate(struct net2_workq_job*);
 ILIAS_NET2_EXPORT
 struct net2_workq
 	*net2_workq_get(struct net2_workq_job*);
+
+ILIAS_NET2_EXPORT
+int	 net2_workq_want(struct net2_workq*, int);
+ILIAS_NET2_EXPORT
+void	 net2_workq_unwant(struct net2_workq*);
 
 /* Assign callbacks for workq modifications. */
 static __inline void
