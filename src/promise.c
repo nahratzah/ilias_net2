@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
-#include <event2/event.h>
 
 /* Pointer magic. */
 #define PROMCB_JOB_OFFSET						\

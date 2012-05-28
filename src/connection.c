@@ -30,7 +30,6 @@
 #include <ilias/net2/bsd_compat/secure_random.h>
 #include <string.h>
 #include <stdlib.h>
-#include <event2/event.h>
 #include <sys/types.h>
 #include <assert.h>
 
@@ -45,9 +44,6 @@ void		 net2_conn_handle_recv(void*, void*);
 
 /*
  * Initialize base connection struct.
- *
- * Takes ownership of evbase.
- * Evbase is released on failure.
  */
 ILIAS_NET2_EXPORT int
 net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,

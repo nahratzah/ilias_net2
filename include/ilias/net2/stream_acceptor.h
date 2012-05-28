@@ -79,7 +79,6 @@ net2_stream_acceptor_reduce(struct net2_stream_acceptor *nsa)
 
 
 struct net2_buffer;	/* from ilias/net2/buffer.h */
-struct event;		/* from event2/event.h */
 
 ILIAS_NET2_EXPORT
 struct net2_stream_acceptor

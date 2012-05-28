@@ -37,7 +37,6 @@
 extern "C" {
 #endif
 
-struct event;		/* from event2/event.h */
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
 struct net2_objwin_tx;

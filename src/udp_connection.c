@@ -306,7 +306,7 @@ net2_conn_p2p_socket(struct net2_workq_evbase *wqev, struct sockaddr *bindaddr,
 		goto fail;
 	}
 
-	/* Increase reference count to evbase. */
+	/* Increase reference count to workq. */
 	if ((wq = net2_workq_new(wqev)) == NULL) {
 		errno = ENOMEM;
 		goto fail;

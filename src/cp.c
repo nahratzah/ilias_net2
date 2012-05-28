@@ -18,7 +18,6 @@
 #include <ilias/net2/obj_manager.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/memory.h>
-#include <event2/event.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>

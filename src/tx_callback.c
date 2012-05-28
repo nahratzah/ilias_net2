@@ -17,7 +17,6 @@
 #include <ilias/net2/config.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
-#include <event2/event.h>
 #include <assert.h>
 #include <errno.h>
 

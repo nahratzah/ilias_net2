@@ -60,7 +60,6 @@ int net2_cp_destroy_alloc(struct net2_encdec_ctx*, const struct command_param*,
 
 struct net2_invocation_ctx;
 struct net2_objmanager;
-struct event;	/* from event2/event.h */
 typedef int (*net2_cm_invocation) (const struct net2_invocation_ctx*,
     void*, void*);
 

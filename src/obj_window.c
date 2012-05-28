@@ -16,7 +16,6 @@
 #include <ilias/net2/obj_window.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/mutex.h>
-#include <event2/event.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>

@@ -31,7 +31,6 @@
 #include <assert.h>
 #include <ilias/net2/bsd_compat/minmax.h>
 #include <ilias/net2/config.h>
-#include <event2/event.h>
 
 #include <ilias/net2/enc.h>
 #include <ilias/net2/hash.h>

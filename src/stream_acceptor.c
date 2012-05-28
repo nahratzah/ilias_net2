@@ -30,7 +30,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <event2/event.h>
 #include "stream_packet.h"
 
 #ifdef HAVE_SYS_TREE_H
