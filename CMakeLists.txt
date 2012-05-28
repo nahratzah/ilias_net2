@@ -55,9 +55,6 @@ list (APPEND headers
 	include/ilias/net2/xchange.h
 	)
 list (APPEND cluster_headers
-	include/ilias/net2/cluster/cfg.h
-	include/ilias/net2/cluster/cluster.h
-	include/ilias/net2/cluster/socket.h
 	)
 list (APPEND srcs
 	src/acceptor.c
@@ -94,9 +91,8 @@ list (APPEND srcs
 	src/workq_timer.c
 	src/workq_io.c
 	src/xchange.c
-	src/cluster_cfg.c
-	src/cluster_cluster.c
-	src/cluster_socket.c
+	)
+list (APPEND cluster_srcs
 	)
 
 #
@@ -381,6 +377,7 @@ list (APPEND headers ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
 add_definitions(-DBUILDING_ILIAS_NET2)
 add_library (ilias_net2 SHARED
 	${srcs}
+	${cluster_srcs}
 	${headers}
 	${cluster_headers}
 	)
