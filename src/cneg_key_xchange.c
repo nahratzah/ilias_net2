@@ -28,6 +28,7 @@
 
 #include <ilias/net2/sign.h>
 #include <ilias/net2/xchange.h>
+#include <ilias/net2/poetry.h>
 
 #include <sys/types.h>
 #include <assert.h>
@@ -1603,19 +1604,6 @@ static struct net2_buffer*
 mk_poetry(struct net2_encdec_ctx *ectx)
 {
 	static const uint16_t	 slot = SLOT_POETRY;
-	static const char	*poetry_txts[] = {
-	    "Secrecy and security aren't the same, "
-	    "even though it may seem that way. "
-	    "Only bad security relies on secrecy; "
-	    "good security works even if all the details of it "
-	    "are public. -- Bruce Schneier",
-
-	    "With the first link, the chain is forged.  "
-	    "The first speech censored, "
-	    "the first thought forbidden, "
-	    "the first freedom denied - "
-	    "chains us all, irrevocably. -- from Startrek TNG: The Drumhead",
-	};
 
 	int			 idx;
 	struct net2_buffer	*out;
@@ -1623,8 +1611,7 @@ mk_poetry(struct net2_encdec_ctx *ectx)
 	if ((out = net2_buffer_new()) == NULL)
 		return NULL;
 
-	idx = secure_random_uniform(sizeof(poetry_txts) /
-	    sizeof(poetry_txts[0]));
+	idx = secure_random_uniform(poetry_sz);
 
 	if (net2_cp_encode(ectx, &cp_uint16, out, &slot, NULL) != 0)
 		goto fail_1;

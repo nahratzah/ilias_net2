@@ -42,6 +42,7 @@ list (APPEND headers
 	include/ilias/net2/mutex.h
 	include/ilias/net2/obj_manager.h
 	include/ilias/net2/obj_window.h
+	include/ilias/net2/poetry.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/sign.h
@@ -79,6 +80,7 @@ list (APPEND srcs
 	src/memory.c
 	src/obj_manager.c
 	src/obj_window.c
+	src/poetry.c
 	src/promise.c
 	src/protocol.c
 	src/sign.c
