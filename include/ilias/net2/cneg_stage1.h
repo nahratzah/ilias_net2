@@ -17,15 +17,17 @@
 #define ILIAS_NET2_CNEG_STAGE1_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <stdint.h>
 
 
 struct packet_header;	/* From ilias/net2/packet.h */
 struct net2_buffer;	/* From ilias/net2/buffer.h */
+struct net2_ctx;	/* From ilias/net2/context.h */
 struct net2_cneg_stage1;
 
 
 ILIAS_NET2_LOCAL
-struct net2_cneg_stage1	*cneg_stage1_new();
+struct net2_cneg_stage1	*cneg_stage1_new(uint32_t, struct net2_ctx*);
 ILIAS_NET2_LOCAL
 void			 cneg_stage1_free(struct net2_cneg_stage1*);
 ILIAS_NET2_LOCAL

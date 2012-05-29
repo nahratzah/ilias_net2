@@ -759,7 +759,7 @@ txh_destroy(struct txh *txh)
 
 /* Create a new stage1 negotiator. */
 ILIAS_NET2_LOCAL struct net2_cneg_stage1*
-cneg_stage1_new(uint32_t cn_flags)
+cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
 {
 	struct net2_cneg_stage1	*s;
 
@@ -778,6 +778,7 @@ cneg_stage1_new(uint32_t cn_flags)
 
 	TAILQ_INIT(&s->tx);
 	TAILQ_INIT(&s->wait);
+	txh_init(&s->tx, cn_flags, nctx);
 
 	return s;
 
