@@ -15,12 +15,13 @@
  */
 #include <ilias/net2/cneg_stage1.h>
 #include <ilias/net2/config.h>
-#include <ilias/net2/cp.h>
 #include <ilias/net2/bitset.h>
+#include <ilias/net2/cp.h>
+#include <ilias/net2/context.h>
+#include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/promise.h>
-#include <ilias/net2/encdec_ctx.h>
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
@@ -28,6 +29,11 @@
 
 #include "handshake.h"
 #include "exchange.h"
+
+#include <ilias/net2/enc.h>
+#include <ilias/net2/hash.h>
+#include <ilias/net2/sign.h>
+#include <ilias/net2/xchange.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -95,6 +101,8 @@ struct net2_cneg_stage1 {
 	uint32_t		 sv_expected;	/* Expected rcv_len. */
 	struct net2_promise	*sv_complete;	/* All sv completed. */
 
+	uint32_t		 cn_flags;	/* Required flags. */
+
 	/* Sets receival state. */
 	struct sets		 sets;
 
@@ -103,6 +111,7 @@ struct net2_cneg_stage1 {
 };
 
 
+static void	 free2(void*, void*);
 static int	 sv_get(struct net2_cneg_stage1*, uint32_t, struct value**);
 static int	 sv_process(struct net2_cneg_stage1*, struct header*, uint32_t);
 static int	 sv_expected(struct net2_cneg_stage1*, uint32_t);
@@ -132,6 +141,17 @@ static void
 		 txh_destroy(struct txh*);
 
 
+struct name_set;	/* Used in creation of headers
+			 * (txh_init, txh_init_name_set). */
+static int	 xchange_names(char***, size_t*);
+static int	 hash_names(char***, size_t*);
+static int	 crypt_names(char***, size_t*);
+static int	 sign_names(char***, size_t*);
+static int	 txh_init_name_set(struct txh_head*, const struct name_set*);
+static int	 txh_init_fingerprints(struct txh_head*, struct net2_signset*);
+static int	 txh_init(struct txh_head*, uint32_t, struct net2_ctx*);
+
+
 static __inline int
 encode_header(struct net2_buffer *out, const struct header *h)
 {
@@ -141,6 +161,14 @@ static __inline int
 decode_header(struct header *h, struct net2_buffer *in)
 {
 	return net2_cp_decode(&net2_encdec_proto0, &cp_header, h, in, NULL);
+}
+
+
+/* Promise helper around free. */
+static void
+free2(void *p, void * ILIAS_NET2__unused unused)
+{
+	net2_free(p);
 }
 
 
@@ -731,7 +759,7 @@ txh_destroy(struct txh *txh)
 
 /* Create a new stage1 negotiator. */
 ILIAS_NET2_LOCAL struct net2_cneg_stage1*
-cneg_stage1_new()
+cneg_stage1_new(uint32_t cn_flags)
 {
 	struct net2_cneg_stage1	*s;
 
@@ -744,6 +772,7 @@ cneg_stage1_new()
 	s->sv = NULL;
 	s->sv_len = 0;
 	s->sv_expected = LEN_UNKNOWN;
+	s->cn_flags = cn_flags;
 	if ((s->sv_complete = net2_promise_new()) == NULL)
 		goto fail_2;
 
@@ -859,4 +888,332 @@ fail_1:
 fail_0:
 	assert(error != 0);
 	return error;
+}
+
+
+
+/* Create protocol version header. */
+static int
+txh_init_pver(struct txh_head *list, uint32_t cn_flags)
+{
+	struct txh		*h;
+	int			 error;
+
+	if ((h = txh_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	if ((error = init_header_protocol(&h->header, cn_flags)) != 0)
+		goto fail_1;
+
+	TAILQ_INSERT_TAIL(list, h, q);
+	return 0;
+
+
+fail_1:
+	txh_destroy(h);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+
+
+/* Describe named sets. */
+struct name_set {
+	uint32_t which;
+	int	(*names)(char ***names, size_t *count);
+	int	 free_names;	/* If true, names are allocated. */
+};
+/* All name sets. */
+static const struct name_set name_sets[] = {
+	{ F_TYPE_XCHANGE,	&xchange_names,	0 },
+	{ F_TYPE_HASH,		&hash_names,	0 },
+	{ F_TYPE_CRYPT,		&crypt_names,	0 },
+	{ F_TYPE_SIGN,		&sign_names,	0 },
+};
+
+/* Create name method headers. */
+static int
+txh_init_name_set(struct txh_head *list, const struct name_set *set)
+{
+	struct txh		*h;
+	char			**names;
+	size_t			 count, i;
+	int			 error;
+
+	/* Gather all names. */
+	names = NULL;
+	if ((error = (*set->names)(&names, &count)) != 0)
+		goto fail_0;
+
+	/* Push each name on the list. */
+	for (i = 0; i < count; i++) {
+		if ((h = txh_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+		if ((error = init_header_stringset(&h->header, i, names[i],
+		    count - 1, set->which)) != 0)
+			goto fail_2;
+
+		TAILQ_INSERT_TAIL(list, h, q);
+	}
+
+	/* Handle the case of the empty list. */
+	if (count == 0) {
+		if ((h = txh_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+		if ((error = init_header_empty_set(&h->header,
+		    set->which)) != 0)
+			goto fail_2;
+
+		TAILQ_INSERT_TAIL(list, h, q);
+	}
+
+	/* Succes. */
+	error = 0;
+	/* Use fail_1 path to clean up. */
+	goto fail_1;
+
+
+fail_2:
+	txh_destroy(h);
+fail_1:
+	if (names != NULL) {
+		if (set->free_names) {
+			for (i = 0; i < count; i++)
+				net2_free(names[i]);
+		}
+		net2_free(names);
+	}
+fail_0:
+	return error;
+}
+
+/* Create fingerprint headers. */
+static int
+txh_init_fingerprints(struct txh_head *list, struct net2_signset *set)
+{
+	struct net2_buffer	**fps;
+	size_t			 count, i;
+	int			 error;
+	struct txh		*h;
+
+	/* Gather fingerprints. */
+	fps = NULL;
+	count = 0;
+	if (set != NULL) {
+		if ((error = net2_signset_all_fingerprints(set, &fps, &count)) != 0)
+			goto fail_0;
+	}
+
+	/* Add all fingerprints. */
+	for (i = 0; i < count; i++) {
+		if ((h = txh_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+		if ((error = init_header_bufset(&h->header, i, fps[i],
+		    count - 1, F_TYPE_SIGNATURE)) != 0)
+			goto fail_2;
+
+		TAILQ_INSERT_TAIL(list, h, q);
+	}
+
+	/* Handle empty set. */
+	if (count == 0) {
+		if ((h = txh_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+		if ((error = init_header_empty_set(&h->header, F_TYPE_SIGNATURE)) != 0)
+			goto fail_2;
+
+		TAILQ_INSERT_TAIL(list, h, q);
+	}
+
+	/* Done. */
+	error = 0;
+	/* Use fail_1 to do cleanup. */
+	goto fail_1;
+
+
+fail_2:
+	txh_destroy(h);
+fail_1:
+	if (fps != NULL) {
+		for (i = 0; i < count; i++)
+			net2_buffer_free(fps[i]);
+		net2_free(fps);
+	}
+fail_0:
+	return error;
+}
+
+/*
+ * Create headers.
+ * Note: the last set of headers (set 6: requested fingerprints)
+ * is not created here.
+ */
+static int
+txh_init(struct txh_head *list, uint32_t cn_flags, struct net2_ctx *nctx)
+{
+	int			 error;
+	size_t			 i;
+	struct txh		*h;
+
+	assert(TAILQ_EMPTY(list));
+
+	/* Value 0: protocol version, flags, stage1 metadata. */
+	if ((error = txh_init_pver(list, cn_flags)) != 0)
+		goto fail;
+
+	/*
+	 * All non-set types have been added.
+	 *
+	 * Time to add set data.
+	 */
+
+	/* Set 0, 1, 2, 3: exchange, hash, crypt, sign methods. */
+	for (i = 0; i < sizeof(name_sets) / sizeof(name_sets[0]); i++) {
+		if ((error = txh_init_name_set(list, &name_sets[i])) != 0)
+			goto fail;
+	}
+
+	/* Set 5: signature fingerprints. */
+	if ((error = txh_init_fingerprints(list,
+	    (nctx == NULL ? NULL : &nctx->local_signs))) != 0)
+		goto fail;
+
+	/* Done. */
+	return 0;
+
+
+fail:
+	while ((h = TAILQ_FIRST(list)) != NULL) {
+		TAILQ_REMOVE(list, h, q);
+		txh_destroy(h);
+	}
+
+	assert(error != 0);
+	return error;
+}
+
+/* Gather all xchange methods. */
+static int
+xchange_names(char ***names_ptr, size_t *count_ptr)
+{
+	char			**names;
+	size_t			 count;
+	int			 i;
+
+	if (net2_xchangemax == 0) {
+		*names_ptr = NULL;
+		*count_ptr = 0;
+		return 0;
+	}
+
+	/* Allocate names. */
+	names = net2_calloc(net2_xchangemax, sizeof(*names));
+	if (names == NULL)
+		return ENOMEM;
+
+	/* Collect all names. */
+	for (count = 0, i = 0; i < net2_xchangemax; i++) {
+		if ((names[count] = (char*)net2_xchange_getname(i)) != NULL)
+			count++;
+	}
+
+	*names_ptr = names;
+	*count_ptr = count;
+	return 0;
+}
+/* Gather all hash methods. */
+static int
+hash_names(char ***names_ptr, size_t *count_ptr)
+{
+	char			**names;
+	size_t			 count;
+	int			 i;
+
+	if (net2_hashmax == 0) {
+		*names_ptr = NULL;
+		*count_ptr = 0;
+		return 0;
+	}
+
+	/* Allocate names. */
+	names = net2_calloc(net2_hashmax, sizeof(*names));
+	if (names == NULL)
+		return ENOMEM;
+
+	/* Collect all names. */
+	for (count = 0, i = 0; i < net2_hashmax; i++) {
+		if ((names[count] = (char*)net2_hash_getname(i)) != NULL)
+			count++;
+	}
+
+	*names_ptr = names;
+	*count_ptr = count;
+	return 0;
+}
+/* Gather all crypt methods. */
+static int
+crypt_names(char ***names_ptr, size_t *count_ptr)
+{
+	char			**names;
+	size_t			 count;
+	int			 i;
+
+	if (net2_encmax == 0) {
+		*names_ptr = NULL;
+		*count_ptr = 0;
+		return 0;
+	}
+
+	/* Allocate names. */
+	names = net2_calloc(net2_encmax, sizeof(*names));
+	if (names == NULL)
+		return ENOMEM;
+
+	/* Collect all names. */
+	for (count = 0, i = 0; i < net2_encmax; i++) {
+		if ((names[count] = (char*)net2_enc_getname(i)) != NULL)
+			count++;
+	}
+
+	*names_ptr = names;
+	*count_ptr = count;
+	return 0;
+}
+/* Gather all sign methods. */
+static int
+sign_names(char ***names_ptr, size_t *count_ptr)
+{
+	char			**names;
+	size_t			 count;
+	int			 i;
+
+	if (net2_signmax == 0) {
+		*names_ptr = NULL;
+		*count_ptr = 0;
+		return 0;
+	}
+
+	/* Allocate names. */
+	names = net2_calloc(net2_signmax, sizeof(*names));
+	if (names == NULL)
+		return ENOMEM;
+
+	/* Collect all names. */
+	for (count = 0, i = 0; i < net2_signmax; i++) {
+		if ((names[count] = (char*)net2_sign_getname(i)) != NULL)
+			count++;
+	}
+
+	*names_ptr = names;
+	*count_ptr = count;
+	return 0;
 }
