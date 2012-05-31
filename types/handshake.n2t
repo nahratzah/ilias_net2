@@ -86,10 +86,10 @@ int	 header_flag_supported(net2_protocol_t, uint32_t);
 
 ILIAS_NET2_LOCAL
 int	 init_header_protocol(struct header*, uint32_t);
-ILIAS_NET2_LOCAL int
-init_header_val(struct header*, uint32_t, uint32_t);
-ILIAS_NET2_LOCAL int
-init_header_string(struct header*, const char*, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_val(struct header*, uint32_t, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_string(struct header*, const char*, uint32_t);
 ILIAS_NET2_LOCAL
 int	 init_header_buf(struct header*, struct net2_buffer*, uint32_t);
 ILIAS_NET2_LOCAL
