@@ -22,6 +22,7 @@
 #include <ilias/net2/memory.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/promise.h>
+#include <ilias/net2/signset.h>
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
@@ -34,6 +35,7 @@
 #include <ilias/net2/hash.h>
 #include <ilias/net2/sign.h>
 #include <ilias/net2/xchange.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -56,7 +58,8 @@ struct value {
 	 * as the first element of the process() callback.
 	 */
 	void			*data;	/* Data, will be given to set. */
-	int			(*process)(void**, struct header*);
+	int			(*process)(struct net2_cneg_stage1*, void**,
+				    struct header*);
 	/* Release function for data. */
 	struct {
 		void		(*fn)(void*, void*);
@@ -108,6 +111,8 @@ struct net2_cneg_stage1 {
 
 	struct txh_head		 tx,		/* To-be-transmitted. */
 				 wait;		/* To-be-acked. */
+
+	struct net2_ctx		*nctx;		/* Network context. */
 };
 
 
@@ -120,25 +125,32 @@ static int	 val_errfin(struct value*, int);
 static int	 val_setfin(struct value*);
 static int	 val_setcancel(struct value*);
 static int	 val_init(struct value*);
+static int	 val_init_handler(struct value*,
+		    int (*)(struct net2_cneg_stage1*, void**, struct header*),
+		    void (*)(void*, void*), void*);
 static void	 val_deinit(struct value*);
-static int	 val_process(struct value*, struct header*);
+static int	 val_process(struct net2_cneg_stage1*, struct value*,
+		    struct header*);
 
 static int	 sets_setfin(struct sets*, uint32_t);
 static int	 sets_setcancel(struct sets*, uint32_t);
 static int	 sets_elem_init(struct sets_elem*);
+static int	 sets_elem_init_handler(struct sets_elem*,
+		    int (*)(struct net2_cneg_stage1*, void**, struct header*),
+		    void (*)(void*, void*), void*);
 static void	 sets_elem_deinit(struct sets_elem*);
 static int	 sets_elem_errfin(struct sets*, uint32_t, int);
 static int	 sets_elem_testfin(struct sets*, uint32_t);
 static int	 sets_get(struct sets*, uint32_t, struct sets_elem**);
 static int	 sets_setsize(struct sets*, uint32_t, uint32_t);
-static int	 sets_recv(struct sets*, struct header*, uint32_t, uint32_t);
+static int	 sets_recv(struct net2_cneg_stage1*, struct sets*,
+		    struct header*, uint32_t, uint32_t);
 static int	 sets_init(struct sets*);
 static void	 sets_deinit(struct sets*);
 
 static struct txh
 		*txh_new();
-static void
-		 txh_destroy(struct txh*);
+static void	 txh_destroy(struct txh*);
 
 
 struct name_set;	/* Used in creation of headers
@@ -147,9 +159,26 @@ static int	 xchange_names(char***, size_t*);
 static int	 hash_names(char***, size_t*);
 static int	 crypt_names(char***, size_t*);
 static int	 sign_names(char***, size_t*);
+static int	 txh_init_pver(struct txh_head*, uint32_t,
+		    struct txh **made);
 static int	 txh_init_name_set(struct txh_head*, const struct name_set*);
-static int	 txh_init_fingerprints(struct txh_head*, struct net2_signset*);
+static int	 txh_init_fingerprints(struct txh_head*, struct net2_signset*,
+		    struct txh**);
 static int	 txh_init(struct txh_head*, uint32_t, struct net2_ctx*);
+
+
+static int	 process_sv_pver(struct net2_cneg_stage1*, void**,
+		    struct header*);
+static int	 init_sv(struct net2_cneg_stage1*);
+
+
+static int	 process_set_signature(struct net2_cneg_stage1*, void**,
+		    struct header*);
+static void	 signature_free2(void*, void*);
+static int	 process_set_req_signature(struct net2_cneg_stage1*, void**,
+		    struct header*);
+static void	 req_signature_free2(void*, void*);
+int		 sets_val_init(struct sets*);
 
 
 static __inline int
@@ -225,7 +254,7 @@ sv_process(struct net2_cneg_stage1 *s, struct header *h, uint32_t idx)
 	if (old)
 		return 0;
 
-	if ((error = val_process(v, h)) != 0)
+	if ((error = val_process(s, v, h)) != 0)
 		return error;
 	if ((error = val_setfin(v)) != 0)
 		return error;
@@ -381,6 +410,25 @@ val_init(struct value *v)
 	return 0;
 }
 
+/* Initialize value with handler. */
+static int
+val_init_handler(struct value *v,
+    int (*process_fn)(struct net2_cneg_stage1*, void**, struct header*),
+    void (*free_fn)(void*, void*), void *free_arg)
+{
+	val_init(v);
+
+	if ((v->complete = net2_promise_new()) == NULL) {
+		val_deinit(v);
+		return ENOMEM;
+	}
+
+	v->process = process_fn;
+	v->free.fn = free_fn;
+	v->free.fn_arg = free_arg;
+	return 0;
+}
+
 /* Deinitialize value. */
 static void
 val_deinit(struct value *v)
@@ -397,14 +445,14 @@ val_deinit(struct value *v)
 
 /* Process data for value. */
 static int
-val_process(struct value *v, struct header *h)
+val_process(struct net2_cneg_stage1 *s, struct value *v, struct header *h)
 {
 	int		 error;
 
 	if (v->process == NULL)
 		return 0;
 
-	error = (*v->process)(&v->data, h);
+	error = (*v->process)(s, &v->data, h);
 	if (error == ENOMEM)
 		return ENOMEM;
 	return val_errfin(v, error);
@@ -467,6 +515,23 @@ sets_elem_init(struct sets_elem *se)
 	int			 error;
 
 	if ((error = val_init(&se->val)) != 0)
+		return error;
+	se->len = LEN_UNKNOWN;
+	net2_bitset_init(&se->rcv);
+
+	return 0;
+}
+
+/* Initialize sets element with handler. */
+static int
+sets_elem_init_handler(struct sets_elem *se,
+    int (*process_fn)(struct net2_cneg_stage1*, void**, struct header*),
+    void (*free_fn)(void*, void*), void *free_arg)
+{
+	int			 error;
+
+	if ((error = val_init_handler(&se->val,
+	    process_fn, free_fn, free_arg)) != 0)
 		return error;
 	se->len = LEN_UNKNOWN;
 	net2_bitset_init(&se->rcv);
@@ -649,7 +714,8 @@ sets_setsize(struct sets *s, uint32_t idx, uint32_t len)
 
 /* Handles incoming data for a set. */
 static int
-sets_recv(struct sets *s, struct header *h, uint32_t idx, uint32_t len)
+sets_recv(struct net2_cneg_stage1 *s1, struct sets *s, struct header *h,
+    uint32_t idx, uint32_t len)
 {
 	struct sets_elem	*se;
 	int			 error;
@@ -675,7 +741,7 @@ sets_recv(struct sets *s, struct header *h, uint32_t idx, uint32_t len)
 		return 0;
 
 	/* Process message. */
-	if ((error = val_process(&se->val, h)) != 0)
+	if ((error = val_process(s1, &se->val, h)) != 0)
 		return error;
 
 	/* Test if the sets_elem has completed. */
@@ -686,6 +752,8 @@ sets_recv(struct sets *s, struct header *h, uint32_t idx, uint32_t len)
 static int
 sets_init(struct sets *s)
 {
+	int			 error;
+
 	s->rcv = NULL;
 	s->len = 0;
 	s->expected_len = LEN_UNKNOWN;
@@ -693,6 +761,12 @@ sets_init(struct sets *s)
 	if ((s->complete = net2_promise_new()) == NULL)
 		return ENOMEM;
 	net2_promise_set_running(s->complete);
+
+	if ((error = sets_val_init(s)) != 0) {
+		sets_deinit(s);
+		return error;
+	}
+
 	return 0;
 }
 
@@ -762,6 +836,7 @@ ILIAS_NET2_LOCAL struct net2_cneg_stage1*
 cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
 {
 	struct net2_cneg_stage1	*s;
+	struct txh		*txh;
 
 	if ((s = net2_malloc(sizeof(*s))) == NULL)
 		goto fail_0;
@@ -773,15 +848,32 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
 	s->sv_len = 0;
 	s->sv_expected = LEN_UNKNOWN;
 	s->cn_flags = cn_flags;
+	s->nctx = nctx;
 	if ((s->sv_complete = net2_promise_new()) == NULL)
 		goto fail_2;
 
+	/* Initialize receive handlers. */
+	if (init_sv(s) != 0)
+		goto fail_3;
+
+	/* Initialize transmit sets. */
 	TAILQ_INIT(&s->tx);
 	TAILQ_INIT(&s->wait);
-	txh_init(&s->tx, cn_flags, nctx);
+	if (txh_init(&s->tx, cn_flags, nctx) != 0)
+		goto fail_4;
 
 	return s;
 
+
+fail_5:
+	while ((txh = TAILQ_FIRST(&s->tx)) != NULL) {
+		TAILQ_REMOVE(&s->tx, txh, q);
+		txh_destroy(txh);
+	}
+fail_4:
+	/* Destroy the single values. */
+	while (s->sv_len-- > 0)
+		val_deinit(&s->sv[s->sv_len]);
 fail_3:
 	if (s->sv_complete != NULL)
 		net2_promise_release(s->sv_complete);
@@ -862,7 +954,7 @@ cneg_stage1_accept(struct net2_cneg_stage1 *s,
 					goto fail_1;
 			}
 
-			if ((error = sets_recv(&s->sets, &h,
+			if ((error = sets_recv(s, &s->sets, &h,
 			    h.flags & F_TYPEMASK, h.seq)) != 0)
 				goto fail_1;
 		} else {
@@ -895,7 +987,8 @@ fail_0:
 
 /* Create protocol version header. */
 static int
-txh_init_pver(struct txh_head *list, uint32_t cn_flags)
+txh_init_pver(struct txh_head *list, uint32_t cn_flags,
+    struct txh **made)
 {
 	struct txh		*h;
 	int			 error;
@@ -908,12 +1001,16 @@ txh_init_pver(struct txh_head *list, uint32_t cn_flags)
 		goto fail_1;
 
 	TAILQ_INSERT_TAIL(list, h, q);
+	if (made != NULL)
+		*made = h;
 	return 0;
 
 
 fail_1:
 	txh_destroy(h);
 fail_0:
+	if (made != NULL)
+		*made = NULL;
 	assert(error != 0);
 	return error;
 }
@@ -995,7 +1092,8 @@ fail_0:
 
 /* Create fingerprint headers. */
 static int
-txh_init_fingerprints(struct txh_head *list, struct net2_signset *set)
+txh_init_fingerprints(struct txh_head *list, struct net2_signset *set,
+    struct txh **after)
 {
 	struct net2_buffer	**fps;
 	size_t			 count, i;
@@ -1020,7 +1118,12 @@ txh_init_fingerprints(struct txh_head *list, struct net2_signset *set)
 		    count - 1, F_TYPE_SIGNATURE)) != 0)
 			goto fail_2;
 
-		TAILQ_INSERT_TAIL(list, h, q);
+		if (after != NULL && *after != NULL)
+			TAILQ_INSERT_AFTER(list, *after, h, q);
+		else
+			TAILQ_INSERT_TAIL(list, h, q);
+		if (*after != NULL)
+			*after = h;
 	}
 
 	/* Handle empty set. */
@@ -1032,7 +1135,12 @@ txh_init_fingerprints(struct txh_head *list, struct net2_signset *set)
 		if ((error = init_header_empty_set(&h->header, F_TYPE_SIGNATURE)) != 0)
 			goto fail_2;
 
-		TAILQ_INSERT_TAIL(list, h, q);
+		if (after != NULL && *after != NULL)
+			TAILQ_INSERT_AFTER(list, *after, h, q);
+		else
+			TAILQ_INSERT_TAIL(list, h, q);
+		if (after != NULL)
+			*after = h;
 	}
 
 	/* Done. */
@@ -1063,12 +1171,12 @@ txh_init(struct txh_head *list, uint32_t cn_flags, struct net2_ctx *nctx)
 {
 	int			 error;
 	size_t			 i;
-	struct txh		*h;
+	struct txh		*h, *iafter = NULL;
 
 	assert(TAILQ_EMPTY(list));
 
 	/* Value 0: protocol version, flags, stage1 metadata. */
-	if ((error = txh_init_pver(list, cn_flags)) != 0)
+	if ((error = txh_init_pver(list, cn_flags, &iafter)) != 0)
 		goto fail;
 
 	/*
@@ -1083,9 +1191,14 @@ txh_init(struct txh_head *list, uint32_t cn_flags, struct net2_ctx *nctx)
 			goto fail;
 	}
 
-	/* Set 5: signature fingerprints. */
+	/*
+	 * Set 5: signature fingerprints.
+	 *
+	 * These are put right after pver, so the remote end can quickly
+	 * filter them and send back the signatures it wants.
+	 */
 	if ((error = txh_init_fingerprints(list,
-	    (nctx == NULL ? NULL : &nctx->local_signs))) != 0)
+	    (nctx == NULL ? NULL : &nctx->local_signs), &iafter)) != 0)
 		goto fail;
 
 	/* Done. */
@@ -1217,4 +1330,373 @@ sign_names(char ***names_ptr, size_t *count_ptr)
 	*names_ptr = names;
 	*count_ptr = count;
 	return 0;
+}
+
+
+/*
+ * Processing of completed values.
+ */
+
+
+/* Receive handler for protocol version. */
+static int
+process_sv_pver(struct net2_cneg_stage1 *s, void **vptr, struct header *h)
+{
+	struct net2_cneg_stage1_pver
+				*pv;
+
+	/* Allocate storage. */
+	if ((pv = net2_malloc(sizeof(*pv))) == NULL)
+		return ENOMEM;
+
+	/* Calculate protocol version and options. */
+	pv->proto0 = MIN(net2_proto.version, h->payload.version);
+	pv->flags = mask_option(pv->proto0, s->cn_flags | h->payload.options);
+
+	/* Assign result. */
+	*vptr = pv;
+	return 0;
+}
+
+/* Single value receive handlers. */
+static int
+init_sv(struct net2_cneg_stage1 *s)
+{
+	int			 error;
+
+	/* Allocate. */
+	s->sv_len = 1;
+	if ((s->sv = net2_calloc(s->sv_len, sizeof(*s->sv))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+	/* Initialize pver handling. */
+	if ((error = val_init_handler(&s->sv[F_TYPE_PVER],
+	    &process_sv_pver, &free2, NULL)) != 0)
+		goto fail_1;
+
+	return 0;
+
+
+fail_2:
+	val_deinit(&s->sv[F_TYPE_PVER]);
+fail_1:
+	net2_free(s->sv);
+fail_0:
+	s->sv_len = 0;
+	assert(error != 0);
+	return error;
+}
+
+
+/*
+ * Algorithm add function.
+ * Silently ignores duplicates.
+ */
+static int
+algorithms_add(struct net2_cneg_stage1_algorithms **algs_ptr, int alg_idx)
+{
+	struct net2_cneg_stage1_algorithms
+				*algs = *algs_ptr;
+	int			*arr;
+	size_t			 i;
+
+	assert(algs_ptr != NULL);
+	assert(alg_idx != -1);
+
+	/* Create empty set. */
+	if (algs == NULL) {
+		if ((algs = net2_malloc(sizeof(*algs))) == NULL)
+			return ENOMEM;
+		algs->sz = 0;
+		algs->algs = NULL;
+		*algs_ptr = algs;
+	} else {
+		/* Prevent duplicates. */
+		for (i = 0; i < algs->sz; i++) {
+			if (algs->algs[i] == alg_idx)
+				return 0;
+		}
+	}
+
+	/* Append alg_idx. */
+	arr = net2_recalloc(algs->algs, algs->sz + 1, sizeof(algs->algs));
+	if (arr == NULL)
+		return ENOMEM;
+	arr[algs->sz++] = alg_idx;
+	algs->algs = arr;
+	return 0;
+}
+/* Algorithms free method. */
+static void
+algorithms_free2(void *algs_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_cneg_stage1_algorithms
+				*algs = algs_ptr;
+
+	if (algs != NULL) {
+		if (algs->algs != NULL)
+			net2_free(algs->algs);
+		net2_free(algs);
+	}
+}
+
+/* Process hash set element. */
+static int
+process_set_hash(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+    void **vptr, struct header *h)
+{
+	int			 alg_idx;
+
+	/* Find algorithm name. */
+	alg_idx = net2_hash_findname(h->payload.string);
+	if (alg_idx == -1)
+		return 0;
+	return algorithms_add((struct net2_cneg_stage1_algorithms**)vptr,
+	    alg_idx);
+}
+/* Process enc set element. */
+static int
+process_set_crypt(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+    void **vptr, struct header *h)
+{
+	int			 alg_idx;
+
+	/* Find algorithm name. */
+	alg_idx = net2_enc_findname(h->payload.string);
+	if (alg_idx == -1)
+		return 0;
+	return algorithms_add((struct net2_cneg_stage1_algorithms**)vptr,
+	    alg_idx);
+}
+/* Process sign set element. */
+static int
+process_set_sign(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+    void **vptr, struct header *h)
+{
+	int			 alg_idx;
+
+	/* Find algorithm name. */
+	alg_idx = net2_sign_findname(h->payload.string);
+	if (alg_idx == -1)
+		return 0;
+	return algorithms_add((struct net2_cneg_stage1_algorithms**)vptr,
+	    alg_idx);
+}
+/* Process xchange set element. */
+static int
+process_set_xchange(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+    void **vptr, struct header *h)
+{
+	int			 alg_idx;
+
+	/* Find algorithm name. */
+	alg_idx = net2_xchange_findname(h->payload.string);
+	if (alg_idx == -1)
+		return 0;
+	return algorithms_add((struct net2_cneg_stage1_algorithms**)vptr,
+	    alg_idx);
+}
+/* Process fingerprint set element. */
+static int
+process_set_signature(struct net2_cneg_stage1 *s, void **vptr,
+    struct header *h)
+{
+	struct net2_signset	*ss = *vptr;
+	struct net2_sign_ctx	*sctx;
+	int			 error;
+
+	/* Allocate signset. */
+	if (ss == NULL) {
+		if ((ss = net2_malloc(sizeof(*ss))) == NULL)
+			return ENOMEM;
+		if ((error = net2_signset_init(ss)) != 0) {
+			net2_free(ss);
+			return error;
+		}
+		*vptr = ss;
+	}
+
+	/* Without context, we cannot handle any signatures. */
+	if (s->nctx == NULL)
+		return 0;
+
+	/* Find known signature context. */
+	sctx = net2_signset_find(&s->nctx->remote_signs, h->payload.buf);
+	if (sctx == NULL)
+		return 0; /* Signature not recognized: ignore. */
+
+	/* Convert reference to ownership. */
+	if ((sctx = net2_signctx_clone(sctx)) == NULL)
+		return ENOMEM;
+
+	/* Add signature to set. */
+	error = net2_signset_insert(ss, sctx);
+	if (error != 0)
+		net2_signctx_free(sctx);
+
+	/* Ignore duplicates. */
+	if (error == EEXIST)
+		error = 0;
+	return error;
+}
+/* Fingerprint free helper. */
+static void
+signature_free2(void *ss, void * ILIAS_NET2__unused unused)
+{
+	if (ss != NULL) {
+		net2_signset_deinit(ss);
+		net2_free(ss);
+	}
+}
+/* Process acceptable signatures set. */
+static int
+process_set_req_signature(struct net2_cneg_stage1 *s, void **vptr,
+    struct header *h)
+{
+	struct net2_sign_ctx	*sctx;
+	int			 error;
+	struct net2_cneg_stage1_req_signs
+				*rs = *vptr;
+	struct net2_sign_ctx	**arr;
+
+	/* Allocate storage. */
+	if (rs == NULL) {
+		if ((rs = net2_malloc(sizeof(*rs))) == NULL)
+			return ENOMEM;
+		rs->sz = 0;
+		rs->sctx = NULL;
+		*vptr = rs;
+	}
+
+	/*
+	 * If we have no nctx, we cannot have sent any signatures.
+	 * Therefor any signature received is indicative of something
+	 * about to go horribly wrong.
+	 */
+	if (s->nctx == NULL)
+		return EINVAL;
+
+	/* Lookup signature. */
+	sctx = net2_signset_find(&s->nctx->local_signs, h->payload.buf);
+	if (sctx == NULL) {
+		/*
+		 * Received acceptable signature we don't have.
+		 * This should not happen in normal operation.
+		 */
+		return EINVAL;
+	}
+
+	/* Grow storage. */
+	if (rs->sz <= h->seq) {
+		arr = net2_recalloc(rs->sctx, h->seq + 1, sizeof(*rs->sctx));
+		if (arr == NULL)
+			return ENOMEM;
+		rs->sctx = arr;
+
+		/*
+		 * Initalize new elements to NULL.
+		 *
+		 * Note that we stop short of zeroing index h->seq.
+		 * That element will be assigned either a context or NULL
+		 * below, by virtue of the net2_signctx_clone() call.
+		 */
+		while (rs->sz < (size_t)h->seq)
+			rs->sctx[rs->sz++] = NULL;
+	}
+
+	/* Assign clone of sctx to list. */
+	if ((rs->sctx[h->seq] = net2_signctx_clone(sctx)) == NULL)
+		return ENOMEM;
+	return 0;
+}
+/* Require signature free function. */
+static void
+req_signature_free2(void *rs_ptr, void * ILIAS_NET2__unused unused)
+{
+	struct net2_cneg_stage1_req_signs
+				*rs = rs_ptr;
+
+	if (rs != NULL) {
+		while (rs->sz-- > 0)
+			net2_signctx_free(rs->sctx[rs->sz]);
+		net2_free(rs->sctx);
+		net2_free(rs);
+	}
+}
+
+/* Set value receive handlers. */
+int
+sets_val_init(struct sets *s)
+{
+#define IDX(_v)	((_v) & ~F_SET_ELEMENT)
+	int			 error;
+
+	/* Allocate storage. */
+	s->len = 6;
+	if ((s->rcv = net2_calloc(s->len, sizeof(*s->rcv))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+	/* Create hash algorithm acceptor. */
+	if ((error = sets_elem_init_handler(&s->rcv[IDX(F_TYPE_HASH)],
+	    &process_set_hash,
+	    &algorithms_free2, NULL)) != 0)
+		goto fail_1;
+
+	/* Create crypt (enc) algorithm acceptor. */
+	if ((error = sets_elem_init_handler(&s->rcv[IDX(F_TYPE_CRYPT)],
+	    &process_set_crypt,
+	    &algorithms_free2, NULL)) != 0)
+		goto fail_2;
+
+	/* Create sign algorithm acceptor. */
+	if ((error = sets_elem_init_handler(&s->rcv[IDX(F_TYPE_SIGN)],
+	    &process_set_sign,
+	    &algorithms_free2, NULL)) != 0)
+		goto fail_3;
+
+	/* Create xchange algorithm acceptor. */
+	if ((error = sets_elem_init_handler(&s->rcv[IDX(F_TYPE_XCHANGE)],
+	    &process_set_xchange,
+	    &algorithms_free2, NULL)) != 0)
+		goto fail_4;
+
+	/* Create signature (fingerprints) algorithm acceptor. */
+	if ((error = sets_elem_init_handler(&s->rcv[IDX(F_TYPE_SIGNATURE)],
+	    &process_set_signature,
+	    &signature_free2, NULL)) != 0)
+		goto fail_5;
+
+	/* Create signature accept (required signatures) algorithm acceptor. */
+	if ((error = sets_elem_init_handler(
+	    &s->rcv[IDX(F_TYPE_SIGNATURE_ACCEPT)],
+	    &process_set_req_signature,
+	    &req_signature_free2, NULL)) != 0)
+		goto fail_6;
+
+	return 0;
+
+
+fail_7:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_SIGNATURE_ACCEPT)]);
+fail_6:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_SIGNATURE)]);
+fail_5:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_XCHANGE)]);
+fail_4:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_SIGN)]);
+fail_3:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_CRYPT)]);
+fail_2:
+	sets_elem_deinit(&s->rcv[IDX(F_TYPE_HASH)]);
+fail_1:
+	net2_free(s->rcv);
+fail_0:
+	s->len = 0;
+	assert(error != 0);
+	return error;
+#undef IDX
 }

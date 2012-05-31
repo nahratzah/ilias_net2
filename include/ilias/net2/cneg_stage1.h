@@ -17,6 +17,7 @@
 #define ILIAS_NET2_CNEG_STAGE1_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/types.h>
 #include <stdint.h>
 
 
@@ -24,6 +25,25 @@ struct packet_header;	/* From ilias/net2/packet.h */
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 struct net2_ctx;	/* From ilias/net2/context.h */
 struct net2_cneg_stage1;
+
+
+/* Protocol version and negotiated flags. */
+struct net2_cneg_stage1_pver {
+	net2_protocol_t		 proto0;	/* Protocol 0 version. */
+	uint32_t		 flags;		/* Required options. */
+};
+
+/* Algorithm set. */
+struct net2_cneg_stage1_algorithms {
+	size_t			 sz;		/* # algs. */
+	int			*algs;		/* Algorithms. */
+};
+
+/* Required signatures set. */
+struct net2_cneg_stage1_req_signs {
+	size_t			 sz;		/* # sctx. */
+	struct net2_sign_ctx	**sctx;		/* Signatures. */
+};
 
 
 ILIAS_NET2_LOCAL
