@@ -984,6 +984,10 @@ fail_0:
 }
 
 
+/*
+ * Transmit message generation.
+ */
+
 
 /* Create protocol version header. */
 static int
