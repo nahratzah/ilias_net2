@@ -61,9 +61,36 @@ ILIAS_NET2_EXPORT
 int	 net2_signset_insert(struct net2_signset *s,
 	    struct net2_sign_ctx *key);
 ILIAS_NET2_EXPORT
+struct net2_sign_ctx
+	*net2_signset_remove(struct net2_signset*, struct net2_signset_entry*);
+ILIAS_NET2_EXPORT
 int	 net2_signset_all_fingerprints(struct net2_signset*,
 	    struct net2_buffer***, size_t*);
 #define	 net2_signset_size(s)	((const size_t)(s)->size)
+
+ILIAS_NET2_EXPORT
+struct net2_signset_entry*
+	 net2_signset_first(struct net2_signset*);
+ILIAS_NET2_EXPORT
+struct net2_signset_entry*
+	 net2_signset_last(struct net2_signset*);
+ILIAS_NET2_EXPORT
+struct net2_signset_entry*
+	 net2_signset_next(struct net2_signset*, struct net2_signset_entry*);
+ILIAS_NET2_EXPORT
+struct net2_signset_entry*
+	 net2_signset_prev(struct net2_signset*, struct net2_signset_entry*);
+
+/* Iterate signset. */
+#define net2_signset_foreach(_ptr, _ss)					\
+	for ((_ptr) = net2_signset_first((_ss));			\
+	    (_ptr) != NULL;						\
+	    (_ptr) = net2_signset_next((_ss), (_ptr)))
+/* Iterate signset in reverse order. */
+#define net2_signset_foreach_reverse(_ptr, _ss)				\
+	for ((_ptr) = net2_signset_last((_ss));				\
+	    (_ptr) != NULL;						\
+	    (_ptr) = net2_signset_prev((_ss), (_ptr)))
 
 #ifdef __cplusplus
 }

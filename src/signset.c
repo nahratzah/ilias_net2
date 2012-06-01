@@ -159,6 +159,22 @@ net2_signset_insert(struct net2_signset *s, struct net2_sign_ctx *key)
 	return 0;
 }
 
+/* Remove entry. */
+ILIAS_NET2_EXPORT struct net2_sign_ctx*
+net2_signset_remove(struct net2_signset *s, struct net2_signset_entry *e)
+{
+	struct net2_sign_ctx	*key;
+
+	/* e must exist in this set. */
+	if (e == NULL || RB_FIND(net2_signset_tree, &s->data, e) != e)
+		return NULL;
+
+	RB_REMOVE(net2_signset_tree, &s->data, e);
+	key = e->key;
+	net2_free(e);
+	return key;
+}
+
 ILIAS_NET2_EXPORT int
 net2_signset_all_fingerprints(struct net2_signset *s,
     struct net2_buffer***listptr, size_t *countptr)
@@ -196,4 +212,37 @@ fail:
 	*countptr = 0;
 	*listptr = NULL;
 	return error;
+}
+
+ILIAS_NET2_EXPORT struct net2_signset_entry*
+net2_signset_first(struct net2_signset *s)
+{
+	return RB_MIN(net2_signset_tree, &s->data);
+}
+ILIAS_NET2_EXPORT struct net2_signset_entry*
+net2_signset_last(struct net2_signset *s)
+{
+	return RB_MAX(net2_signset_tree, &s->data);
+}
+ILIAS_NET2_EXPORT struct net2_signset_entry*
+net2_signset_next(struct net2_signset *s, struct net2_signset_entry *e)
+{
+	/*
+	 * A bit silly local variable, but it prevents unused-argument-warning
+	 * triggering from the macro not actually using this.
+	 */
+	struct net2_signset_tree	*tree = &s->data;
+
+	return RB_NEXT(net2_signset_tree, tree, e);
+}
+ILIAS_NET2_EXPORT struct net2_signset_entry*
+net2_signset_prev(struct net2_signset *s, struct net2_signset_entry *e)
+{
+	/*
+	 * A bit silly local variable, but it prevents unused-argument-warning
+	 * triggering from the macro not actually using this.
+	 */
+	struct net2_signset_tree	*tree = &s->data;
+
+	return RB_PREV(net2_signset_tree, tree, e);
 }
