@@ -23,6 +23,7 @@
 #include <ilias/net2/packet.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/signset.h>
+#include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
@@ -103,6 +104,9 @@ struct net2_cneg_stage1 {
 	uint32_t		 sv_len;	/* # sv. */
 	uint32_t		 sv_expected;	/* Expected rcv_len. */
 	struct net2_promise	*sv_complete;	/* All sv completed. */
+	struct net2_promise	*rsin;		/* Required signatures that
+						 * remote must send crypto
+						 * negotiation with. */
 
 	uint32_t		 cn_flags;	/* Required flags. */
 
@@ -113,6 +117,10 @@ struct net2_cneg_stage1 {
 				 wait;		/* To-be-acked. */
 
 	struct net2_ctx		*nctx;		/* Network context. */
+
+	struct net2_promise_event txh_accsign;	/* Remote end must provide
+						 * these signatures. */
+	int			 txh_error;	/* Delayed txh error. */
 };
 
 
@@ -178,6 +186,9 @@ static void	 signature_free2(void*, void*);
 static int	 process_set_req_signature(struct net2_cneg_stage1*, void**,
 		    struct header*);
 static void	 req_signature_free2(void*, void*);
+static void	 signset_to_s1ss(struct net2_promise*, struct net2_promise**,
+		    size_t, void*);
+static void	 txh_acceptable_signatures(void*, void*);
 int		 sets_val_init(struct sets*);
 
 
@@ -833,10 +844,13 @@ txh_destroy(struct txh *txh)
 
 /* Create a new stage1 negotiator. */
 ILIAS_NET2_LOCAL struct net2_cneg_stage1*
-cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
+cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
+    struct net2_workq *wq)
 {
 	struct net2_cneg_stage1	*s;
 	struct txh		*txh;
+	const size_t		 prom_signature_idx =
+				    (F_TYPE_SIGNATURE & ~F_SET_ELEMENT);
 
 	if ((s = net2_malloc(sizeof(*s))) == NULL)
 		goto fail_0;
@@ -849,6 +863,7 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
 	s->sv_expected = LEN_UNKNOWN;
 	s->cn_flags = cn_flags;
 	s->nctx = nctx;
+	s->txh_error = 0;
 	if ((s->sv_complete = net2_promise_new()) == NULL)
 		goto fail_2;
 
@@ -862,9 +877,56 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx)
 	if (txh_init(&s->tx, cn_flags, nctx) != 0)
 		goto fail_4;
 
+	/* Create signature list that remote will use to sign messages. */
+	if (nctx == NULL || nctx->remote_min == 0) {
+		/* Trivial case: no acceptable signatures required. */
+		if ((s->rsin = net2_promise_new()) == NULL)
+			goto fail_5;
+		if (net2_promise_set_finok(s->rsin, NULL,
+		    NULL, NULL, 0) != 0) {
+			net2_promise_release(s->rsin);
+			goto fail_5;
+		}
+	} else {
+		size_t		*count;
+
+		/*
+		 * Add count argument: the number of signctx to be used
+		 * by the remote endpoint.
+		 */
+		if ((count = net2_malloc(sizeof(*count))) == NULL)
+			goto fail_5;
+		*count = (nctx == NULL ? 0 : nctx->remote_min);
+
+		/* Create conversion from F_TYPE_SIGNATURE to rsin. */
+		s->rsin = net2_promise_combine(wq, &signset_to_s1ss, count,
+		    &s->sets.rcv[prom_signature_idx].val.complete, 1);
+		if (s->rsin == NULL) {
+			net2_free(count);
+			goto fail_5;
+		}
+
+		/* Ensure count is freed when rsin is destroyed. */
+		net2_promise_destroy_cb(s->rsin, &free2, count, NULL);
+	}
+
+	/*
+	 * Attach event to signatures receival
+	 * which will generate the list of acceptable signatures.
+	 */
+	if (net2_promise_event_init(&s->txh_accsign, s->rsin,
+	    NET2_PROM_ON_FINISH, wq, &txh_acceptable_signatures, s,
+	    s->rsin) != 0)
+		goto fail_6;
+
 	return s;
 
 
+fail_7:
+	net2_promise_event_deinit(&s->txh_accsign);
+fail_6:
+	net2_promise_cancel(s->rsin);
+	net2_promise_release(s->rsin);
 fail_5:
 	while ((txh = TAILQ_FIRST(&s->tx)) != NULL) {
 		TAILQ_REMOVE(&s->tx, txh, q);
@@ -891,6 +953,11 @@ ILIAS_NET2_LOCAL void
 cneg_stage1_free(struct net2_cneg_stage1 *s)
 {
 	struct txh		*txh;
+
+	/* Remove acceptable signature txh generator. */
+	net2_promise_event_deinit(&s->txh_accsign);
+	net2_promise_cancel(s->rsin);
+	net2_promise_release(s->rsin);
 
 	/* Break the single-value promise. */
 	if (s->sv_complete != NULL) {
@@ -1628,6 +1695,170 @@ req_signature_free2(void *rs_ptr, void * ILIAS_NET2__unused unused)
 		net2_free(rs->sctx);
 		net2_free(rs);
 	}
+}
+
+/* Convert received signset to net2_cneg_stage1_req_signs. */
+static void
+signset_to_s1ss(struct net2_promise *out, struct net2_promise **in, size_t insz, void *count_ptr)
+{
+	size_t			*count = count_ptr;
+	struct net2_signset	*ss;
+	struct net2_cneg_stage1_req_signs
+				*rs;
+	uint32_t		 err;
+	int			 fin;
+	struct net2_signset_entry *sse;
+	int			 error;
+
+	assert(insz == 1);
+
+	/* Handle promise cancelation. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Get result. */
+	fin = net2_promise_get_result(in[0], (void**)&ss, &err);
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		/* Handled outside switch. */
+		break;
+
+	default:
+		err = EIO;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_ERROR:
+		/* Cascade error. */
+		net2_promise_set_error(out, err, 0);
+		return;
+	}
+
+	/* Empty result requested? */
+	if (*count == 0) {
+		/* Null result. */
+		net2_promise_set_finok(out, NULL, NULL, NULL, 0);
+		return;
+	}
+	/* Insufficient? */
+	if (ss == NULL || net2_signset_size(ss) < *count) {
+		err = EIO;
+		goto fail_0;
+	}
+
+	/* Allocate result. */
+	if ((rs = net2_malloc(sizeof(*rs))) == NULL) {
+		err = ENOMEM;
+		goto fail_0;
+	}
+	rs->sz = 0;
+	if ((rs->sctx = net2_calloc(*count, sizeof(*rs->sctx))) == NULL) {
+		err = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Add up-to count sign ctx to rs. */
+	net2_signset_foreach(sse, ss) {
+		if (rs->sz == *count)
+			break;
+		if ((rs->sctx[rs->sz] = net2_signctx_clone(sse->key)) == NULL)
+			goto fail_3;
+		rs->sz++;
+	}
+	assert(rs->sz == *count);
+
+	/* Apply result. */
+	net2_promise_set_finok(out, rs, &req_signature_free2, NULL, 0);
+	return;
+
+
+fail_3:
+	while (rs->sz-- > 0)
+		net2_signctx_free(rs->sctx[rs->sz]);
+fail_2:
+	net2_free(rs->sctx);
+fail_1:
+	net2_free(rs);
+fail_0:
+	assert(err != 0);
+	net2_promise_set_error(out, err, 0);
+}
+/* Create txh for acceptable signatures. */
+static void
+txh_acceptable_signatures(void *s_ptr, void *prom_ptr)
+{
+	struct net2_cneg_stage1	*s = s_ptr;
+	struct net2_promise	*prom = prom_ptr;
+	struct net2_cneg_stage1_req_signs
+				*rs;
+	uint32_t		 err;
+	int			 fin;
+	struct txh		*h;
+	struct net2_buffer	*fp;
+	size_t			 i;
+	int			 error;
+
+	/* Acquire result. */
+	fin = net2_promise_get_result(prom_ptr, (void**)&rs, &err);
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		/* Handled below. */
+		break;
+
+	default:
+		err = EIO;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_ERROR:
+		error = err;
+		goto fail_0;
+	}
+
+	/*
+	 * Handle empty set.
+	 */
+	if (rs == NULL || rs->sz == 0) {
+		if ((h = txh_new()) == NULL) {
+			error = ENOMEM;
+			goto fail_0;
+		}
+
+		if ((error = init_header_empty_set(&h->header,
+		    F_TYPE_SIGNATURE_ACCEPT)) != 0)
+			goto fail_1;
+		TAILQ_INSERT_TAIL(&s->tx, h, q);
+	} else {
+		/* Create txh for each required signature. */
+		for (i = 0; i < rs->sz; i++) {
+			if ((h = txh_new()) == NULL) {
+				error = ENOMEM;
+				goto fail_0;
+			}
+
+			if ((fp = net2_signctx_fingerprint(rs->sctx[i])) ==
+			    NULL) {
+				error = ENOMEM;
+				goto fail_1;
+			}
+			error = init_header_bufset(&h->header, i, fp,
+			    rs->sz - 1, F_TYPE_SIGNATURE_ACCEPT);
+			net2_buffer_free(fp);
+			if (error != 0)
+				goto fail_1;
+
+			TAILQ_INSERT_TAIL(&s->tx, h, q);
+		}
+	}
+
+	/* Done. */
+	return;
+
+
+fail_1:
+	txh_destroy(h);
+fail_0:
+	assert(error != 0);
+	if (s->txh_error == 0)
+		s->txh_error = error;
 }
 
 /* Set value receive handlers. */

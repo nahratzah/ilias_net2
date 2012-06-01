@@ -24,6 +24,7 @@
 struct packet_header;	/* From ilias/net2/packet.h */
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 struct net2_ctx;	/* From ilias/net2/context.h */
+struct net2_workq;	/* From ilias/net2/workq.h */
 struct net2_cneg_stage1;
 
 
@@ -47,7 +48,8 @@ struct net2_cneg_stage1_req_signs {
 
 
 ILIAS_NET2_LOCAL
-struct net2_cneg_stage1	*cneg_stage1_new(uint32_t, struct net2_ctx*);
+struct net2_cneg_stage1	*cneg_stage1_new(uint32_t, struct net2_ctx*,
+			    struct net2_workq*);
 ILIAS_NET2_LOCAL
 void			 cneg_stage1_free(struct net2_cneg_stage1*);
 ILIAS_NET2_LOCAL

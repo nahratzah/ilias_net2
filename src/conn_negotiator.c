@@ -107,7 +107,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	cn->stage = NET2_CNEG_STAGE_PRISTINE;
 	cn->context = context;
 	cn->recv_no_send = 0;
-	if ((cn->stage1 = cneg_stage1_new(cn->flags, context)) == NULL) {
+	if ((cn->stage1 = cneg_stage1_new(cn->flags, context, wq)) == NULL) {
 		error = ENOMEM;
 		goto fail_0;
 	}
