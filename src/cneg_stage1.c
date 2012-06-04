@@ -116,6 +116,8 @@ struct net2_cneg_stage1 {
 						 * remote must send crypto
 						 * negotiation with. */
 	struct net2_promise	*tx_complete;	/* TX completed. */
+	struct net2_promise	*rx_complete;	/* RX completed. */
+	struct net2_promise	*complete;	/* Everything completed. */
 	struct net2_workq_job	 rts;		/* Ready to send event. */
 
 	uint32_t		 cn_flags;	/* Required flags. */
@@ -213,6 +215,9 @@ static void	 txh_nack(void*, void*);
 static void	 txh_timeout(void*, void*);
 static struct net2_buffer
 		*mk_poetry();
+
+static void	 process_all_completions(struct net2_promise*,
+		    struct net2_promise**, size_t, void*);
 
 
 static __inline int
@@ -916,6 +921,7 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 	struct txh		*txh;
 	const size_t		 prom_signature_idx =
 				    (F_TYPE_SIGNATURE & ~F_SET_ELEMENT);
+	struct net2_promise	*prom2[2];
 
 	if ((s = net2_malloc(sizeof(*s))) == NULL)
 		goto fail_0;
@@ -989,9 +995,32 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 	    s->rsin) != 0)
 		goto fail_7;
 
+	/*
+	 * Create combined rx-completion and all-encompassing completion
+	 * promises.
+	 */
+	prom2[0] = s->sv_complete;
+	prom2[1] = s->sets.complete;
+	s->rx_complete = net2_promise_combine(wq, &process_all_completions,
+	    NULL, prom2, 2);
+	if (s->rx_complete == NULL)
+		goto fail_8;
+	prom2[0] = s->tx_complete;
+	prom2[1] = s->rx_complete;
+	s->complete = net2_promise_combine(wq, &process_all_completions,
+	    NULL, prom2, 2);
+	if (s->complete == NULL)
+		goto fail_9;
+
 	return s;
 
 
+fail_10:
+	net2_promise_cancel(s->complete);
+	net2_promise_release(s->complete);
+fail_9:
+	net2_promise_cancel(s->rx_complete);
+	net2_promise_release(s->rx_complete);
 fail_8:
 	net2_promise_event_deinit(&s->txh_accsign);
 fail_7:
@@ -1029,8 +1058,18 @@ cneg_stage1_free(struct net2_cneg_stage1 *s)
 	/* Remove acceptable signature txh generator. */
 	net2_promise_event_deinit(&s->txh_accsign);
 	net2_workq_deinit_work(&s->rts);
+
+	/* Release signature selection promise. */
 	net2_promise_cancel(s->rsin);
 	net2_promise_release(s->rsin);
+
+	/* Release total completion promise. */
+	net2_promise_cancel(s->complete);
+	net2_promise_release(s->complete);
+
+	/* Release rx completion promise. */
+	net2_promise_cancel(s->rx_complete);
+	net2_promise_release(s->rx_complete);
 
 	/* Break the single-value promise. */
 	net2_promise_set_cancel(s->sv_complete, 0);
@@ -2239,4 +2278,157 @@ fail_1:
 	net2_buffer_free(out);
 fail_0:
 	return NULL;
+}
+
+
+/*
+ * Process all completions.
+ *
+ * Puts succes in out if all in completed succesful.
+ * EIO error otherwise.
+ * Does not copy any results over.
+ */
+static void
+process_all_completions(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void * ILIAS_NET2__unused unused)
+{
+	size_t			 i;
+	int			 fin;
+
+	/* Accept cancelation request. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Test that each input completed succesful. */
+	for (i = 0; i < insz; i++) {
+		fin = net2_promise_is_finished(in[i]);
+		assert(fin != NET2_PROM_FIN_UNFINISHED);
+
+		if (fin != NET2_PROM_FIN_OK) {
+			/* Propagate failure. */
+			net2_promise_set_error(out, EIO, 0);
+			return;
+		}
+	}
+
+	/* Propagate succes. */
+	net2_promise_set_finok(out, NULL, NULL, NULL, 0);
+}
+
+
+/* Single value receive handlers. */
+static __inline struct net2_promise*
+get_promise(struct net2_cneg_stage1 *s, unsigned int which)
+{
+	struct net2_promise	*p;
+
+	assert((which & F_TYPEMASK) != which);
+
+	if (which & F_SET_ELEMENT) {
+		/* Return set element. */
+		which &= ~F_SET_ELEMENT;
+
+		if (which >= s->sets.len)
+			p = NULL;
+		else
+			p = s->sets.rcv[which].val.complete;
+	} else {
+		/* Return single value element. */
+		if (which >= s->sv_len)
+			p = NULL; /* Element not present. */
+		else
+			p = s->sv[which].complete;
+	}
+
+	if (p != NULL)
+		net2_promise_ref(p);
+	return p;
+}
+/* Return promise for pver. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_pver(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_PVER);
+}
+/* Return promise for xchange. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_xchange(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_XCHANGE);
+}
+/* Return promise for hash. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_hash(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_HASH);
+}
+/* Return promise for crypt (enc). */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_crypt(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_CRYPT);
+}
+/* Return promise for sign. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_sign(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_SIGN);
+}
+/* Return promise for remote advertised signatures. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_advertised_signatures(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_SIGNATURE);
+}
+/* Return promise for signatures remote is to send us. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_accepted_signatures(struct net2_cneg_stage1 *s)
+{
+	struct net2_promise	*p;
+
+	p = s->rsin;
+	if (p != NULL)
+		net2_promise_ref(p);
+	return p;
+}
+/* Return promise for signatures remote requires us to send. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_get_transmit_signatures(struct net2_cneg_stage1 *s)
+{
+	return get_promise(s, F_TYPE_SIGNATURE_ACCEPT);
+}
+/* Return promise fired when everything has been succesfully sent. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_tx_complete(struct net2_cneg_stage1 *s)
+{
+	struct net2_promise	*p;
+
+	p = s->tx_complete;
+	if (p != NULL)
+		net2_promise_ref(p);
+	return p;
+}
+/* Return promise fired when everything has been succesfully received. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_rx_complete(struct net2_cneg_stage1 *s)
+{
+	struct net2_promise	*p;
+
+	p = s->rx_complete;
+	if (p != NULL)
+		net2_promise_ref(p);
+	return p;
+}
+/* Return promise fired when everything completes. */
+ILIAS_NET2_LOCAL struct net2_promise*
+cneg_stage1_complete(struct net2_cneg_stage1 *s)
+{
+	struct net2_promise	*p;
+
+	p = s->complete;
+	if (p != NULL)
+		net2_promise_ref(p);
+	return p;
 }

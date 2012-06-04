@@ -62,4 +62,30 @@ int			 cneg_stage1_get_transmit(struct net2_cneg_stage1*,
 			    struct net2_buffer*, struct net2_tx_callback*,
 			    size_t, int, int);
 
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_pver(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_xchange(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_hash(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_crypt(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_sign(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_advertised_signatures(
+			    struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_accepted_signatures(
+			    struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_get_transmit_signatures(
+			    struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_tx_complete(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_rx_complete(struct net2_cneg_stage1*);
+ILIAS_NET2_LOCAL
+struct net2_promise	*cneg_stage1_complete(struct net2_cneg_stage1*);
+
 #endif /* ILIAS_NET2_CNEG_STAGE1_H */
