@@ -338,7 +338,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		if ((error = carver_setup_msg(c, ctx, out)) != 0)
 			return error;
 		/* Install callback. */
-		if ((error = net2_txcb_add(tx, workq, NULL,
+		if ((error = net2_txcb_add(tx, workq, NULL, NULL,
 		    &carver_setup_ack, &carver_setup_nack, NULL,
 		    c, NULL)) != 0)
 			return error;
@@ -373,7 +373,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		return error;
 
 	/* Install callback. */
-	if ((error = net2_txcb_add(tx, workq, NULL,
+	if ((error = net2_txcb_add(tx, workq, NULL, NULL,
 	    &carver_txcb_ack, &carver_txcb_nack, &carver_txcb_destroy,
 	    c, r)) != 0)
 		return error;
