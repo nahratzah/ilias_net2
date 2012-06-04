@@ -1,0 +1,44 @@
+Finish refactor of conn_negotiator.
+- finish implementation of stage1 (write code is unfinished)
+- attach promise of stage1 to initializer of cneg_key_xchange
+- attach promise of cneg_key_xchange to ready-to-send
+- cneg_key_xchange must transmit hash/enc and xchange algorithm names properly in initbuf
+- cneg_key_xchange keyset must have alg pointer.
+
+Rewrite workq_io.
+- new() must return a pointer to IO.
+- must have start, stop.
+- must have {start,stop}_{read,write}.
+- when transmission is ready, call write-ready, queue result (probably a promise object).
+- receive uses input queue.
+- invokes read-ready, write-ready on event types.
+- internal event calls sockdgram code to do actual reading/writing.
+
+Try to embed libev code into library, with static linking and unexposed symbols, so it won't upset linking with libevent.
+
+
+----------------------------------------------------------------------
+
+Try to acquire a psuedo-thread library, so that code can be written
+using activations (setjmp/longjmp for instance) instead of Continuation-Passing-Style.
+- setjmp/longjmp should be sufficient to switch context
+- need something that will create initial thread
+  - allocate stack
+  - create setjmp frame
+  - jump to allocated stack
+  - for the love of god, try to get thread-local-storage to work properly, otherwise it is nearly impossible to merge with other libraries
+- think some more about interactions between threads and events
+  - try to make it such that an event can start such a thread, so the code can switch between both paradigms easily
+  - possibly mark in code written this way, that the state is consistent and thus events can be processed while waiting
+  - when an event wants to start a pseudo thread, but the workq already has one active, the new pseudo thread has to wait
+    - do not make this a flag on the event, just detect this at runtime
+  - means events started from within the pseudo thread need to be marked as being part of it (i.e. run regardless of state consistency)
+
+
+buffer:
+- pullup must cascade sensitive state.
+
+
+
+Stream acceptor:
+- change from refcnt free on callback to txcb cancelation
