@@ -1721,15 +1721,13 @@ net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
 		error = ENOMEM;
 		goto fail_1;
 	}
-	if ((poetry = net2_buffer_new()) == NULL) {
-		error = ENOMEM;
-		goto fail_2;
-	}
+	poetry = NULL;
 
 	/* Create poetry buffer. */
-	if (add_poetry)
-		poetry = mk_poetry(ectx);
-	else
+	if (add_poetry) {
+		if ((poetry = mk_poetry(ectx)) == NULL)
+			goto fail_2;
+	} else
 		poetry = NULL;
 
 	do_break = 0;
