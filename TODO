@@ -1,5 +1,4 @@
 Finish refactor of conn_negotiator.
-- finish implementation of stage1 (write code is unfinished)
 - attach promise of stage1 to initializer of cneg_key_xchange
 - attach promise of cneg_key_xchange to ready-to-send
 - cneg_key_xchange must transmit hash/enc and xchange algorithm names properly in initbuf

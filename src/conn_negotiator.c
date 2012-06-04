@@ -177,10 +177,17 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 
 	case NET2_CNEG_STAGE_PRISTINE:
 		/* Fill stage 1 transmission data. */
-#if 0
-		error = cneg_stage1_get_transmit(cn, ph, bufptr, tx, maxlen,
-		    stealth, want_payload);
-#endif
+		error = cneg_stage1_get_transmit(cn->stage1,
+		    net2_acceptor_socket_workq(&CNEG_CONN(cn)->n2c_socket),
+		    buf, tx, maxlen, !stealth, want_payload);
+
+		/* Append stage1 payload and set indicator flag. */
+		if (!net2_buffer_empty(buf)) {
+			*bufptr = buf;
+			buf = NULL;
+			ph->flags |= PH_HANDSHAKE;
+		}
+
 		break;
 
 	case NET2_CNEG_STAGE_KEY_EXCHANGE:

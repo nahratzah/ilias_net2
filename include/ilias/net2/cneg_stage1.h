@@ -21,10 +21,11 @@
 #include <stdint.h>
 
 
-struct packet_header;	/* From ilias/net2/packet.h */
-struct net2_buffer;	/* From ilias/net2/buffer.h */
-struct net2_ctx;	/* From ilias/net2/context.h */
-struct net2_workq;	/* From ilias/net2/workq.h */
+struct packet_header;		/* From ilias/net2/packet.h */
+struct net2_buffer;		/* From ilias/net2/buffer.h */
+struct net2_ctx;		/* From ilias/net2/context.h */
+struct net2_workq;		/* From ilias/net2/workq.h */
+struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
 struct net2_cneg_stage1;
 
 
@@ -55,5 +56,10 @@ void			 cneg_stage1_free(struct net2_cneg_stage1*);
 ILIAS_NET2_LOCAL
 int			 cneg_stage1_accept(struct net2_cneg_stage1*,
 			    struct packet_header*, struct net2_buffer*);
+ILIAS_NET2_LOCAL
+int			 cneg_stage1_get_transmit(struct net2_cneg_stage1*,
+			    struct net2_workq*,
+			    struct net2_buffer*, struct net2_tx_callback*,
+			    size_t, int, int);
 
 #endif /* ILIAS_NET2_CNEG_STAGE1_H */

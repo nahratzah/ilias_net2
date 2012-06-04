@@ -21,8 +21,10 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/packet.h>
+#include <ilias/net2/poetry.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/signset.h>
+#include <ilias/net2/tx_callback.h>
 #include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <assert.h>
@@ -37,6 +39,7 @@
 #include <ilias/net2/sign.h>
 #include <ilias/net2/xchange.h>
 #include <ilias/net2/bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/secure_random.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -92,6 +95,11 @@ struct txh {
 	TAILQ_ENTRY(txh)	 q;		/* Link into queue. */
 	struct header		 header;	/* Header contents. */
 	struct net2_buffer	*buf;		/* Encoded header (lazy). */
+	struct net2_txcb_entryq	 txcbq;		/* TX callbacks for this. */
+
+	int			 whichq;	/* On which queue is this. */
+#define TXH_WQ_WAIT		 0
+#define TXH_WQ_TX		 1
 };
 /* All to-be-transmitted headers. */
 TAILQ_HEAD(txh_head, txh);
@@ -107,6 +115,8 @@ struct net2_cneg_stage1 {
 	struct net2_promise	*rsin;		/* Required signatures that
 						 * remote must send crypto
 						 * negotiation with. */
+	struct net2_promise	*tx_complete;	/* TX completed. */
+	struct net2_workq_job	 rts;		/* Ready to send event. */
 
 	uint32_t		 cn_flags;	/* Required flags. */
 
@@ -121,6 +131,12 @@ struct net2_cneg_stage1 {
 	struct net2_promise_event txh_accsign;	/* Remote end must provide
 						 * these signatures. */
 	int			 txh_error;	/* Delayed txh error. */
+
+	int			 txh_delayed;	/* Bitset describing delayed
+						 * which txh generators
+						 * completed. */
+#define TXH_DELAYED_ACCSIGN	0x00000001	/* Accept signs. complete. */
+#define TXH_DELAYED_ALL		0x00000001	/* All txh completed. */
 };
 
 
@@ -159,6 +175,7 @@ static void	 sets_deinit(struct sets*);
 static struct txh
 		*txh_new();
 static void	 txh_destroy(struct txh*);
+static int	 txh_buffer(struct txh*, struct net2_buffer**);
 
 
 struct name_set;	/* Used in creation of headers
@@ -190,6 +207,12 @@ static void	 signset_to_s1ss(struct net2_promise*, struct net2_promise**,
 		    size_t, void*);
 static void	 txh_acceptable_signatures(void*, void*);
 int		 sets_val_init(struct sets*);
+
+static void	 txh_ack(void*, void*);
+static void	 txh_nack(void*, void*);
+static void	 txh_timeout(void*, void*);
+static struct net2_buffer
+		*mk_poetry();
 
 
 static __inline int
@@ -271,12 +294,13 @@ sv_process(struct net2_cneg_stage1 *s, struct header *h, uint32_t idx)
 		return error;
 
 	/* Fire sv_complete if all single-values have completed. */
-	if (s->sv_expected != LEN_UNKNOWN && s->sv_complete != NULL &&
+	if (s->sv_expected != LEN_UNKNOWN &&
+	    net2_promise_is_finished(s->sv_complete) ==
+	      NET2_PROM_FIN_UNFINISHED &&
 	    net2_bitset_allset(&s->received)) {
 		if ((error = net2_promise_set_finok(s->sv_complete, NULL,
-		    NULL, NULL, NET2_PROMFLAG_RELEASE)) != 0)
+		    NULL, NULL, 0)) != 0)
 			return error;
-		s->sv_complete = NULL;
 	}
 	return 0;
 }
@@ -314,11 +338,12 @@ sv_expected(struct net2_cneg_stage1 *s, uint32_t len)
 		return error;
 
 	/* Test if we completed. */
-	if (net2_bitset_allset(&s->received) && s->sv_complete != NULL) {
+	if (net2_bitset_allset(&s->received) &&
+	    net2_promise_is_finished(s->sv_complete) ==
+	      NET2_PROM_FIN_UNFINISHED) {
 		if ((error = net2_promise_set_finok(s->sv_complete, NULL,
-		    NULL, NULL, NET2_PROMFLAG_RELEASE)) != 0)
+		    NULL, NULL, 0)) != 0)
 			return error;
-		s->sv_complete = NULL;
 	}
 	return 0;
 }
@@ -819,10 +844,15 @@ txh_new()
 		goto fail_0;
 	if (net2_cp_init(NULL, &cp_header, &out->header, NULL))
 		goto fail_1;
+	if (net2_txcb_entryq_init(&out->txcbq) != 0)
+		goto fail_2;
 	out->buf = NULL;
+	out->whichq = TXH_WQ_WAIT;
 	return out;
 
 
+fail_3:
+	net2_txcb_entryq_deinit(&out->txcbq);
 fail_2:
 	net2_cp_destroy(NULL, &cp_header, &out->header, NULL);
 fail_1:
@@ -835,10 +865,45 @@ fail_0:
 static void
 txh_destroy(struct txh *txh)
 {
+	net2_txcb_entryq_deinit(&txh->txcbq);
 	if (txh->buf != NULL)
 		net2_buffer_free(txh->buf);
 	net2_cp_destroy(NULL, &cp_header, &txh->header, NULL);
 	net2_free(txh);
+}
+
+/* Retrieve the buffer from a txh. */
+static int
+txh_buffer(struct txh *txh, struct net2_buffer **payload)
+{
+	struct net2_buffer	*buf;
+	int			 error;
+
+	assert(payload != NULL);
+
+	/* Return cached buffer. */
+	if (txh->buf != NULL) {
+		*payload = txh->buf;
+		return 0;
+	}
+
+	/* Create cached buffer. */
+	if ((buf = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	if ((error = encode_header(buf, &txh->header)) != 0)
+		goto fail_1;
+	*payload = txh->buf = buf;
+	return 0;
+
+
+fail_1:
+	net2_buffer_free(buf);
+fail_0:
+	*payload = NULL;
+	assert(error != 0);
+	return error;
 }
 
 
@@ -858,34 +923,39 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 		goto fail_1;
 
 	net2_bitset_init(&s->received);
+	net2_workq_init_work_null(&s->rts);
 	s->sv = NULL;
 	s->sv_len = 0;
 	s->sv_expected = LEN_UNKNOWN;
 	s->cn_flags = cn_flags;
 	s->nctx = nctx;
 	s->txh_error = 0;
+	s->txh_delayed = 0;
+
 	if ((s->sv_complete = net2_promise_new()) == NULL)
 		goto fail_2;
+	if ((s->tx_complete = net2_promise_new()) == NULL)
+		goto fail_3;
 
 	/* Initialize receive handlers. */
 	if (init_sv(s) != 0)
-		goto fail_3;
+		goto fail_4;
 
 	/* Initialize transmit sets. */
 	TAILQ_INIT(&s->tx);
 	TAILQ_INIT(&s->wait);
 	if (txh_init(&s->tx, cn_flags, nctx) != 0)
-		goto fail_4;
+		goto fail_5;
 
 	/* Create signature list that remote will use to sign messages. */
 	if (nctx == NULL || nctx->remote_min == 0) {
 		/* Trivial case: no acceptable signatures required. */
 		if ((s->rsin = net2_promise_new()) == NULL)
-			goto fail_5;
+			goto fail_6;
 		if (net2_promise_set_finok(s->rsin, NULL,
 		    NULL, NULL, 0) != 0) {
 			net2_promise_release(s->rsin);
-			goto fail_5;
+			goto fail_6;
 		}
 	} else {
 		size_t		*count;
@@ -895,7 +965,7 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 		 * by the remote endpoint.
 		 */
 		if ((count = net2_malloc(sizeof(*count))) == NULL)
-			goto fail_5;
+			goto fail_6;
 		*count = (nctx == NULL ? 0 : nctx->remote_min);
 
 		/* Create conversion from F_TYPE_SIGNATURE to rsin. */
@@ -903,7 +973,7 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 		    &s->sets.rcv[prom_signature_idx].val.complete, 1);
 		if (s->rsin == NULL) {
 			net2_free(count);
-			goto fail_5;
+			goto fail_6;
 		}
 
 		/* Ensure count is freed when rsin is destroyed. */
@@ -917,30 +987,32 @@ cneg_stage1_new(uint32_t cn_flags, struct net2_ctx *nctx,
 	if (net2_promise_event_init(&s->txh_accsign, s->rsin,
 	    NET2_PROM_ON_FINISH, wq, &txh_acceptable_signatures, s,
 	    s->rsin) != 0)
-		goto fail_6;
+		goto fail_7;
 
 	return s;
 
 
-fail_7:
+fail_8:
 	net2_promise_event_deinit(&s->txh_accsign);
-fail_6:
+fail_7:
 	net2_promise_cancel(s->rsin);
 	net2_promise_release(s->rsin);
-fail_5:
+fail_6:
 	while ((txh = TAILQ_FIRST(&s->tx)) != NULL) {
 		TAILQ_REMOVE(&s->tx, txh, q);
 		txh_destroy(txh);
 	}
-fail_4:
+fail_5:
 	/* Destroy the single values. */
 	while (s->sv_len-- > 0)
 		val_deinit(&s->sv[s->sv_len]);
+fail_4:
+	net2_promise_release(s->tx_complete);
 fail_3:
-	if (s->sv_complete != NULL)
-		net2_promise_release(s->sv_complete);
+	net2_promise_release(s->sv_complete);
 fail_2:
 	net2_bitset_deinit(&s->received);
+	net2_workq_deinit_work(&s->rts);
 	sets_deinit(&s->sets);
 fail_1:
 	net2_free(s);
@@ -956,15 +1028,17 @@ cneg_stage1_free(struct net2_cneg_stage1 *s)
 
 	/* Remove acceptable signature txh generator. */
 	net2_promise_event_deinit(&s->txh_accsign);
+	net2_workq_deinit_work(&s->rts);
 	net2_promise_cancel(s->rsin);
 	net2_promise_release(s->rsin);
 
 	/* Break the single-value promise. */
-	if (s->sv_complete != NULL) {
-		net2_promise_set_cancel(s->sv_complete, 0);
-		net2_promise_release(s->sv_complete);
-		s->sv_complete = NULL;
-	}
+	net2_promise_set_cancel(s->sv_complete, 0);
+	net2_promise_release(s->sv_complete);
+
+	/* Break the tx completion promise. */
+	net2_promise_set_cancel(s->tx_complete, 0);
+	net2_promise_release(s->tx_complete);
 
 	/* Destroy the single values. */
 	while (s->sv_len-- > 0)
@@ -1047,6 +1121,135 @@ fail_1:
 	deinit_header(&net2_encdec_proto0, &h);
 fail_0:
 	assert(error != 0);
+	return error;
+}
+
+/* Stage1 network get_transmit. */
+ILIAS_NET2_LOCAL int
+cneg_stage1_get_transmit(struct net2_cneg_stage1 *s, struct net2_workq *wq,
+    struct net2_buffer *out, struct net2_tx_callback *txcb, size_t maxsz,
+    int add_poetry, int empty_poetry)
+{
+	struct net2_tx_callback	 txcb_tmp;
+	struct net2_txcb_entryq	 txcbq_tmp;
+	struct net2_buffer	*buf, *fin, *poetry;
+	struct txh		*txh;
+	int			 error;
+
+	assert(net2_buffer_empty(out));
+
+	/* Insufficient space to transmit anything. */
+	if (maxsz <= FINI_LEN)
+		return 0;
+	if ((error = net2_txcb_init(&txcb_tmp)) != 0)
+		return error;
+	if ((error = net2_txcb_entryq_init(&txcbq_tmp)) != 0) {
+		net2_txcb_deinit(&txcb_tmp);
+		return error;
+	}
+
+	/* Prepare fin, poetry headers. */
+	fin = net2_buffer_new();
+	if (add_poetry) {
+		if ((poetry = mk_poetry()) == NULL) {
+			error = ENOMEM;
+			goto fail_0;
+		}
+	} else
+		poetry = NULL;
+	if (fin == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	if ((error = encode_header(fin, &header_fini)) != 0)
+		goto fail_0;
+
+
+	/* Append messages. */
+	for (;;) {
+		txh = TAILQ_FIRST(&s->tx);
+		if (txh == NULL)
+			break;				/* GUARD */
+		assert(txh->whichq == TXH_WQ_TX);
+
+		/*
+		 * Acquire txh buffer.
+		 * This buffer is owned by the txh and may not be freed.
+		 */
+		if ((error = txh_buffer(txh, &buf)) != 0)
+			goto fail_1;
+		assert(buf != NULL);
+		if (net2_buffer_length(buf) > maxsz - FINI_LEN)
+			break;				/* GUARD */
+
+		/* Create txh callbacks. */
+		if ((error = net2_txcb_add(&txcb_tmp, wq, &txcbq_tmp,
+		    &txh_timeout, &txh_ack, &txh_nack, &txh_nack,
+		    s, txh)) != 0)
+			goto fail_1;
+
+		/* Add output. */
+		if (net2_buffer_append(out, buf)) {
+			error = ENOMEM;
+			goto fail_1;
+		}
+
+		/* Move txh to wait queue. */
+		TAILQ_REMOVE(&s->tx, txh, q);
+		TAILQ_INSERT_TAIL(&s->wait, txh, q);
+		txh->whichq = TXH_WQ_WAIT;
+
+		/* Merge callbacks. */
+		net2_txcb_merge(txcb, &txcb_tmp);
+		net2_txcb_entryq_merge(&txh->txcbq, &txcbq_tmp);
+
+		/* Append poetry after first appended packet. */
+		if (poetry != NULL) {
+			if (net2_buffer_length(poetry) > maxsz - FINI_LEN)
+				break;			/* GUARD */
+			net2_buffer_append(out, poetry);
+			net2_buffer_free(poetry);
+			poetry = NULL;
+		}
+	}
+
+	/* Add poetry to empty message. */
+	if (empty_poetry && poetry != NULL &&
+	    net2_buffer_length(poetry) > maxsz - FINI_LEN)
+		net2_buffer_append(out, poetry); /* Failure is fine. */
+
+finish_out:
+	/* Append fin header. */
+	if (!net2_buffer_empty(out)) {
+		if (net2_buffer_append(out, fin) != 0) {
+			error = ENOMEM;
+			goto fail_0;
+		}
+	}
+
+	/* Cleanup. */
+	if (poetry != NULL)
+		net2_buffer_free(poetry);
+	net2_buffer_free(fin);
+	net2_txcb_deinit(&txcb_tmp);
+	net2_txcb_entryq_deinit(&txcbq_tmp);
+	return 0;
+
+
+fail_1:
+	assert(error != 0);
+	if (error == ENOMEM && !net2_buffer_empty(out)) {
+		/* Attempt recovery. */
+		net2_txcb_entryq_clear(&txcbq_tmp, NET2_TXCB_EQ_ALL);
+		goto finish_out;
+	}
+fail_0:
+	if (poetry != NULL)
+		net2_buffer_free(poetry);
+	if (fin != NULL)
+		net2_buffer_free(fin);
+	net2_txcb_deinit(&txcb_tmp);
+	net2_txcb_entryq_deinit(&txcbq_tmp);
 	return error;
 }
 
@@ -1850,6 +2053,7 @@ txh_acceptable_signatures(void *s_ptr, void *prom_ptr)
 	}
 
 	/* Done. */
+	s->txh_delayed |= TXH_DELAYED_ACCSIGN;
 	return;
 
 
@@ -1934,4 +2138,105 @@ fail_0:
 	assert(error != 0);
 	return error;
 #undef IDX
+}
+
+
+/* txh acknowledged handler. */
+static void
+txh_ack(void *s_ptr, void *txh_ptr)
+{
+	struct net2_cneg_stage1	*s = s_ptr;
+	struct txh		*txh = txh_ptr;
+
+	assert(txh->whichq == TXH_WQ_TX || txh->whichq == TXH_WQ_WAIT);
+	switch (txh->whichq) {
+	case TXH_WQ_TX:
+		TAILQ_REMOVE(&s->tx, txh, q);
+		break;
+	case TXH_WQ_WAIT:
+		TAILQ_REMOVE(&s->wait, txh, q);
+		break;
+	}
+
+	/* Clear all delivery callbacks. */
+	net2_txcb_entryq_clear(&txh->txcbq, NET2_TXCB_EQ_ALL);
+
+	/* Mark tx complete. */
+	if (TAILQ_EMPTY(&s->tx) && TAILQ_EMPTY(&s->wait) &&
+	    s->txh_delayed == TXH_DELAYED_ALL)
+		net2_promise_set_finok(s->tx_complete, NULL, NULL, NULL, 0);
+}
+/* txh nack handler. */
+static void
+txh_nack(void *s_ptr, void *txh_ptr)
+{
+	struct net2_cneg_stage1	*s = s_ptr;
+	struct txh		*txh = txh_ptr;
+
+	assert(txh->whichq == TXH_WQ_TX || txh->whichq == TXH_WQ_WAIT);
+	net2_workq_activate(&s->rts);
+
+	switch (txh->whichq) {
+	case TXH_WQ_TX:
+		TAILQ_REMOVE(&s->tx, txh, q);
+		TAILQ_INSERT_TAIL(&s->wait, txh, q);
+		break;
+	}
+
+	/* Moved to wait, clear anything that will move from tx to wait. */
+	net2_txcb_entryq_clear(&txh->txcbq,
+	    NET2_TXCB_EQ_TIMEOUT | NET2_TXCB_EQ_NACK);
+}
+/* txh timeout handler. */
+static void
+txh_timeout(void *s_ptr, void *txh_ptr)
+{
+	struct net2_cneg_stage1	*s = s_ptr;
+	struct txh		*txh = txh_ptr;
+
+	assert(txh->whichq == TXH_WQ_TX || txh->whichq == TXH_WQ_WAIT);
+	net2_workq_activate(&s->rts);
+
+	switch (txh->whichq) {
+	case TXH_WQ_TX:
+		TAILQ_REMOVE(&s->tx, txh, q);
+		TAILQ_INSERT_TAIL(&s->wait, txh, q);
+		break;
+	}
+
+	/* Moved to wait, clear other timeout handlers. */
+	net2_txcb_entryq_clear(&txh->txcbq, NET2_TXCB_EQ_TIMEOUT);
+}
+
+/* Create poetry handshake message. */
+static struct net2_buffer*
+mk_poetry()
+{
+	struct net2_buffer	*out;
+	struct header		 h;
+
+	/* Cannot generate poetry without data. */
+	if (poetry_sz == 0)
+		return NULL;
+
+	/* Allocate storage. */
+	if ((out = net2_buffer_new()) == NULL)
+		goto fail_0;
+
+	/* Initialize poetry header. */
+	memset(&h, 0, sizeof(h));
+	h.flags = F_POETRY | FT_STRING;
+	h.payload.string =
+	    (char*)poetry_txts[secure_random_uniform(poetry_sz)];
+
+	/* Encode header into storage. */
+	if (encode_header(out, &h) != 0)
+		goto fail_1;
+	return out;
+
+
+fail_1:
+	net2_buffer_free(out);
+fail_0:
+	return NULL;
 }
