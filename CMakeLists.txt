@@ -304,7 +304,7 @@ list (APPEND headers
 
 
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
-include_directories (${LIBEVENT_INCLUDE_DIRS})
+include_directories (${EV_INCLUDE_DIR})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})
