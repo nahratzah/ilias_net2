@@ -2197,8 +2197,8 @@ txh_ack(void *s_ptr, void *txh_ptr)
 		break;
 	}
 
-	/* Clear all delivery callbacks. */
-	net2_txcb_entryq_clear(&txh->txcbq, NET2_TXCB_EQ_ALL);
+	/* Destroy txh. */
+	txh_destroy(txh);
 
 	/* Mark tx complete. */
 	if (TAILQ_EMPTY(&s->tx) && TAILQ_EMPTY(&s->wait) &&
@@ -2213,12 +2213,15 @@ txh_nack(void *s_ptr, void *txh_ptr)
 	struct txh		*txh = txh_ptr;
 
 	assert(txh->whichq == TXH_WQ_TX || txh->whichq == TXH_WQ_WAIT);
-	net2_workq_activate(&s->rts);
 
 	switch (txh->whichq) {
-	case TXH_WQ_TX:
-		TAILQ_REMOVE(&s->tx, txh, q);
-		TAILQ_INSERT_TAIL(&s->wait, txh, q);
+	case TXH_WQ_WAIT:
+		TAILQ_REMOVE(&s->wait, txh, q);
+		TAILQ_INSERT_TAIL(&s->tx, txh, q);
+		txh->whichq = TXH_WQ_TX;
+
+		/* There is work to do. */
+		net2_workq_activate(&s->rts);
 		break;
 	}
 
@@ -2234,17 +2237,21 @@ txh_timeout(void *s_ptr, void *txh_ptr)
 	struct txh		*txh = txh_ptr;
 
 	assert(txh->whichq == TXH_WQ_TX || txh->whichq == TXH_WQ_WAIT);
-	net2_workq_activate(&s->rts);
+
+	/* Don't requeue this is there are more timeouts pending. */
+	if (!net2_txcb_entryq_empty(&txh->txcbq, NET2_TXCB_EQ_TIMEOUT))
+		return;
 
 	switch (txh->whichq) {
-	case TXH_WQ_TX:
-		TAILQ_REMOVE(&s->tx, txh, q);
-		TAILQ_INSERT_TAIL(&s->wait, txh, q);
+	case TXH_WQ_WAIT:
+		TAILQ_REMOVE(&s->wait, txh, q);
+		TAILQ_INSERT_TAIL(&s->tx, txh, q);
+		txh->whichq = TXH_WQ_TX;
+
+		/* There is work to do. */
+		net2_workq_activate(&s->rts);
 		break;
 	}
-
-	/* Moved to wait, clear other timeout handlers. */
-	net2_txcb_entryq_clear(&txh->txcbq, NET2_TXCB_EQ_TIMEOUT);
 }
 
 /* Create poetry handshake message. */
