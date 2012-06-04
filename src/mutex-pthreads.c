@@ -77,6 +77,7 @@ net2_mutex_lock(struct net2_mutex *m)
 	while ((rv = pthread_mutex_lock(&m->n2m_impl)) != 0) {
 		switch (rv) {
 		case EINTR:
+		case ETIMEDOUT:
 			break;
 		case EDEADLK:
 			warnx("%s: %s", "pthread_mutex_lock", strerror(rv));
@@ -86,6 +87,35 @@ net2_mutex_lock(struct net2_mutex *m)
 			    strerror(rv));
 		}
 	}
+}
+
+/*
+ * Try lock.  Won't block but may fail to acquire lock.
+ *
+ * Returns false on error, true on succes.
+ */
+ILIAS_NET2_LOCAL int
+net2_mutex_trylock(struct net2_mutex *m)
+{
+	int rv;
+
+	if ((rv = pthread_mutex_trylock(&m->n2m_impl)) != 0) {
+		switch (rv) {
+		case EINTR:
+		case ETIMEDOUT:
+			break;
+		case EDEADLK:
+			warnx("%s: %s", "pthread_mutex_lock", strerror(rv));
+			abort();
+		default:
+			errx(EX_OSERR, "%s: %s", "pthread_mutex_lock",
+			    strerror(rv));
+		}
+
+		return 0;	/* Lock not acquired. */
+	}
+
+	return 1;		/* Lock acquired. */
 }
 
 /*

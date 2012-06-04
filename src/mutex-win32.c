@@ -78,6 +78,19 @@ net2_mutex_lock(struct net2_mutex *m)
 }
 
 /*
+ * Try lock.  Won't block but may fail to acquire lock.
+ *
+ * Returns false on error, true on succes.
+ */
+ILIAS_NET2_LOCAL int
+net2_mutex_trylock(struct net2_mutex *m)
+{
+	rv = TryEnterCriticalSection(&m->s);
+	assert(m->locks == 0);	/* ilias_net2 does not do recursive locking. */
+	m->locks++;
+}
+
+/*
  * Unlock a previously locked mutex.
  */
 ILIAS_NET2_LOCAL void

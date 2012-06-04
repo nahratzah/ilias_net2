@@ -29,6 +29,8 @@ void			 net2_mutex_free(struct net2_mutex*);
 ILIAS_NET2_LOCAL
 void			 net2_mutex_lock(struct net2_mutex*);
 ILIAS_NET2_LOCAL
+int			 net2_mutex_trylock(struct net2_mutex*);
+ILIAS_NET2_LOCAL
 void			 net2_mutex_unlock(struct net2_mutex*);
 
 ILIAS_NET2_LOCAL
