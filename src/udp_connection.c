@@ -37,6 +37,7 @@
 #include <netinet/in.h>
 #endif
 #include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/minmax.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
 #include <assert.h>

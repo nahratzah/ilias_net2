@@ -18,6 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/connection.h>
+#include <ilias/net2/types.h>
 #include <sys/types.h>
 #ifdef WIN32
 #include <WinSock2.h>
@@ -25,13 +26,12 @@
 #else
 #include <sys/socket.h>
 #endif
-#include <event2/util.h>
 
 struct net2_udpsocket;
 
 ILIAS_NET2_EXPORT
 struct net2_connection	*net2_conn_p2p_create_fd(struct net2_ctx*,
-			    struct net2_workq_evbase*, evutil_socket_t,
+			    struct net2_workq_evbase*, net2_socket_t,
 			    struct sockaddr*, socklen_t);
 ILIAS_NET2_EXPORT
 struct net2_connection	*net2_conn_p2p_create(struct net2_ctx*,

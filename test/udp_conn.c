@@ -22,8 +22,6 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/packet.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
-#include <event2/event.h>
-#include <event2/thread.h>
 #include <sys/types.h>
 #include <string.h>
 #include <stdlib.h>

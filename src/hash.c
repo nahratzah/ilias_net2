@@ -19,7 +19,6 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
-#include <event2/buffer.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 

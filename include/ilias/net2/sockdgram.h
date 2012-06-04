@@ -17,6 +17,7 @@
 #define ILIAS_NET2_SOCKDGRAM_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/types.h>
 
 #ifdef WIN32
 #include <WinSock2.h>
@@ -25,7 +26,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif
-#include <event2/util.h>
 
 
 #ifdef BUILDING_ILIAS_NET2
@@ -34,15 +34,15 @@ struct net2_conn_receive;
 struct net2_buffer;
 
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_recv(evutil_socket_t, int*, struct net2_buffer**,
+int	net2_sockdgram_recv(net2_socket_t, int*, struct net2_buffer**,
 	    struct sockaddr*, socklen_t*);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_send(evutil_socket_t,
+int	net2_sockdgram_send(net2_socket_t,
 	    struct net2_buffer*, struct sockaddr*, socklen_t);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_nonblock(evutil_socket_t);
+int	net2_sockdgram_nonblock(net2_socket_t);
 ILIAS_NET2_LOCAL
-int	net2_sockdgram_dnf(evutil_socket_t);
+int	net2_sockdgram_dnf(net2_socket_t);
 #endif /* BUILDING_ILIAS_NET2 */
 
 

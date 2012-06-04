@@ -22,7 +22,6 @@
 #include <ilias/net2/packet.h>
 #include <stdio.h>
 #include <string.h>
-#include <event2/event.h>
 #include <assert.h>
 
 int fail = 0;

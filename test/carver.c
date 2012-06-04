@@ -25,7 +25,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <event2/event.h>
 
 int fail = 0;
 

@@ -16,7 +16,6 @@
 #include "test.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/hash.h>
-#include <event2/buffer.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

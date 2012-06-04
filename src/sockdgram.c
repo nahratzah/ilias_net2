@@ -57,7 +57,7 @@
  * *bufptr is NULL if no data is available.
  */
 ILIAS_NET2_LOCAL int
-net2_sockdgram_recv(evutil_socket_t sock, int *error_ptr,
+net2_sockdgram_recv(net2_socket_t sock, int *error_ptr,
     struct net2_buffer **buf_ptr, struct sockaddr *from, socklen_t *fromlen)
 {
 	int			 rdsz;
@@ -188,7 +188,7 @@ fail:
 }
 
 ILIAS_NET2_LOCAL int
-net2_sockdgram_send(evutil_socket_t sock,
+net2_sockdgram_send(net2_socket_t sock,
     struct net2_buffer *txbuf,
     struct sockaddr *remote, socklen_t remotelen)
 {
@@ -351,7 +351,7 @@ handle_errno:
  * Mark socket as nonblocking.
  */
 ILIAS_NET2_LOCAL int
-net2_sockdgram_nonblock(evutil_socket_t sock)
+net2_sockdgram_nonblock(net2_socket_t sock)
 {
 #ifdef WIN32
 	u_long			arg;
@@ -386,7 +386,7 @@ net2_sockdgram_nonblock(evutil_socket_t sock)
  * Set the do-not-fragment bit for udp connections.
  */
 ILIAS_NET2_LOCAL int
-net2_sockdgram_dnf(evutil_socket_t sock)
+net2_sockdgram_dnf(net2_socket_t sock)
 {
 	struct sockaddr_storage	name;
 	socklen_t		namelen;
