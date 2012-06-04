@@ -542,13 +542,61 @@ net2_txcb_entryq_deinit(struct net2_txcb_entryq *eq)
 }
 /* Test if txcb entry set is empty. */
 ILIAS_NET2_EXPORT int
-net2_txcb_entryq_empty(struct net2_txcb_entryq *eq)
+net2_txcb_entryq_empty(struct net2_txcb_entryq *eq, int which)
 {
-	int			 empty;
+	struct net2_txcb_entry	*e;
+	int			 i;
+	int			 empty, referenced;
 
+	/* Empty set is empty. */
+	if (which == 0)
+		return 0;
+
+	empty = 1;
 	net2_mutex_lock(eq->mtx);
-	empty = TAILQ_EMPTY(&eq->entries);
+restart:
+	TAILQ_FOREACH(e, &eq->entries, eq_entry) {
+		/* Acquire change mutex on e; try without sleeping. */
+		referenced = 0;
+		if (!net2_mutex_trylock(e->change_mtx)) {
+			entry_acquire(e);
+			referenced = 1;
+			net2_mutex_unlock(eq->mtx);
+			net2_mutex_lock(e->change_mtx);
+			net2_mutex_lock(eq->mtx);
+
+			/* No longer in this set. */
+			if (e->eq != eq) {
+				net2_mutex_unlock(e->change_mtx);
+				entry_release(e);
+				goto restart;
+			}
+		}
+
+		/* Test each of the given masks is set/active. */
+		for (i = 0; i < Q__SIZE; i++) {
+			if (!(which & (1 << i)))
+				continue;
+			/* Unreachable timeouts will be skipped. */
+			if (e->active != Q_TIMEOUT && i != e->active)
+				continue;
+
+			if (e->fn[i] != NULL) {
+				empty = 0;
+				break;	/* optimization */
+			}
+		}
+
+		/* Unlock entry. */
+		net2_mutex_unlock(e->change_mtx);
+		if (referenced)
+			entry_release(e);
+
+		if (!empty)
+			break;		/* GUARD */
+	}
 	net2_mutex_unlock(eq->mtx);
+
 	return empty;
 }
 /* Clear some or all of the given events. */

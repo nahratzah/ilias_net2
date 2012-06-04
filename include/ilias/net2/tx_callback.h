@@ -73,7 +73,7 @@ int	 net2_txcb_entryq_init(struct net2_txcb_entryq*);
 ILIAS_NET2_EXPORT
 void	 net2_txcb_entryq_deinit(struct net2_txcb_entryq*);
 ILIAS_NET2_EXPORT
-int	 net2_txcb_entryq_empty(struct net2_txcb_entryq*);
+int	 net2_txcb_entryq_empty(struct net2_txcb_entryq*, int which);
 ILIAS_NET2_EXPORT
 void	 net2_txcb_entryq_clear(struct net2_txcb_entryq*, int which);
 ILIAS_NET2_EXPORT
