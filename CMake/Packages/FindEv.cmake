@@ -2,7 +2,7 @@
 # Once done, this will define
 #
 #  EV_FOUND - system has ev
-#  EV_INCLUDE_DIRS - the ev include dirs
+#  EV_INCLUDE_DIR - the ev include dir
 #  EV_LIBRARIES - link these to use ev
 
 include (FindPackageHandleStandardArgs)
