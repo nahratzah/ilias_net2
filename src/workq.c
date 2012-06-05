@@ -23,6 +23,10 @@
 #include <stdio.h>
 #include <errno.h>
 
+#ifdef EV_C
+#include EV_C
+#endif
+
 /* Internal flags for workq jobs. */
 #define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
 #define NET2_WORKQ_RUNNING	0x00020000	/* Job is running. */

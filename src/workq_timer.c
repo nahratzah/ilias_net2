@@ -20,6 +20,10 @@
 #include <ilias/net2/bsd_compat/clock.h>
 #include <ev.h>
 
+#ifdef EV_C
+#include EV_C
+#endif
+
 
 struct net2_workq_timer {
 	struct net2_workq_job	 job;		/* Base job implementation. */

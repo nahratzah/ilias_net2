@@ -2,6 +2,13 @@ cmake_minimum_required (VERSION 2.6)
 project (IliasNet2)
 include (CTest)
 
+
+#
+# Special options.
+#
+option (USE_EMBEDDED_EV "Use embedded libev library instead of system library." ON)
+
+
 if ("${CMAKE_C_COMPILER}" MATCHES "clang$" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
 	set(CMAKE_COMPILER_IS_CLANG 1)
 	unset(CMAKE_COMPILER_IS_GNUCC)
@@ -184,14 +191,20 @@ add_subdirectory (tools)
 
 find_package (OpenSSL REQUIRED)
 find_package (Threads)
-find_package (Ev REQUIRED)
+if (NOT USE_EMBEDDED_EV)
+	find_package (Ev REQUIRED)
+endif (NOT USE_EMBEDDED_EV)
 
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG)
 	set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g")
 	set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g")
-	set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wno-missing-noreturn -Wno-unused -Wsign-compare -Wuninitialized -Werror")
-	set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Wextra -Wall -Werror-implicit-function-declaration -Wno-missing-noreturn -Wno-unused -Werror")
+	set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wno-missing-noreturn -Wno-unused -Wsign-compare -Wuninitialized")
+	set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Wextra -Wall -Werror-implicit-function-declaration -Wno-missing-noreturn -Wno-unused")
+	if (NOT USE_EMBEDDED_EV)
+		set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror")
+		set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Werror")
+	endif (NOT USE_EMBEDDED_EV)
 endif (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG)
 if (CMAKE_COMPILER_IS_CLANG)
 	set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-tautological-compare")
@@ -303,8 +316,18 @@ list (APPEND headers
 	)
 
 
+if (USE_EMBEDDED_EV)
+	include_directories (${PROJECT_SOURCE_DIR}/contrib/libev-4.11)
+	add_definitions (-DEV_C=\"ev.c\")
+	list (APPEND EV_LIBRARIES)
+	list (APPEND EV_INCLUDE_DIR)
+	add_definitions (-DEV_STANDALONE -DEV_API_STATIC -DEV_MULTIPLICITY)
+else (USE_EMBEDDED_EV)
+	include_directories (${EV_INCLUDE_DIR})
+endif (USE_EMBEDDED_EV)
+
+
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
-include_directories (${EV_INCLUDE_DIR})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
 include_directories (${OPENSSL_INCLUDE_DIR})

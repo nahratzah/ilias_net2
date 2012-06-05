@@ -24,6 +24,10 @@
 #include <ev.h>
 #include <errno.h>
 
+#ifdef EV_C
+#include EV_C
+#endif
+
 #ifdef WIN32
 #include <WinSock2.h>
 #include <ws2def.h>
