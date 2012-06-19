@@ -444,6 +444,7 @@ pver_assign(void *pver_promise, void *cn_ptr)
 	assert(fin != NET2_PROM_FIN_UNFINISHED);
 	switch (fin) {
 	case NET2_PROM_FIN_OK:
+		cn->flags_have = pver->flags;
 		err = net2_pvlist_add(&cn->proto, &net2_proto, pver->proto0);
 		if (err != 0)
 			goto pass_error;
