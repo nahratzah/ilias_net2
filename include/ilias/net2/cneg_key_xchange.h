@@ -47,7 +47,7 @@ ILIAS_NET2_LOCAL
 struct net2_cneg_key_xchange
 	*net2_cneg_key_xchange_new(struct net2_workq*, struct net2_encdec_ctx*,
 	    struct net2_ctx*,
-	    int, int, uint32_t, uint32_t,
+	    int, int,
 	    int, int,
 	    void (*)(void*, void*), void*, void*,
 	    uint32_t, struct net2_sign_ctx**,

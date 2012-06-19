@@ -26,6 +26,8 @@
 #include <ilias/net2/signed_carver.h>
 #include <ilias/net2/tx_callback.h>
 
+#include <ilias/net2/hash.h>
+#include <ilias/net2/enc.h>
 #include <ilias/net2/sign.h>
 #include <ilias/net2/xchange.h>
 #include <ilias/net2/poetry.h>
@@ -1274,7 +1276,7 @@ flip_slot(uint16_t slot)
 ILIAS_NET2_LOCAL struct net2_cneg_key_xchange*
 net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
     struct net2_ctx *nctx,
-    int hash_alg, int enc_alg, uint32_t hash_keysize, uint32_t enc_keysize,
+    int hash_alg, int enc_alg,
     int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,	/* XXX Hide these. */
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
@@ -1284,6 +1286,10 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 	struct net2_promise		*proms[2 * NET2_CNEG_S2_MAX + 1];
 	struct net2_promise		*local_keys, *remote_keys;
 	size_t				 i;
+	size_t				 hash_keysize, enc_keysize;
+
+	hash_keysize = net2_hash_getkeylen(hash_alg);
+	enc_keysize = net2_enc_getkeylen(enc_alg);
 
 	if ((ke = net2_malloc(sizeof(*ke))) == NULL)
 		goto fail_0;
