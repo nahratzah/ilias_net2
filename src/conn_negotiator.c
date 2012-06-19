@@ -78,12 +78,12 @@ static void	 key_xchange_assign(void*, void*);
 
 
 static void
-free2(void *p, void * ILIAS_NET2__unused unused)
+free2(void *p, void *unused ILIAS_NET2__unused)
 {
 	net2_free(p);
 }
 static void
-kx_free2(void *kx, void * ILIAS_NET2__unused unused)
+kx_free2(void *kx, void *unused ILIAS_NET2__unused)
 {
 	net2_cneg_key_xchange_free(kx);
 }
@@ -96,7 +96,7 @@ cneg_ready_to_send(struct net2_conn_negotiator *cn)
 }
 /* Ready-to-send with 2 arguments. */
 static void
-cneg_ready_to_send_arg(void *cn_ptr, void * ILIAS_NET2__unused unused)
+cneg_ready_to_send_arg(void *cn_ptr, void *unused ILIAS_NET2__unused)
 {
 	cneg_ready_to_send(cn_ptr);
 }
@@ -278,7 +278,7 @@ fail:
  */
 ILIAS_NET2_LOCAL int
 net2_cneg_allow_payload(struct net2_conn_negotiator *cn,
-    uint32_t ILIAS_NET2__unused seq)
+    uint32_t seq ILIAS_NET2__unused)
 {
 	int	require = (cn->flags & REQUIRE);
 
@@ -316,7 +316,6 @@ static void
 create_key_xchange(struct net2_promise *out, struct net2_promise **in,
     size_t insz, void *cn_ptr)
 {
-	size_t				 i;
 	struct net2_cneg_stage1_pver	*pver;
 	int				*hash, *crypt, *xchange, *sign;
 	uint32_t			 error;
@@ -430,8 +429,6 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 {
 	int			 error;
 	struct net2_connection	*s = CNEG_CONN(cn);
-	struct encoded_header	*h;
-	size_t			 i;
 	struct net2_workq	*wq;
 	struct net2_promise	*p_hash, *p_enc, *p_sign, *p_xchange, *p_kx;
 
@@ -550,10 +547,6 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_cneg_deinit(struct net2_conn_negotiator *cn)
 {
-	struct encoded_header	*h;
-	size_t			 i;
-	struct event		*ev;
-
 	/* Cancel key xchange event. */
 	net2_promise_event_deinit(&cn->kx_event);
 	/* Release stage2 data. */

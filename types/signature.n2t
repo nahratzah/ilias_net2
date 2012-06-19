@@ -129,7 +129,6 @@ net2_signature_validate(struct net2_signature *s,
 	int			 error;
 	int			 hash_alg;
 	struct net2_buffer	*hash = NULL;
-	size_t			 i;
 
 	if (valid == NULL)
 		return EINVAL;

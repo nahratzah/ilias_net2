@@ -327,14 +327,14 @@ fail:
 
 
 static int
-SHA256_init_fn(struct net2_hash_ctx *c, const void * ILIAS_NET2__unused key,
-    size_t ILIAS_NET2__unused keylen)
+SHA256_init_fn(struct net2_hash_ctx *c, const void *key ILIAS_NET2__unused,
+    size_t keylen ILIAS_NET2__unused)
 {
 	SHA256Init(&c->impl.sha2);
 	return 0;
 }
 static void
-SHA256_destroy_fn(struct net2_hash_ctx * ILIAS_NET2__unused c)
+SHA256_destroy_fn(struct net2_hash_ctx *c ILIAS_NET2__unused)
 {
 	return;
 }
@@ -352,14 +352,14 @@ SHA256_final_fn(void *out, struct net2_hash_ctx *c)
 }
 
 static int
-SHA384_init_fn(struct net2_hash_ctx *c, const void * ILIAS_NET2__unused key,
-    size_t ILIAS_NET2__unused keylen)
+SHA384_init_fn(struct net2_hash_ctx *c, const void *key ILIAS_NET2__unused,
+    size_t keylen ILIAS_NET2__unused)
 {
 	SHA384Init(&c->impl.sha2);
 	return 0;
 }
 static void
-SHA384_destroy_fn(struct net2_hash_ctx * ILIAS_NET2__unused c)
+SHA384_destroy_fn(struct net2_hash_ctx *c ILIAS_NET2__unused)
 {
 	return;
 }
@@ -377,14 +377,14 @@ SHA384_final_fn(void *out, struct net2_hash_ctx *c)
 }
 
 static int
-SHA512_init_fn(struct net2_hash_ctx *c, const void * ILIAS_NET2__unused key,
-    size_t ILIAS_NET2__unused keylen)
+SHA512_init_fn(struct net2_hash_ctx *c, const void *key ILIAS_NET2__unused,
+    size_t keylen ILIAS_NET2__unused)
 {
 	SHA512Init(&c->impl.sha2);
 	return 0;
 }
 static void
-SHA512_destroy_fn(struct net2_hash_ctx * ILIAS_NET2__unused c)
+SHA512_destroy_fn(struct net2_hash_ctx *c ILIAS_NET2__unused)
 {
 	return;
 }

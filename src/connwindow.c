@@ -366,7 +366,7 @@ update_stalled(struct net2_connwindow *w)
 
 /* Clear the stallbackoff flag. */
 static void
-stallbackoff(void *wptr, void * ILIAS_NET2__unused unused)
+stallbackoff(void *wptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_connwindow		*w = wptr;
 
@@ -377,7 +377,7 @@ stallbackoff(void *wptr, void * ILIAS_NET2__unused unused)
 }
 /* Fire a new keepalive. */
 static void
-keepalive(void *wptr, void * ILIAS_NET2__unused unused)
+keepalive(void *wptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_connwindow		*w = wptr;
 
@@ -400,12 +400,11 @@ static void	dup_ack(struct net2_connwindow*);
  * - Any next timeout activates the WANTBAD state.
  */
 static void
-tx_timeout(void *txptr, void * ILIAS_NET2__unused unused)
+tx_timeout(void *txptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_cw_tx		*tx = txptr;
 	struct net2_connwindow		*w = tx->cwt_owner;
 	struct timeval			 next_timeout;
-	struct net2_cw_transmit_cb	*cb;
 
 	if ((tx->cwt_flags & NET2_CWTX_F_TIMEDOUT) == 0) {
 		tx->cwt_flags |= NET2_CWTX_F_TIMEDOUT;
@@ -427,7 +426,7 @@ tx_timeout(void *txptr, void * ILIAS_NET2__unused unused)
  * - A request for ack transmission is put forth.
  */
 static void
-rx_timeout(void *rxptr, void * ILIAS_NET2__unused unused)
+rx_timeout(void *rxptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_cw_rx		*rx = rxptr;
 	struct net2_connwindow		*w = rx->cwr_owner;
@@ -534,7 +533,7 @@ rx_free(struct net2_cw_rx *rx)
 static struct net2_cw_rx*
 get_recv(struct net2_connwindow *w, uint32_t seq, int stalled)
 {
-	struct net2_cw_rx		*found, search, *collide;
+	struct net2_cw_rx		*found, search;
 	uint32_t			 first_seq;
 	struct timeval			 timeout_lost, timeout_ack;
 
@@ -1298,7 +1297,7 @@ fail_0:
  */
 ILIAS_NET2_LOCAL void
 net2_connwindow_tx_commit(struct net2_cw_tx *tx,
-    struct packet_header * ILIAS_NET2__unused ph,
+    struct packet_header *ph ILIAS_NET2__unused,
     size_t wire_sz, struct net2_tx_callback *callbacks)
 {
 	static const struct timeval	 stalltimeout = { 0, 250000 };

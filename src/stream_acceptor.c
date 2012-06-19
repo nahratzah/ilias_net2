@@ -215,7 +215,6 @@ ILIAS_NET2_EXPORT struct net2_stream_acceptor*
 net2_stream_acceptor_new()
 {
 	struct net2_stream_acceptor	*nsa;
-	struct net2_promise		*prom_array[2];
 
 	if ((nsa = net2_malloc(sizeof(*nsa))) == NULL)
 		goto fail_0;
@@ -223,18 +222,22 @@ net2_stream_acceptor_new()
 		goto fail_1;
 	nsa->flags = 0;
 	nsa->txrx_handler = NULL;
-
-	if (sa_tx_init(&nsa->tx, &nsa_ready_to_send))
+	if ((nsa->fin = net2_promise_new()) == NULL)
 		goto fail_2;
-	if (sa_rx_init(&nsa->rx))
+	if (sa_tx_init(&nsa->tx, &nsa_ready_to_send))
 		goto fail_3;
+	if (sa_rx_init(&nsa->rx))
+		goto fail_4;
 	return nsa;
 
 
-fail_4:
+fail_5:
 	sa_rx_deinit(&nsa->rx);
-fail_3:
+fail_4:
 	sa_tx_deinit(&nsa->tx);
+fail_3:
+	net2_promise_cancel(nsa->fin);
+	net2_promise_release(nsa->fin);
 fail_2:
 	net2_acceptor_deinit(&nsa->base);
 fail_1:
@@ -1179,7 +1182,7 @@ nsa_get_transmit(struct net2_acceptor *sa_ptr, struct net2_buffer **bufptr,
 }
 
 static void
-rx_complete_event(void *nsa_ptr, void * ILIAS_NET2__unused unused)
+rx_complete_event(void *nsa_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_stream_acceptor
 				*nsa = nsa_ptr;
@@ -1228,7 +1231,7 @@ rx_complete_event(void *nsa_ptr, void * ILIAS_NET2__unused unused)
  * Enqueues RX completion event, unless an error occured.
  */
 static void
-tx_complete_event(void *nsa_ptr, void * ILIAS_NET2__unused unused)
+tx_complete_event(void *nsa_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_stream_acceptor
 				*nsa = nsa_ptr;
@@ -1322,7 +1325,7 @@ nsa_attach(struct net2_acceptor_socket *s, struct net2_acceptor *sa_ptr)
  * Detach from a connection.
  */
 ILIAS_NET2_LOCAL void
-nsa_detach(struct net2_acceptor_socket * ILIAS_NET2__unused s,
+nsa_detach(struct net2_acceptor_socket *s ILIAS_NET2__unused,
     struct net2_acceptor *sa_ptr)
 {
 	struct net2_stream_acceptor	*nsa;
@@ -2091,7 +2094,7 @@ net2_sa_rx_get_event(struct net2_sa_rx *sa, int evno)
 
 /* Free buffer result on promise. */
 static void
-buffree2(void *buf, void * ILIAS_NET2__unused unused)
+buffree2(void *buf, void *unused ILIAS_NET2__unused)
 {
 	net2_buffer_free(buf);
 }

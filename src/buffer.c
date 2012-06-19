@@ -621,7 +621,6 @@ ILIAS_NET2_EXPORT int
 net2_buffer_add_reference(struct net2_buffer *b, void *data, size_t len,
     void (*release)(void*), void *release_arg)
 {
-	struct net2_buffer_segment	*last;
 	struct net2_buffer_segment	*list;
 
 	kill_reserve(b);
@@ -1710,7 +1709,7 @@ ILIAS_NET2_EXPORT void
 net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 {
 	struct net2_buffer_segment	*list;
-	size_t				 listlen, avail, lastlen, i;
+	size_t				 listlen, avail, lastlen;
 
 	list = b->list;
 	avail = maxlen;

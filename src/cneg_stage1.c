@@ -234,7 +234,7 @@ decode_header(struct header *h, struct net2_buffer *in)
 
 /* Promise helper around free. */
 static void
-free2(void *p, void * ILIAS_NET2__unused unused)
+free2(void *p, void *unused ILIAS_NET2__unused)
 {
 	net2_free(p);
 }
@@ -1105,7 +1105,7 @@ cneg_stage1_free(struct net2_cneg_stage1 *s)
 /* Stage1 network acceptor. */
 ILIAS_NET2_LOCAL int
 cneg_stage1_accept(struct net2_cneg_stage1 *s,
-    struct packet_header * ILIAS_NET2__unused ph,
+    struct packet_header *ph ILIAS_NET2__unused,
     struct net2_buffer *buf)
 {
 	struct header		 h;
@@ -1743,7 +1743,7 @@ algorithms_add(struct net2_cneg_stage1_algorithms **algs_ptr, int alg_idx)
 }
 /* Algorithms free method. */
 static void
-algorithms_free2(void *algs_ptr, void * ILIAS_NET2__unused unused)
+algorithms_free2(void *algs_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_cneg_stage1_algorithms
 				*algs = algs_ptr;
@@ -1757,7 +1757,7 @@ algorithms_free2(void *algs_ptr, void * ILIAS_NET2__unused unused)
 
 /* Process hash set element. */
 static int
-process_set_hash(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+process_set_hash(struct net2_cneg_stage1 *s ILIAS_NET2__unused,
     void **vptr, struct header *h)
 {
 	int			 alg_idx;
@@ -1771,7 +1771,7 @@ process_set_hash(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
 }
 /* Process enc set element. */
 static int
-process_set_crypt(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+process_set_crypt(struct net2_cneg_stage1 *s ILIAS_NET2__unused,
     void **vptr, struct header *h)
 {
 	int			 alg_idx;
@@ -1785,7 +1785,7 @@ process_set_crypt(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
 }
 /* Process sign set element. */
 static int
-process_set_sign(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+process_set_sign(struct net2_cneg_stage1 *s ILIAS_NET2__unused,
     void **vptr, struct header *h)
 {
 	int			 alg_idx;
@@ -1799,7 +1799,7 @@ process_set_sign(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
 }
 /* Process xchange set element. */
 static int
-process_set_xchange(struct net2_cneg_stage1 * ILIAS_NET2__unused s,
+process_set_xchange(struct net2_cneg_stage1 *s ILIAS_NET2__unused,
     void **vptr, struct header *h)
 {
 	int			 alg_idx;
@@ -1856,7 +1856,7 @@ process_set_signature(struct net2_cneg_stage1 *s, void **vptr,
 }
 /* Fingerprint free helper. */
 static void
-signature_free2(void *ss, void * ILIAS_NET2__unused unused)
+signature_free2(void *ss, void *unused ILIAS_NET2__unused)
 {
 	if (ss != NULL) {
 		net2_signset_deinit(ss);
@@ -1869,7 +1869,6 @@ process_set_req_signature(struct net2_cneg_stage1 *s, void **vptr,
     struct header *h)
 {
 	struct net2_sign_ctx	*sctx;
-	int			 error;
 	struct net2_cneg_stage1_req_signs
 				*rs = *vptr;
 	struct net2_sign_ctx	**arr;
@@ -1926,7 +1925,7 @@ process_set_req_signature(struct net2_cneg_stage1 *s, void **vptr,
 }
 /* Require signature free function. */
 static void
-req_signature_free2(void *rs_ptr, void * ILIAS_NET2__unused unused)
+req_signature_free2(void *rs_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_cneg_stage1_req_signs
 				*rs = rs_ptr;
@@ -1941,7 +1940,8 @@ req_signature_free2(void *rs_ptr, void * ILIAS_NET2__unused unused)
 
 /* Convert received signset to net2_cneg_stage1_req_signs. */
 static void
-signset_to_s1ss(struct net2_promise *out, struct net2_promise **in, size_t insz, void *count_ptr)
+signset_to_s1ss(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void *count_ptr)
 {
 	size_t			*count = count_ptr;
 	struct net2_signset	*ss;
@@ -1950,7 +1950,6 @@ signset_to_s1ss(struct net2_promise *out, struct net2_promise **in, size_t insz,
 	uint32_t		 err;
 	int			 fin;
 	struct net2_signset_entry *sse;
-	int			 error;
 
 	assert(insz == 1);
 
@@ -2041,7 +2040,7 @@ txh_acceptable_signatures(void *s_ptr, void *prom_ptr)
 	int			 error;
 
 	/* Acquire result. */
-	fin = net2_promise_get_result(prom_ptr, (void**)&rs, &err);
+	fin = net2_promise_get_result(prom, (void**)&rs, &err);
 	switch (fin) {
 	case NET2_PROM_FIN_OK:
 		/* Handled below. */
@@ -2297,7 +2296,7 @@ fail_0:
  */
 static void
 process_all_completions(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	size_t			 i;
 	int			 fin;

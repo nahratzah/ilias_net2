@@ -239,9 +239,9 @@ net2_xchangectx_clone(const struct net2_xchange_ctx *x)
 
 /* Initialize NIL, nil key exchange always fails, for lack of implementation. */
 static int
-NIL_init_fn(struct net2_xchange_ctx * ILIAS_NET2__unused x,
+NIL_init_fn(struct net2_xchange_ctx *x ILIAS_NET2__unused,
     size_t ILIAS_NET2__unused keylen,
-    struct net2_buffer * ILIAS_NET2__unused initbuf)
+    struct net2_buffer *initbuf ILIAS_NET2__unused)
 {
 	return -1;
 }
@@ -448,7 +448,7 @@ DH_final_fn(struct net2_xchange_ctx *x, struct net2_buffer *privkey)
 	struct iovec		iov;
 	size_t			iovlen = 1;
 	int			rv;
-	size_t			keylen, i;
+	size_t			keylen;
 
 	eat_ssl_errors();
 

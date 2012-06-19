@@ -289,15 +289,15 @@ fail:
 
 
 static int
-NIL_init_fn(struct net2_enc_ctx * ILIAS_NET2__unused ctx,
-    const void * ILIAS_NET2__unused key, size_t ILIAS_NET2__unused keylen,
-    const void * ILIAS_NET2__unused iv, size_t ILIAS_NET2__unused ivlen,
-    int ILIAS_NET2__unused direction)
+NIL_init_fn(struct net2_enc_ctx *ctx ILIAS_NET2__unused,
+    const void *key ILIAS_NET2__unused, size_t keylen ILIAS_NET2__unused,
+    const void *iv ILIAS_NET2__unused, size_t ivlen ILIAS_NET2__unused,
+    int direction ILIAS_NET2__unused)
 {
 	return 0;
 }
 static void
-NIL_destroy_fn(struct net2_enc_ctx * ILIAS_NET2__unused ctx)
+NIL_destroy_fn(struct net2_enc_ctx *ctx ILIAS_NET2__unused)
 {
 	return;
 }
@@ -307,15 +307,15 @@ NIL_update_fn(struct net2_enc_ctx *ctx, const void *data, size_t len)
 	return net2_buffer_add(ctx->out, data, len);
 }
 static int
-NIL_final_fn(struct net2_enc_ctx * ILIAS_NET2__unused ctx)
+NIL_final_fn(struct net2_enc_ctx *ctx ILIAS_NET2__unused)
 {
 	return 0;
 }
 
 static int
 AES256_init_fn(struct net2_enc_ctx *ctx,
-    const void *key, size_t ILIAS_NET2__unused keylen,
-    const void *iv, size_t ILIAS_NET2__unused ivlen, int direction)
+    const void *key, size_t keylen ILIAS_NET2__unused,
+    const void *iv, size_t ivlen ILIAS_NET2__unused, int direction)
 {
 	EVP_CIPHER_CTX_init(&ctx->impl.cipher_ctx);
 	switch (direction) {

@@ -159,18 +159,18 @@ direct(struct net2_buffer *in, size_t len)
 
 
 ILIAS_NET2_LOCAL int
-cp_uint8_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint8_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, const uint8_t *val,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	if (net2_buffer_add(out, val, sizeof(*val)))
 		return ENOMEM;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_uint8_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint8_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     uint8_t *val, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	if (net2_buffer_remove(in, val, sizeof(*val)) != sizeof(*val))
 		return EIO;
@@ -178,9 +178,9 @@ cp_uint8_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 }
 
 ILIAS_NET2_LOCAL int
-cp_uint16_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint16_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, const uint16_t *val,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint16_t be = htobe16(*val);
 	if (net2_buffer_add(out, &be, sizeof(be)))
@@ -188,9 +188,9 @@ cp_uint16_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_uint16_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint16_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     uint16_t *val, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint16_t	  be;
 	uint16_t	 *p;
@@ -208,9 +208,9 @@ cp_uint16_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 }
 
 ILIAS_NET2_LOCAL int
-cp_uint32_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint32_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, const uint32_t *val,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint32_t be = htobe32(*val);
 	if (net2_buffer_add(out, &be, sizeof(be)))
@@ -218,9 +218,9 @@ cp_uint32_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_uint32_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint32_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     uint32_t *val, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint32_t	 be;
 	uint32_t	*p;
@@ -238,9 +238,9 @@ cp_uint32_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 }
 
 ILIAS_NET2_LOCAL int
-cp_uint64_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint64_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, const uint64_t *val,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint64_t be = htobe64(*val);
 	if (net2_buffer_add(out, &be, sizeof(be)))
@@ -248,9 +248,9 @@ cp_uint64_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_uint64_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_uint64_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     uint64_t *val, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint64_t	 be;
 	uint64_t	*p;
@@ -377,9 +377,9 @@ cp_int64_decode(struct net2_encdec_ctx *c,
 
 
 ILIAS_NET2_LOCAL int
-cp_paddedstring_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_paddedstring_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, char*const*s,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	size_t			len;
 	static const char	pad[PAD] = { 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -396,9 +396,9 @@ cp_paddedstring_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_paddedstring_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_paddedstring_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     char**s, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	struct net2_buffer_ptr	end;
 	const char		nullchar = '\0';
@@ -431,18 +431,18 @@ out:
 
 
 ILIAS_NET2_LOCAL int
-cp_string_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_string_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     struct net2_buffer *out, char*const*s,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	if (*s == NULL)
 		return EINVAL;
 	return net2_buffer_add(out, *s, strlen(*s) + 1);
 }
 ILIAS_NET2_LOCAL int
-cp_string_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,
+cp_string_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,
     char**s, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	struct net2_buffer_ptr	end;
 	const char		nullchar = '\0';
@@ -471,15 +471,15 @@ out:
 	return err;
 }
 ILIAS_NET2_LOCAL int
-cp_string_init(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    char**s, const void * ILIAS_NET2__unused cp_arg)
+cp_string_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    char**s, const void *cp_arg ILIAS_NET2__unused)
 {
 	*s = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_string_destroy(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    char**s, const void * ILIAS_NET2__unused cp_arg)
+cp_string_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    char**s, const void *cp_arg ILIAS_NET2__unused)
 {
 	if (*s != NULL)
 		net2_free(*s);
@@ -491,7 +491,7 @@ cp_string_destroy(struct net2_encdec_ctx * ILIAS_NET2__unused c,
 ILIAS_NET2_LOCAL int
 cp_net2_buffer32_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, struct net2_buffer*const*buf,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint32_t		 sz;
 	size_t			 sz_full;
@@ -518,7 +518,7 @@ cp_net2_buffer32_encode(struct net2_encdec_ctx *c,
 ILIAS_NET2_LOCAL int
 cp_net2_buffer32_decode(struct net2_encdec_ctx *c,
     struct net2_buffer**buf, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint32_t		 sz;
 	int			 err;
@@ -552,7 +552,7 @@ fail:
 ILIAS_NET2_LOCAL int
 cp_net2_buffer16_encode(struct net2_encdec_ctx *c,
     struct net2_buffer *out, struct net2_buffer*const*buf,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint16_t		 sz;
 	size_t			 sz_full;
@@ -578,7 +578,7 @@ cp_net2_buffer16_encode(struct net2_encdec_ctx *c,
 ILIAS_NET2_LOCAL int
 cp_net2_buffer16_decode(struct net2_encdec_ctx *c,
     struct net2_buffer**buf, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	uint16_t		 sz;
 	int			 err;
@@ -610,15 +610,15 @@ fail:
 }
 
 ILIAS_NET2_LOCAL int
-cp_net2_buffer_init(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    struct net2_buffer**buf, const void * ILIAS_NET2__unused cp_arg)
+cp_net2_buffer_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    struct net2_buffer**buf, const void *cp_arg ILIAS_NET2__unused)
 {
 	*buf = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_net2_buffer_destroy(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    struct net2_buffer**buf, const void * ILIAS_NET2__unused cp_arg)
+cp_net2_buffer_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    struct net2_buffer**buf, const void *cp_arg ILIAS_NET2__unused)
 {
 	if (*buf != NULL)
 		net2_buffer_free(*buf);
@@ -697,15 +697,15 @@ fail:
 	return err;
 }
 ILIAS_NET2_LOCAL int
-cp_null_stringlist_init(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    char***slistptr, const void * ILIAS_NET2__unused cp_arg)
+cp_null_stringlist_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    char***slistptr, const void *cp_arg ILIAS_NET2__unused)
 {
 	*slistptr = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_null_stringlist_destroy(struct net2_encdec_ctx * ILIAS_NET2__unused c,
-    char***slistptr, const void * ILIAS_NET2__unused cp_arg)
+cp_null_stringlist_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
+    char***slistptr, const void *cp_arg ILIAS_NET2__unused)
 {
 	char			**slist;
 

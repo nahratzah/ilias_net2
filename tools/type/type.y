@@ -1383,26 +1383,26 @@ create_compound_encoder(struct np_struct *s)
 	char			*argtype_unused, *buf_unused;
 
 	if (strcmp(s->nps_spec.argtype, "void") == 0)
-		argtype_unused = " ILIAS_NET2__unused ";
+		argtype_unused = " ILIAS_NET2__unused";
 	else
 		argtype_unused = "";
 	if (TAILQ_EMPTY(&s->nps_members))
-		buf_unused = " ILIAS_NET2__unused ";
+		buf_unused = " ILIAS_NET2__unused";
 	else
 		buf_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "npcompound_%s_encode(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
-	    "    struct net2_buffer *%sout, const %s%s%s%s*%sval,\n"
-	    "    const %s *%scp_arg)\n",
+	    "npcompound_%s_encode(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
+	    "    struct net2_buffer *out%s, const %s%s%s*%sval%s,\n"
+	    "    const %s *cp_arg%s)\n",
 	    s->nps_name,
 	    buf_unused,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
 	    make_pointer(s->nps_spec.is_ptr, ""),
+	    (s->nps_spec.is_ptr ? "const " : ""),
 	    buf_unused,
-	    (s->nps_spec.is_ptr ? "const" : ""),
 	    s->nps_spec.argtype, argtype_unused
 	    ) < 0)
 		err(EX_OSERR, "fprintf");
@@ -1464,7 +1464,7 @@ create_compound_encoder(struct np_struct *s)
 	}
 
 	/* End function body. */
-	if (fprintf(cfile, "\treturn 0;\n}\n\n") < 0)
+	if (fprintf(cfile, "\treturn err;\n}\n\n") < 0)
 		err(EX_OSERR, "fprintf");
 }
 
@@ -1481,19 +1481,19 @@ create_compound_decoder(struct np_struct *s)
 	char			*argtype_unused, *buf_unused;
 
 	if (strcmp(s->nps_spec.argtype, "void") == 0)
-		argtype_unused = " ILIAS_NET2__unused ";
+		argtype_unused = " ILIAS_NET2__unused";
 	else
 		argtype_unused = "";
 	if (TAILQ_EMPTY(&s->nps_members))
-		buf_unused = " ILIAS_NET2__unused ";
+		buf_unused = " ILIAS_NET2__unused";
 	else
 		buf_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "npcompound_%s_decode(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
-	    "    %s%s%s*%sval, struct net2_buffer *%sin,\n"
-	    "    const %s *%scp_arg)\n",
+	    "npcompound_%s_decode(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
+	    "    %s%s%s*val%s, struct net2_buffer *in%s,\n"
+	    "    const %s *cp_arg%s)\n",
 	    s->nps_name,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
@@ -1564,7 +1564,7 @@ create_compound_decoder(struct np_struct *s)
 	}
 
 	/* End function body. */
-	if (fprintf(cfile, "\treturn 0;\n}\n\n") < 0)
+	if (fprintf(cfile, "\treturn err;\n}\n\n") < 0)
 		err(EX_OSERR, "fprintf");
 }
 
@@ -1579,15 +1579,15 @@ create_compound_initfun(struct np_struct *s)
 	char			*argtype_unused;
 
 	if (strcmp(s->nps_spec.argtype, "void") == 0)
-		argtype_unused = " ILIAS_NET2__unused ";
+		argtype_unused = " ILIAS_NET2__unused";
 	else
 		argtype_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
+	    "%s(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
 	    "    %s%s%s%s*val,\n"
-	    "    const %s *%scp_arg)\n",
+	    "    const %s *cp_arg%s)\n",
 	    s->nps_spec.init,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,
@@ -1660,15 +1660,15 @@ create_compound_destroyfun(struct np_struct *s)
 	char			*argtype_unused;
 
 	if (strcmp(s->nps_spec.argtype, "void") == 0)
-		argtype_unused = " ILIAS_NET2__unused ";
+		argtype_unused = " ILIAS_NET2__unused";
 	else
 		argtype_unused = "";
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx * ILIAS_NET2__unused c,\n"
+	    "%s(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
 	    "    %s%s%s%s*val,\n"
-	    "    const %s *%scp_arg)\n",
+	    "    const %s *cp_arg%s)\n",
 	    s->nps_spec.destroy,
 	    (s->nps_spec.is_struct ? "struct " : ""),
 	    s->nps_spec.cname,

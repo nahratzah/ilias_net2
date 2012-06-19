@@ -154,7 +154,7 @@ net2_connection_destroy(struct net2_connection *conn)
 
 /* Handle each received datagram in receive queue. */
 ILIAS_NET2_LOCAL void
-net2_conn_handle_recv(void *cptr, void * ILIAS_NET2__unused unused)
+net2_conn_handle_recv(void *cptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_connection	*c = cptr;
 	struct net2_conn_receive*r;
@@ -259,7 +259,6 @@ net2_conn_gather_tx(struct net2_connection *c,
 	struct packet_header		 ph;
 	size_t				 avail;
 	struct net2_buffer		*b, *to_add;
-	struct net2_conn_acceptor	*acceptor;
 	size_t				 count;
 	int				 rv = -1;
 	size_t				 winoverhead;

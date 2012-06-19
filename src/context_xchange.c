@@ -208,8 +208,6 @@ apply_result(struct scope *s, int alg, size_t keysize,
     struct net2_xchange_ctx *xchange, struct net2_buffer *buf)
 {
 	struct job	*j, *j_next, search;
-	struct net2_ctx_xchange_factory_result
-			*result;
 	struct key	*key;
 
 	/*

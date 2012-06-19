@@ -713,7 +713,6 @@ n2ow_ref_stub(struct net2_objwin_stub *w)
 static void
 n2ow_unlock_stub(struct net2_objwin_stub *w)
 {
-	struct net2_objwin_tx	*tx;
 	int			 do_free;
 
 	if (w->refcnt == 0 && RB_EMPTY(&w->txs) && TAILQ_EMPTY(&w->unsentq))

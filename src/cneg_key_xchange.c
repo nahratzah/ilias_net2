@@ -308,7 +308,7 @@ fail:
 }
 /* Free direct xchange promise argument. */
 static void
-xchange_promise_pdd_release(void *pdd_ptr, void * ILIAS_NET2__unused unused)
+xchange_promise_pdd_release(void *pdd_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct pdirect_data	*pdd = pdd_ptr;
 
@@ -413,7 +413,7 @@ fail_0:
  * Initializes initbuf carver for sending data.
  */
 static void
-xchange_local_on_xchange(void *xl_ptr, void * ILIAS_NET2__unused unused)
+xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct xchange_local	*xl = xl_ptr;
 	struct xchange_carver_setup_data
@@ -500,7 +500,7 @@ fail_0:
  * Initializes initbuf carver for sending data.
  */
 static void
-xchange_remote_on_xchange(void *xr_ptr, void * ILIAS_NET2__unused unused)
+xchange_remote_on_xchange(void *xr_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct xchange_local	*xr = xr_ptr;
 	struct xchange_carver_setup_data
@@ -571,14 +571,14 @@ fail_0:
 }
 
 static void
-prom_buffer_free(void *buf, void * ILIAS_NET2__unused unused)
+prom_buffer_free(void *buf, void *unused ILIAS_NET2__unused)
 {
 	net2_buffer_free(buf);
 }
 /* Combine import buffer and xchange. */
 static void
 xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	struct net2_ctx_xchange_factory_result
 				*xch;
@@ -631,7 +631,7 @@ xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
 /* Combine verified import buffer with negotiated key. */
 static void
 key_verified_combine(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	struct net2_buffer	*key;
 	uint32_t		 key_err, verify_err;
@@ -685,7 +685,7 @@ key_verified_combine(struct net2_promise *out, struct net2_promise **in,
 }
 /* xchange_local completion test. */
 static void
-xchange_local_complete(void *xl_ptr, void * ILIAS_NET2__unused unused)
+xchange_local_complete(void *xl_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct xchange_local	*xl = xl_ptr;
 	struct net2_promise	*p_export, *p_init, *p_key;
@@ -759,7 +759,7 @@ fail:
 }
 /* xchange_local completion test. */
 static void
-xchange_remote_complete(void *xr_ptr, void * ILIAS_NET2__unused unused)
+xchange_remote_complete(void *xr_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct xchange_local	*xr = xr_ptr;
 	struct net2_promise	*p_export, *p_key;
@@ -827,7 +827,6 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 {
 	struct net2_buffer	*buf;
 	struct xchange_remote	*xr = xr_ptr;
-	struct net2_xchange_ctx	*ctx;
 	struct net2_ctx_xchange_factory_result
 				*result = NULL;
 	uint32_t		 err;
@@ -1021,7 +1020,7 @@ static int
 xchange_remote_init(
     struct xchange_remote *xr,
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx * ILIAS_NET2__unused nctx,
+    struct net2_ctx *nctx ILIAS_NET2__unused,
     int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
@@ -1411,7 +1410,7 @@ typedef struct net2_buffer *half_keyset[NET2_CNEG_S2_MAX];
 
 /* Free half keyset. */
 static void
-half_keyset_free(void *hks, void * ILIAS_NET2__unused unused)
+half_keyset_free(void *hks, void *unused ILIAS_NET2__unused)
 {
 	half_keyset		*result = hks;
 	size_t			 i;
@@ -1429,7 +1428,7 @@ half_keyset_free(void *hks, void * ILIAS_NET2__unused unused)
  */
 static void
 key_xchange_combine(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	int			 fin;
 	uint32_t		 err;
@@ -1489,7 +1488,7 @@ fail_0:
 
 /* Simple wrapper around keyset free, for promise. */
 static void
-net2_cneg_keyset_promfree(void *ks, void * ILIAS_NET2__unused unused)
+net2_cneg_keyset_promfree(void *ks, void *unused ILIAS_NET2__unused)
 {
 	net2_cneg_keyset_free(ks);
 }
@@ -1499,7 +1498,7 @@ net2_cneg_keyset_promfree(void *ks, void * ILIAS_NET2__unused unused)
  */
 static void
 key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	half_keyset		*r[2];
 	int			 fin;
@@ -1553,7 +1552,7 @@ key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
 /* Assign keyset from in[0] to out, unless any of in failed. */
 static void
 key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void * ILIAS_NET2__unused unused)
+    size_t insz, void *unused ILIAS_NET2__unused)
 {
 	size_t			 i;
 	int			 fin;

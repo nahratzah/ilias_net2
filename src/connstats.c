@@ -237,7 +237,7 @@ rtt_update(struct net2_connstats_rtt *l, int64_t usec)
  */
 ILIAS_NET2_LOCAL int
 net2_connstats_init(struct net2_connstats *cs,
-    struct net2_connection * ILIAS_NET2__unused conn)
+    struct net2_connection *conn ILIAS_NET2__unused)
 {
 	/* Zero all counters. */
 	memset(&cs->segments[0], 0, sizeof(cs->segments));
@@ -261,7 +261,7 @@ net2_connstats_init(struct net2_connstats *cs,
 
 /* Deinitialize connstats. */
 ILIAS_NET2_LOCAL void
-net2_connstats_deinit(struct net2_connstats * ILIAS_NET2__unused cs)
+net2_connstats_deinit(struct net2_connstats *cs ILIAS_NET2__unused)
 {
 	return;
 }

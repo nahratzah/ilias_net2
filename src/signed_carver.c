@@ -68,7 +68,7 @@ static struct net2_buffer
  */
 static void
 signed_carver_completion(struct net2_promise *out,
-    struct net2_promise **in, size_t insz, void * ILIAS_NET2__unused unused)
+    struct net2_promise **in, size_t insz, void *unused ILIAS_NET2__unused)
 {
 	void			*in_data;
 	size_t			 i;
@@ -133,7 +133,7 @@ signed_carver_completion(struct net2_promise *out,
  */
 static void
 signed_combiner_completion(struct net2_promise *out,
-    struct net2_promise **in, size_t insz, void * ILIAS_NET2__unused unused)
+    struct net2_promise **in, size_t insz, void *unused ILIAS_NET2__unused)
 {
 	void			*in_data;
 	struct net2_buffer	*pl;
@@ -215,7 +215,7 @@ signed_combiner_completion(struct net2_promise *out,
  * Function to free buffer on completion event.
  */
 static void
-combiner_buffer_release(void *bufptr, void * ILIAS_NET2__unused unused)
+combiner_buffer_release(void *bufptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_buffer	*buf;
 
@@ -229,7 +229,7 @@ combiner_buffer_release(void *bufptr, void * ILIAS_NET2__unused unused)
  * Function to free sign context associated with promise.
  */
 static void
-signctx_promdestroy(void *svarg_ptr, void * ILIAS_NET2__unused unused)
+signctx_promdestroy(void *svarg_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct signctx_validate_arg	*svarg;
 
@@ -333,7 +333,6 @@ signed_combiner_check(struct net2_workq *wq, struct net2_encdec_ctx *c,
 {
 	struct net2_promise	*out;
 	struct net2_promise	*in[2] = { pl, sig };
-	struct net2_sign_ctx	*sctx_clone;
 	struct signctx_validate_arg
 				*svarg;
 
@@ -463,7 +462,7 @@ net2_signed_carver_destroy(struct net2_signed_carver *sc)
 	net2_carver_deinit(&sc->payload);
 
 	/* Release all signatures. */
-	while (sc->signatures-- > 0)
+	while (sc->num_signatures-- > 0)
 		net2_carver_deinit(&sc->signatures[sc->num_signatures]);
 	net2_free(sc->signatures);
 

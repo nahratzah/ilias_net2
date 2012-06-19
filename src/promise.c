@@ -608,8 +608,6 @@ net2_promise_get_result(struct net2_promise *p, void **result_ptr, uint32_t *err
 ILIAS_NET2_EXPORT void
 net2_promise_wait(struct net2_promise *p)
 {
-	int				 error;
-
 	net2_mutex_lock(p->mtx);
 
 	/* Try to start the request now, unless it already is running or

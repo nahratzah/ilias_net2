@@ -85,8 +85,6 @@ static int	 combiner_setup_msg(struct net2_combiner*,
 		    struct net2_encdec_ctx*, struct net2_buffer*);
 static int	 combiner_msg_combine(struct net2_combiner*,
 		    struct net2_carver_range*);
-static struct net2_buffer
-		*combiner_data(struct net2_combiner*);
 static void	 combiner_result_free(void*, void*);
 
 static enum net2_carver_type
@@ -771,7 +769,6 @@ combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
 	struct net2_carver_range search, *next, *prev;
 	size_t			 prev_end;
 	size_t			 r_end;
-	size_t			 add_len;
 
 	r_end = r->offset + net2_buffer_length(r->data);
 	search.offset = r->offset + 1;
@@ -842,7 +839,7 @@ combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
 
 /* Combiner promise data release function. */
 static void
-combiner_result_free(void *bufptr, void * ILIAS_NET2__unused unused)
+combiner_result_free(void *bufptr, void *unused ILIAS_NET2__unused )
 {
 	struct net2_buffer	*buf = bufptr;
 
@@ -899,7 +896,7 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 
 /* Ack setup receival. */
 static void
-carver_setup_ack(void *c_ptr, void * ILIAS_NET2__unused unusued)
+carver_setup_ack(void *c_ptr, void *unusued ILIAS_NET2__unused)
 {
 	struct net2_carver	*c = c_ptr;
 
@@ -910,7 +907,7 @@ carver_setup_ack(void *c_ptr, void * ILIAS_NET2__unused unusued)
 
 /* Setup receival failed. */
 static void
-carver_setup_nack(void *c_ptr, void * ILIAS_NET2__unused unusued)
+carver_setup_nack(void *c_ptr, void *unusued ILIAS_NET2__unused)
 {
 	struct net2_carver	*c = c_ptr;
 

@@ -232,6 +232,7 @@ net2_signset_next(struct net2_signset *s, struct net2_signset_entry *e)
 	 * triggering from the macro not actually using this.
 	 */
 	struct net2_signset_tree	*tree = &s->data;
+	(void)tree;
 
 	return RB_NEXT(net2_signset_tree, tree, e);
 }
@@ -243,6 +244,7 @@ net2_signset_prev(struct net2_signset *s, struct net2_signset_entry *e)
 	 * triggering from the macro not actually using this.
 	 */
 	struct net2_signset_tree	*tree = &s->data;
+	(void)tree;
 
 	return RB_PREV(net2_signset_tree, tree, e);
 }

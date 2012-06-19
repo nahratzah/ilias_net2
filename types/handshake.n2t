@@ -209,7 +209,7 @@ get_header__no_flags_type(uint32_t hflags)
 
 static int
 header__no_flags_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
-    const struct header *h, const void * ILIAS_NET2__unused cp_arg)
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
 {
 	const struct command_param	*cp;
 
@@ -220,7 +220,7 @@ header__no_flags_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 static int
 header__no_flags_decode(struct net2_encdec_ctx *c, struct header *h,
-    struct net2_buffer *in, const void * ILIAS_NET2__unused cp_arg)
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
 {
 	const struct command_param	*cp;
 
@@ -253,7 +253,7 @@ get_header_cp_type(const struct header *h)
 
 static int
 payload_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
-    const struct header *h, const void * ILIAS_NET2__unused cp_arg)
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
 {
 	const struct command_param	*cp;
 
@@ -264,7 +264,7 @@ payload_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 static int
 payload_decode(struct net2_encdec_ctx *c, struct header *h,
-    struct net2_buffer *in, const void * ILIAS_NET2__unused cp_arg)
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
 {
 	const struct command_param	*cp;
 
@@ -275,7 +275,7 @@ payload_decode(struct net2_encdec_ctx *c, struct header *h,
 
 static int
 set_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
-    const struct header *h, const void * ILIAS_NET2__unused cp_arg)
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
 {
 	int				 error;
 
@@ -300,7 +300,7 @@ set_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 static int
 set_decode(struct net2_encdec_ctx *c, struct header *h, struct net2_buffer *in,
-    const void * ILIAS_NET2__unused cp_arg)
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	int				 error;
 
@@ -325,7 +325,7 @@ set_decode(struct net2_encdec_ctx *c, struct header *h, struct net2_buffer *in,
 
 static int
 poetry_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
-    const struct header *h, const void * ILIAS_NET2__unused cp_arg)
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
 {
 	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
 		return EINVAL;
@@ -334,7 +334,7 @@ poetry_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
 
 static int
 poetry_decode(struct net2_encdec_ctx *c, struct header *h,
-    struct net2_buffer *in, const void * ILIAS_NET2__unused cp_arg)
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
 {
 	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
 		return EINVAL;
@@ -580,7 +580,7 @@ deinit_header(struct net2_encdec_ctx *c, struct header *h)
 /* Encode header. */
 static int
 cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
-    const struct header *h, const void * ILIAS_NET2__unused arg)
+    const struct header *h, const void *arg ILIAS_NET2__unused)
 {
 	int			 error;
 
@@ -597,7 +597,7 @@ cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
 /* Decode header. */
 static int
 cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
-    struct net2_buffer *in, const void * ILIAS_NET2__unused arg)
+    struct net2_buffer *in, const void *arg ILIAS_NET2__unused)
 {
 	int			 error;
 
@@ -615,9 +615,9 @@ cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
 
 /* Initialize header. */
 static int
-cp_header_init(struct net2_encdec_ctx * ILIAS_NET2__unused ignored_ctx,
+cp_header_init(struct net2_encdec_ctx *ignored_ctx ILIAS_NET2__unused,
     struct header *h,
-    const void * ILIAS_NET2__unused arg)
+    const void *arg ILIAS_NET2__unused)
 {
 	memset(h, 0, sizeof(*h));
 	return 0;
@@ -625,7 +625,7 @@ cp_header_init(struct net2_encdec_ctx * ILIAS_NET2__unused ignored_ctx,
 /* Destroy header. */
 static int
 cp_header_destroy(struct net2_encdec_ctx *c, struct header *h,
-    const void * ILIAS_NET2__unused arg)
+    const void *arg ILIAS_NET2__unused)
 {
 	deinit_header(c, h);
 	return 0;
