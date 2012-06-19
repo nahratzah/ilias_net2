@@ -65,13 +65,11 @@ struct net2_conn_negotiator {
 	struct net2_cneg_key_xchange
 				*keyx;		/* Key xchange stage. */
 
-	struct {
-		int		*supported;	/* Algorithm set. */
-		size_t		 num_supported;	/* # supported. */
-	}			 hash,		/* Supported hashes. */
-				 enc,		/* Supported encoders. */
-				 xchange,	/* Supported xchange. */
-				 sign;		/* Supported sign. */
+	struct net2_promise	*hash,		/* Supported hashes. */
+				*enc,		/* Supported encoders. */
+				*xchange,	/* Supported xchange. */
+				*sign;		/* Supported sign. */
+	struct net2_promise_event kx_event;	/* Handle key xchange. */
 };
 
 /*

@@ -34,6 +34,7 @@
 
 #include <ilias/net2/enc.h>
 #include <ilias/net2/hash.h>
+#include <ilias/net2/sign.h>
 #include <ilias/net2/xchange.h>
 
 #include <ilias/net2/cneg_stage1.h>
@@ -57,12 +58,217 @@
 #define CNEG_CONN(_cn)							\
 		((struct net2_connection*)((char*)(_cn) - CNEG_OFFSET))
 
+static void	 free2(void*, void*);
+static void	 kx_free2(void*, void*);
+static int	 select_hash(int*, size_t);
+static int	 select_enc(int*, size_t);
+static int	 select_sign(int*, size_t);
+static int	 select_xchange(int*, size_t);
+static void	 choose_alg(struct net2_promise*, struct net2_promise**,
+		    size_t, void*);
+
+static struct net2_promise*
+		 create_key_xchange_prom(struct net2_workq*,
+		    struct net2_cneg_stage1*,
+		    struct net2_promise*, struct net2_promise*,
+		    struct net2_promise*, struct net2_promise*);
+static void	 create_key_xchange(struct net2_promise*,
+		    struct net2_promise**, size_t, void*);
+static void	 key_xchange_assign(void*, void*);
+
+
+static void
+free2(void *p, void * ILIAS_NET2__unused unused)
+{
+	net2_free(p);
+}
+static void
+kx_free2(void *kx, void * ILIAS_NET2__unused unused)
+{
+	net2_cneg_key_xchange_free(kx);
+}
 
 /* Notify connection that we want to send data. */
 static void
 cneg_ready_to_send(struct net2_conn_negotiator *cn)
 {
 	net2_acceptor_socket_ready_to_send(&CNEG_CONN(cn)->n2c_socket);
+}
+/* Ready-to-send with 2 arguments. */
+static void
+cneg_ready_to_send_arg(void *cn_ptr, void * ILIAS_NET2__unused unused)
+{
+	cneg_ready_to_send(cn_ptr);
+}
+
+/*
+ * Select best keyed hash algorithm.
+ * Returns -1 if none are sufficient.
+ */
+static int
+select_hash(int *algs, size_t n)
+{
+	int	selected, key, hash, i_key, i_hash, i_alg;
+	size_t	i;
+	const int min_keylen = 128 / 8;
+	const int min_hashlen = 32 / 8;
+
+	selected = -1;
+	key = -1;
+	hash = -1;
+	for (i = 0; i < n; i++) {
+		i_alg = algs[i];
+		i_key = net2_hash_getkeylen(i_alg);
+		i_hash = net2_hash_gethashlen(i_alg);
+		if (i_key >= min_keylen && i_hash >= min_hashlen &&
+		    (i_key > key || (i_key == key && i_hash > hash))) {
+			selected = i_alg;
+			key = i_key;
+			hash = i_hash;
+		}
+	}
+
+	return selected;
+}
+/*
+ * Select best keyed enc algorithm.
+ * Returns -1 if none are sufficient.
+ */
+static int
+select_enc(int *algs, size_t n)
+{
+	int	selected, key, iv, i_key, i_iv, i_alg;
+	size_t	i;
+	const int min_keylen = 128 / 8;
+	const int min_ivlen = 32 / 8;
+
+	selected = -1;
+	key = -1;
+	iv = -1;
+	for (i = 0; i < n; i++) {
+		i_alg = algs[i];
+		i_key = net2_enc_getkeylen(i_alg);
+		i_iv = net2_enc_getivlen(i_alg);
+		if (i_key >= min_keylen && i_iv >= min_ivlen &&
+		    (i_key > key || (i_key == key && i_iv > iv))) {
+			selected = i_alg;
+			key = i_key;
+			iv = i_iv;
+		}
+	}
+
+	return selected;
+}
+/*
+ * Select best signature algorithm.
+ * Returns -1 if none are sufficient.
+ */
+static int
+select_sign(int *algs, size_t n)
+{
+	int	selected, sign, i_sign, i_alg;
+	size_t	i;
+	const int min_signlen = 128 / 8;
+
+	selected = -1;
+	sign = -1;
+	for (i = 0; i < n; i++) {
+		i_alg = algs[i];
+		i_sign = net2_sign_getsignlen(i_alg);
+		if (i_sign >= min_signlen && i_sign > sign) {
+			selected = i_alg;
+			sign = i_sign;
+		}
+	}
+
+	return selected;
+}
+/*
+ * Select best xchange algorithm.
+ * Returns -1 if none are sufficient.
+ */
+static int
+select_xchange(int *algs, size_t n)
+{
+	int	selected;
+	size_t	i;
+
+	/*
+	 * Assume that algorithms are better
+	 * if they have a higher algorithm number.
+	 */
+	selected = -1;
+	for (i = 0; i < n; i++) {
+		if (algs[i] > 0 && algs[i] > selected)
+			selected = algs[i];
+	}
+	return selected;
+}
+
+/* Choose the hash algorithm we want to use for packet hashes. */
+static void
+choose_alg(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void *select_fn)
+{
+	struct net2_cneg_stage1_algorithms
+				*algs;
+	uint32_t		 err;
+	int			 fin;
+	int			*outval;
+	int			(*select)(int*, size_t) = select_fn;
+	int			 selected;
+
+	/* Skip assignment if cancelation was requested. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Only 1 input promise. */
+	if (insz != 1) {
+		err = EINVAL;
+		goto fail;
+	}
+
+	/* Check result of input. */
+	fin = net2_promise_get_result(in[0], (void**)&algs, &err);
+	assert(fin != NET2_PROM_FIN_UNFINISHED);
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		break;
+	case NET2_PROM_FIN_ERROR:
+		goto fail;
+	default:
+		err = EIO;
+		goto fail;
+	}
+
+	/*
+	 * Check the hash with the highest key size, highest hash size.
+	 * Simple linear search for max.
+	 */
+	selected = (*select)(algs->algs, algs->sz);
+	if (selected == -1) {
+		/* Nothing suitable was presented. */
+		err = ESRCH;
+		goto fail;
+	}
+
+	/* Assign selected algorithm. */
+	if ((outval = net2_malloc(sizeof(*outval))) == NULL) {
+		err = ENOMEM;
+		goto fail;
+	}
+	*outval = selected;
+	if ((err = net2_promise_set_finok(out, outval, &free2, NULL,
+	    0)) != 0) {
+		net2_free(outval);
+		goto fail;
+	}
+	return;
+
+fail:
+	net2_promise_set_error(out, err, 0);
 }
 
 
@@ -86,6 +292,138 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn,
 	return 1;
 }
 
+/* Create the key xchange factory. */
+static struct net2_promise*
+create_key_xchange_prom(struct net2_workq *wq, struct net2_cneg_stage1 *s1,
+    struct net2_promise *hash, struct net2_promise *enc,
+    struct net2_promise *sign, struct net2_promise *xchange)
+{
+	struct net2_promise	*proms[7];
+
+	proms[0] = cneg_stage1_get_pver(s1);
+	proms[1] = hash;
+	proms[2] = enc;
+	proms[3] = sign;
+	proms[4] = xchange;
+	proms[5] = cneg_stage1_get_accepted_signatures(s1);
+	proms[6] = cneg_stage1_get_transmit_signatures(s1);
+
+	return net2_promise_combine(wq, &create_key_xchange, NULL,
+	    proms, sizeof(proms) / sizeof(proms[0]));
+}
+/* Convert stage1 information into a key exchange handler. */
+static void
+create_key_xchange(struct net2_promise *out, struct net2_promise **in,
+    size_t insz, void *cn_ptr)
+{
+	size_t				 i;
+	struct net2_cneg_stage1_pver	*pver;
+	int				*hash, *crypt, *xchange, *sign;
+	uint32_t			 error;
+	struct net2_encdec_ctx		 ectx;
+	struct net2_pvlist		 pvlist;
+	struct net2_cneg_key_xchange	*kx;
+	struct net2_conn_negotiator	*cn = cn_ptr;
+	struct net2_connection		*s = CNEG_CONN(cn);
+	struct net2_workq		*wq;
+	struct net2_cneg_stage1_req_signs
+					*in_signs, *out_signs;
+
+	/* If cancelation was requested, skip operation. */
+	if (net2_promise_is_cancelreq(out)) {
+		net2_promise_set_cancel(out, 0);
+		return;
+	}
+
+	/* Check that there are exactly 7 promises. */
+	if (insz != 7) {
+		error = EINVAL;
+		goto fail_0;
+	}
+
+	/*
+	 * Gather results and check that each promise completed succesfully.
+	 */
+	if (net2_promise_get_result(in[0], (void**)&pver, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[1], (void**)&hash, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[2], (void**)&crypt, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[3], (void**)&xchange, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[4], (void**)&sign, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[5], (void**)&in_signs, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[6], (void**)&out_signs, NULL) !=
+	    NET2_PROM_FIN_OK) {
+		error = EIO;
+		goto fail_0;
+	}
+
+	/* Acquire workq. */
+	if ((wq = net2_acceptor_socket_workq(&s->n2c_socket)) == NULL) {
+		error = EIO;
+		goto fail_0;
+	}
+
+	/* Create encdec ctx. */
+	if ((error = net2_pvlist_init(&pvlist)) != 0)
+		goto fail_0;
+	error = net2_pvlist_add(&pvlist, &net2_proto, pver->proto0);
+	if (error == 0)
+		error = net2_encdec_ctx_init(&ectx, &pvlist, NULL);
+	net2_pvlist_deinit(&pvlist);
+	if (error != 0)
+		goto fail_1;
+
+	/* Create key exchange. */
+	kx = net2_cneg_key_xchange_new(wq, &ectx, cn->context,
+	    *hash, *crypt, *sign, *hash,
+	    &cneg_ready_to_send_arg, cn, NULL,
+	    out_signs->sz, out_signs->sctx,
+	    in_signs->sz, in_signs->sctx);
+	if (kx == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Assign output. */
+	if ((error = net2_promise_set_finok(out, kx, &kx_free2, NULL, 0)) != 0)
+		goto fail_2;
+	return;
+
+fail_2:
+	net2_cneg_key_xchange_free(kx);
+fail_1:
+	net2_encdec_ctx_deinit(&ectx);
+fail_0:
+	assert(error != 0);
+	net2_promise_set_error(out, error, 0);
+}
+static void
+key_xchange_assign(void *kx_promise, void *cn_ptr)
+{
+	struct net2_cneg_key_xchange	*kx;
+	struct net2_conn_negotiator	*cn = cn_ptr;
+	int				 fin;
+	uint32_t			 err;
+
+	fin = net2_promise_get_result(kx_promise, (void**)&kx, &err);
+	assert(fin != NET2_PROM_FIN_UNFINISHED);
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		cn->keyx = kx;
+		break;
+	default:
+		err = EIO;
+	case NET2_PROM_FIN_ERROR:
+		assert(0); /* XXX handle failure. */
+		break;
+	}
+}
+
 /* Initialize connection negotiator. */
 ILIAS_NET2_LOCAL int
 net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
@@ -95,8 +433,10 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	struct encoded_header	*h;
 	size_t			 i;
 	struct net2_workq	*wq;
+	struct net2_promise	*p_hash, *p_enc, *p_sign, *p_xchange, *p_kx;
 
 	assert(s != NULL);
+	p_hash = p_enc = p_sign = p_xchange = NULL;
 	wq = net2_acceptor_socket_workq(&s->n2c_socket);
 
 	cn->flags = cn->flags_have = 0;
@@ -113,21 +453,96 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	}
 	cn->keyx = NULL;
 
-	cn->hash.supported = NULL;
-	cn->hash.num_supported = 0;
-	cn->enc.supported = NULL;
-	cn->enc.num_supported = 0;
-	cn->xchange.supported = NULL;
-	cn->xchange.num_supported = 0;
-	cn->sign.supported = NULL;
-	cn->sign.num_supported = 0;
+	/*
+	 * Extract support sets from stage1.
+	 * Promises are delivered with reference from stage1.
+	 */
+	cn->hash = cneg_stage1_get_hash(cn->stage1);
+	cn->enc = cneg_stage1_get_crypt(cn->stage1);
+	cn->sign = cneg_stage1_get_sign(cn->stage1);
+	cn->xchange = cneg_stage1_get_xchange(cn->stage1);
+	if (cn->hash == NULL || cn->enc == NULL || cn->sign == NULL ||
+	    cn->xchange == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Hash selector promise setup. */
+	p_hash = net2_promise_combine(wq, &choose_alg,
+	    &select_hash, &cn->hash, 1);
+	/* Enc selector promise setup. */
+	p_enc = net2_promise_combine(wq, &choose_alg,
+	    &select_enc, &cn->enc, 1);
+	/* Sign selector promise setup. */
+	p_sign = net2_promise_combine(wq, &choose_alg,
+	    &select_sign, &cn->sign, 1);
+	/* Xchange selector promise setup. */
+	p_xchange = net2_promise_combine(wq, &choose_alg,
+	    &select_xchange, &cn->xchange, 1);
+	/* Check that promises above got created properly. */
+	if (p_hash == NULL || p_enc == NULL || p_sign == NULL ||
+	    p_xchange == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Create key xchange factory. */
+	if ((p_kx = create_key_xchange_prom(wq, cn->stage1,
+	    p_hash, p_enc, p_sign, p_xchange)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	if ((error = net2_promise_event_init(&cn->kx_event, p_kx,
+	    NET2_PROM_ON_FINISH, wq, &key_xchange_assign, p_kx, cn)) != 0)
+		goto fail_2;
+	/* p_kx will now be kept alive via its on-completion event. */
+	net2_promise_release(p_kx);
+	p_kx = NULL;
+
+	/* Done.  Release temporary promises (they're chained). */
+	net2_promise_release(p_hash);
+	net2_promise_release(p_enc);
+	net2_promise_release(p_sign);
+	net2_promise_release(p_xchange);
+	p_hash = p_enc = p_sign = p_xchange = NULL;
 
 	return 0;
 
 
+fail_3:
+	net2_promise_event_deinit(&cn->kx_event);
+fail_2:
+	if (p_kx != NULL) {
+		net2_promise_cancel(p_kx);
+		net2_promise_release(p_kx);
+	}
 fail_1:
+	if (cn->hash != NULL)
+		net2_promise_release(cn->hash);
+	if (cn->enc != NULL)
+		net2_promise_release(cn->enc);
+	if (cn->sign != NULL)
+		net2_promise_release(cn->sign);
+	if (cn->xchange != NULL)
+		net2_promise_release(cn->xchange);
 	cneg_stage1_free(cn->stage1);
 fail_0:
+	if (p_hash != NULL) {
+		net2_promise_cancel(p_hash);
+		net2_promise_release(p_hash);
+	}
+	if (p_enc != NULL) {
+		net2_promise_cancel(p_enc);
+		net2_promise_release(p_enc);
+	}
+	if (p_sign != NULL) {
+		net2_promise_cancel(p_sign);
+		net2_promise_release(p_sign);
+	}
+	if (p_xchange != NULL) {
+		net2_promise_cancel(p_xchange);
+		net2_promise_release(p_xchange);
+	}
 	return error;
 }
 
@@ -139,6 +554,8 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	size_t			 i;
 	struct event		*ev;
 
+	/* Cancel key xchange event. */
+	net2_promise_event_deinit(&cn->kx_event);
 	/* Release stage2 data. */
 	if (cn->keyx != NULL)
 		net2_cneg_key_xchange_free(cn->keyx);
@@ -146,10 +563,10 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	if (cn->stage1 != NULL)
 		cneg_stage1_free(cn->stage1);
 
-	net2_free(cn->hash.supported);
-	net2_free(cn->enc.supported);
-	net2_free(cn->xchange.supported);
-	net2_free(cn->sign.supported);
+	net2_promise_release(cn->hash);
+	net2_promise_release(cn->enc);
+	net2_promise_release(cn->xchange);
+	net2_promise_release(cn->sign);
 
 	return;
 }
