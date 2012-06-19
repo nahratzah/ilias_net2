@@ -299,6 +299,7 @@ create_key_xchange_prom(struct net2_workq *wq, struct net2_cneg_stage1 *s1,
     struct net2_promise *sign, struct net2_promise *xchange)
 {
 	struct net2_promise	*proms[7];
+	struct net2_promise	*result;
 
 	proms[0] = cneg_stage1_get_pver(s1);
 	proms[1] = hash;
@@ -308,8 +309,14 @@ create_key_xchange_prom(struct net2_workq *wq, struct net2_cneg_stage1 *s1,
 	proms[5] = cneg_stage1_get_accepted_signatures(s1);
 	proms[6] = cneg_stage1_get_transmit_signatures(s1);
 
-	return net2_promise_combine(wq, &create_key_xchange, NULL,
+	result = net2_promise_combine(wq, &create_key_xchange, NULL,
 	    proms, sizeof(proms) / sizeof(proms[0]));
+
+	net2_promise_release(proms[0]);
+	net2_promise_release(proms[5]);
+	net2_promise_release(proms[6]);
+
+	return result;
 }
 /* Convert stage1 information into a key exchange handler. */
 static void
@@ -401,6 +408,7 @@ fail_0:
 	assert(error != 0);
 	net2_promise_set_error(out, error, 0);
 }
+/* Assign key exchange to conn negotiator. */
 static void
 key_xchange_assign(void *kx_promise, void *cn_ptr)
 {
@@ -417,7 +425,34 @@ key_xchange_assign(void *kx_promise, void *cn_ptr)
 		break;
 	default:
 		err = EIO;
+		/* FALLTHROUGH */
 	case NET2_PROM_FIN_ERROR:
+		assert(0); /* XXX handle failure. */
+		break;
+	}
+}
+/* Assign protocol version to conn negotiator. */
+static void
+pver_assign(void *pver_promise, void *cn_ptr)
+{
+	struct net2_cneg_stage1_pver	*pver;
+	struct net2_conn_negotiator	*cn = cn_ptr;
+	int				 fin;
+	uint32_t			 err;
+
+	fin = net2_promise_get_result(pver_promise, (void**)&pver, &err);
+	assert(fin != NET2_PROM_FIN_UNFINISHED);
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		err = net2_pvlist_add(&cn->proto, &net2_proto, pver->proto0);
+		if (err != 0)
+			goto pass_error;
+		break;
+	default:
+		err = EIO;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_ERROR:
+pass_error:
 		assert(0); /* XXX handle failure. */
 		break;
 	}
@@ -430,11 +465,15 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	int			 error;
 	struct net2_connection	*s = CNEG_CONN(cn);
 	struct net2_workq	*wq;
-	struct net2_promise	*p_hash, *p_enc, *p_sign, *p_xchange, *p_kx;
+	struct net2_promise	*p_hash, *p_enc, *p_sign, *p_xchange, *p_kx,
+				*p_pver;
 
 	assert(s != NULL);
 	p_hash = p_enc = p_sign = p_xchange = NULL;
 	wq = net2_acceptor_socket_workq(&s->n2c_socket);
+
+	if ((error = net2_pvlist_init(&cn->proto)) != 0)
+		goto fail_0;
 
 	cn->flags = cn->flags_have = 0;
 	if (!(s->n2c_socket.fn->flags & NET2_SOCKET_SECURE)) {
@@ -446,7 +485,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	cn->recv_no_send = 0;
 	if ((cn->stage1 = cneg_stage1_new(cn->flags, context, wq)) == NULL) {
 		error = ENOMEM;
-		goto fail_0;
+		goto fail_1;
 	}
 	cn->keyx = NULL;
 
@@ -461,7 +500,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	if (cn->hash == NULL || cn->enc == NULL || cn->sign == NULL ||
 	    cn->xchange == NULL) {
 		error = ENOMEM;
-		goto fail_1;
+		goto fail_2;
 	}
 
 	/* Hash selector promise setup. */
@@ -480,18 +519,18 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	if (p_hash == NULL || p_enc == NULL || p_sign == NULL ||
 	    p_xchange == NULL) {
 		error = ENOMEM;
-		goto fail_1;
+		goto fail_2;
 	}
 
 	/* Create key xchange factory. */
 	if ((p_kx = create_key_xchange_prom(wq, cn->stage1,
 	    p_hash, p_enc, p_sign, p_xchange)) == NULL) {
 		error = ENOMEM;
-		goto fail_1;
+		goto fail_2;
 	}
 	if ((error = net2_promise_event_init(&cn->kx_event, p_kx,
 	    NET2_PROM_ON_FINISH, wq, &key_xchange_assign, p_kx, cn)) != 0)
-		goto fail_2;
+		goto fail_3;
 	/* p_kx will now be kept alive via its on-completion event. */
 	net2_promise_release(p_kx);
 	p_kx = NULL;
@@ -503,17 +542,28 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	net2_promise_release(p_xchange);
 	p_hash = p_enc = p_sign = p_xchange = NULL;
 
+	/* Pver event: assign protocol version for net2_proto. */
+	if ((p_pver = cneg_stage1_get_pver(cn->stage1)) == NULL)
+		goto fail_4;
+	error = net2_promise_event_init(&cn->pver_event, p_pver,
+	    NET2_PROM_ON_FINISH, wq, &pver_assign, p_pver, cn);
+	net2_promise_release(p_pver);
+	if (error != 0)
+		goto fail_4;
+
 	return 0;
 
 
-fail_3:
+fail_5:
+	net2_promise_event_deinit(&cn->pver_event);
+fail_4:
 	net2_promise_event_deinit(&cn->kx_event);
-fail_2:
+fail_3:
 	if (p_kx != NULL) {
 		net2_promise_cancel(p_kx);
 		net2_promise_release(p_kx);
 	}
-fail_1:
+fail_2:
 	if (cn->hash != NULL)
 		net2_promise_release(cn->hash);
 	if (cn->enc != NULL)
@@ -523,6 +573,8 @@ fail_1:
 	if (cn->xchange != NULL)
 		net2_promise_release(cn->xchange);
 	cneg_stage1_free(cn->stage1);
+fail_1:
+	net2_pvlist_deinit(&cn->proto);
 fail_0:
 	if (p_hash != NULL) {
 		net2_promise_cancel(p_hash);
@@ -547,7 +599,8 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_cneg_deinit(struct net2_conn_negotiator *cn)
 {
-	/* Cancel key xchange event. */
+	/* Cancel events. */
+	net2_promise_event_deinit(&cn->pver_event);
 	net2_promise_event_deinit(&cn->kx_event);
 	/* Release stage2 data. */
 	if (cn->keyx != NULL)
@@ -556,10 +609,14 @@ net2_cneg_deinit(struct net2_conn_negotiator *cn)
 	if (cn->stage1 != NULL)
 		cneg_stage1_free(cn->stage1);
 
+	/* Release exposed promises. */
 	net2_promise_release(cn->hash);
 	net2_promise_release(cn->enc);
 	net2_promise_release(cn->xchange);
 	net2_promise_release(cn->sign);
+
+	/* Release protocol information. */
+	net2_pvlist_deinit(&cn->proto);
 
 	return;
 }
@@ -679,10 +736,7 @@ fail:
 ILIAS_NET2_LOCAL int
 net2_cneg_pvlist(struct net2_conn_negotiator *cn, struct net2_pvlist *pv)
 {
-#if 0 /* XXX todo */
-	return net2_pvlist_merge(pv, &cn->negotiated.proto);
-#endif
-	return cn == NULL && pv == NULL; /* 0 */
+	return net2_pvlist_merge(pv, &cn->proto);
 }
 
 #if 0

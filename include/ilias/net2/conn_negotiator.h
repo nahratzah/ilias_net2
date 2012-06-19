@@ -55,6 +55,8 @@ struct net2_conn_negotiator {
 #define NET2_CNEG_STAGE_KEY_EXCHANGE	0x00000001	/* Exchanging keys. */
 #define NET2_CNEG_STAGE_PROTO_IDLE	0xffffffff	/* Nothing to do. */
 
+	struct net2_pvlist	 proto;		/* Protocol versions. */
+
 	struct net2_ctx		*context;	/* Network metadata. */
 
 	int			 recv_no_send;	/* Set each time a packet is
@@ -70,6 +72,7 @@ struct net2_conn_negotiator {
 				*xchange,	/* Supported xchange. */
 				*sign;		/* Supported sign. */
 	struct net2_promise_event kx_event;	/* Handle key xchange. */
+	struct net2_promise_event pver_event;	/* Handle pver information. */
 };
 
 /*
