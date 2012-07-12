@@ -39,12 +39,7 @@ endif (STD_C11)
 if (STD_CXX11)
 	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif (STD_CXX11)
-check_cxx_compiler_flag("-fno-exceptions" CXX_NOEXCEPT)
-if (CXX_NOEXCEPT)
-	set (CMAKS_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
-else (CXX_NOEXCEPT)
-	message (WARNING "C++ compiler does not accept -fno-exceptions, final library may not link without c++ standard library")
-endif (CXX_NOEXCEPT)
+
 
 # Include necessary submodules
 set (CMAKE_MODULE_PATH
@@ -137,6 +132,11 @@ list (APPEND srcs
 	src/xchange.c
 	)
 list (APPEND cluster_srcs
+	)
+
+list (APPEND cxx_srcs
+	src/promise.cc
+	src/workq.cc
 	)
 
 #
@@ -489,6 +489,7 @@ add_library (ilias_net2 SHARED
 	${cluster_srcs}
 	${headers}
 	${cluster_headers}
+	${cxx_srcs}
 	)
 target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXTRA_LIBS})
 if (Threads_FOUND)

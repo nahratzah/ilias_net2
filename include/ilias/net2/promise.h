@@ -138,4 +138,482 @@ net2_promise_event_is_null(struct net2_promise_event *ev)
 
 
 ILIAS_NET2__end_cdecl
+
+
+#ifdef __cplusplus
+
+#include <cassert>
+#include <exception>
+#include <stdexcept>
+#include <type_traits>
+
+namespace ilias {
+
+
+/* Generic promise error. */
+class ILIAS_NET2_EXPORT promise_error :
+	public virtual std::exception
+{
+public:
+	virtual ~promise_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Uninitialized promise error, promise was not properly initialized. */
+class ILIAS_NET2_EXPORT promise_noinit_error :
+	public virtual promise_error
+{
+public:
+	virtual ~promise_noinit_error() throw ();
+	virtual const char *what() const throw ();
+};
+class ILIAS_NET2_EXPORT promise_fin_error :
+	public virtual promise_error
+{
+public:
+	virtual ~promise_fin_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise dereference error, thrown when result is unavailable. */
+class ILIAS_NET2_EXPORT promise_deref_error :
+	public virtual promise_error
+{
+public:
+	virtual ~promise_deref_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise dereference error for uninitialized promise. */
+class ILIAS_NET2_EXPORT promise_deref_noinit_error :
+	public virtual promise_deref_error,
+	public virtual promise_noinit_error
+{
+public:
+	virtual ~promise_deref_noinit_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise was canceled. */
+class ILIAS_NET2_EXPORT promise_canceled :
+	public virtual promise_deref_error
+{
+public:
+	virtual ~promise_canceled() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise has not finished. */
+class ILIAS_NET2_EXPORT promise_unfinished :
+	public virtual promise_deref_error
+{
+public:
+	virtual ~promise_unfinished() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise finished with error code. */
+class ILIAS_NET2_EXPORT promise_finerr_error :
+	public virtual promise_deref_error
+{
+public:
+	const uint32_t	error;	/* Error code. */
+
+	promise_finerr_error(uint32_t error) :
+		promise_deref_error(),
+		error(error)
+	{
+		return;
+	}
+
+	virtual ~promise_finerr_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise became unreferenced before result was set. */
+class ILIAS_NET2_EXPORT promise_unref_error :
+	public virtual promise_deref_error
+{
+public:
+	virtual ~promise_unref_error() throw ();
+	virtual const char *what() const throw ();
+};
+/* Promise failed to execute. */
+class ILIAS_NET2_EXPORT promise_fail_error :
+	public virtual promise_deref_error
+{
+public:
+	virtual ~promise_fail_error() throw ();
+	virtual const char *what() const throw ();
+};
+class ILIAS_NET2_EXPORT promise_fin_twice_error :
+	public virtual promise_fin_error
+{
+public:
+	virtual ~promise_fin_twice_error() throw ();
+	virtual const char *what() const throw ();
+};
+class ILIAS_NET2_EXPORT promise_fin_noinit_error :
+	public virtual promise_noinit_error,
+	public virtual promise_fin_error
+{
+public:
+	virtual ~promise_fin_noinit_error() throw ();
+	virtual const char *what() const throw ();
+};
+
+
+enum promise_create_t { PROMISE_CREATE };	/* Tag for constructor. */
+
+
+ILIAS_NET2_EXPORT
+void do_promise_deref_exception(struct net2_promise*, int, uint32_t)
+    throw (promise_deref_error);
+ILIAS_NET2_EXPORT
+void do_promise_fin_exception(struct net2_promise*, int)
+    throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
+
+
+/* Promise wrapper. */
+template<typename Result>
+class promise {
+public:
+	typedef Result result_type;
+
+private:
+	struct net2_promise *p;
+
+public:
+	promise() throw ();
+	promise(promise_create_t) throw (std::bad_alloc);
+	explicit promise(struct net2_promise*) throw ();
+	promise(const promise&) throw ();
+	promise(promise&&) throw ();
+	~promise() throw ();
+
+	promise& operator= (const promise&) throw ();
+	promise& operator= (promise&&) throw ();
+	bool operator== (const promise&) throw ();
+
+	struct net2_promise *c_promise() const throw ();
+
+	bool is_running() const throw ();
+	bool is_cancel_req() const throw ();
+	bool is_finished() const throw ();
+
+	void start() throw (promise_noinit_error);
+	void wait() const throw (promise_noinit_error);
+	void cancel() throw (promise_noinit_error);
+
+	result_type* get(bool) const throw (promise_deref_error);
+	result_type& operator* () const throw (promise_deref_error);
+	result_type* operator-> () const throw (promise_deref_error);
+
+	template<typename Finalizer>
+	void fin_ok(result_type*, Finalizer fin) throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
+	void fin_ok(result_type*) throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
+	void fin_error(uint32_t) throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
+	void fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
+
+private:
+	result_type* get_internal(bool, int*, uint32_t*) const throw ();
+	static void do_delete(result_type*, void*) throw ();
+};
+
+
+template<typename T>
+promise<T>::promise() throw () :
+	p(0)
+{
+	return;
+}
+
+template<typename T>
+promise<T>::promise(promise_create_t) throw (std::bad_alloc) :
+	p(net2_promise_new())
+{
+	if (!p)
+		throw std::bad_alloc();
+}
+
+template<typename T>
+promise<T>::promise(struct net2_promise *np) throw () :
+	p(np)
+{
+	if (p)
+		net2_promise_ref(p);
+}
+
+template<typename T>
+promise<T>::promise(const promise<T>& rhs) throw () :
+	p(rhs.p)
+{
+	if (p)
+		net2_promise_ref(p);
+}
+
+template<typename T>
+promise<T>::promise(promise<T>&& rhs) throw () :
+	p(rhs.p)
+{
+	rhs.p = 0;
+	if (p)
+		net2_promise_ref(p);
+}
+
+template<typename T>
+promise<T>::~promise() throw ()
+{
+	if (p)
+		net2_promise_release(p);
+}
+
+template<typename T>
+promise<T>&
+promise<T>::operator= (const promise<T>& rhs) throw ()
+{
+	if (p)
+		net2_promise_release(p);
+	p = rhs.p;
+	if (p)
+		net2_promise_ref(p);
+	return *this;
+}
+
+template<typename T>
+promise<T>&
+promise<T>::operator= (promise<T>&& rhs) throw ()
+{
+	if (p)
+		net2_promise_release(p);
+	p = rhs.p;
+	rhs.p = 0;
+	return *this;
+}
+
+template<typename T>
+bool
+promise<T>::operator== (const promise& rhs) throw ()
+{
+	return p == rhs.p;
+}
+
+template<typename T>
+struct net2_promise*
+promise<T>::c_promise() const throw ()
+{
+	return p;
+}
+
+template<typename T>
+bool
+promise<T>::is_running() const throw ()
+{
+	return p && net2_promise_is_running(p);
+}
+
+template<typename T>
+bool
+promise<T>::is_cancel_req() const throw ()
+{
+	return p && net2_promise_is_cancelreq(p);
+}
+
+template<typename T>
+bool
+promise<T>::is_finished() const throw ()
+{
+	return p && net2_promise_is_finished(p);
+}
+
+template<typename T>
+void
+promise<T>::start() throw (promise_noinit_error)
+{
+	if (!p)
+		throw promise_noinit_error();
+	net2_promise_start(p);
+}
+
+template<typename T>
+void
+promise<T>::wait() const throw (promise_noinit_error)
+{
+	if (!p)
+		throw promise_noinit_error();
+	net2_promise_wait(p);
+}
+
+template<typename T>
+void
+promise<T>::cancel() throw (promise_noinit_error)
+{
+	if (!p)
+		throw promise_noinit_error();
+	net2_promise_cancel(p, 0);
+}
+
+template<typename T>
+typename promise<T>::result_type*
+promise<T>::get_internal(bool do_wait, int* fin, uint32_t* err) const throw ()
+{
+	void		*vptr;
+
+	if (p) {
+		if (do_wait)
+			this->wait();
+		*fin = net2_promise_get_result(p, &vptr, err);
+		if (*fin == NET2_PROM_FIN_OK && vptr != 0)
+			return reinterpret_cast<result_type*>(vptr);
+	}
+	return 0;
+}
+
+template<typename T>
+typename promise<T>::result_type&
+promise<T>::operator* () const throw (promise_deref_error)
+{
+	int		fin;
+	uint32_t	err;
+
+	result_type *rv = get_internal(true, &fin, &err);
+	if (!rv)
+		do_promise_deref_exception(p, fin, err);
+	return *rv;
+}
+
+template<typename T>
+typename promise<T>::result_type*
+promise<T>::operator-> () const throw (promise_deref_error)
+{
+	int		fin;
+	uint32_t	err;
+
+	result_type *rv = get_internal(true, &fin, &err);
+	if (!rv)
+		do_promise_deref_exception(p, fin, err);
+	return rv;
+}
+
+template<typename T>
+typename promise<T>::result_type*
+promise<T>::get(bool do_wait) const throw (promise_deref_error)
+{
+	int		fin;
+	uint32_t	err;
+
+	if (!p)
+		return 0;
+	result_type *rv = get_internal(do_wait, &fin, &err);
+	if (!rv && fin != NET2_PROM_FIN_UNFINISHED)
+		do_promise_deref_exception(p, fin, err);
+	return *rv;
+}
+
+
+template<typename Finalizer>
+void
+_run_finalizer(void* ILIAS_NET2__unused unused, void *f_ptr) throw ()
+{
+	Finalizer	*f = reinterpret_cast<Finalizer>(f);
+
+	(*f)();
+	delete f;
+}
+
+template<typename T>
+template<typename Finalizer>
+void
+promise<T>::fin_ok(promise<T>::result_type *r, Finalizer fin) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+{
+	Finalizer	*fin_functor = new Finalizer(fin);
+	void		(*free)(void*, void*) = &_run_finalizer<Finalizer>;
+
+	int err = net2_promise_set_finok(p, reinterpret_cast<void*>(r),
+	    free, fin_functor, 0);
+	if (err != 0) {
+		delete fin_functor;
+		do_promise_fin_exception(p, err);
+	}
+}
+
+template<typename T>
+void
+promise<T>::do_delete(promise<T>::result_type *r, void*) throw ()
+{
+	delete r;
+}
+
+template<typename T>
+void
+promise<T>::fin_ok(promise<T>::result_type *r) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+{
+	void		(*free)(result_type*, void*) =
+	    &promise<T>::do_delete;
+
+	int err = net2_promise_set_finok(p, reinterpret_cast<void*>(r),
+	    reinterpret_cast<void (*)(void*, void*)>(free), 0, 0);
+	if (err)
+		do_promise_fin_exception(p, err);
+}
+
+template<typename T>
+void
+promise<T>::fin_error(uint32_t v) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+{
+	int err = net2_promise_set_error(p, v, 0);
+	if (err)
+		do_promise_fin_exception(p, err);
+}
+
+template<typename T>
+void
+promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+{
+	int err = net2_promise_set_cancel(p, 0);
+	if (err)
+		do_promise_fin_exception(p, err);
+}
+
+
+template<typename Prom0, typename... Promises, typename Functor, typename Result, typename... Args>
+void
+_invoke(const Functor& functor, promise<Result>& result, net2_promise** in, Args&&... args) throw ()
+{
+	_invoke<Promises...>(functor, result, in + 1, args..., std::move(Prom0(*in)));
+}
+template<typename Functor, typename Result, typename... Args>
+void
+_invoke(const Functor& functor, promise<Result>& result, net2_promise** ILIAS_NET2__unused in, Args&&... args) throw ()
+{
+	Result	*v = functor(args...);
+	result.fin_ok(v);
+}
+template<typename Functor, typename Result, typename... Promises>
+void
+_invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, size_t insz, void *arg) throw ()
+{
+	promise<Result>  cxx_out(out);
+	Functor		*functor = reinterpret_cast<Functor*>(arg);
+
+	assert(sizeof...(Promises) == insz);
+	_invoke<Promises...>(*functor, cxx_out, in);
+}
+
+template<typename Functor, typename... Promises>
+auto promise_combine(const workq& wq, const Functor& f, const Promises&... promises) ->
+    promise<typename std::remove_reference<decltype(*f(promises...))>::type>&&
+{
+	typedef promise<typename std::remove_reference<decltype(*f(promises...))>::type> out_type;
+
+	struct net2_promise	*c_proms[] = { promises.c_promise()... };
+	net2_promise_ccb	 ccb = &_invoke_promise_combiner<Functor, typename out_type::result_type, Promises...>;
+	Functor			*arg = new Functor(f);
+
+	struct net2_promise	*result = net2_promise_combine(wq.c_workq(), ccb, reinterpret_cast<void*>(arg), c_proms, sizeof...(Promises));
+	if (!result) {
+		delete arg;
+		throw std::bad_alloc();
+	}
+	return std::move(out_type(result));
+}
+
+
+}
+
+#endif /* __cplusplus */
+
 #endif /* ILIAS_NET2_PROMISE_H */

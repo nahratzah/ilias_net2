@@ -154,6 +154,322 @@ struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq_evbase*);
 #endif
 
-
 ILIAS_NET2__end_cdecl
+
+
+#ifdef __cplusplus
+
+#include <exception>
+#include <stdexcept>
+
+
+namespace ilias {
+
+
+class workq;
+class workq_evbase;
+class workq_sync;
+
+
+/* Workq synchronization failure. */
+class ILIAS_NET2_EXPORT workq_sync_error :
+	public virtual std::exception
+{
+public:
+	virtual ~workq_sync_error() throw ();
+	virtual const char* what() const throw ();
+};
+/* Synchronization failed due to current callstack running on the workq. */
+class ILIAS_NET2_EXPORT workq_sync_self :
+	public virtual workq_sync_error
+{
+public:
+	virtual ~workq_sync_self() throw ();
+	virtual const char* what() const throw ();
+};
+/* Workq was busy. */
+class ILIAS_NET2_EXPORT workq_sync_tryfail :
+	public virtual workq_sync_error
+{
+public:
+	virtual ~workq_sync_tryfail() throw ();
+	virtual const char* what() const throw ();
+};
+
+
+class workq
+{
+private:
+	struct net2_workq	*wq;
+
+	static net2_workq *wq_from_wqev(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
+
+public:
+	workq(workq_evbase&) throw (std::bad_alloc);
+	explicit workq(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
+	explicit workq(struct net2_workq*) throw (std::invalid_argument);
+	workq(const workq&) throw ();
+	workq(workq&&) throw ();
+	~workq() throw ();
+
+	workq& operator= (const workq&) throw ();
+	workq& operator= (workq&&) throw ();
+	bool operator== (const workq&) const throw ();
+	bool operator!= (const workq&) const throw ();
+
+	workq_evbase&& evbase() const throw ();
+
+	struct net2_workq *c_workq() const throw ();
+};
+
+class workq_evbase
+{
+private:
+	struct net2_workq_evbase	*wqev;
+
+public:
+	workq_evbase() throw (std::bad_alloc);
+	workq_evbase(const std::string&) throw (std::bad_alloc);
+	explicit workq_evbase(struct net2_workq_evbase*) throw (std::invalid_argument);
+	workq_evbase(const workq_evbase&) throw ();
+	workq_evbase(workq_evbase&&) throw ();
+	~workq_evbase() throw ();
+
+	workq_evbase& operator= (const workq_evbase&) throw ();
+	workq_evbase& operator= (workq_evbase&&) throw ();
+	bool operator== (const workq_evbase&) const throw ();
+	bool operator!= (const workq_evbase&) const throw ();
+
+	struct net2_workq_evbase *c_workq_evbase() const throw ();
+};
+
+class workq_sync
+{
+private:
+	const workq wq;
+	bool locked;
+	bool selflocked;
+
+	ILIAS_NET2_EXPORT static void do_error(int) throw (std::bad_alloc, workq_sync_error);
+	workq_sync(const workq_sync&);
+
+public:
+	static const int TRYLOCK = 0x1;
+	static const int SELFLOCK_OK = 0x2;
+
+	workq_sync(const workq&, int = 0) throw (std::bad_alloc, workq_sync_error);
+	~workq_sync() throw ();
+};
+
+
+inline struct net2_workq*
+workq::wq_from_wqev(struct net2_workq_evbase* wqev) throw (std::invalid_argument, std::bad_alloc)
+{
+	if (!wqev)
+		throw std::invalid_argument("wqev");
+	struct net2_workq *wq = net2_workq_new(wqev);
+	if (!wq)
+		throw std::bad_alloc();
+	return wq;
+}
+
+inline
+workq::workq(workq_evbase& wqev) throw (std::bad_alloc) :
+	wq(net2_workq_new(wqev.c_workq_evbase()))
+{
+	if (!wq)
+		throw std::bad_alloc();
+}
+
+inline
+workq::workq(struct net2_workq_evbase *wqev) throw (std::invalid_argument, std::bad_alloc) :
+	wq(wq_from_wqev(wqev))
+{
+	return;
+}
+
+inline
+workq::workq(struct net2_workq *wq) throw (std::invalid_argument) :
+	wq(wq)
+{
+	if (!wq)
+		throw std::invalid_argument("wq");
+	net2_workq_ref(wq);
+}
+
+inline
+workq::workq(const workq& rhs) throw () :
+	wq(rhs.wq)
+{
+	net2_workq_ref(wq);
+}
+
+inline
+workq::workq(workq&& rhs) throw () :
+	wq(rhs.wq)
+{
+	rhs.wq = 0;
+}
+
+inline
+workq::~workq() throw ()
+{
+	if (wq)
+		net2_workq_release(wq);
+}
+
+inline workq&
+workq::operator= (const workq& rhs) throw ()
+{
+	net2_workq_release(wq);
+	wq = rhs.wq;
+	net2_workq_ref(wq);
+	return *this;
+}
+
+inline workq&
+workq::operator= (workq&& rhs) throw ()
+{
+	net2_workq_release(wq);
+	wq = rhs.wq;
+	rhs.wq = 0;
+	return *this;
+}
+
+inline bool
+workq::operator== (const workq& rhs) const throw ()
+{
+	return wq == rhs.wq;
+}
+
+inline bool
+workq::operator!= (const workq& rhs) const throw ()
+{
+	return !(*this == rhs);
+}
+
+inline workq_evbase&&
+workq::evbase() const throw ()
+{
+	struct net2_workq_evbase *wqev = net2_workq_evbase(wq);
+	net2_workq_evbase_ref(wqev);
+	return std::move(workq_evbase(wqev));
+}
+
+inline struct net2_workq*
+workq::c_workq() const throw ()
+{
+	return wq;
+}
+
+
+inline
+workq_evbase::workq_evbase() throw (std::bad_alloc) :
+	wqev(net2_workq_evbase_new(NULL, 0, 0))
+{
+	if (!wqev)
+		throw std::bad_alloc();
+}
+
+inline
+workq_evbase::workq_evbase(const std::string& name) throw (std::bad_alloc) :
+	wqev(net2_workq_evbase_new(name.c_str(), 0, 0))
+{
+	if (!wqev)
+		throw std::bad_alloc();
+}
+
+inline
+workq_evbase::workq_evbase(struct net2_workq_evbase* wqev) throw (std::invalid_argument) :
+	wqev(wqev)
+{
+	if (!wqev)
+		throw std::invalid_argument("wqev");
+}
+
+inline
+workq_evbase::workq_evbase(const workq_evbase& rhs) throw () :
+	wqev(rhs.wqev)
+{
+	net2_workq_evbase_ref(wqev);
+}
+
+inline
+workq_evbase::workq_evbase(workq_evbase&& rhs) throw () :
+	wqev(rhs.wqev)
+{
+	rhs.wqev = 0;
+}
+
+inline
+workq_evbase::~workq_evbase() throw ()
+{
+	if (wqev)
+		net2_workq_evbase_release(wqev);
+}
+
+inline workq_evbase&
+workq_evbase::operator= (const workq_evbase& rhs) throw ()
+{
+	net2_workq_evbase_release(wqev);
+	wqev = rhs.wqev;
+	net2_workq_evbase_ref(wqev);
+	return *this;
+}
+
+inline workq_evbase&
+workq_evbase::operator= (workq_evbase&& rhs) throw ()
+{
+	net2_workq_evbase_release(wqev);
+	wqev = rhs.wqev;
+	rhs.wqev = 0;
+	return *this;
+}
+
+inline bool
+workq_evbase::operator== (const workq_evbase& rhs) const throw ()
+{
+	return wqev == rhs.wqev;
+}
+
+inline bool
+workq_evbase::operator!= (const workq_evbase& rhs) const throw ()
+{
+	return !(*this == rhs);
+}
+
+inline struct net2_workq_evbase *
+workq_evbase::c_workq_evbase() const throw ()
+{
+	return wqev;
+}
+
+
+inline
+workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, workq_sync_error) :
+	wq(wq),
+	selflocked(false),
+	locked(false)
+{
+	int error = net2_workq_want(wq.c_workq(), flags & TRYLOCK);
+	if ((flags & SELFLOCK_OK) && error == EDEADLK)
+		selflocked = locked = true;
+	else if (error)
+		do_error(error);
+	else
+		locked = true;
+}
+
+inline
+workq_sync::~workq_sync() throw ()
+{
+	if (locked && !selflocked)
+		net2_workq_unwant(wq.c_workq());
+}
+
+
+} /* namespace ilias */
+
+#endif /* __cplusplus */
+
 #endif /* ILIAS_NET2_WORKQ_H */

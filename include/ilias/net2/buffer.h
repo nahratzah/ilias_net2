@@ -130,4 +130,582 @@ int			 net2_buffer_sensitive(struct net2_buffer*);
 
 
 ILIAS_NET2__end_cdecl
+
+
+#ifdef __cplusplus
+
+#include <stdexcept>
+#include <string>
+
+namespace ilias {
+
+
+enum buffer_create_t { BUFFER_CREATE };
+
+
+class buffer;
+class buffer_iterator;
+
+
+class buffer
+{
+public:
+	typedef size_t size_type;
+
+private:
+	struct net2_buffer	*buf;
+
+public:
+	buffer() throw ();
+	explicit buffer(struct net2_buffer*) throw (std::invalid_argument);
+	buffer(buffer_create_t) throw (std::bad_alloc);
+	buffer(const buffer&) throw (std::bad_alloc);
+	buffer(buffer&&) throw ();
+	buffer(const void*, size_type) throw (std::bad_alloc);
+	~buffer() throw ();
+
+	buffer& operator= (const buffer& rhs) throw (std::bad_alloc);
+	buffer& operator= (buffer&& rhs) throw ();
+	buffer& operator+= (const buffer& rhs) throw (std::bad_alloc);
+	buffer& operator+= (buffer&& rhs) throw (std::bad_alloc);
+	buffer&& operator+ (const buffer& rhs) const throw (std::bad_alloc);
+	buffer&& operator+ (const buffer&& rhs) const throw (std::bad_alloc);
+
+	bool empty() const throw ();
+	size_type size() const throw ();
+	bool operator== (const buffer&) const throw ();
+	bool operator!= (const buffer&) const throw ();
+	bool operator< (const buffer&) const throw ();
+	bool operator> (const buffer&) const throw ();
+	bool operator<= (const buffer&) const throw ();
+	bool operator>= (const buffer&) const throw ();
+
+	buffer& append(const void *, size_type) throw (std::bad_alloc);
+	buffer& add_reference(const void *, size_type, void (*)(void*), void*) throw (std::bad_alloc);
+	buffer& add_reference(const void *, size_type, void (*)(void*)) throw (std::bad_alloc);
+
+	void truncate(size_type) throw ();
+	void drain(size_type) throw ();
+	void clear() throw ();
+
+	size_type copyout(void*, size_type) const throw ();
+	size_type move(void*, size_type) throw ();
+	void* pullup(size_type) throw (std::bad_alloc, std::out_of_range);
+	bool sensitive() throw ();
+
+	buffer subrange(size_type, size_type) const throw (std::bad_alloc, std::out_of_range);
+	buffer subrange(buffer_iterator, size_type) const throw (std::bad_alloc, std::out_of_range);
+
+	struct net2_buffer* c_buffer(bool) throw (std::bad_alloc);
+	struct net2_buffer* c_buffer() const throw (std::bad_alloc);
+	std::string&& hex() const throw (std::bad_alloc);
+};
+
+class buffer_iterator
+{
+public:
+	typedef buffer::size_type size_type;
+
+private:
+	struct net2_buffer	*buf;
+	struct net2_buffer_ptr	 ptr;
+
+public:
+	buffer_iterator() throw ();
+	buffer_iterator(const buffer&) throw ();
+	buffer_iterator(const buffer&, size_type) throw (std::out_of_range);
+	buffer_iterator(struct net2_buffer*, struct net2_buffer_ptr*) throw (std::invalid_argument);
+
+	size_type pos() const throw ();
+	size_type segment() const throw ();
+	size_type segment_offset() const throw ();
+
+	void advance(size_type) throw (std::out_of_range);
+	buffer_iterator& operator++ () throw (std::out_of_range);
+	buffer_iterator operator++ (int) throw (std::out_of_range);
+	buffer_iterator& operator+= (size_type) throw (std::out_of_range);
+	buffer_iterator operator+ (size_type) const throw(std::out_of_range);
+
+	bool find(void*, size_type) throw ();
+};
+
+
+inline
+buffer::buffer() throw () :
+	buf(0)
+{
+	return;
+}
+
+buffer::buffer(struct net2_buffer* buf) throw (std::invalid_argument) :
+	buf(buf)
+{
+	if (!buf)
+		throw std::invalid_argument("buf");
+}
+
+inline
+buffer::buffer(buffer_create_t) throw (std::bad_alloc) :
+	buf(net2_buffer_new())
+{
+	if (!buf)
+		throw std::bad_alloc();
+}
+
+inline
+buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
+	buf(0)
+{
+	if (rhs.buf && !(buf = net2_buffer_copy(rhs.buf)))
+		throw std::bad_alloc();
+}
+
+inline
+buffer::buffer(buffer&& rhs) throw () :
+	buf(rhs.buf)
+{
+	rhs.buf = 0;
+}
+
+inline
+buffer::buffer(const void* data, buffer::size_type len) throw (std::bad_alloc) :
+	buf(net2_buffer_new())
+{
+	if (!buf)
+		throw std::bad_alloc();
+	append(data, len);
+}
+
+inline
+buffer::~buffer() throw ()
+{
+	if (buf)
+		net2_buffer_free(buf);
+}
+
+inline buffer&
+buffer::operator= (const buffer& rhs) throw (std::bad_alloc)
+{
+	if (this != &rhs) {
+		struct net2_buffer *newbuf = 0;
+		if (rhs.buf) {
+			net2_buffer_copy(rhs.buf);
+			if (!newbuf)
+				throw std::bad_alloc();
+		}
+		if (buf)
+			net2_buffer_free(buf);
+		buf = newbuf;
+	}
+
+	return *this;
+}
+
+inline buffer&
+buffer::operator= (buffer&& rhs) throw ()
+{
+	if (buf)
+		net2_buffer_free(buf);
+	buf = rhs.buf;
+	rhs.buf = 0;
+	return *this;
+}
+
+inline buffer&
+buffer::operator+= (const buffer& rhs) throw (std::bad_alloc)
+{
+	bool undo_free = false;
+
+	if (!rhs.buf)
+		return *this;
+
+	if (!buf) {
+		undo_free = true;
+		if (!(buf = net2_buffer_new()))
+			throw std::bad_alloc();
+	}
+
+	if (net2_buffer_append(buf, rhs.buf)) {
+		if (undo_free) {
+			net2_buffer_free(buf);
+			buf = 0;
+		}
+		throw std::bad_alloc();
+	}
+
+	return *this;
+}
+
+inline buffer&
+buffer::operator+= (buffer&& rhs) throw (std::bad_alloc)
+{
+	if (rhs.empty())
+		return *this;
+
+	if (empty()) {
+		if (buf)
+			net2_buffer_free(buf);
+		buf = rhs.buf;
+		rhs.buf = 0;
+		return *this;
+	}
+
+	if (net2_buffer_remove_buffer(rhs.buf, buf, -1) == 0)
+		throw std::bad_alloc();
+
+	return *this;
+}
+
+inline buffer&&
+buffer::operator+ (const buffer& rhs) const throw (std::bad_alloc)
+{
+	buffer clone = *this;
+	clone += rhs;
+	return std::move(clone);
+}
+
+inline buffer&&
+buffer::operator+ (const buffer&& rhs) const throw (std::bad_alloc)
+{
+	buffer clone = *this;
+	clone += std::move(rhs);
+	return std::move(clone);
+}
+
+inline bool
+buffer::empty() const throw ()
+{
+	return !buf || net2_buffer_empty(buf);
+}
+
+inline buffer::size_type
+buffer::size() const throw ()
+{
+	return (buf ? net2_buffer_length(buf) : 0);
+}
+
+inline bool
+buffer::operator== (const buffer& rhs) const throw ()
+{
+	if (!buf && !rhs.buf)
+		return true;
+	else if (!buf || !rhs.buf)
+		return false;
+	else
+		return net2_buffer_cmp(buf, rhs.buf) == 0;
+}
+
+inline bool
+buffer::operator!= (const buffer& rhs) const throw ()
+{
+	return !(*this == rhs);
+}
+
+inline bool
+buffer::operator< (const buffer& rhs) const throw ()
+{
+	if (!buf)
+		return !rhs.empty();
+	else if (!rhs.buf)
+		return false;
+	else
+		return net2_buffer_cmp(buf, rhs.buf) < 0;
+}
+
+inline bool
+buffer::operator> (const buffer& rhs) const throw ()
+{
+	if (!rhs.buf)
+		return !empty();
+	else if (!buf)
+		return false;
+	else
+		return net2_buffer_cmp(buf, rhs.buf) > 0;
+}
+
+inline bool
+buffer::operator<= (const buffer& rhs) const throw ()
+{
+	if (!buf)
+		return true;
+	else if (!rhs.buf)
+		return empty();
+	else
+		return net2_buffer_cmp(buf, rhs.buf) <= 0;
+}
+
+inline bool
+buffer::operator>= (const buffer& rhs) const throw ()
+{
+	if (!rhs.buf)
+		return true;
+	else if (!buf)
+		return rhs.empty();
+	else
+		return net2_buffer_cmp(buf, rhs.buf) >= 0;
+}
+
+inline buffer&
+buffer::append(const void* data, buffer::size_type len) throw (std::bad_alloc)
+{
+	if (!buf) {
+		if (!(buf = net2_buffer_new()))
+			throw std::bad_alloc();
+	}
+
+	if (net2_buffer_add(buf, data, len))
+		throw std::bad_alloc();
+
+	return *this;
+}
+
+inline buffer&
+buffer::add_reference(const void* data, buffer::size_type len, void (*release)(void*), void* release_arg) throw (std::bad_alloc)
+{
+	if (!buf) {
+		if (!(buf = net2_buffer_new()))
+			throw std::bad_alloc();
+	}
+
+	if (net2_buffer_add_reference(buf, const_cast<void*>(data), len, release, release_arg))
+		throw std::bad_alloc();
+
+	return *this;
+}
+
+inline buffer&
+buffer::add_reference(const void* data, buffer::size_type len, void (*release)(void*)) throw (std::bad_alloc)
+{
+	return add_reference(data, len, release, const_cast<void*>(data));
+}
+
+inline void
+buffer::truncate(buffer::size_type len) throw ()
+{
+	if (buf)
+		net2_buffer_truncate(buf, len);
+}
+
+inline void
+buffer::drain(buffer::size_type len) throw ()
+{
+	if (buf)
+		net2_buffer_drain(buf, len);
+}
+
+inline void
+buffer::clear() throw ()
+{
+	if (buf) {
+		net2_buffer_free(buf);
+		buf = 0;
+	}
+}
+
+inline struct net2_buffer*
+buffer::c_buffer(bool null_ok) throw (std::bad_alloc)
+{
+	if (!null_ok && !buf) {
+		if (!(buf = net2_buffer_new()))
+			throw std::bad_alloc();
+	}
+	return buf;
+}
+
+inline struct net2_buffer*
+buffer::c_buffer() const throw (std::bad_alloc)
+{
+	return buf;
+}
+
+inline buffer::size_type
+buffer::copyout(void* addr, size_type len) const throw ()
+{
+	if (!buf)
+		return 0;
+	return net2_buffer_copyout(buf, addr, len);
+}
+
+inline buffer::size_type
+buffer::move(void* addr, size_type len) throw ()
+{
+	if (!buf)
+		return 0;
+	return net2_buffer_remove(buf, addr, len);
+}
+
+inline void*
+buffer::pullup(size_type len) throw (std::bad_alloc, std::out_of_range)
+{
+	/* Filter corner cases. */
+	if (len == 0)
+		return 0;
+	if (!buf)
+		throw std::out_of_range("len");
+
+	void* rv = net2_buffer_pullup(buf, len);
+	if (rv)
+		return rv;	/* Success. */
+
+	/* Handle failure. */
+	if (len > size())
+		throw std::out_of_range("len");
+	else
+		throw std::bad_alloc();
+}
+
+inline bool
+buffer::sensitive() throw ()
+{
+	return net2_buffer_sensitive(buf);
+}
+
+inline buffer
+buffer::subrange(size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range)
+{
+	struct net2_buffer *out = net2_buffer_subrange(buf, off, len);
+	if (out)
+		return buffer(out);
+
+	/* Handle failure. */
+	if (SIZE_MAX - off < len || off + len > size())
+		throw std::out_of_range("off + len");
+	throw std::bad_alloc();
+}
+
+inline buffer
+buffer::subrange(buffer_iterator pos, size_type len) const throw (std::bad_alloc, std::out_of_range)
+{
+	return subrange(pos.pos(), len);
+}
+
+
+inline
+buffer_iterator::buffer_iterator() throw () :
+	buf(0),
+	ptr(net2_buffer_ptr0)
+{
+	return;
+}
+
+inline
+buffer_iterator::buffer_iterator(const buffer& b) throw () :
+	buf(b.c_buffer()),
+	ptr(net2_buffer_ptr0)
+{
+	return;
+}
+
+inline
+buffer_iterator::buffer_iterator(const buffer& b, buffer_iterator::size_type off) throw (std::out_of_range) :
+	buf(b.c_buffer()),
+	ptr(net2_buffer_ptr0)
+{
+	if (!buf)
+		throw std::out_of_range("off");
+	if (net2_buffer_ptr_advance(buf, &ptr, off))
+		throw std::out_of_range("off");
+}
+
+inline
+buffer_iterator::buffer_iterator(struct net2_buffer* b, struct net2_buffer_ptr* p) throw (std::invalid_argument) :
+	buf(b),
+	ptr(*p)
+{
+	if (!buf && ptr.pos != 0)
+		throw std::invalid_argument("buf");
+}
+
+inline buffer_iterator::size_type
+buffer_iterator::pos() const throw ()
+{
+	return ptr.pos;
+}
+
+inline buffer_iterator::size_type
+buffer_iterator::segment() const throw ()
+{
+	return ptr.segment;
+}
+
+inline buffer_iterator::size_type
+buffer_iterator::segment_offset() const throw ()
+{
+	return ptr.off;
+}
+
+inline void
+buffer_iterator::advance(buffer_iterator::size_type delta) throw (std::out_of_range)
+{
+	if (delta == 0)
+		return;
+	if (!buf)
+		throw std::out_of_range("delta");
+	if (net2_buffer_ptr_advance(buf, &ptr, delta))
+		throw std::out_of_range("delta");
+}
+
+inline buffer_iterator&
+buffer_iterator::operator++ () throw (std::out_of_range)
+{
+	advance(1);
+	return *this;
+}
+
+inline buffer_iterator
+buffer_iterator::operator++ (int) throw (std::out_of_range)
+{
+	buffer_iterator clone = *this;
+	advance(1);
+	return std::move(clone);
+}
+
+inline buffer_iterator&
+buffer_iterator::operator+= (buffer_iterator::size_type delta) throw (std::out_of_range)
+{
+	advance(delta);
+	return *this;
+}
+
+inline buffer_iterator
+buffer_iterator::operator+ (buffer_iterator::size_type delta) const throw (std::out_of_range)
+{
+	buffer_iterator clone = *this;
+	clone.advance(delta);
+	return std::move(clone);
+}
+
+inline bool
+buffer_iterator::find(void* needle, size_type len) throw ()
+{
+	if (!buf)
+		return false;
+
+	return net2_buffer_search(buf, &ptr, needle, len, &ptr) == 0;
+}
+
+inline std::string&&
+buffer::hex() const throw (std::bad_alloc)
+{
+	std::string out;
+
+	if (buf) {
+		char *hex = net2_buffer_hex(buf, &malloc);
+		try {
+			out = hex;
+		} catch (...) {
+			free(hex);
+			throw;
+		}
+		free(hex);
+	}
+	return std::move(out);
+}
+
+
+} /* namespace ilias */
+
+#endif /* __cplusplus */
+
+
 #endif /* ILIAS_NET2_BUFFER_H */
