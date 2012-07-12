@@ -35,12 +35,12 @@ struct net2_workq_evbase;
 struct net2_workq_job_internal;
 struct net2_workq_job_io;
 typedef void (*net2_workq_cb)(void*, void*);
-typedef void (*net2_workq_job_cb)(struct net2_workq_job*);
+typedef void (*net2_workq_job_cbfn)(struct net2_workq_job*);
 
 #define NET2_WORKQ_PERSIST	0x00000001	/* Job persists. */
 
 struct net2_workq_job_cb {
-	net2_workq_job_cb
+	net2_workq_job_cbfn
 			 on_activate,
 			 on_deactivate,
 			 on_destroy,
