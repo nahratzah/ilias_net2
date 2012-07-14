@@ -31,20 +31,29 @@
 #include <ilias/net2/bsd_compat/tree.h>
 #endif
 
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
+#endif
+
 #include "carver_msg.h"
 
 
 struct net2_carver_range {
 	RB_ENTRY(net2_carver_range)
 				 tree;		/* Link into tree. */
+	TAILQ_ENTRY(net2_carver_range)
+				 txq;		/* Ready to send. */
 
 	size_t			 offset;	/* Offset of this range. */
 	struct net2_buffer	*data;		/* Data in this range. */
 	int			 flags;		/* State flags. */
 
+	struct net2_txcb_entryq	 txcbeq;	/* Delivery callbacks. */
+
 /* Carver only flags. */
-#define RANGE_TRANSMITTED	0x00010000	/* Range is on the wire. */
-#define RANGE_DETACHED		0x00020000	/* Carver was destroyed. */
+#define RANGE_ON_TXQ		0x00010000	/* Range on tx queue. */
 };
 
 /* Flags shared by carver and combiner. */
@@ -55,6 +64,8 @@ struct net2_carver_range {
 
 /* Carver only flags. */
 #define NET2_CARVER_F_SZ_TX	0x00010000	/* Size is on wire. */
+#define NET2_CARVER_F_SZ_TX_TIMEOUT					\
+				0x00020000	/* Size tx timeout. */
 
 
 #define MAX_MSG_PAYLOAD		65535
@@ -90,11 +101,15 @@ static void	 combiner_result_free(void*, void*);
 static enum net2_carver_type
 		 flags_to_type(int);
 
+static void	carver_txcb_timeout(void*, void*);
 static void	carver_txcb_ack(void*, void*);
 static void	carver_txcb_nack(void*, void*);
 #define carver_txcb_destroy	carver_txcb_nack
+static void	carver_setup_timeout(void*, void*);
 static void	carver_setup_ack(void*, void*);
 static void	carver_setup_nack(void*, void*);
+
+static void	fire_rts(struct net2_carver*);
 
 
 /* Return the type of carver. */
@@ -118,12 +133,14 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 {
 	size_t			 maxbyte;
 	struct net2_carver_range*r = NULL;
+	int			 err;
 
 	if (c == NULL || data == NULL)
 		return EINVAL;
 
 	c->flags = 0;
 	RB_INIT(&c->ranges);
+	TAILQ_INIT(&c->ranges_tx);
 	c->size = net2_buffer_length(data);
 
 	/* Clean callback. */
@@ -148,53 +165,79 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 
 	/* Create ranges in carver. */
 	if (!net2_buffer_empty(data)) {
-		if ((r = net2_malloc(sizeof(*r))) == NULL)
-			return ENOMEM;
+		if ((r = net2_malloc(sizeof(*r))) == NULL) {
+			err = ENOMEM;
+			goto fail_0;
+		}
 		r->offset = 0;
 		r->flags = 0;
 		if ((r->data = net2_buffer_copy(data)) == NULL) {
-			net2_free(r);
-			return ENOMEM;
+			err = ENOMEM;
+			goto fail_1;
 		}
 		RB_INSERT(net2_carver_ranges, &c->ranges, r);
+		TAILQ_INSERT_HEAD(&c->ranges_tx, r, txq);
 	}
 
 	/* Initialize completion promise. */
 	if ((c->ready = net2_promise_new()) == NULL) {
-		if (r != NULL) {
-			net2_buffer_free(r->data);
-			net2_free(r);
-		}
-		return ENOMEM;
+		err = ENOMEM;
+		goto fail_1;
 	}
+
+	/* Initialize size callbacks. */
+	if ((err = net2_txcb_entryq_init(&c->size_txq)) != 0)
+		goto fail_2;
+
+	/* Mark the promise as having started. */
 	net2_promise_set_running(c->ready);
 
 	return 0;
+
+fail_2:
+	net2_promise_release(c->ready);
+fail_1:
+	if (r != NULL) {
+		net2_buffer_free(r->data);
+		net2_free(r);
+	}
+fail_0:
+	return err;
 }
 
 /* Release carver resources. */
 ILIAS_NET2_EXPORT void
 net2_carver_deinit(struct net2_carver *c)
 {
-	struct net2_carver_range*r;
+	struct net2_carver_range	*r, *child;
+	TAILQ_HEAD(, net2_carver_range)	 x;
 
-	while ((r = RB_ROOT(&c->ranges)) != NULL) {
-		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
+	/* Destroy tree in O(n). */
+	TAILQ_INIT(&x);
+	if ((r = RB_ROOT(&c->ranges)) != NULL)
+		TAILQ_INSERT_TAIL(&x, r, txq);
+	while ((r = TAILQ_FIRST(&x)) != NULL) {
+		/* Detach from list. */
+		TAILQ_REMOVE(&x, r, txq);
 
-		if (r->flags & RANGE_TRANSMITTED) {
-			/* Callback must perform cleanup. */
-			r->flags |= RANGE_DETACHED;
-		} else {
-			if (r->data)
-				net2_buffer_free(r->data);
-			net2_free(r);
-		}
+		/* Add children to list. */
+		if ((child = RB_LEFT(r, tree)) != NULL)
+			TAILQ_INSERT_HEAD(&x, child, txq);
+		if ((child = RB_RIGHT(r, tree)) != NULL)
+			TAILQ_INSERT_HEAD(&x, child, txq);
+
+		/* Destroy r. */
+		net2_txcb_entryq_clear(&r->txcbeq, NET2_TXCB_EQ_ALL);
+		net2_buffer_free(r->data);
+		net2_free(r);
 	}
 
 	if (net2_promise_is_running(c->ready))
 		net2_promise_set_cancel(c->ready, NET2_PROMFLAG_RELEASE);
 	else
 		net2_promise_release(c->ready);
+
+	net2_txcb_entryq_clear(&c->size_txq, NET2_TXCB_EQ_ALL);
 }
 
 /* Initialize combiner. */
@@ -307,13 +350,16 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 	int			 error;
 	struct carver_msg_header header;
 
-	if (out == NULL || !net2_buffer_empty(out))
-		return EINVAL;
+	if (out == NULL || !net2_buffer_empty(out)) {
+		error = EINVAL;
+		goto out;
+	}
 
 	/* Figure out overhead. */
 	switch (c->flags & NET2_CARVER_F_BITS) {
 	default:
-		return EINVAL;
+		error = EINVAL;
+		goto out;
 	case NET2_CARVER_F_16BIT:
 		setup_overhead = OVERHEAD_HEADER + OVERHEAD16_SETUP;
 		msg_overhead = OVERHEAD_HEADER + OVERHEAD16_MSG;
@@ -330,56 +376,78 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 		header.msg_type = CARVER_MSGTYPE_SETUP;
 		if ((error = net2_cp_encode(ctx, &cp_carver_msg_header, out,
 		    &header, NULL)) != 0)
-			return error;
+			goto out;
 
 		if ((error = carver_setup_msg(c, ctx, out)) != 0)
-			return error;
+			goto out;
 		/* Install callback. */
-		if ((error = net2_txcb_add(tx, workq, NULL, NULL,
+		if ((error = net2_txcb_add(tx, workq, &c->size_txq,
+		    &carver_setup_timeout,
 		    &carver_setup_ack, &carver_setup_nack, NULL,
 		    c, NULL)) != 0)
-			return error;
+			goto out;
 
 		c->flags |= NET2_CARVER_F_SZ_TX;
-		return 0;
+		c->flags &= ~NET2_CARVER_F_SZ_TX_TIMEOUT;
+
+		error = 0;
+		goto out;
 	}
 
 	/* Cannot fit message. */
-	if (maxsz <= msg_overhead)
-		return 0;
+	if (maxsz <= msg_overhead) {
+		error = 0;
+		goto out;
+	}
 
 	/* Find untransmitted message. */
-	RB_FOREACH(r, net2_carver_ranges, &c->ranges) {
-		if (!(r->flags & RANGE_TRANSMITTED))
+	TAILQ_FOREACH(r, &c->ranges_tx, txq) {
+		if (net2_txcb_entryq_empty(&r->txcbeq, NET2_TXCB_EQ_ALL))
+			break;
+		if (net2_buffer_length(r->data) < maxsz - msg_overhead)
 			break;
 	}
 	/* Nothing to send. */
 	if (r == NULL) {
-		net2_workq_deactivate(&c->rts);
-		return 0;
+		error = 0;
+		goto out;
 	}
 
 	/* Encode header for DATA. */
 	header.msg_type = CARVER_MSGTYPE_DATA;
 	if ((error = net2_cp_encode(ctx, &cp_carver_msg_header, out,
 	    &header, NULL)) != 0)
-		return error;
+		goto out;
 
 	if ((error = carver_range_split(c, r,
 	    MIN(maxsz - msg_overhead, MAX_MSG_PAYLOAD))) != 0)
-		return error;
+		goto out;
 	if ((error = carver_range_to_msg(c, r, ctx, out)) != 0)
-		return error;
+		goto out;
 
 	/* Install callback. */
-	if ((error = net2_txcb_add(tx, workq, NULL, NULL,
+	if ((error = net2_txcb_add(tx, workq, &r->txcbeq, &carver_txcb_timeout,
 	    &carver_txcb_ack, &carver_txcb_nack, &carver_txcb_destroy,
 	    c, r)) != 0)
-		return error;
+		goto out;
 
-	r->flags |= RANGE_TRANSMITTED;
-	return 0;
+	error = 0;	/* Success. */
+
+out:
+	fire_rts(c);
+	return error;
 }
+
+/* Fire ready-to-send event if we have something to transmit. */
+static void
+fire_rts(struct net2_carver *c)
+{
+	if (!(c->flags & NET2_CARVER_F_SZ_TX) ||
+	    (c->flags & NET2_CARVER_F_SZ_TX_TIMEOUT) ||
+	    !TAILQ_EMPTY(&c->ranges_tx))
+		net2_workq_activate(&c->rts);
+}
+
 
 /* Accept a message for the combiner. */
 ILIAS_NET2_EXPORT int
@@ -569,6 +637,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	assert(maxsz > 0);
 	if (net2_buffer_length(r->data) <= maxsz)
 		return 0;
+	assert(net2_txcb_entryq_empty(&r->txcbeq, NET2_TXCB_EQ_ALL));
 
 	/* Allocate sibling as a copy or r. */
 	if ((sibling = net2_malloc(sizeof(*sibling))) == NULL)
@@ -862,18 +931,32 @@ flags_to_type(int flags)
 
 /* Carver range callback: receival acknowledged. */
 static void
+carver_txcb_timeout(void *c_ptr, void *r_ptr)
+{
+	struct net2_carver_range*r = r_ptr;
+	struct net2_carver	*c = c_ptr;
+
+	if (!(r->flags & RANGE_ON_TXQ)) {
+		TAILQ_INSERT_TAIL(&c->ranges_tx, r, txq);
+		r->flags |= RANGE_ON_TXQ;
+	}
+}
+
+/* Carver range callback: receival acknowledged. */
+static void
 carver_txcb_ack(void *c_ptr, void *r_ptr)
 {
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
-	if (!(r->flags & RANGE_DETACHED)) {
-		RB_REMOVE(net2_carver_ranges, &c->ranges, r);
-		if (net2_promise_is_running(c->ready) &&
-		    net2_carver_is_done(c))
-			net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
-	}
+	RB_REMOVE(net2_carver_ranges, &c->ranges, r);
+	if (r->flags & RANGE_ON_TXQ)
+		TAILQ_REMOVE(&c->ranges_tx, r, txq);
+	if (net2_promise_is_running(c->ready) &&
+	    net2_carver_is_done(c))
+		net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
 
+	net2_txcb_entryq_clear(&r->txcbeq, NET2_TXCB_EQ_ALL);
 	net2_buffer_free(r->data);
 	net2_free(r);
 }
@@ -885,13 +968,21 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
-	if (!(r->flags & RANGE_DETACHED)) {
-		r->flags &= ~RANGE_TRANSMITTED;
-		net2_workq_activate(&c->rts);
-	} else {
-		net2_buffer_free(r->data);
-		net2_free(r);
+	net2_workq_activate(&c->rts);
+	if (!(r->flags & RANGE_ON_TXQ)) {
+		TAILQ_INSERT_HEAD(&c->ranges_tx, r, txq);
+		r->flags |= RANGE_ON_TXQ;
 	}
+}
+
+/* Setup receival ack timeout. */
+static void
+carver_setup_timeout(void *c_ptr, void *unusued ILIAS_NET2__unused)
+{
+	struct net2_carver	*c = c_ptr;
+
+	c->flags |= NET2_CARVER_F_SZ_TX_TIMEOUT;
+	net2_workq_activate(&c->rts);
 }
 
 /* Ack setup receival. */

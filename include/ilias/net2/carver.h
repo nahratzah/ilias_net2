@@ -17,6 +17,7 @@
 #define ILIAS_NET2_CARVER_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/tx_callback.h>
 #include <ilias/net2/workq.h>
 #include <ilias/net2/config.h>
 #include <sys/types.h>
@@ -26,6 +27,12 @@
 #include <sys/tree.h>
 #else
 #include <ilias/net2/bsd_compat/tree.h>
+#endif
+
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
 #endif
 
 struct net2_carver_range;	/* Internal. */
@@ -51,10 +58,13 @@ struct net2_carver {
 	int			 flags;
 	struct net2_carver_ranges
 				 ranges;
+	TAILQ_HEAD(, net2_carver_range)
+				 ranges_tx;
 	size_t			 size;		/* Carver message size. */
 
 	struct net2_promise	*ready;		/* Carver ready promise. */
 	struct net2_workq_job	 rts;		/* Ready to send. */
+	struct net2_txcb_entryq	 size_txq;	/* Size message callbacks. */
 };
 
 /*

@@ -550,7 +550,7 @@ net2_txcb_entryq_empty(struct net2_txcb_entryq *eq, int which)
 
 	/* Empty set is empty. */
 	if (which == 0)
-		return 0;
+		return 1;
 
 	empty = 1;
 	net2_mutex_lock(eq->mtx);
