@@ -26,6 +26,7 @@ struct net2_workq;		/* From ilias/net2/workq.h */
 struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
 struct net2_ctx;		/* From ilias/net2/context.h */
 struct net2_sign_ctx;		/* From ilias/net2/sign.h */
+struct net2_connection;		/* From ilias/net2/connection.h */
 
 #define NET2_CNEG_S2_HASH	0	/* Secure hash key. */
 #define NET2_CNEG_S2_ENC	1	/* Encryption key. */
@@ -53,7 +54,8 @@ struct net2_cneg_key_xchange
 	    int, int,
 	    void (*)(void*, void*), void*, void*,
 	    uint32_t, struct net2_sign_ctx**,
-	    uint32_t, struct net2_sign_ctx**);
+	    uint32_t, struct net2_sign_ctx**,
+	    struct net2_connection*);
 ILIAS_NET2_LOCAL
 void	 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange*);
 ILIAS_NET2_LOCAL
