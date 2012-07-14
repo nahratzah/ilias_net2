@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/promise.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/event.h>
 #include <ilias/net2/memory.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -30,7 +31,7 @@ struct net2_promise {
 	size_t			 refcnt;	/* Reference counter. */
 	size_t			 combi_refcnt;	/* # combi referencing this. */
 	struct net2_mutex	*mtx;		/* Promise guard. */
-	struct net2_condition	*cnd;		/* Promise cond. var. */
+	struct net2_event	*cnd;		/* Promise completion event. */
 
 	int			 flags;		/* State flags. */
 #define NET2_PROM_F_RUNNING		0x00000010	/* Is running. */
@@ -83,11 +84,25 @@ struct net2_promise_combi {
 
 static int	net2_promise_init(struct net2_promise*);
 static void	net2_promise_unlock(struct net2_promise*);
-static int	net2_promise_flags(struct net2_promise*);
 static void	prom_on_run(struct net2_promise*);
 static void	prom_on_finish(struct net2_promise*);
 static void	promise_wqcb(void *pcb_ptr,void*);
 static void	pcb_destroy(struct net2_workq_job*);
+
+
+/* Read flags on promise. */
+static __inline int
+net2_promise_flags(struct net2_promise *p, int lock)
+{
+	int				 flags;
+
+	if (lock)
+		net2_mutex_lock(p->mtx);
+	flags = p->flags;
+	if (lock)
+		net2_mutex_unlock(p->mtx);
+	return flags;
+}
 
 
 /* Initialize promise. */
@@ -100,7 +115,7 @@ net2_promise_init(struct net2_promise *p)
 	p->combi_refcnt = 0;
 	if ((p->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
-	if ((p->cnd = net2_cond_alloc()) == NULL)
+	if ((p->cnd = net2_event_alloc()) == NULL)
 		goto fail_2;
 	p->flags = 0;
 	p->error = 0;
@@ -200,7 +215,7 @@ net2_promise_unlock(struct net2_promise *p)
 	 */
 
 	net2_mutex_free(p->mtx);
-	net2_cond_free(p->cnd);
+	net2_event_free(p->cnd);
 
 	/* Release result. */
 	if (p->result != NULL && p->free.fn != NULL)
@@ -241,18 +256,6 @@ net2_promise_destroy_cb(struct net2_promise *p, void (*fn)(void*, void*),
 	net2_mutex_unlock(p->mtx);
 }
 
-/* Read flags on promise. */
-static int
-net2_promise_flags(struct net2_promise *p)
-{
-	int				 flags;
-
-	net2_mutex_lock(p->mtx);
-	flags = p->flags;
-	net2_mutex_unlock(p->mtx);
-	return flags;
-}
-
 /* Fire the on-finish event. */
 static void
 prom_on_finish(struct net2_promise *p)
@@ -264,6 +267,7 @@ prom_on_finish(struct net2_promise *p)
 	/* Fire only once. */
 	if (p->flags & NET2_PROM_F_FINISH_FIRED)
 		return;
+	net2_event_signal(p->cnd);
 
 	TAILQ_FOREACH(pcb, &p->event[NET2_PROM_ON_FINISH], promq)
 		net2_workq_activate(net2_promise_event_wqjob(pcb));
@@ -376,8 +380,6 @@ net2_promise_set_error(struct net2_promise *p, uint32_t errcode, int flags)
 
 	/* Fire on-finish event. */
 	prom_on_finish(p);
-	/* Broadcast finish state. */
-	net2_cond_broadcast(p->cnd);
 
 	/* Decrement refcount if release was specified. */
 	if (flags & NET2_PROMFLAG_RELEASE)
@@ -392,7 +394,7 @@ out:
 ILIAS_NET2_EXPORT int
 net2_promise_is_cancelreq(struct net2_promise *p)
 {
-	return net2_promise_flags(p) & NET2_PROM_F_CANCEL_REQ;
+	return net2_promise_flags(p, 1) & NET2_PROM_F_CANCEL_REQ;
 }
 
 /* Request cancellation of this request. */
@@ -431,8 +433,6 @@ net2_promise_set_cancel(struct net2_promise *p, int flags)
 
 	/* Fire on-finish event. */
 	prom_on_finish(p);
-	/* Broadcast finish state. */
-	net2_cond_broadcast(p->cnd);
 
 	/* Decrement refcount if release was specified. */
 	if (flags & NET2_PROMFLAG_RELEASE)
@@ -474,8 +474,6 @@ net2_promise_set_finok(struct net2_promise *p, void *result,
 
 	/* Fire on-finish event. */
 	prom_on_finish(p);
-	/* Broadcast finish state. */
-	net2_cond_broadcast(p->cnd);
 
 	/* Decrement refcount if release was specified. */
 	if (flags & NET2_PROMFLAG_RELEASE)
@@ -516,7 +514,7 @@ out:
 ILIAS_NET2_EXPORT int
 net2_promise_is_running(struct net2_promise *p)
 {
-	return net2_promise_flags(p) & NET2_PROM_F_RUNNING;
+	return net2_promise_flags(p, 1) & NET2_PROM_F_RUNNING;
 }
 
 /*
@@ -557,7 +555,9 @@ net2_promise_set_running(struct net2_promise *p)
 ILIAS_NET2_EXPORT int
 net2_promise_is_finished(struct net2_promise *p)
 {
-	return net2_promise_flags(p) & NET2_PROM_F_FINISHED;
+	if (!net2_event_test(p->cnd))
+		return 0;
+	return net2_promise_flags(p, 0) & NET2_PROM_F_FINISHED;
 }
 
 /*
@@ -572,7 +572,16 @@ net2_promise_get_result(struct net2_promise *p, void **result_ptr, uint32_t *err
 {
 	int				 rv;
 
-	net2_mutex_lock(p->mtx);
+	/*
+	 * Return UNFINISHED if the promise has not completed yet.
+	 */
+	if (!net2_event_test(p->cnd)) {
+		if (err_ptr)
+			*err_ptr = 0;
+		if (result_ptr)
+			*result_ptr = 0;
+		return NET2_PROM_FIN_UNFINISHED;
+	}
 
 	/* Read result state. */
 	rv = (p->flags & NET2_PROM_F_FINISHED);
@@ -593,8 +602,6 @@ net2_promise_get_result(struct net2_promise *p, void **result_ptr, uint32_t *err
 			*err_ptr = 0;
 	}
 
-	net2_mutex_unlock(p->mtx);
-
 	return rv;
 }
 
@@ -608,16 +615,10 @@ net2_promise_get_result(struct net2_promise *p, void **result_ptr, uint32_t *err
 ILIAS_NET2_EXPORT void
 net2_promise_wait(struct net2_promise *p)
 {
-	net2_mutex_lock(p->mtx);
-
-	/* Try to start the request now, unless it already is running or
-	 * completed. */
-	prom_on_run(p);
-
-	while (!(p->flags & NET2_PROM_F_FINISHED))
-		net2_cond_wait(p->cnd, p->mtx);
-
-	net2_mutex_unlock(p->mtx);
+	if (!net2_event_test(p->cnd)) {
+		net2_promise_start(p);
+		net2_event_wait(p->cnd);
+	}
 }
 
 /*
