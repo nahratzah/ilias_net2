@@ -589,7 +589,7 @@ signed_carver_get_transmit_sig(struct net2_signed_carver *sc, uint32_t sigidx,
     struct net2_buffer *out, struct net2_tx_callback *txcb,
     size_t maxsz)
 {
-	if (sigidx < 0 || sigidx >= sc->num_signatures)
+	if (sigidx >= sc->num_signatures)
 		return EINVAL;
 	return net2_carver_get_transmit(&sc->signatures[sigidx], c, wq,
 	    out, txcb, maxsz);
@@ -608,7 +608,7 @@ static __inline int
 signed_combiner_accept_sig(struct net2_signed_combiner *sc, uint32_t sigidx,
     struct net2_encdec_ctx *c, struct net2_buffer *buf)
 {
-	if (sigidx < 0 || sigidx >= sc->num_signatures)
+	if (sigidx >= sc->num_signatures)
 		return EINVAL;
 	return net2_combiner_accept(&sc->signatures[sigidx], c, buf);
 }
@@ -909,11 +909,11 @@ net2_signed_combiner_payload(struct net2_signed_combiner *sc)
 /* Assign ready-to-send callback. */
 ILIAS_NET2_EXPORT void
 net2_signed_carver_set_rts(struct net2_signed_carver *sc,
-    void (*fn)(void*, void*), void *arg0, void *arg1)
+    struct net2_workq *wq, void (*fn)(void*, void*), void *arg0, void *arg1)
 {
 	size_t			 i;
 
-	net2_carver_set_rts(&sc->payload, fn, arg0, arg1);
+	net2_carver_set_rts(&sc->payload, wq, fn, arg0, arg1);
 	for (i = 0; i < signed_carver_num_sigs(sc); i++)
-		net2_carver_set_rts(&sc->signatures[i], fn, arg0, arg1);
+		net2_carver_set_rts(&sc->signatures[i], wq, fn, arg0, arg1);
 }

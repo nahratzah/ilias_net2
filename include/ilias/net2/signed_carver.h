@@ -2,13 +2,13 @@
 #define ILIAS_NET2_SIGNED_CARVER_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
 
 struct net2_signed_carver;
 struct net2_signed_combiner;
 
-struct net2_workq;	/* from ilias/net2/workq.h */
 struct net2_encdec_ctx;	/* from ilias/net2/encdec_ctx.h */
 struct net2_buffer;	/* from ilias/net2/buffer.h */
 struct net2_sign_ctx;	/* from ilias/net2/sign.h */
@@ -56,7 +56,7 @@ struct net2_promise
 
 ILIAS_NET2_EXPORT
 void		 net2_signed_carver_set_rts(struct net2_signed_carver*,
-		    void (*)(void*, void*), void*, void*);
+		    struct net2_workq*, net2_workq_cb, void*, void*);
 
 
 #endif /* ILIAS_NET2_SIGNED_CARVER_H */

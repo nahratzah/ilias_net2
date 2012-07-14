@@ -127,8 +127,7 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 	c->size = net2_buffer_length(data);
 
 	/* Clean callback. */
-	c->rts_fn = NULL;
-	c->rts_arg0 = c->rts_arg1 = NULL;
+	net2_workq_init_work_null(&c->rts);
 
 	switch (type) {
 	case NET2_CARVER_16BIT:
@@ -355,8 +354,10 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 			break;
 	}
 	/* Nothing to send. */
-	if (r == NULL)
+	if (r == NULL) {
+		net2_workq_deactivate(&c->rts);
 		return 0;
+	}
 
 	/* Encode header for DATA. */
 	header.msg_type = CARVER_MSGTYPE_DATA;
@@ -886,8 +887,7 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 
 	if (!(r->flags & RANGE_DETACHED)) {
 		r->flags &= ~RANGE_TRANSMITTED;
-		if (c->rts_fn != NULL)
-			(*c->rts_fn)(c->rts_arg0, c->rts_arg1);
+		net2_workq_activate(&c->rts);
 	} else {
 		net2_buffer_free(r->data);
 		net2_free(r);
@@ -912,6 +912,5 @@ carver_setup_nack(void *c_ptr, void *unusued ILIAS_NET2__unused)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags &= ~NET2_CARVER_F_SZ_TX;
-	if (c->rts_fn != NULL)
-		(*c->rts_fn)(c->rts_arg0, c->rts_arg1);
+	net2_workq_activate(&c->rts);
 }
