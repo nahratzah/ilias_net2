@@ -235,7 +235,7 @@ static struct xchange_carver_setup_data*
 
 static void	 xchange_local_on_xchange(void*, void*);
 static void	 xchange_remote_on_xchange(void*, void*);
-static void	 prom_buffer_free(void*, void*);
+static void	 prom_key_free(void*, void*);
 static void	 xchange_import_combine(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
 static void	 key_verified_combine(struct net2_promise*,
@@ -263,6 +263,8 @@ static __inline int
 key_copy(struct key *dst,
     struct key *src)
 {
+	assert(dst != src);
+
 	dst->alg = src->alg;
 	if (src->key != NULL) {
 		if ((dst->key = net2_buffer_copy(src->key)) == NULL)
@@ -317,9 +319,14 @@ key_new(int alg, struct net2_buffer *key)
 	if ((nk = net2_malloc(sizeof(*nk))) == NULL)
 		return NULL;
 	nk->alg = alg;
-	if ((nk->key = net2_buffer_copy(key)) == NULL) {
-		net2_free(nk);
-		return NULL;
+	if (key == NULL || net2_buffer_empty(key))
+		nk->key = NULL;
+	else {
+		if ((nk->key = net2_buffer_copy(key)) == NULL) {
+			net2_free(nk);
+			return NULL;
+		}
+		net2_buffer_pullup(nk->key, net2_buffer_length(nk->key));
 	}
 	return nk;
 }
@@ -702,9 +709,9 @@ fail_0:
 }
 
 static void
-prom_buffer_free(void *buf, void *unused ILIAS_NET2__unused)
+prom_key_free(void *key, void *unused ILIAS_NET2__unused)
 {
-	net2_buffer_free(buf);
+	key_free(key);
 }
 /* Combine import buffer and xchange. */
 static void
@@ -764,7 +771,7 @@ xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
 		return;
 	}
 
-	error = net2_promise_set_finok(out, key, &prom_buffer_free, NULL, 0);
+	error = net2_promise_set_finok(out, key, &prom_key_free, NULL, 0);
 	if (error != 0) {
 		/* Assignment failure. */
 		key_free(key);
@@ -776,7 +783,7 @@ static void
 key_verified_combine(struct net2_promise *out, struct net2_promise **in,
     size_t insz, void *unused ILIAS_NET2__unused)
 {
-	struct net2_buffer	*key;
+	struct key		*key;
 	uint32_t		 key_err, verify_err;
 	int			 error;
 	size_t			 i;
@@ -816,13 +823,13 @@ key_verified_combine(struct net2_promise *out, struct net2_promise **in,
 	}
 
 	/* Key was succesfully generated and all signatures matched. */
-	if ((key = net2_buffer_copy(key)) == NULL) {
+	if ((key = key_dup(key)) == NULL) {
 		net2_promise_set_error(out, ENOMEM, 0);
 		return;
 	}
-	if ((error = net2_promise_set_finok(out, key, &prom_buffer_free, NULL,
+	if ((error = net2_promise_set_finok(out, key, &prom_key_free, NULL,
 	    0)) != 0) {
-		net2_buffer_free(key);
+		key_free(key);
 		net2_promise_set_error(out, error, 0);
 	}
 }
@@ -890,7 +897,7 @@ xchange_local_complete(void *xl_ptr, void *unused ILIAS_NET2__unused)
 
 	/* Assign key result. */
 	if (net2_promise_set_finok(xl->shared.complete, key,
-	    &prom_buffer_free, NULL, 0) != 0) {
+	    &prom_key_free, NULL, 0) != 0) {
 		key_free(key);
 		goto fail;
 	}
@@ -952,7 +959,7 @@ xchange_remote_complete(void *xr_ptr, void *unused ILIAS_NET2__unused)
 
 	/* Assign key result. */
 	if (net2_promise_set_finok(xr->shared.complete, key,
-	    &prom_buffer_free, NULL, 0) != 0) {
+	    &prom_key_free, NULL, 0) != 0) {
 		key_free(key);
 		goto fail;
 	}
