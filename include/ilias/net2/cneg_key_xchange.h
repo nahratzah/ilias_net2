@@ -33,6 +33,8 @@ struct net2_sign_ctx;		/* From ilias/net2/sign.h */
 
 /* Result output of key negotiation. */
 struct net2_cneg_keyset {
+	int			 tx_alg[NET2_CNEG_S2_MAX];
+	int			 rx_alg[NET2_CNEG_S2_MAX];
 	struct net2_buffer	*tx[NET2_CNEG_S2_MAX];
 	struct net2_buffer	*rx[NET2_CNEG_S2_MAX];
 };

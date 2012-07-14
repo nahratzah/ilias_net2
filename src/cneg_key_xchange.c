@@ -80,6 +80,10 @@ net2_cneg_keyset_dup(struct net2_cneg_keyset *ks)
 			goto fail;
 	}
 
+	/* Copy algorithms. */
+	memcpy(&copy->tx_alg, &ks->tx_alg, sizeof(copy->tx_alg));
+	memcpy(&copy->rx_alg, &ks->rx_alg, sizeof(copy->rx_alg));
+
 	return copy;
 
 fail:
@@ -189,6 +193,13 @@ struct pdirect_data {
 				 ev;
 };
 
+/* Intermediate type to contain keys. */
+struct key {
+	int			 alg;
+	struct net2_buffer	*key;
+};
+typedef struct key		 half_keyset[NET2_CNEG_S2_MAX];
+
 
 static int	 xchange_shared_init(struct xchange_shared*, int, uint32_t,
 		    int, int,
@@ -217,6 +228,11 @@ static void	 xchange_local_complete(void*, void*);
 static void	 xchange_remote_complete(void*, void*);
 
 
+static struct key
+		*key_dup(struct key*);
+static void	 key_free(struct key*);
+static struct key
+		*key_new(int, struct net2_buffer*);
 static void	 half_keyset_free(void*, void*);
 static void	 key_xchange_combine(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
@@ -224,6 +240,73 @@ static void	 key_xchange_combine_final(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
 static void	 key_xchange_checked(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
+
+
+/* Copy a key. */
+static __inline int
+key_copy(struct key *dst,
+    struct key *src)
+{
+	dst->alg = src->alg;
+	if (src->key != NULL) {
+		if ((dst->key = net2_buffer_copy(src->key)) == NULL)
+			return ENOMEM;
+	} else
+		dst->key = NULL;
+	return 0;
+}
+
+/* Duplicate a key. */
+static struct key*
+key_dup(struct key *k)
+{
+	struct key	*clone;
+
+	if ((clone = net2_malloc(sizeof(*clone))) == NULL)
+		goto fail_0;
+	if (key_copy(clone, k) != 0)
+		goto fail_1;
+	return clone;
+
+fail_1:
+	net2_free(clone);
+fail_0:
+	return NULL;
+}
+
+/* Release storage for key. */
+static __inline void
+key_deinit(struct key *k)
+{
+	net2_buffer_free(k->key);
+	k->key = NULL;
+}
+
+/* Free a key. */
+static void
+key_free(struct key *k)
+{
+	if (k != NULL) {
+		key_deinit(k);
+		net2_free(k);
+	}
+}
+
+/* Create a new key. */
+static struct key *
+key_new(int alg, struct net2_buffer *key)
+{
+	struct key	*nk;
+
+	if ((nk = net2_malloc(sizeof(*nk))) == NULL)
+		return NULL;
+	nk->alg = alg;
+	if ((nk->key = net2_buffer_copy(key)) == NULL) {
+		net2_free(nk);
+		return NULL;
+	}
+	return nk;
+}
 
 
 /* Initialize shared portion of xchange_{local,remote}. */
@@ -578,14 +661,16 @@ prom_buffer_free(void *buf, void *unused ILIAS_NET2__unused)
 /* Combine import buffer and xchange. */
 static void
 xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
-    size_t insz, void *unused ILIAS_NET2__unused)
+    size_t insz, void *xs_ptr)
 {
 	struct net2_ctx_xchange_factory_result
 				*xch;
-	struct net2_buffer	*import, *key;
+	struct net2_buffer	*import, *keybuf;
+	struct key		*key;
 	uint32_t		 xch_err, import_err;
 	int			 xch_fin, import_fin;
 	int			 error;
+	struct xchange_shared	*xs = xs_ptr;
 
 	assert(insz == 2);
 
@@ -620,11 +705,21 @@ xchange_import_combine(struct net2_promise *out, struct net2_promise **in,
 	}
 
 	/* Retrieve final key. */
-	key = net2_xchangectx_final(xch->ctx);
+	if ((keybuf = net2_xchangectx_final(xch->ctx)) == NULL) {
+		net2_promise_set_error(out, ENOMEM, 0);
+		return;
+	}
+	key = key_new(xs->alg, keybuf);
+	net2_buffer_free(keybuf);
+	if (key == NULL) {
+		net2_promise_set_error(out, ENOMEM, 0);
+		return;
+	}
+
 	error = net2_promise_set_finok(out, key, &prom_buffer_free, NULL, 0);
 	if (error != 0) {
 		/* Assignment failure. */
-		net2_buffer_free(key);
+		key_free(key);
 		net2_promise_set_error(out, error, 0);
 	}
 }
@@ -690,7 +785,7 @@ xchange_local_complete(void *xl_ptr, void *unused ILIAS_NET2__unused)
 	struct xchange_local	*xl = xl_ptr;
 	struct net2_promise	*p_export, *p_init, *p_key;
 	int			 fin_export, fin_init, fin_key;
-	struct net2_buffer	*key;
+	struct key		*key;
 
 	/* Don't attempt to assign to a finished promise. */
 	if (net2_promise_is_finished(xl->shared.complete))
@@ -742,13 +837,13 @@ xchange_local_complete(void *xl_ptr, void *unused ILIAS_NET2__unused)
 
 	/* All promises are complete. */
 	assert(key != NULL);
-	if ((key = net2_buffer_copy(key)) == NULL)
+	if ((key = key_dup(key)) == NULL)
 		goto fail;
 
 	/* Assign key result. */
 	if (net2_promise_set_finok(xl->shared.complete, key,
 	    &prom_buffer_free, NULL, 0) != 0) {
-		net2_buffer_free(key);
+		key_free(key);
 		goto fail;
 	}
 
@@ -764,7 +859,7 @@ xchange_remote_complete(void *xr_ptr, void *unused ILIAS_NET2__unused)
 	struct xchange_local	*xr = xr_ptr;
 	struct net2_promise	*p_export, *p_key;
 	int			 fin_export, fin_key;
-	struct net2_buffer	*key;
+	struct key		*key;
 
 	/* Don't attempt to assign to a finished promise. */
 	if (net2_promise_is_finished(xr->shared.complete))
@@ -804,13 +899,13 @@ xchange_remote_complete(void *xr_ptr, void *unused ILIAS_NET2__unused)
 
 	/* All promises are complete. */
 	assert(key != NULL);
-	if ((key = net2_buffer_copy(key)) == NULL)
+	if ((key = key_dup(key)) == NULL)
 		goto fail;
 
 	/* Assign key result. */
 	if (net2_promise_set_finok(xr->shared.complete, key,
 	    &prom_buffer_free, NULL, 0) != 0) {
-		net2_buffer_free(key);
+		key_free(key);
 		goto fail;
 	}
 
@@ -940,7 +1035,7 @@ xchange_local_init(
 	prom2[0] = xl->shared.xchange;
 	prom2[1] = net2_signed_combiner_payload(xl->import);
 	if ((key_unverified = net2_promise_combine(wq, &xchange_import_combine,
-	    NULL, prom2, 2)) == NULL) {
+	    &xl->shared, prom2, 2)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
 	}
@@ -1065,7 +1160,7 @@ xchange_remote_init(
 	prom2[0] = xr->shared.xchange;
 	prom2[1] = net2_signed_combiner_payload(xr->import);
 	if ((key_unverified = net2_promise_combine(wq, &xchange_import_combine,
-	    NULL, prom2, 2)) == NULL)
+	    &xr->shared, prom2, 2)) == NULL)
 		goto fail_3;
 	/* Set up verified key promise. */
 	prom2[0] = key_unverified;
@@ -1405,9 +1500,6 @@ net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 }
 
 
-/* Intermediate type to contain keys. */
-typedef struct net2_buffer *half_keyset[NET2_CNEG_S2_MAX];
-
 /* Free half keyset. */
 static void
 half_keyset_free(void *hks, void *unused ILIAS_NET2__unused)
@@ -1415,10 +1507,8 @@ half_keyset_free(void *hks, void *unused ILIAS_NET2__unused)
 	half_keyset		*result = hks;
 	size_t			 i;
 
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if ((*result)[i] != NULL)
-			net2_buffer_free((*result)[i]);
-	}
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+		key_deinit(&(*result)[i]);
 	net2_free(result);
 }
 
@@ -1433,7 +1523,7 @@ key_xchange_combine(struct net2_promise *out, struct net2_promise **in,
 	int			 fin;
 	uint32_t		 err;
 	half_keyset		*result;
-	struct net2_buffer	*buf[NET2_CNEG_S2_MAX];
+	struct key		*buf[NET2_CNEG_S2_MAX];
 	size_t			 i;
 
 	assert(insz == NET2_CNEG_S2_MAX);
@@ -1465,9 +1555,9 @@ key_xchange_combine(struct net2_promise *out, struct net2_promise **in,
 	if ((result = net2_malloc(sizeof(*result))) == NULL)
 		goto fail_0;
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		(*result)[i] = NULL;
+		(*result)[i].key = NULL;
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (((*result)[i] = net2_buffer_copy(buf[i])) == NULL)
+		if (key_copy(&(*result)[i], buf[i]) != 0)
 			goto fail_1;
 	}
 
@@ -1536,9 +1626,11 @@ key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
 	 * refered by us, so it's safe.
 	 */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		keys->tx[i] = (*r[0])[i];
-		keys->rx[i] = (*r[1])[i];
-		(*r[0])[i] = (*r[1])[i] = NULL;
+		keys->tx_alg[i] = (*r[0])[i].alg;
+		keys->tx[i] = (*r[0])[i].key;
+		keys->rx_alg[i] = (*r[1])[i].alg;
+		keys->rx[i] = (*r[1])[i].key;
+		(*r[0])[i].key = (*r[1])[i].key = NULL;
 	}
 
 	/* Assign keys to out promise. */
