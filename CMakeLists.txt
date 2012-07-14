@@ -337,6 +337,7 @@ add_definitions(-DQUEUE_MACRO_DEBUG)
 if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
 	list (APPEND srcs src/mutex-pthreads.c)
 	list (APPEND srcs src/thread-pthreads.c)
+	list (APPEND srcs src/event-pthreads.c)
 
 	include (CMakePushCheckState)
 	include (CheckIncludeFiles)
@@ -352,6 +353,7 @@ endif (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
 if (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 	list (APPEND srcs src/mutex-win32.c)
 	list (APPEND srcs src/thread-win32.c)
+	list (APPEND srcs src/event-win32.c)
 endif (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 
 add_executable (net2type
