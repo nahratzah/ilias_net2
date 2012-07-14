@@ -446,6 +446,8 @@ fire_rts(struct net2_carver *c)
 	    (c->flags & NET2_CARVER_F_SZ_TX_TIMEOUT) ||
 	    !TAILQ_EMPTY(&c->ranges_tx))
 		net2_workq_activate(&c->rts);
+	else
+		net2_workq_deactivate(&c->rts);
 }
 
 
