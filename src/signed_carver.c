@@ -907,13 +907,31 @@ net2_signed_combiner_payload(struct net2_signed_combiner *sc)
 
 
 /* Assign ready-to-send callback. */
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_EXPORT int
 net2_signed_carver_set_rts(struct net2_signed_carver *sc,
     struct net2_workq *wq, void (*fn)(void*, void*), void *arg0, void *arg1)
 {
 	size_t			 i;
+	int			 err;
 
-	net2_carver_set_rts(&sc->payload, wq, fn, arg0, arg1);
+	if (fn == NULL) {
+		err = 0;
+		goto no_rts;
+	}
+
+	err = net2_carver_set_rts(&sc->payload, wq, fn, arg0, arg1);
+	if (err != 0)
+		goto no_rts;
+	for (i = 0; i < signed_carver_num_sigs(sc); i++) {
+		err = net2_carver_set_rts(&sc->signatures[i], wq, fn, arg0, arg1);
+		if (err != 0)
+			goto no_rts;
+	}
+	return 0;
+
+no_rts:
+	net2_carver_set_rts(&sc->payload, NULL, NULL, NULL, NULL);
 	for (i = 0; i < signed_carver_num_sigs(sc); i++)
-		net2_carver_set_rts(&sc->signatures[i], wq, fn, arg0, arg1);
+		net2_carver_set_rts(&sc->signatures[i], NULL, NULL, NULL, NULL);
+	return err;
 }

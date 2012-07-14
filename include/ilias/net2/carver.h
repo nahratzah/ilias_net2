@@ -114,14 +114,9 @@ ILIAS_NET2_EXPORT
 int			 net2_combiner_accept(struct net2_combiner*,
 			    struct net2_encdec_ctx*, struct net2_buffer*);
 
-/* Set carver ready-to-send callback. */
-static __inline void
-net2_carver_set_rts(struct net2_carver *c, struct net2_workq *wq,
-    net2_workq_cb fn, void *arg0, void *arg1)
-{
-	net2_workq_deinit_work(&c->rts);
-	net2_workq_init_work(&c->rts, wq, fn, arg0, arg1, NET2_WORKQ_PERSIST);
-}
+ILIAS_NET2_EXPORT
+int			 net2_carver_set_rts(struct net2_carver*,
+			    struct net2_workq*, net2_workq_cb, void*, void*);
 
 /* Retrieve the carver completion promise. */
 static __inline struct net2_promise*

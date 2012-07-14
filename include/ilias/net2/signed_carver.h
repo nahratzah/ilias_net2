@@ -55,7 +55,7 @@ struct net2_promise
 		*net2_signed_combiner_payload(struct net2_signed_combiner*);
 
 ILIAS_NET2_EXPORT
-void		 net2_signed_carver_set_rts(struct net2_signed_carver*,
+int		 net2_signed_carver_set_rts(struct net2_signed_carver*,
 		    struct net2_workq*, net2_workq_cb, void*, void*);
 
 

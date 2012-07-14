@@ -1005,3 +1005,24 @@ carver_setup_nack(void *c_ptr, void *unusued ILIAS_NET2__unused)
 	c->flags &= ~NET2_CARVER_F_SZ_TX;
 	net2_workq_activate(&c->rts);
 }
+
+/* Set carver ready-to-send callback. */
+ILIAS_NET2_EXPORT int
+net2_carver_set_rts(struct net2_carver *c, struct net2_workq *wq,
+    net2_workq_cb fn, void *arg0, void *arg1)
+{
+	int		 err;
+
+	net2_workq_deinit_work(&c->rts);
+	if (fn == NULL) {
+		net2_workq_init_work_null(&c->rts);
+		return 0;
+	}
+
+	err = net2_workq_init_work(&c->rts, wq, fn, arg0, arg1, 0);
+	if (err != 0)
+		net2_workq_init_work_null(&c->rts);
+
+	fire_rts(c);
+	return err;
+}

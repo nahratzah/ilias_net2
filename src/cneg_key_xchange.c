@@ -601,10 +601,11 @@ xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 		goto fail_1;
 
 	/* Set ready-to-send callback. */
-	net2_signed_carver_set_rts(xl->init, xcsd->wq, xl->shared.rts.fn,
-	    xl->shared.rts.arg0, xl->shared.rts.arg1);
-	net2_signed_carver_set_rts(xl->export, xcsd->wq, xl->shared.rts.fn,
-	    xl->shared.rts.arg0, xl->shared.rts.arg1);
+	if (net2_signed_carver_set_rts(xl->init, xcsd->wq, xl->shared.rts.fn,
+	    xl->shared.rts.arg0, xl->shared.rts.arg1) != 0 ||
+	    net2_signed_carver_set_rts(xl->export, xcsd->wq, xl->shared.rts.fn,
+	    xl->shared.rts.arg0, xl->shared.rts.arg1) != 0)
+		goto fail_2;
 
 	/* Free no longer needed xcsd. */
 	xchange_carver_setup_data_free(xcsd);
@@ -612,6 +613,10 @@ xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 	return;
 
 
+fail_2:
+	/* Unset ready-to-send callback. */
+	net2_signed_carver_set_rts(xl->init, NULL, NULL, NULL, NULL);
+	net2_signed_carver_set_rts(xl->export, NULL, NULL, NULL, NULL);
 fail_1:
 	if (xl->init != NULL) {
 		net2_signed_carver_destroy(xl->init);
@@ -683,8 +688,9 @@ xchange_remote_on_xchange(void *xr_ptr, void *unused ILIAS_NET2__unused)
 		goto fail_1;
 
 	/* Assign ready-to-send callback. */
-	net2_signed_carver_set_rts(xr->export, xcsd->wq, xr->shared.rts.fn,
-	    xr->shared.rts.arg0, xr->shared.rts.arg1);
+	if (net2_signed_carver_set_rts(xr->export, xcsd->wq, xr->shared.rts.fn,
+	    xr->shared.rts.arg0, xr->shared.rts.arg1) != 0)
+		goto fail_2;
 
 	/* Free no longer needed xcsd. */
 	xchange_carver_setup_data_free(xcsd);
@@ -692,6 +698,9 @@ xchange_remote_on_xchange(void *xr_ptr, void *unused ILIAS_NET2__unused)
 	return;
 
 
+fail_2:
+	/* Unset ready-to-send callback. */
+	net2_signed_carver_set_rts(xr->export, NULL, NULL, NULL, NULL);
 fail_1:
 	if (xr->export != NULL) {
 		net2_signed_carver_destroy(xr->export);
