@@ -1877,3 +1877,9 @@ net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange *ke,
 fail:
 	return error;
 }
+
+ILIAS_NET2_LOCAL struct net2_promise*
+net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange *ke, int verified)
+{
+	return (verified ? ke->complete : ke->keys);
+}

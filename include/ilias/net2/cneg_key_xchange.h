@@ -62,4 +62,8 @@ ILIAS_NET2_LOCAL
 int	 net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange*,
 	    struct net2_encdec_ctx*, struct net2_buffer*);
 
+ILIAS_NET2_LOCAL
+struct net2_promise
+	*net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange*, int);
+
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */
