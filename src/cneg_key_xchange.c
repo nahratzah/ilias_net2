@@ -37,6 +37,8 @@
 #include <errno.h>
 #include <stdint.h>
 
+#include "exchange.h"
+
 
 /* Free a key set. */
 ILIAS_NET2_LOCAL void
@@ -92,6 +94,17 @@ fail:
 }
 
 
+/* Domain specific conversion between algorithm ID and name. */
+struct xchange_spec {
+	const char*		(*getname)(int);
+	int			(*getalg)(const char*);
+};
+/* Domain specific conversion between algorithm ID and name. */
+static const struct xchange_spec xchange_specs[NET2_CNEG_S2_MAX] = {
+	{ &net2_hash_getname, &net2_hash_findname },
+	{ &net2_enc_getname, &net2_enc_findname },
+};
+
 /* Additional information required to set up carver. */
 struct xchange_carver_setup_data {
 	struct net2_encdec_ctx	 ectx;
@@ -118,6 +131,9 @@ struct xchange_shared {
 
 	struct xchange_carver_setup_data
 				*out_xcsd;
+
+	const struct xchange_spec
+				*spec;
 
 	struct {
 		void		(*fn)(void*, void*);
@@ -202,7 +218,7 @@ typedef struct key		 half_keyset[NET2_CNEG_S2_MAX];
 
 
 static int	 xchange_shared_init(struct xchange_shared*, int, uint32_t,
-		    int, int,
+		    int, int, const struct xchange_spec*,
 		    void (*)(void*, void*), void*, void*);
 static void	 xchange_shared_deinit(struct xchange_shared*);
 
@@ -312,10 +328,13 @@ key_new(int alg, struct net2_buffer *key)
 /* Initialize shared portion of xchange_{local,remote}. */
 static int
 xchange_shared_init(struct xchange_shared *xs, int alg, uint32_t keysize,
-    int xchange_alg, int sighash_alg,
+    int xchange_alg, int sighash_alg, const struct xchange_spec *spec,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1)
 {
+	assert(spec != NULL);
+
 	xs->xchange = NULL;
+	xs->spec = spec;
 	xs->key_promise = NULL;
 	xs->complete = net2_promise_new();
 	xs->alg = alg;
@@ -489,6 +508,31 @@ fail_0:
 	return NULL;
 }
 
+static struct net2_buffer*
+xchange_local_initbuf(struct xchange_local *xl, struct net2_buffer *initbuf)
+{
+	struct exchange_initbuf	 xib;
+	struct net2_buffer	*out;
+
+	/* Prepare encoding data. */
+	xib.xchange_name =
+	    (char*)net2_xchange_getname(xl->shared.xchange_alg);
+	xib.result_name =
+	    (char*)xl->shared.spec->getname(xl->shared.alg);
+	xib.xchange_init = initbuf;
+
+	/* Encode initbuf. */
+	if ((out = net2_buffer_new()) == NULL)
+		return NULL;
+	if (net2_cp_encode(&net2_encdec_proto0,
+	    &cp_exchange_initbuf, out, &xib, NULL) != 0) {
+		net2_buffer_free(out);
+		return NULL;
+	}
+
+	return out;
+}
+
 /*
  * xchange_local event callback.
  *
@@ -505,7 +549,8 @@ xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 				*result;
 	uint32_t		 xch_err;
 	int			 fin;
-	struct net2_buffer	*exportbuf;
+	struct net2_buffer	*exportbuf, *initbuf;
+	struct exchange_initbuf	 xib;
 
 	/* Claim ownership of out_xcsd. */
 	xcsd = xl->shared.out_xcsd;
@@ -523,9 +568,12 @@ xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 	assert(xl->init == NULL && xl->export == NULL);
 
 	/* Setup init signed_carver. */
+	if ((initbuf = xchange_local_initbuf(xl, result->initbuf)) == NULL)
+		goto fail_0;
 	xl->init = net2_signed_carver_new(xcsd->wq, &xcsd->ectx,
-	    result->initbuf,
+	    initbuf,
 	    xl->shared.sighash_alg, xcsd->num_sigs, xcsd->sigs);
+	net2_buffer_free(initbuf);
 
 	/* Setup export signed_carver. */
 	if ((exportbuf = net2_xchangectx_export(result->ctx)) == NULL)
@@ -926,6 +974,7 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 				*result = NULL;
 	uint32_t		 err;
 	int			 fin;
+	struct exchange_initbuf	 xib;
 
 	assert(insz == 1);
 
@@ -949,6 +998,21 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 		return;
 	}
 
+	/* Decode initbuf payload. */
+	if (net2_cp_init(&net2_encdec_proto0,
+	    &cp_exchange_initbuf, &xib, NULL) != 0) {
+		net2_promise_set_error(out, EIO, 0);
+		return;
+	}
+	if (net2_cp_decode(&net2_encdec_proto0,
+	    &cp_exchange_initbuf, &xib, buf, NULL) != 0)
+		goto fail;
+	/* Store algorithm IDs in xr. */
+	xr->shared.xchange_alg = net2_xchange_findname(xib.xchange_name);
+	xr->shared.alg = xr->shared.spec->getalg(xib.result_name);
+	if (xr->shared.xchange_alg == -1 || xr->shared.alg == -1)
+		goto fail;
+
 	/* Calculate xchange result. */
 	if ((result = net2_malloc(sizeof(*result))) == NULL) {
 		net2_promise_set_error(out, ENOMEM, 0);
@@ -957,8 +1021,9 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 
 	/* Create xchange ctx. */
 	result->ctx = net2_xchangectx_prepare(xr->shared.xchange_alg,
-	    xr->shared.keysize, 0, buf);
-	result->initbuf = net2_buffer_copy(buf);
+	    xr->shared.keysize, 0, xib.xchange_init);
+	result->initbuf = xib.xchange_init; /* Steal buffer. */
+	xib.xchange_init = NULL;
 	if (result->initbuf == NULL || result->ctx == NULL)
 		goto fail;
 
@@ -966,9 +1031,13 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 	if ((net2_promise_set_finok(out, result,
 	    &net2_ctx_xchange_factory_result_free, NULL, 0)) != 0)
 		goto fail;
+
+	/* Destroy xib. */
+	net2_cp_destroy(&net2_encdec_proto0, &cp_exchange_initbuf, &xib, NULL);
 	return;
 
 fail:
+	net2_cp_destroy(&net2_encdec_proto0, &cp_exchange_initbuf, &xib, NULL);
 	if (result != NULL)
 		net2_ctx_xchange_factory_result_free(result, NULL);
 	net2_promise_set_error(out, EIO, 0);
@@ -983,7 +1052,7 @@ static int
 xchange_local_init(
     struct xchange_local *xl,
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx,
+    struct net2_ctx *nctx, const struct xchange_spec *spec,
     int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
@@ -994,7 +1063,7 @@ xchange_local_init(
 	int			 error;
 
 	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
-	    xchange_alg, sighash_alg,
+	    xchange_alg, sighash_alg, spec,
 	    rts_fn, rts_arg0, rts_arg1)) != 0)
 		goto fail_0;
 
@@ -1115,7 +1184,7 @@ static int
 xchange_remote_init(
     struct xchange_remote *xr,
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx ILIAS_NET2__unused,
+    struct net2_ctx *nctx ILIAS_NET2__unused, const struct xchange_spec *spec,
     int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
@@ -1126,7 +1195,7 @@ xchange_remote_init(
 	int			 error;
 
 	if ((error = xchange_shared_init(&xr->shared, alg, keysize,
-	    xchange_alg, sighash_alg,
+	    xchange_alg, sighash_alg, spec,
 	    rts_fn, rts_arg0, rts_arg1)) != 0)
 		goto fail_0;
 
@@ -1145,8 +1214,8 @@ xchange_remote_init(
 	}
 
 	/* Set up xchange promise. */
-	prom2[0] = net2_signed_combiner_payload(xr->import);
-	if ((xr->shared.xchange = net2_promise_combine(wq, initbuf_import,
+	prom2[0] = net2_signed_combiner_payload(xr->init);
+	if ((xr->shared.xchange = net2_promise_combine(wq, &initbuf_import,
 	    xr, prom2, 1)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
@@ -1389,22 +1458,26 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 		goto fail_0;
 
 	if (xchange_local_init(&ke->local[NET2_CNEG_S2_HASH],
-	    wq, ectx, nctx, hash_alg, hash_keysize, xchange_alg, sighash_alg,
+	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_HASH],
+	    hash_alg, hash_keysize, xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs))
 		goto fail_1;
 	if (xchange_local_init(&ke->local[NET2_CNEG_S2_ENC],
-	    wq, ectx, nctx, enc_alg, enc_keysize, xchange_alg, sighash_alg,
+	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_ENC],
+	    enc_alg, enc_keysize, xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs))
 		goto fail_2;
 	if (xchange_remote_init(&ke->remote[NET2_CNEG_S2_HASH],
-	    wq, ectx, nctx, hash_alg, hash_keysize, xchange_alg, sighash_alg,
+	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_HASH],
+	    hash_alg, hash_keysize, xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs))
 		goto fail_3;
 	if (xchange_remote_init(&ke->remote[NET2_CNEG_S2_ENC],
-	    wq, ectx, nctx, enc_alg, enc_keysize, xchange_alg, sighash_alg,
+	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_ENC],
+	    enc_alg, enc_keysize, xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs))
 		goto fail_4;
