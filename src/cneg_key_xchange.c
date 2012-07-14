@@ -1970,6 +1970,15 @@ fail:
 	return error;
 }
 
+/*
+ * Retrieve the negotiated keys.
+ *
+ * If verified is set, the retrieved keys will have been verified.
+ * Otherwise, unverified keys will be retrieved.
+ *
+ * Note that if no verification was specified (in net2_ctx),
+ * unverified keys and verified keys will be the same.
+ */
 ILIAS_NET2_LOCAL struct net2_promise*
 net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange *ke, int verified)
 {
