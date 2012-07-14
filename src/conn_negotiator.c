@@ -64,6 +64,7 @@ static int	 select_hash(int*, size_t);
 static int	 select_enc(int*, size_t);
 static int	 select_sign(int*, size_t);
 static int	 select_xchange(int*, size_t);
+static int	 select_sighash(int*, size_t);
 static void	 choose_alg(struct net2_promise*, struct net2_promise**,
 		    size_t, void*);
 
@@ -71,7 +72,8 @@ static struct net2_promise*
 		 create_key_xchange_prom(struct net2_workq*,
 		    struct net2_cneg_stage1*,
 		    struct net2_promise*, struct net2_promise*,
-		    struct net2_promise*, struct net2_promise*);
+		    struct net2_promise*, struct net2_promise*,
+		    struct net2_promise*);
 static void	 create_key_xchange(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
 static void	 key_xchange_assign(void*, void*);
@@ -204,6 +206,32 @@ select_xchange(int *algs, size_t n)
 	}
 	return selected;
 }
+/*
+ * Select best unkeyed hash algorithm.
+ * Returns -1 if none are sufficient.
+ */
+static int
+select_sighash(int *algs, size_t n)
+{
+	int	selected, hash, i_hash, i_alg;
+	size_t	i;
+	const int min_hashlen = 32 / 8;
+
+	selected = -1;
+	hash = -1;
+	for (i = 0; i < n; i++) {
+		i_alg = algs[i];
+		if (net2_hash_getkeylen(i_alg) != 0)
+			continue;	/* Skip keyed hashes. */
+		i_hash = net2_hash_gethashlen(i_alg);
+		if (i_hash >= min_hashlen && i_hash > hash) {
+			selected = i_alg;
+			hash = i_hash;
+		}
+	}
+
+	return selected;
+}
 
 /* Choose the hash algorithm we want to use for packet hashes. */
 static void
@@ -296,9 +324,10 @@ net2_cneg_allow_payload(struct net2_conn_negotiator *cn,
 static struct net2_promise*
 create_key_xchange_prom(struct net2_workq *wq, struct net2_cneg_stage1 *s1,
     struct net2_promise *hash, struct net2_promise *enc,
-    struct net2_promise *sign, struct net2_promise *xchange)
+    struct net2_promise *sign, struct net2_promise *xchange,
+    struct net2_promise *sighash)
 {
-	struct net2_promise	*proms[7];
+	struct net2_promise	*proms[8];
 	struct net2_promise	*result;
 
 	proms[0] = cneg_stage1_get_pver(s1);
@@ -306,15 +335,16 @@ create_key_xchange_prom(struct net2_workq *wq, struct net2_cneg_stage1 *s1,
 	proms[2] = enc;
 	proms[3] = sign;
 	proms[4] = xchange;
-	proms[5] = cneg_stage1_get_accepted_signatures(s1);
-	proms[6] = cneg_stage1_get_transmit_signatures(s1);
+	proms[5] = sighash;
+	proms[6] = cneg_stage1_get_accepted_signatures(s1);
+	proms[7] = cneg_stage1_get_transmit_signatures(s1);
 
 	result = net2_promise_combine(wq, &create_key_xchange, NULL,
 	    proms, sizeof(proms) / sizeof(proms[0]));
 
 	net2_promise_release(proms[0]);
-	net2_promise_release(proms[5]);
 	net2_promise_release(proms[6]);
+	net2_promise_release(proms[7]);
 
 	return result;
 }
@@ -324,7 +354,8 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
     size_t insz, void *cn_ptr)
 {
 	struct net2_cneg_stage1_pver	*pver;
-	int				*hash, *crypt, *xchange, *sign;
+	int				*hash, *crypt, *xchange, *sign,
+					*sighash;
 	uint32_t			 error;
 	struct net2_encdec_ctx		 ectx;
 	struct net2_pvlist		 pvlist;
@@ -360,9 +391,11 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
 	    NET2_PROM_FIN_OK ||
 	    net2_promise_get_result(in[4], (void**)&sign, NULL) !=
 	    NET2_PROM_FIN_OK ||
-	    net2_promise_get_result(in[5], (void**)&in_signs, NULL) !=
+	    net2_promise_get_result(in[5], (void**)&sighash, NULL) !=
 	    NET2_PROM_FIN_OK ||
-	    net2_promise_get_result(in[6], (void**)&out_signs, NULL) !=
+	    net2_promise_get_result(in[6], (void**)&in_signs, NULL) !=
+	    NET2_PROM_FIN_OK ||
+	    net2_promise_get_result(in[7], (void**)&out_signs, NULL) !=
 	    NET2_PROM_FIN_OK) {
 		error = EIO;
 		goto fail_0;
@@ -386,7 +419,7 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
 
 	/* Create key exchange. */
 	kx = net2_cneg_key_xchange_new(wq, &ectx, cn->context,
-	    *hash, *crypt, *sign, *hash,
+	    *hash, *crypt, *sign, *sighash,
 	    &cneg_ready_to_send_arg, cn, NULL,
 	    out_signs->sz, out_signs->sctx,
 	    in_signs->sz, in_signs->sctx);
@@ -467,10 +500,10 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	struct net2_connection	*s = CNEG_CONN(cn);
 	struct net2_workq	*wq;
 	struct net2_promise	*p_hash, *p_enc, *p_sign, *p_xchange, *p_kx,
-				*p_pver;
+				*p_pver, *p_sighash;
 
 	assert(s != NULL);
-	p_hash = p_enc = p_sign = p_xchange = NULL;
+	p_hash = p_enc = p_sign = p_xchange = p_sighash = NULL;
 	wq = net2_acceptor_socket_workq(&s->n2c_socket);
 
 	if ((error = net2_pvlist_init(&cn->proto)) != 0)
@@ -516,6 +549,9 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	/* Xchange selector promise setup. */
 	p_xchange = net2_promise_combine(wq, &choose_alg,
 	    &select_xchange, &cn->xchange, 1);
+	/* Signature hash selector promise setup. */
+	p_sighash = net2_promise_combine(wq, &choose_alg,
+	    &select_sighash, &cn->hash, 1);
 	/* Check that promises above got created properly. */
 	if (p_hash == NULL || p_enc == NULL || p_sign == NULL ||
 	    p_xchange == NULL) {
@@ -525,7 +561,7 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 
 	/* Create key xchange factory. */
 	if ((p_kx = create_key_xchange_prom(wq, cn->stage1,
-	    p_hash, p_enc, p_sign, p_xchange)) == NULL) {
+	    p_hash, p_enc, p_sign, p_xchange, p_sighash)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
 	}
@@ -541,7 +577,8 @@ net2_cneg_init(struct net2_conn_negotiator *cn, struct net2_ctx *context)
 	net2_promise_release(p_enc);
 	net2_promise_release(p_sign);
 	net2_promise_release(p_xchange);
-	p_hash = p_enc = p_sign = p_xchange = NULL;
+	net2_promise_release(p_sighash);
+	p_hash = p_enc = p_sign = p_xchange = p_sighash = NULL;
 
 	/* Pver event: assign protocol version for net2_proto. */
 	if ((p_pver = cneg_stage1_get_pver(cn->stage1)) == NULL)
@@ -592,6 +629,10 @@ fail_0:
 	if (p_xchange != NULL) {
 		net2_promise_cancel(p_xchange);
 		net2_promise_release(p_xchange);
+	}
+	if (p_sighash != NULL) {
+		net2_promise_cancel(p_sighash);
+		net2_promise_release(p_sighash);
 	}
 	return error;
 }
