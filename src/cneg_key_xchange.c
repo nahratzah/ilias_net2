@@ -572,7 +572,6 @@ xchange_local_on_xchange(void *xl_ptr, void *unused ILIAS_NET2__unused)
 	uint32_t		 xch_err;
 	int			 fin;
 	struct net2_buffer	*exportbuf, *initbuf;
-	struct exchange_initbuf	 xib;
 
 	/* Claim ownership of out_xcsd. */
 	xcsd = xl->shared.out_xcsd;
