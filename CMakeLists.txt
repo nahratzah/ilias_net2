@@ -34,6 +34,7 @@ list (APPEND headers
 	include/ilias/net2/cneg_stage1.h
 	include/ilias/net2/cneg_key_xchange.h
 	include/ilias/net2/conn_negotiator.h
+	include/ilias/net2/conn_keys.h
 	include/ilias/net2/connection.h
 	include/ilias/net2/connstats.h
 	include/ilias/net2/connwindow.h
@@ -73,6 +74,7 @@ list (APPEND srcs
 	src/cneg_stage1.c
 	src/cneg_key_xchange.c
 	src/conn_negotiator.c
+	src/conn_keys.c
 	src/connection.c
 	src/connstats.c
 	src/connwindow.c
