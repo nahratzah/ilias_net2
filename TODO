@@ -34,10 +34,6 @@ using activations (setjmp/longjmp for instance) instead of Continuation-Passing-
   - means events started from within the pseudo thread need to be marked as being part of it (i.e. run regardless of state consistency)
 
 
-buffer:
-- pullup must cascade sensitive state.
-
-
 
 Stream acceptor:
 - change from refcnt free on callback to txcb cancelation
