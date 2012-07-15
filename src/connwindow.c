@@ -1565,6 +1565,7 @@ cw_expiry_create(struct net2_cw_winexpiry_q *q, uint32_t seq, uint32_t wstart)
 		goto fail_1;
 	wx->seq = seq;
 	wx->prom = p;
+	net2_promise_set_running(p);
 
 	/* Insert into list. */
 	if (wx_after == NULL)
