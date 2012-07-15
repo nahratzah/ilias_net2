@@ -73,6 +73,27 @@ net2_refcnt_iszero(net2_refcnt_t *refcnt)
 {
 	return atomic_load(refcnt) == 0;
 }
+static inline size_t
+net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
+{
+	size_t			 rv;
+
+	if (mtx) {
+		if (!(flags & NET2_REFCNT_LOCK_ENTER) &&
+		    (flags & NET2_REFCNT_LOCK_EXIT))
+			net2_mutex_lock(mtx);
+	}
+
+	rv = atomic_load(refcnt);
+
+	if (mtx) {
+		if ((flags & NET2_REFCNT_LOCK_ENTER) &&
+		    !(flags & NET2_REFCNT_LOCK_EXIT))
+			net2_mutex_unlock(mtx);
+	}
+
+	return rv;
+}
 
 ILIAS_NET2__end_cdecl
 #else	/* no stdatomic.h */
@@ -117,6 +138,19 @@ static inline int
 net2_refcnt_iszero(net2_refcnt_t *refcnt)
 {
 	return *refcnt == 0;
+}
+static inline size_t
+net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
+{
+	size_t			 rv;
+
+	if (!(flags & NET2_REFCNT_LOCK_ENTER))
+		net2_mutex_lock(mtx);
+	rv = *refcnt;
+	if (!(flags & NET2_REFCNT_LOCK_EXIT))
+		net2_mutex_unlock(mtx);
+
+	return rv;
 }
 
 ILIAS_NET2__end_cdecl

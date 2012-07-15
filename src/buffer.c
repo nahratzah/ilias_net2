@@ -16,6 +16,7 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/refcnt.h>
 #include <ilias/net2/types.h>
 #include <ilias/net2/bsd_compat/minmax.h>
 #include <sys/types.h>
@@ -53,7 +54,7 @@ net2_buffer_ptr0 = { 0, 0, 0 };
  */
 struct net2_buffer_segment_impl {
 	struct net2_mutex		*mtx;
-	size_t				 refcnt;
+	net2_refcnt_t			 refcnt;
 	size_t				 len;
 	size_t				 use;
 
@@ -129,7 +130,7 @@ segment_impl_new(const void *data, size_t datlen, size_t len)
 		have = want;
 	if ((s->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
-	s->refcnt = 1;
+	net2_refcnt_set(&s->refcnt, 1);
 	s->len = have - NET2_BUFSEGMENT_IMPL_SZ;
 	s->use = datlen;
 	s->flags = BUF_STD;
@@ -157,7 +158,7 @@ segment_impl_newref(void *data, size_t len, void (*release)(void*), void *releas
 		goto fail_0;
 	if ((s->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
-	s->refcnt = 1;
+	net2_refcnt_set(&s->refcnt, 1);
 	s->len = len;
 	s->use = len;
 	s->flags = BUF_REFERENCE;
@@ -181,11 +182,7 @@ segment_impl_release(struct net2_buffer_segment_impl *s)
 {
 	struct reference		*r;
 
-	net2_mutex_lock(s->mtx);
-
-	assert(s->refcnt > 0);
-	if (--s->refcnt == 0) {
-		net2_mutex_unlock(s->mtx);
+	if (net2_refcnt_release(&s->refcnt, s->mtx, 0)) {
 		net2_mutex_free(s->mtx);
 
 		/*
@@ -208,17 +205,13 @@ segment_impl_release(struct net2_buffer_segment_impl *s)
 		net2_free(s);
 		return;
 	}
-	net2_mutex_unlock(s->mtx);
 }
 
 /* Reference a segment impl. */
 static void
 segment_impl_reference(struct net2_buffer_segment_impl *s)
 {
-	net2_mutex_lock(s->mtx);
-	s->refcnt++;
-	assert(s->refcnt != 0);
-	net2_mutex_unlock(s->mtx);
+	net2_refcnt_ref(&s->refcnt, s->mtx, 0);
 }
 
 /*
@@ -242,7 +235,8 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 		if (s->len - s->use >= add) {
 			s->use += add;
 			rv = 0;
-		} else if (s->refcnt == 1 && do_realloc) {
+		} else if (do_realloc && net2_refcnt_get(&s->refcnt, s->mtx,
+		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT) == 1) {
 			require = SEGMENT_SZ(off + add);
 			want = ((require + NET2_BUFFER_ALIGN - 1) &
 			    ~(NET2_BUFFER_ALIGN - 1));
