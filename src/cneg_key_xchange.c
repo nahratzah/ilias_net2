@@ -1030,8 +1030,7 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 	}
 
 	/* Decode initbuf payload. */
-	if (net2_cp_init(&net2_encdec_proto0,
-	    &cp_exchange_initbuf, &xib, NULL) != 0) {
+	if (net2_cp_init(&cp_exchange_initbuf, &xib, NULL) != 0) {
 		net2_promise_set_error(out, EIO, 0);
 		return;
 	}
@@ -1064,11 +1063,11 @@ initbuf_import(struct net2_promise *out, struct net2_promise **in,
 		goto fail;
 
 	/* Destroy xib. */
-	net2_cp_destroy(&net2_encdec_proto0, &cp_exchange_initbuf, &xib, NULL);
+	net2_cp_destroy(&cp_exchange_initbuf, &xib, NULL);
 	return;
 
 fail:
-	net2_cp_destroy(&net2_encdec_proto0, &cp_exchange_initbuf, &xib, NULL);
+	net2_cp_destroy(&cp_exchange_initbuf, &xib, NULL);
 	if (result != NULL)
 		net2_ctx_xchange_factory_result_free(result, NULL);
 	net2_promise_set_error(out, EIO, 0);
@@ -2090,15 +2089,15 @@ net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange *ke,
 
 		/* Decode poetry payload. */
 		if (slot == SLOT_POETRY) {
-			if ((error = net2_cp_init(ectx, &CP_POETRY,
+			if ((error = net2_cp_init(&CP_POETRY,
 			    &poetry, NULL)) != 0)
 				goto fail;
 			if ((error = net2_cp_decode(ectx, &CP_POETRY,
 			    &poetry, in, NULL)) != 0) {
-				net2_cp_destroy(ectx, &CP_POETRY, &poetry, NULL);
+				net2_cp_destroy(&CP_POETRY, &poetry, NULL);
 				goto fail;
 			}
-			if ((error = net2_cp_destroy(ectx, &CP_POETRY,
+			if ((error = net2_cp_destroy(&CP_POETRY,
 			    &poetry, NULL)) != 0)
 				goto fail;
 			continue;

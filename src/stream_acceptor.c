@@ -1607,7 +1607,7 @@ sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_acceptor_socket *socket,
 
 	if ((rv = net2_encdec_ctx_newaccsocket(&ctx, socket)) != 0)
 		goto fail_0;
-	if ((rv = net2_cp_init(&ctx, &cp_stream_packet, &sp, NULL)) != 0)
+	if ((rv = net2_cp_init(&cp_stream_packet, &sp, NULL)) != 0)
 		goto fail_1;
 	if ((rv = net2_cp_decode(&ctx, &cp_stream_packet, &sp, in, NULL)) != 0)
 		goto fail_2;
@@ -1615,7 +1615,7 @@ sa_rx_recvbuf(struct net2_sa_rx *sa, struct net2_acceptor_socket *socket,
 	rv = sa_rx_recv(sa, &sp);
 
 fail_2:
-	if (net2_cp_destroy(&ctx, &cp_stream_packet, &sp, NULL))
+	if (net2_cp_destroy(&cp_stream_packet, &sp, NULL))
 		warnx("stream_packet destroy failed");
 fail_1:
 	if (rv != 0)

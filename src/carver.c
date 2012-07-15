@@ -463,12 +463,12 @@ net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	struct net2_buffer	*result;
 
 	/* Decode header to read message type. */
-	if ((error = net2_cp_init(ctx, &cp_carver_msg_header, &header,
+	if ((error = net2_cp_init(&cp_carver_msg_header, &header,
 	    NULL)) != 0)
 		return error;
 	error = net2_cp_decode(ctx, &cp_carver_msg_header, &header, in, NULL);
 	msg_type = header.msg_type;
-	net2_cp_destroy(ctx, &cp_carver_msg_header, &header, NULL);
+	net2_cp_destroy(&cp_carver_msg_header, &header, NULL);
 	if (error != 0)
 		return error;
 
@@ -696,7 +696,7 @@ combiner_msg_to_range(struct net2_combiner *c, struct net2_carver_range *r,
 	}
 
 	/* Decode message. */
-	if ((error = net2_cp_init(ctx, cp, msg_ptr, NULL)) != 0)
+	if ((error = net2_cp_init(cp, msg_ptr, NULL)) != 0)
 		return error;
 	if ((error = net2_cp_decode(ctx, cp, msg_ptr, in, NULL)) != 0)
 		goto out;
@@ -739,7 +739,7 @@ combiner_msg_to_range(struct net2_combiner *c, struct net2_carver_range *r,
 	}
 
 out:
-	net2_cp_destroy(ctx, cp, msg_ptr, NULL);
+	net2_cp_destroy(cp, msg_ptr, NULL);
 	return error;
 }
 
@@ -777,7 +777,7 @@ combiner_setup_msg(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	}
 
 	/* Decoding stage. */
-	if ((error = net2_cp_init(ctx, cp, msg_ptr, NULL)) != 0)
+	if ((error = net2_cp_init(cp, msg_ptr, NULL)) != 0)
 		return error;
 	if ((error = net2_cp_decode(ctx, cp, msg_ptr, in, NULL)) != 0)
 		goto out;
@@ -827,7 +827,7 @@ combiner_setup_msg(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
 	error = 0;
 
 out:
-	net2_cp_destroy(ctx, cp, msg_ptr, NULL);
+	net2_cp_destroy(cp, msg_ptr, NULL);
 	return error;
 }
 

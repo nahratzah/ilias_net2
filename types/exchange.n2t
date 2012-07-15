@@ -137,16 +137,14 @@ get_exchange_cp(const struct exchange_msg *msg)
 }
 
 static int
-exchange_msg_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct exchange_msg *msg,
+exchange_msg_init(struct exchange_msg *msg,
     const void *arg ILIAS_NET2__unused)
 {
 	memset(msg, 0, sizeof(*msg));
 	return 0;
 }
 static int
-exchange_msg_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct exchange_msg *msg,
+exchange_msg_destroy(struct exchange_msg *msg,
     const void *arg ILIAS_NET2__unused)
 {
 	const struct command_param
@@ -154,7 +152,7 @@ exchange_msg_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
 
 	if ((cp = get_exchange_cp(msg)) == NULL)
 		return EINVAL;
-	return net2_cp_destroy(c, cp, msg, NULL);
+	return net2_cp_destroy(cp, msg, NULL);
 }
 static int
 exchange_msg_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,

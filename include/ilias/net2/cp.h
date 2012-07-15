@@ -24,8 +24,8 @@ typedef int (*net2_cp_encfun) (struct net2_encdec_ctx*,
     struct net2_buffer*, const void*, const void*);
 typedef int (*net2_cp_decfun) (struct net2_encdec_ctx*,
     void*, struct net2_buffer*, const void*);
-typedef int (*net2_cp_initfun) (struct net2_encdec_ctx*, void*, const void*);
-typedef int (*net2_cp_delfun) (struct net2_encdec_ctx*, void*, const void*);
+typedef int (*net2_cp_initfun) (void*, const void*);
+typedef int (*net2_cp_delfun) (void*, const void*);
 
 struct command_param {
 	int		 cp_flags;
@@ -45,16 +45,14 @@ ILIAS_NET2_EXPORT
 int net2_cp_decode(struct net2_encdec_ctx*, const struct command_param*,
     void*, struct net2_buffer*, const void*);
 ILIAS_NET2_EXPORT
-int net2_cp_init(struct net2_encdec_ctx*, const struct command_param*,
-    void*, const void*);
+int net2_cp_init(const struct command_param*, void*, const void*);
 ILIAS_NET2_EXPORT
-int net2_cp_destroy(struct net2_encdec_ctx*, const struct command_param*,
-    void*, const void*);
+int net2_cp_destroy(const struct command_param*, void*, const void*);
 ILIAS_NET2_EXPORT
-int net2_cp_init_alloc(struct net2_encdec_ctx*, const struct command_param*,
+int net2_cp_init_alloc(const struct command_param*,
     void**, const void*);
 ILIAS_NET2_EXPORT
-int net2_cp_destroy_alloc(struct net2_encdec_ctx*, const struct command_param*,
+int net2_cp_destroy_alloc(const struct command_param*,
     void**, const void*);
 
 

@@ -288,14 +288,14 @@ signctx_validate(struct net2_promise *out, struct net2_promise **in,
 	 */
 
 	/* Decode signature. */
-	if (net2_cp_init(&svarg->ectx, &cp_net2_signature, &sent, NULL) != 0)
+	if (net2_cp_init(&cp_net2_signature, &sent, NULL) != 0)
 		goto fail;
 	if (net2_cp_decode(&svarg->ectx, &cp_net2_signature, &sent, sig,
 	    NULL) != 0)
 		goto fail_decode;
 	if (net2_signature_validate(&sent, pl, svarg->sctx, &sigvalid) != 0)
 		goto fail_decode;
-	net2_cp_destroy(&svarg->ectx, &cp_net2_signature, &sent, NULL);
+	net2_cp_destroy(&cp_net2_signature, &sent, NULL);
 
 	/* sigvalid now describes if the signature is valid. */
 	if (sigvalid)
@@ -316,7 +316,7 @@ out:
 	 * Error handling.
 	 */
 fail_decode:
-	net2_cp_destroy(&svarg->ectx, &cp_net2_signature, &sent, NULL);
+	net2_cp_destroy(&cp_net2_signature, &sent, NULL);
 fail:
 	net2_promise_set_error(out, EIO, 0);
 	goto out;

@@ -1180,8 +1180,7 @@ parse()
 			/* nothing */
 		} else if (struc->nps_spec.init) {
 			if (fprintf(cfile, "%s int %s("
-			    "struct net2_encdec_ctx*,\n"
-			    "    %s%s%s*,\n"
+			    "%s%s%s*,\n"
 			    "    const %s*);\n",
 			    visibility_local, struc->nps_spec.init,
 			    (struc->nps_spec.is_struct ? "struct " : ""),
@@ -1202,8 +1201,7 @@ parse()
 			/* nothing */
 		} else if (struc->nps_spec.destroy) {
 			if (fprintf(cfile, "%s int %s("
-			    "struct net2_encdec_ctx*,\n"
-			    "    %s%s%s*,\n"
+			    "%s%s%s*,\n"
 			    "    const %s*);\n",
 			    visibility_local, struc->nps_spec.destroy,
 			    (struc->nps_spec.is_struct ? "struct " : ""),
@@ -1287,7 +1285,7 @@ create_type_code(struct np_type *type)
 		err(EX_OSERR, "fprintf");
 	/* Initialization function. */
 	if (type->npt_spec.init &&
-	    fprintf(cfile, "%s int %s(struct net2_encdec_ctx*,\n"
+	    fprintf(cfile, "%s int %s(\n"
 	    "    %s%s%s*, const %s*);\n",
 	    visibility_local, type->npt_spec.init,
 	    (type->npt_spec.is_struct ? "struct " : ""),
@@ -1298,7 +1296,7 @@ create_type_code(struct np_type *type)
 		err(EX_OSERR, "fprintf");
 	/* Destructor function. */
 	if (type->npt_spec.destroy &&
-	    fprintf(cfile, "%s int %s(struct net2_encdec_ctx*,\n"
+	    fprintf(cfile, "%s int %s(\n"
 	    "    %s%s%s*, const %s*);\n",
 	    visibility_local, type->npt_spec.destroy,
 	    (type->npt_spec.is_struct ? "struct " : ""),
@@ -1585,8 +1583,7 @@ create_compound_initfun(struct np_struct *s)
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
-	    "    %s%s%s%s*val,\n"
+	    "%s(%s%s%s%s*val,\n"
 	    "    const %s *cp_arg%s)\n",
 	    s->nps_spec.init,
 	    (s->nps_spec.is_struct ? "struct " : ""),
@@ -1666,8 +1663,7 @@ create_compound_destroyfun(struct np_struct *s)
 
 	/* Function declaration. */
 	if (fprintf(cfile, "static int\n"
-	    "%s(struct net2_encdec_ctx *c ILIAS_NET2__unused,\n"
-	    "    %s%s%s%s*val,\n"
+	    "%s(%s%s%s%s*val,\n"
 	    "    const %s *cp_arg%s)\n",
 	    s->nps_spec.destroy,
 	    (s->nps_spec.is_struct ? "struct " : ""),
@@ -1773,7 +1769,7 @@ create_compound_init_sm(const char *indent, struct np_structmember *sm, int idx)
 		arg_prefix = "";
 	}
 
-	if (fprintf(cfile, "%sif ((err = net2_cp_init(c, &cp_%s, &val->%s, %s%s)) != 0)\n"
+	if (fprintf(cfile, "%sif ((err = net2_cp_init(&cp_%s, &val->%s, %s%s)) != 0)\n"
 	    "%s\tgoto fail_%d;\n",
 	    indent, sm->npsm_type, sm->npsm_name, arg_prefix, arg,
 	    indent, idx
@@ -1798,7 +1794,7 @@ create_compound_destroy_sm(const char *indent, struct np_structmember *sm)
 	}
 
 	if (fprintf(cfile,
-	    "%sif ((d_err = net2_cp_destroy(c, &cp_%s, &val->%s, %s%s)) != 0 && err != 0)\n"
+	    "%sif ((d_err = net2_cp_destroy(&cp_%s, &val->%s, %s%s)) != 0 && err != 0)\n"
 	    "%s\terr = d_err;\n",
 	    indent, sm->npsm_type, sm->npsm_name, arg_prefix, arg,
 	    indent

@@ -227,8 +227,7 @@ net2_conn_handle_recv(void *cptr, void *unused ILIAS_NET2__unused)
 			}
 			net2_acceptor_socket_accept(&c->n2c_socket, buf);
 
-			if (net2_cp_destroy(&net2_encdec_proto0,
-			    &cp_packet_header, &ph, NULL))
+			if (net2_cp_destroy(&cp_packet_header, &ph, NULL))
 				warnx("net2_cp_destroy fail");
 			break;
 		default:

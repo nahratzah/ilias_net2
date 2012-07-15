@@ -72,35 +72,33 @@ net2_cp_decode(struct net2_encdec_ctx *c, const struct command_param *cp,
 }
 
 ILIAS_NET2_EXPORT int
-net2_cp_init(struct net2_encdec_ctx *c, const struct command_param *cp,
-    void *val, const void *arg)
+net2_cp_init(const struct command_param *cp, void *val, const void *arg)
 {
 	if (!cp->cp_init)
 		return 0;
-	return (*cp->cp_init)(c, val, arg);
+	return (*cp->cp_init)(val, arg);
 }
 
 ILIAS_NET2_EXPORT int
-net2_cp_destroy(struct net2_encdec_ctx *c, const struct command_param *cp,
-    void *val, const void *arg)
+net2_cp_destroy(const struct command_param *cp, void *val, const void *arg)
 {
 	if (!cp->cp_delete)
 		return 0;
-	return (*cp->cp_delete)(c, val, arg);
+	return (*cp->cp_delete)(val, arg);
 }
 
 /*
  * Allocate and initialize a command_param.
  */
 ILIAS_NET2_EXPORT int
-net2_cp_init_alloc(struct net2_encdec_ctx *ctx, const struct command_param *cp,
+net2_cp_init_alloc(const struct command_param *cp,
     void **ptr, const void *arg)
 {
 	/* Allocate parameter space. */
 	if ((*ptr = net2_malloc(cp->cp_size)) == NULL)
 		goto fail_0;
 	/* Initialize allocated space. */
-	if (net2_cp_init(ctx, cp, *ptr, arg))
+	if (net2_cp_init(cp, *ptr, arg))
 		goto fail_1;
 
 	return 0;
@@ -116,8 +114,8 @@ fail_0:
  * Destroy and release a command param.
  */
 ILIAS_NET2_EXPORT int
-net2_cp_destroy_alloc(struct net2_encdec_ctx *ctx,
-    const struct command_param *cp, void **ptr, const void *arg)
+net2_cp_destroy_alloc(const struct command_param *cp,
+    void **ptr, const void *arg)
 {
 	int				 err;
 
@@ -126,7 +124,7 @@ net2_cp_destroy_alloc(struct net2_encdec_ctx *ctx,
 		return 0;
 
 	/* Destroy allocated space. */
-	if ((err = net2_cp_destroy(ctx, cp, *ptr, arg)) == 0) {
+	if ((err = net2_cp_destroy(cp, *ptr, arg)) == 0) {
 		/* Release parameter space. */
 		net2_free(*ptr);
 		*ptr = NULL;	/* For safety. */

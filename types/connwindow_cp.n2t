@@ -104,8 +104,7 @@ type windowheader (
 
 %%
 static int
-whinit(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct windowheader *wh,
+whinit(struct windowheader *wh,
     const void *cp_arg ILIAS_NET2__unused)
 {
 	wh->tx_start = 0;
@@ -120,8 +119,7 @@ whinit(struct net2_encdec_ctx *c ILIAS_NET2__unused,
 }
 
 static int
-whdestroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct windowheader *wh,
+whdestroy(struct windowheader *wh,
     const void *cp_arg ILIAS_NET2__unused)
 {
 	if (wh->recv != NULL) {

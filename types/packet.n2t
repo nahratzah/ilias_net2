@@ -188,7 +188,7 @@ net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
 	ivbuf = calculated_hash = supplied_hash = NULL;
 
 	/* Decode packet header. */
-	if (net2_cp_init(ctx, &cp_packet_header, ph, NULL)) {
+	if (net2_cp_init(&cp_packet_header, ph, NULL)) {
 		rv = NET2_PDECODE_RESOURCE;
 		goto fail_0;
 	}
@@ -306,7 +306,7 @@ fail_2:
 		net2_buffer_free(supplied_hash);
 fail_1:
 	if (rv != NET2_PDECODE_OK &&
-	    net2_cp_destroy(ctx, &cp_packet_header, ph, NULL))
+	    net2_cp_destroy(&cp_packet_header, ph, NULL))
 		warnx("failed to destroy deserialized packet header");
 fail_0:
 	if (rv == NET2_PDECODE_OK) {

@@ -847,7 +847,7 @@ txh_new()
 
 	if ((out = net2_malloc(sizeof(*out))) == NULL)
 		goto fail_0;
-	if (net2_cp_init(NULL, &cp_header, &out->header, NULL))
+	if (net2_cp_init(&cp_header, &out->header, NULL))
 		goto fail_1;
 	if (net2_txcb_entryq_init(&out->txcbq) != 0)
 		goto fail_2;
@@ -859,7 +859,7 @@ txh_new()
 fail_3:
 	net2_txcb_entryq_deinit(&out->txcbq);
 fail_2:
-	net2_cp_destroy(NULL, &cp_header, &out->header, NULL);
+	net2_cp_destroy(&cp_header, &out->header, NULL);
 fail_1:
 	net2_free(out);
 fail_0:
@@ -873,7 +873,7 @@ txh_destroy(struct txh *txh)
 	net2_txcb_entryq_deinit(&txh->txcbq);
 	if (txh->buf != NULL)
 		net2_buffer_free(txh->buf);
-	net2_cp_destroy(NULL, &cp_header, &txh->header, NULL);
+	net2_cp_destroy(&cp_header, &txh->header, NULL);
 	net2_free(txh);
 }
 
@@ -1116,7 +1116,7 @@ cneg_stage1_accept(struct net2_cneg_stage1 *s,
 			goto fail_0;
 		/* GUARD: stop after decoding the last header. */
 		if (h.flags == F_LAST_HEADER) {
-			deinit_header(&net2_encdec_proto0, &h);
+			deinit_header(&h);
 			break;
 		}
 
@@ -1150,14 +1150,14 @@ cneg_stage1_accept(struct net2_cneg_stage1 *s,
 		}
 
 		/* Release resources in header. */
-		deinit_header(&net2_encdec_proto0, &h);
+		deinit_header(&h);
 	}
 
 	return 0;
 
 
 fail_1:
-	deinit_header(&net2_encdec_proto0, &h);
+	deinit_header(&h);
 fail_0:
 	assert(error != 0);
 	return error;

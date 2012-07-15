@@ -937,7 +937,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 	assert(net2_connwindow_accept(w, ph));
 
 	if ((ph->flags & PH_WINUPDATE) != 0) {
-		if ((rv = net2_cp_init(&net2_encdec_proto0, &cp_windowheader,
+		if ((rv = net2_cp_init(&cp_windowheader,
 		    &wh, NULL)) != 0)
 			goto fail_0;
 		ph_needdestroy = 1;
@@ -971,8 +971,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 			goto fail_0;
 
 		ph_needdestroy = 0;
-		if ((rv = net2_cp_destroy(&net2_encdec_proto0,
-		    &cp_windowheader, &wh, NULL)) != 0)
+		if ((rv = net2_cp_destroy(&cp_windowheader, &wh, NULL)) != 0)
 			goto fail_0;
 
 		/* Update start of tx window. */
@@ -991,8 +990,7 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 
 fail_0:
 	if (ph_needdestroy) {
-		net2_cp_destroy(&net2_encdec_proto0, &cp_windowheader, &wh,
-		    NULL);
+		net2_cp_destroy(&cp_windowheader, &wh, NULL);
 	}
 	return rv;
 }

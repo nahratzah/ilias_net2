@@ -471,15 +471,13 @@ out:
 	return err;
 }
 ILIAS_NET2_LOCAL int
-cp_string_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    char**s, const void *cp_arg ILIAS_NET2__unused)
+cp_string_init(char**s, const void *cp_arg ILIAS_NET2__unused)
 {
 	*s = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_string_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    char**s, const void *cp_arg ILIAS_NET2__unused)
+cp_string_destroy(char**s, const void *cp_arg ILIAS_NET2__unused)
 {
 	if (*s != NULL)
 		net2_free(*s);
@@ -610,15 +608,15 @@ fail:
 }
 
 ILIAS_NET2_LOCAL int
-cp_net2_buffer_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct net2_buffer**buf, const void *cp_arg ILIAS_NET2__unused)
+cp_net2_buffer_init(struct net2_buffer**buf,
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	*buf = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_net2_buffer_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    struct net2_buffer**buf, const void *cp_arg ILIAS_NET2__unused)
+cp_net2_buffer_destroy(struct net2_buffer**buf,
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	if (*buf != NULL)
 		net2_buffer_free(*buf);
@@ -697,15 +695,15 @@ fail:
 	return err;
 }
 ILIAS_NET2_LOCAL int
-cp_null_stringlist_init(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    char***slistptr, const void *cp_arg ILIAS_NET2__unused)
+cp_null_stringlist_init(char***slistptr,
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	*slistptr = NULL;
 	return 0;
 }
 ILIAS_NET2_LOCAL int
-cp_null_stringlist_destroy(struct net2_encdec_ctx *c ILIAS_NET2__unused,
-    char***slistptr, const void *cp_arg ILIAS_NET2__unused)
+cp_null_stringlist_destroy(char***slistptr,
+    const void *cp_arg ILIAS_NET2__unused)
 {
 	char			**slist;
 

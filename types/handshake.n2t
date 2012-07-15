@@ -104,7 +104,7 @@ int	 init_header_bufset(struct header*, int, struct net2_buffer*, int,
 ILIAS_NET2_LOCAL
 int	 init_header_empty_set(struct header*, uint32_t);
 ILIAS_NET2_LOCAL
-void	 deinit_header(struct net2_encdec_ctx*, struct header*);
+void	 deinit_header(struct header*);
 
 ILIAS_NET2_LOCAL
 int	 net2_init_poetry();
@@ -554,7 +554,7 @@ init_header_empty_set(struct header *h, uint32_t which)
 }
 /* Free resources of header. */
 ILIAS_NET2_LOCAL void
-deinit_header(struct net2_encdec_ctx *c, struct header *h)
+deinit_header(struct header *h)
 {
 	if (h->flags == F_LAST_HEADER)
 		return;
@@ -564,11 +564,11 @@ deinit_header(struct net2_encdec_ctx *c, struct header *h)
 		/* Nothing. */
 		break;
 	case FT_STRING:
-		net2_cp_destroy(c, &cp_string,
+		net2_cp_destroy(&cp_string,
 		    &h->payload.string, NULL);
 		break;
 	case FT_BUFFER:
-		net2_cp_destroy(c, &cp_short_net2_buffer,
+		net2_cp_destroy(&cp_short_net2_buffer,
 		    h->payload.buf, NULL);
 		break;
 	default:
@@ -615,8 +615,7 @@ cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
 
 /* Initialize header. */
 static int
-cp_header_init(struct net2_encdec_ctx *ignored_ctx ILIAS_NET2__unused,
-    struct header *h,
+cp_header_init(struct header *h,
     const void *arg ILIAS_NET2__unused)
 {
 	memset(h, 0, sizeof(*h));
@@ -624,10 +623,10 @@ cp_header_init(struct net2_encdec_ctx *ignored_ctx ILIAS_NET2__unused,
 }
 /* Destroy header. */
 static int
-cp_header_destroy(struct net2_encdec_ctx *c, struct header *h,
+cp_header_destroy(struct header *h,
     const void *arg ILIAS_NET2__unused)
 {
-	deinit_header(c, h);
+	deinit_header(h);
 	return 0;
 }
 
