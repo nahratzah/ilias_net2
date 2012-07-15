@@ -17,6 +17,7 @@
 #define ILIAS_NET2_PROMISE_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/refcnt.h>
 #include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>

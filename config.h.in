@@ -78,3 +78,6 @@
 
 /* Set if sys/tree.h exists. */
 #cmakedefine HAVE_SYS_TREE_H
+
+/* Set if stdatomic.h exists. */
+#cmakedefine HAVE_STDATOMIC_H

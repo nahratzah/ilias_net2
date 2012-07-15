@@ -28,8 +28,8 @@
 	((struct net2_promise_event*)((char*)(_ev) - PROMCB_JOB_OFFSET))
 
 struct net2_promise {
-	size_t			 refcnt;	/* Reference counter. */
-	size_t			 combi_refcnt;	/* # combi referencing this. */
+	net2_refcnt_t		 refcnt;	/* Reference counter. */
+	net2_refcnt_t		 combi_refcnt;	/* # combi referencing this. */
 	struct net2_mutex	*mtx;		/* Promise guard. */
 	struct net2_event	*cnd;		/* Promise completion event. */
 
@@ -111,8 +111,8 @@ net2_promise_init(struct net2_promise *p)
 {
 	int				 i;
 
-	p->refcnt = 1;
-	p->combi_refcnt = 0;
+	net2_refcnt_set(&p->refcnt, 1);
+	net2_refcnt_set(&p->combi_refcnt, 0);
 	if ((p->mtx = net2_mutex_alloc()) == NULL)
 		goto fail_1;
 	if ((p->cnd = net2_event_alloc()) == NULL)
@@ -186,8 +186,9 @@ net2_promise_unlock(struct net2_promise *p)
 		combi = NULL;
 
 	/* Check if we can stay alive. */
-	if (p->refcnt > 0 ||
-	    (p->combi_refcnt > 0 && !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN])))
+	if (!net2_refcnt_iszero(&p->refcnt) ||
+	    (!net2_refcnt_iszero(&p->combi_refcnt) &&
+	    !TAILQ_EMPTY(&p->event[NET2_PROM_ON_RUN])))
 		do_free = 0;
 	else
 		do_free = 1;
@@ -202,7 +203,7 @@ net2_promise_unlock(struct net2_promise *p)
 	}
 
 	/* If we have combi promise refcount, don't free after all. */
-	if (p->combi_refcnt > 0)
+	if (!net2_refcnt_iszero(&p->combi_refcnt))
 		do_free = 0;
 
 	net2_mutex_unlock(p->mtx);
@@ -227,9 +228,22 @@ net2_promise_unlock(struct net2_promise *p)
 			net2_promise_event_deinit(&combi->events[i]);
 
 		for (i = 0; i < combi->nprom; i++) {
-			net2_mutex_lock(combi->prom[i]->mtx);
-			combi->prom[i]->combi_refcnt--;
+#ifdef NET2_REFCNT_IS_ATOMIC
+			if (net2_refcnt_release(&combi->prom[i]->combi_refcnt,
+			    combi->prom[i]->mtx, 0)) {
+				/*
+				 * Perform cleanup by invoking the unlock
+				 * function, which requires the mutex to be
+				 * held.
+				 */
+				net2_mutex_lock(combi->prom[i]->mtx);
+				net2_promise_unlock(combi->prom[i]);
+			}
+#else
+			net2_refcnt_release(&combi->prom[i]->combi_refcnt,
+			    combi->prom[i]->mtx, NET2_REFCNT_LOCK_EXIT);
 			net2_promise_unlock(combi->prom[i]);
+#endif
 		}
 
 		net2_free(combi->events);
@@ -336,20 +350,22 @@ prom_on_run(struct net2_promise *p)
 ILIAS_NET2_EXPORT void
 net2_promise_release(struct net2_promise *p)
 {
-	net2_mutex_lock(p->mtx);
-	assert(p->refcnt > 0);
-	p->refcnt--;
+#ifdef NET2_REFCNT_IS_ATOMIC
+	if (net2_refcnt_release(&p->refcnt, p->mtx, 0)) {
+		net2_mutex_lock(p->mtx);
+		net2_promise_unlock(p);
+	}
+#else
+	net2_refcnt_release(&p->refcnt, p->mtx, NET2_REFCNT_LOCK_EXIT);
 	net2_promise_unlock(p);
+#endif
 }
 
 /* Add a reference to promise. */
 ILIAS_NET2_EXPORT void
 net2_promise_ref(struct net2_promise *p)
 {
-	net2_mutex_lock(p->mtx);
-	p->refcnt++;
-	assert(p->refcnt > 0);		/* Wrap around triggers this. */
-	net2_mutex_unlock(p->mtx);
+	net2_refcnt_ref(&p->refcnt, p->mtx, 0);
 }
 
 /* Set the promise to the error state. */
@@ -382,8 +398,10 @@ net2_promise_set_error(struct net2_promise *p, uint32_t errcode, int flags)
 	prom_on_finish(p);
 
 	/* Decrement refcount if release was specified. */
-	if (flags & NET2_PROMFLAG_RELEASE)
-		p->refcnt--;
+	if (flags & NET2_PROMFLAG_RELEASE) {
+		net2_refcnt_release(&p->refcnt, p->mtx,
+		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
+	}
 
 out:
 	net2_promise_unlock(p);
@@ -435,8 +453,10 @@ net2_promise_set_cancel(struct net2_promise *p, int flags)
 	prom_on_finish(p);
 
 	/* Decrement refcount if release was specified. */
-	if (flags & NET2_PROMFLAG_RELEASE)
-		p->refcnt--;
+	if (flags & NET2_PROMFLAG_RELEASE) {
+		net2_refcnt_release(&p->refcnt, p->mtx,
+		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
+	}
 
 out:
 	net2_promise_unlock(p);
@@ -476,8 +496,10 @@ net2_promise_set_finok(struct net2_promise *p, void *result,
 	prom_on_finish(p);
 
 	/* Decrement refcount if release was specified. */
-	if (flags & NET2_PROMFLAG_RELEASE)
-		p->refcnt--;
+	if (flags & NET2_PROMFLAG_RELEASE) {
+		net2_refcnt_release(&p->refcnt, p->mtx,
+		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
+	}
 
 out:
 	net2_promise_unlock(p);
@@ -655,8 +677,7 @@ promise_wqcb(void *pcb_ptr, void *arg1)
 	/* Remove from event list, but keep refcnt to promise. */
 	net2_mutex_lock(p->mtx);
 	TAILQ_REMOVE(&p->event[pcb->evno], pcb, promq);
-	p->refcnt++;
-	net2_mutex_unlock(p->mtx);
+	net2_refcnt_ref(&p->refcnt, p->mtx, NET2_REFCNT_LOCK_ENTER);
 
 	/* Invoke callback. */
 	assert(pcb->fn != NULL);
@@ -843,10 +864,17 @@ combi_cb_invoke(void *c_ptr, void *arg)
 	/* Release all promises and events. */
 	for (i = 0; i < nprom; i++) {
 		net2_promise_event_deinit(&events[i]);
-		net2_mutex_lock(prom[i]->mtx);
-		assert(prom[i]->combi_refcnt > 0);
-		prom[i]->combi_refcnt--;
+
+#ifdef NET2_REFCNT_IS_ATOMIC
+		if (net2_refcnt_release(&prom[i]->refcnt, prom[i]->mtx, 0)) {
+			net2_mutex_lock(prom[i]->mtx);
+			net2_promise_unlock(prom[i]);
+		}
+#else
+		net2_refcnt_release(&prom[i]->refcnt, prom[i]->mtx,
+		    NET2_REFCNT_LOCK_EXIT);
 		net2_promise_unlock(prom[i]);
+#endif
 	}
 }
 
@@ -904,9 +932,8 @@ net2_promise_combine(struct net2_workq *wq, net2_promise_ccb fn,
 			goto fail_4;
 
 		/* Combi now has a reference to this mutex. */
-		net2_mutex_lock(c->prom[pdone]->mtx);
-		c->prom[pdone]->combi_refcnt++;
-		net2_mutex_unlock(c->prom[pdone]->mtx);
+		net2_refcnt_ref(&c->prom[pdone]->combi_refcnt,
+		    c->prom[pdone]->mtx, 0);
 	}
 
 	/*
@@ -924,12 +951,12 @@ net2_promise_combine(struct net2_workq *wq, net2_promise_ccb fn,
 
 fail_4:
 	while (pdone-- > 0) {
-		/* Decrease reference count. */
-		net2_mutex_lock(c->prom[pdone]->mtx);
-		assert(c->prom[pdone]->combi_refcnt > 0);
-		c->prom[pdone]->combi_refcnt--;
-		/* mutex_unlock: promise is referenced by caller. */
-		net2_mutex_unlock(c->prom[pdone]->mtx);
+		/*
+		 * Decrease reference count.
+		 * no promise_unlock: promise is referenced by caller.
+		 */
+		net2_refcnt_release(&c->prom[pdone]->combi_refcnt,
+		    c->prom[pdone]->mtx, 0);
 
 		net2_promise_event_deinit(&c->events[pdone]);
 	}

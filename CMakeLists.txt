@@ -53,6 +53,7 @@ list (APPEND headers
 	include/ilias/net2/poetry.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
+	include/ilias/net2/refcnt.h
 	include/ilias/net2/sign.h
 	include/ilias/net2/signset.h
 	include/ilias/net2/sockdgram.h
@@ -127,6 +128,7 @@ check_include_files (sys/ioctl.h HAVE_SYS_IOCTL_H)
 check_include_files (sys/queue.h HAVE_SYS_QUEUE_H)
 check_include_files (sys/tree.h HAVE_SYS_TREE_H)
 check_include_files (getopt.h HAVE_GETOPT_H)
+check_include_files (stdatomic.h HAVE_STDATOMIC_H)
 
 list (APPEND headers
 	include/ilias/net2/bsd_compat/error.h
