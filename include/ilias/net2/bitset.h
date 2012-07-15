@@ -20,6 +20,8 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
 struct net2_bitset {
 	size_t		 size;
 	int		*data;
@@ -45,5 +47,7 @@ ILIAS_NET2_LOCAL
 int	net2_bitset_allclear(const struct net2_bitset*);
 
 #endif /* BUILDING_ILIAS_NET2 */
+
+ILIAS_NET2__end_cdecl
 
 #endif /* ILIAS_NET2_BITSET_H */

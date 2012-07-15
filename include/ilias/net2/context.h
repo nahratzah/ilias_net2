@@ -21,9 +21,7 @@
 #include <ilias/net2/types.h>
 #include <sys/types.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
 
 
 /*
@@ -77,8 +75,5 @@ void	 net2_ctx_xchange_factory_result_free(
 	    void*, void*);
 
 
-#ifdef __cplusplus
-}
-#endif
-
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONTEXT_H */

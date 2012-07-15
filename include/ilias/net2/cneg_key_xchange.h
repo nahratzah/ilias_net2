@@ -20,6 +20,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_buffer;		/* From ilias/net2/buffer.h */
 struct net2_encdec_ctx;		/* From ilias/net2/encdec_ctx.h */
 struct net2_workq;		/* From ilias/net2/workq.h */
@@ -70,4 +73,6 @@ ILIAS_NET2_LOCAL
 struct net2_promise
 	*net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange*, int);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */

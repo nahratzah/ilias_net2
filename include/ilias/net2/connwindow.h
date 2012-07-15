@@ -33,9 +33,8 @@
 #include <ilias/net2/bsd_compat/tree.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 /* Recommended minimum space for connwindow data. */
 extern ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead;
@@ -123,8 +122,5 @@ void			 net2_connwindow_tx_rollback(struct net2_cw_tx*);
 #endif /* BUILDING_ILIAS_NET2 */
 
 
-#ifdef __cplusplus
-}
-#endif
-
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONNWINDOW_H */

@@ -21,10 +21,8 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct net2_sign_ctx;
 
@@ -65,8 +63,5 @@ struct net2_buffer	*net2_signctx_fingerprint(struct net2_sign_ctx*);
 extern ILIAS_NET2_EXPORT const int net2_sign_ecdsa;
 
 
-#ifdef __cplusplus
-}
-#endif
-
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_SIGN_H */

@@ -41,5 +41,13 @@
 #define ILIAS_NET2__unused	/* nothing */
 #endif
 
+#ifdef __cplusplus
+#define ILIAS_NET2__begin_cdecl	extern "C" {
+#define ILIAS_NET2__end_cdecl	}
+#else
+#define ILIAS_NET2__begin_cdecl	/* This is C */
+#define ILIAS_NET2__end_cdecl	/* This is C */
+#endif
+
 
 #endif /* ILIAS_ILIAS_NET2_EXPORT_H */

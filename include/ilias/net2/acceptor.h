@@ -22,6 +22,8 @@
 #include <stdint.h>
 #include <errno.h>
 
+ILIAS_NET2__begin_cdecl
+
 struct net2_acceptor_socket;
 struct net2_acceptor;
 struct net2_buffer;	/* From ilias/net2/buffer.h */
@@ -155,4 +157,5 @@ ILIAS_NET2_EXPORT
 struct net2_acceptor
 	*net2_acceptor(struct net2_acceptor_socket*);
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_ACCEPTOR_H */

@@ -18,6 +18,9 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_mutex;
 struct net2_condition;
 
@@ -46,4 +49,6 @@ void			 net2_cond_wait(struct net2_condition*,
 			    struct net2_mutex*);
 #endif /* BUILDING_ILIAS_NET2 */
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_MUTEX_H */

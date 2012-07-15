@@ -20,9 +20,8 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/protocol.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 /*
  * Encoding/decoding context.
@@ -69,8 +68,6 @@ net2_encdec_ctx_p2v(struct net2_encdec_ctx *ctx, const struct net2_protocol *p,
 	return net2_pvlist_get(&ctx->ed_proto, p, v);
 }
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_ENCDEC_CTX_H */

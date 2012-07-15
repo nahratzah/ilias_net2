@@ -66,7 +66,7 @@ int			 net2_packet_encode(struct net2_connection*,
 extern ILIAS_NET2_EXPORT size_t net2_ph_overhead;
 
 %%
-#include <ilias/net2/packet.h>
+#include "packet.h"
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/hash.h>

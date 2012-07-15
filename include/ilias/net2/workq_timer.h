@@ -18,6 +18,9 @@
 
 #include <ilias/net2/workq.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_workq_timer;
 struct timeval;
 
@@ -32,4 +35,6 @@ struct net2_workq_timer
 ILIAS_NET2_EXPORT
 void	 net2_workq_timer_free(struct net2_workq_timer*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_WORKQ_TIMER_H */

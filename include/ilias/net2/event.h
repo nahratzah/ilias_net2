@@ -18,6 +18,9 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 /*
  * Event.
  *
@@ -40,4 +43,6 @@ ILIAS_NET2_LOCAL
 int			 net2_event_test(struct net2_event*);
 #endif /* BUILDING_ILIAS_NET2 */
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_EVENT_H */

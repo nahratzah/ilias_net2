@@ -21,6 +21,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_promise;
 /* Combined promise callback. */
 typedef void (*net2_promise_ccb)(struct net2_promise*, struct net2_promise**,
@@ -116,4 +119,6 @@ net2_promise_event_deinit(struct net2_promise_event *ev)
 	net2_workq_deinit_work(net2_promise_event_wqjob((ev)));
 }
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_PROMISE_H */

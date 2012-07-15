@@ -17,7 +17,6 @@
 #include <ilias/net2/context.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/hash.h>
 #include <ilias/net2/enc.h>
 #include <ilias/net2/types.h>
@@ -36,6 +35,8 @@
 #ifdef WIN32
 #include <malloc.h>
 #endif
+
+#include "packet.h"
 
 
 ILIAS_NET2_LOCAL

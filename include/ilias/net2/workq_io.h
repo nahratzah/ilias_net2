@@ -31,6 +31,9 @@
 #include <sys/socket.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 #define NET2_WORKQ_IO_MAXLEN	((size_t)64 * 1024)
 
 /* Received data. */
@@ -97,4 +100,6 @@ void	 net2_workq_io_deactivate_tx(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_io_tx_pdata_free(void*, void*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_WORKQ_IO_H */

@@ -6,6 +6,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_signed_carver;
 struct net2_signed_combiner;
 
@@ -59,4 +62,5 @@ int		 net2_signed_carver_set_rts(struct net2_signed_carver*,
 		    struct net2_workq*, net2_workq_cb, void*, void*);
 
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_SIGNED_CARVER_H */

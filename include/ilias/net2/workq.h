@@ -27,6 +27,9 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 struct ev_loop;		/* From libev. */
 
 struct net2_workq;
@@ -116,4 +119,6 @@ ILIAS_NET2_LOCAL
 struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_WORKQ_H */

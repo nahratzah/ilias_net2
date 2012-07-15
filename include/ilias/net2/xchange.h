@@ -20,9 +20,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
 
 
 /*
@@ -62,8 +60,5 @@ ILIAS_NET2_EXPORT
 struct net2_xchange_ctx	*net2_xchangectx_clone(const struct net2_xchange_ctx*);
 
 
-#ifdef __cplusplus
-}
-#endif
-
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_XCHANGE_H */

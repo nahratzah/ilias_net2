@@ -20,6 +20,9 @@
 #include <ilias/net2/types.h>
 #include <ilias/net2/buffer.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 typedef int (*net2_cp_encfun) (struct net2_encdec_ctx*,
     struct net2_buffer*, const void*, const void*);
 typedef int (*net2_cp_decfun) (struct net2_encdec_ctx*,
@@ -82,4 +85,6 @@ struct net2_promise
 		*net2_invoke(struct net2_objmanager*,
 		    const struct command_method*, void*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CP_H */

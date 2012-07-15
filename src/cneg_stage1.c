@@ -20,7 +20,6 @@
 #include <ilias/net2/context.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/memory.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/poetry.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/signset.h>
@@ -33,6 +32,7 @@
 
 #include "handshake.h"
 #include "exchange.h"
+#include "packet.h"
 
 #include <ilias/net2/enc.h>
 #include <ilias/net2/hash.h>

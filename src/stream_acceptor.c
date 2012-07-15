@@ -20,7 +20,6 @@
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/mutex.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/tx_callback.h>
@@ -32,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "stream_packet.h"
+#include "packet.h"
 
 #ifdef HAVE_SYS_TREE_H
 #include <sys/tree.h>

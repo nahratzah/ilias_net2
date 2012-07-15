@@ -20,9 +20,8 @@
 #include <ilias/net2/types.h>
 #include <sys/types.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 /*
  * Protocol specification.
@@ -104,8 +103,6 @@ ILIAS_NET2_EXPORT
 const struct net2_protocol	*net2_pvlist_get_by_id(const struct net2_pvlist*,
 				    size_t idx);
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_PROTOCOL_H */

@@ -27,9 +27,8 @@
 #include <ilias/net2/bsd_compat/tree.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 struct net2_buffer;	/* From ilias/net2/buffer.h */
 
@@ -92,8 +91,6 @@ struct net2_signset_entry*
 	    (_ptr) != NULL;						\
 	    (_ptr) = net2_signset_prev((_ss), (_ptr)))
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_SIGNSET_H */

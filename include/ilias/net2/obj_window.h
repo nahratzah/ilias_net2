@@ -28,9 +28,8 @@
 #include <ilias/net2/bsd_compat/tree.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 struct net2_objwin_barrier;
 struct net2_objwin_recv;
@@ -115,8 +114,6 @@ struct event		*n2ow_stub_get_event(struct net2_objwin_stub*, int);
 #define N2OW_TXADD_BARRIER_POST		0x2
 #define N2OW_TXADD_AUTO_SUPERSEDE	0x4
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_OBJ_WINDOW_H */

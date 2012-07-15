@@ -262,8 +262,8 @@ net2type(srcs "types/ctypes.n2t"
     "ILIAS_NET2_EXPORT"
     "ILIAS_NET2_CTYPES_H")
 net2type(srcs "types/packet.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/src/packet.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/packet.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/packet.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/packet.h"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_PACKET_H")
@@ -312,7 +312,6 @@ net2type(srcs "types/signature.n2t"
 # Add headers generated above, that are to be published.
 list (APPEND headers
 	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
-	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/packet.h"
 	)
 
 

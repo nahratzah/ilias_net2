@@ -21,9 +21,8 @@
 #include <sys/types.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 struct net2_hash_ctx;
 
@@ -57,8 +56,6 @@ ILIAS_NET2_EXPORT
 struct net2_buffer	*net2_hashctx_hashbuf(int, const void*, size_t,
 			    const struct net2_buffer*);
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_HASH_H */

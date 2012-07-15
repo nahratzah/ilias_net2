@@ -20,6 +20,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 typedef uint32_t	net2_command_t;
 typedef uint32_t	net2_protocol_t;
 struct			net2_connection;
@@ -41,4 +44,6 @@ ILIAS_NET2_LOCAL
 void			net2_secure_zero(void*, size_t);
 #endif /* BUILDING_ILIAS_NET2 */
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_TYPES_H */

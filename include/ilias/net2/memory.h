@@ -17,6 +17,10 @@
 #define ILIAS_NET2_MEMORY_H
 
 
+#include <ilias/net2/ilias_net2_export.h>
+
+ILIAS_NET2__begin_cdecl
+
 #ifdef BUILDING_ILIAS_NET2
 
 #include <sys/types.h>
@@ -24,8 +28,6 @@
 
 #ifdef NET2_USE_EXUDE_DEBUG
 
-
-#include <ilias/net2/ilias_net2_export.h>
 
 ILIAS_NET2_LOCAL void	*net2_malloc_(size_t, const char*, const char*, int);
 ILIAS_NET2_LOCAL void	*net2_realloc_(void*, size_t, const char*, const char*, int);
@@ -83,4 +85,5 @@ ILIAS_NET2_LOCAL void	 net2_memory_fini();
 #endif /* BUILDING_ILIAS_NET2 */
 
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_MEMORY_H */

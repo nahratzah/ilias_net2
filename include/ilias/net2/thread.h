@@ -18,9 +18,8 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 struct net2_thread;
 
@@ -46,8 +45,6 @@ ILIAS_NET2_LOCAL
 void			 net2_thread_fini();
 #endif /* BUILDING_ILIAS_NET2 */
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_THREAD_H */

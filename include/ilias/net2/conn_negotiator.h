@@ -32,6 +32,9 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_connection;			/* From ilias/net2/connection.h */
 struct net2_buffer;			/* From ilias/net2/buffer.h */
 struct encoded_header;			/* Internal. */
@@ -116,4 +119,6 @@ int	net2_cneg_accept(struct net2_conn_negotiator*, struct packet_header*,
 ILIAS_NET2_LOCAL
 int	net2_cneg_pvlist(struct net2_conn_negotiator*, struct net2_pvlist*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONN_NEGOTIATOR_H */

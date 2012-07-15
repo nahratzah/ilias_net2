@@ -19,7 +19,6 @@
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/cp.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/workq.h>
 #include <ilias/net2/encdec_ctx.h>
@@ -42,6 +41,7 @@
 
 #include "handshake.h"
 #include "exchange.h"
+#include "packet.h"
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>

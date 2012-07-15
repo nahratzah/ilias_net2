@@ -27,6 +27,9 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_workq;	/* From ilias/net2/workq.h */
 
 typedef void (*net2_tx_callback_fn)(void*, void*);
@@ -93,4 +96,6 @@ void	 net2_txcb_entryq_merge(struct net2_txcb_entryq*,
 ILIAS_NET2_EXPORT
 int	net2_txcb_empty(struct net2_tx_callback*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_TX_CALLBACK_H */

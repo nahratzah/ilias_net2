@@ -25,6 +25,9 @@
 #endif
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 /* Latency, measured in microseconds. */
 struct net2_connstats_rtt {
 	int64_t			 sumsquare;
@@ -97,4 +100,5 @@ void	net2_connstats_record_recv(struct net2_connstats*, size_t wire_sz);
 
 #endif /* BUILDING_ILIAS_NET2 */
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONNSTATS_H */

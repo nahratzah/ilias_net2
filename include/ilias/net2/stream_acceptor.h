@@ -22,6 +22,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 /*
  * The stream acceptor.
  *
@@ -129,4 +132,6 @@ int			 net2_sa_rx_set_event(struct net2_sa_rx*, int,
 ILIAS_NET2_EXPORT
 void			 net2_sa_rx_clear_event(struct net2_sa_rx*, int);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_STREAM_ACCEPTOR_H */

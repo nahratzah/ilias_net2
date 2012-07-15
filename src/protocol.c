@@ -16,11 +16,11 @@
 #include <ilias/net2/protocol.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/ctypes.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/memory.h>
 #include <stdlib.h>
 #include "connwindow_cp.h"
 #include "stream_packet.h"
+#include "packet.h"
 
 ILIAS_NET2_EXPORT const struct net2_objtype *
 net2_protocol_type(const struct net2_protocol *p, uint32_t tid)

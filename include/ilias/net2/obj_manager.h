@@ -18,9 +18,8 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 struct net2_objmanager;
 struct net2_objman_group;
@@ -55,8 +54,6 @@ int		 net2_objman_rmi(struct net2_objmanager *,
 ILIAS_NET2_EXPORT
 void		 net2_objman_rmi_release(struct net2_objman_tx_ticket*);
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_OBJ_MANAGER_H */

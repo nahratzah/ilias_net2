@@ -18,17 +18,14 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+ILIAS_NET2__begin_cdecl
+
 
 ILIAS_NET2_EXPORT
 int	net2_init();
 ILIAS_NET2_EXPORT
 void	net2_cleanup();
 
-#ifdef __cplusplus
-}
-#endif
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_INIT_H */

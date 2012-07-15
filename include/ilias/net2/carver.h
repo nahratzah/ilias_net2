@@ -35,6 +35,9 @@
 #include <ilias/net2/bsd_compat/queue.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_carver_range;	/* Internal. */
 struct net2_buffer;		/* From ilias/net2/buffer.h */
 struct net2_encdec_ctx;		/* From ilias/net2/encdec_ctx.h */
@@ -131,4 +134,6 @@ net2_combiner_prom_ready(struct net2_combiner *c)
 	return c->ready;
 }
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CARVER_H */

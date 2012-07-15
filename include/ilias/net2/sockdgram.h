@@ -27,6 +27,8 @@
 #include <sys/socket.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
 
 #ifdef BUILDING_ILIAS_NET2
 struct net2_connection;
@@ -56,4 +58,5 @@ int	net2_sockdgram_dnf(net2_socket_t);
 #define NET2_CONNFAIL_RESOURCE	6	/* Out of memory. */
 
 
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_SOCKDGRAM_H */

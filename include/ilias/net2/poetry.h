@@ -19,9 +19,14 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <sys/types.h>
 
+ILIAS_NET2__begin_cdecl
+
+
 ILIAS_NET2_LOCAL
 extern const char *poetry_txts[];
 ILIAS_NET2_LOCAL
 extern const size_t poetry_sz;
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_POETRY_H */

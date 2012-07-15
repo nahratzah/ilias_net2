@@ -17,7 +17,6 @@
 #include <ilias/net2/connection.h>
 #include <ilias/net2/connstats.h>
 #include <ilias/net2/encdec_ctx.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/cp.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/tx_callback.h>
@@ -29,6 +28,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "connwindow_cp.h"
+#include "packet.h"
 
 #ifdef WIN32
 #include <WinSock2.h>

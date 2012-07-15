@@ -27,6 +27,9 @@
 #include <sys/socket.h>
 #endif
 
+ILIAS_NET2__begin_cdecl
+
+
 struct net2_udpsocket;
 
 ILIAS_NET2_EXPORT
@@ -45,4 +48,6 @@ void			 net2_conn_p2p_socket_ref(struct net2_udpsocket*);
 ILIAS_NET2_EXPORT
 void			 net2_conn_p2p_socket_release(struct net2_udpsocket*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_UDP_CONNECTION_H */

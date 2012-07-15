@@ -32,16 +32,7 @@ struct iovec {
 #include <sys/uio.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-ILIAS_NET2_EXPORT struct evbuffer	*net2_copybuffer(struct evbuffer*);
-
-
-#ifdef __cplusplus
-}
-#endif
+ILIAS_NET2__begin_cdecl
 
 
 struct net2_buffer;
@@ -135,4 +126,6 @@ struct net2_buffer	*net2_buffer_subrange(const struct net2_buffer*,
 ILIAS_NET2_EXPORT
 int			 net2_buffer_sensitive(struct net2_buffer*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_BUFFER_H */

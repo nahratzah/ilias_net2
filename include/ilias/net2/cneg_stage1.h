@@ -20,6 +20,8 @@
 #include <ilias/net2/types.h>
 #include <stdint.h>
 
+ILIAS_NET2__begin_cdecl
+
 
 struct packet_header;		/* From ilias/net2/packet.h */
 struct net2_buffer;		/* From ilias/net2/buffer.h */
@@ -88,4 +90,6 @@ struct net2_promise	*cneg_stage1_rx_complete(struct net2_cneg_stage1*);
 ILIAS_NET2_LOCAL
 struct net2_promise	*cneg_stage1_complete(struct net2_cneg_stage1*);
 
+
+ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CNEG_STAGE1_H */
