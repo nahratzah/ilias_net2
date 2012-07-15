@@ -47,7 +47,8 @@ zero_keys(struct net2_ck_keys *k)
 static __inline struct net2_ck_keys*
 net2_ck_key(struct net2_conn_keys *ck, int which)
 {
-	assert(which >= 0 && which < sizeof(ck->keys) / sizeof(ck->keys[0]));
+	assert(which >= 0 &&
+	    which < (int)(sizeof(ck->keys) / sizeof(ck->keys[0])));
 	return (has_keys(&ck->keys[which]) ? &ck->keys[which] : NULL);
 }
 
@@ -368,17 +369,45 @@ net2_ck_tx_key_inject(struct net2_conn_keys *ck,
  * Initialize connection keys.
  */
 ILIAS_NET2_LOCAL int
-net2_ck_init(struct net2_conn_keys *ck)
+net2_ck_init(struct net2_conn_keys *ck,
+    const struct net2_ck_keys *tx, const struct net2_ck_keys *rx)
 {
 	size_t			 i;
+	int			 error;
 
 	for (i = 0; i < sizeof(ck->keys) / sizeof(ck->keys[0]); i++)
-		free_keys(&ck->keys[i]);
+		zero_keys(&ck->keys[i]);
+
+	if (tx != NULL) {
+		for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+			ck->keys[NET2_CK_TX_ACTIVE].alg[i] = tx->alg[i];
+			if ((ck->keys[NET2_CK_TX_ACTIVE].key[i] =
+			    net2_buffer_copy(tx->key[i])) == NULL) {
+				error = ENOMEM;
+				goto fail;
+			}
+		}
+	}
+	if (rx != NULL) {
+		for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+			ck->keys[NET2_CK_RX_ACTIVE].alg[i] = rx->alg[i];
+			if ((ck->keys[NET2_CK_RX_ACTIVE].key[i] =
+			    net2_buffer_copy(rx->key[i])) == NULL) {
+				error = ENOMEM;
+				goto fail;
+			}
+		}
+	}
 
 	ck->rx_alt_cutoff = ck->tx_alt_cutoff = 0;
 	ck->flags = 0;
 	ck->rx_alt_cutoff_expire = ck->tx_alt_cutoff_expire = NULL;
 	return 0;
+
+fail:
+	free_keys(&ck->keys[NET2_CK_TX_ACTIVE]);
+	free_keys(&ck->keys[NET2_CK_RX_ACTIVE]);
+	return error;
 }
 
 /*

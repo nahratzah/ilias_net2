@@ -85,7 +85,9 @@ int			 net2_ck_tx_key_inject(struct net2_conn_keys*,
 			    const struct net2_ck_keys*);
 
 ILIAS_NET2_LOCAL
-int			 net2_ck_init(struct net2_conn_keys*);
+int			 net2_ck_init(struct net2_conn_keys*,
+			    const struct net2_ck_keys*,
+			    const struct net2_ck_keys*);
 ILIAS_NET2_LOCAL
 void			 net2_ck_deinit(struct net2_conn_keys*);
 
