@@ -21,6 +21,7 @@
 ILIAS_NET2__begin_cdecl
 
 #define NET2_MUTEX_FOR_REFCNT(_x)	/* No mutex required. */
+#define NET2_MUTEX_GET_REFCNT(_x)	(NULL)
 #define NET2_REFCNT_IS_ATOMIC	1
 typedef atomic_size_t net2_refcnt_t;
 
@@ -102,7 +103,8 @@ ILIAS_NET2__end_cdecl
 
 ILIAS_NET2__begin_cdecl
 
-#define NET2_MUTEX_FOR_REFCNT(_x)	_x
+#define NET2_MUTEX_FOR_REFCNT(_x)	struct net2_mutex *_x
+#define NET2_MUTEX_REFCNT(_x)		(_x)
 typedef size_t net2_refcnt_t;
 
 static inline void
