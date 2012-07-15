@@ -42,6 +42,7 @@ extern ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead;
 extern ILIAS_NET2_LOCAL const size_t net2_connwindow_min_overhead;
 
 struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
+struct net2_promise;		/* From ilias/net2/promise.h */
 
 /*
  * Actual connection window.
@@ -87,6 +88,10 @@ struct net2_connwindow {
 #define NET2_CW_F_STALLED	0x00000002	/* Damocles pending. */
 #define NET2_CW_F_STALLBACKOFF	0x00000004	/* Don't send stalled. */
 #define NET2_CW_F_KEEPALIVE	0x00000008	/* Keepalive timer ticking. */
+
+	TAILQ_HEAD(net2_cw_winexpiry_q, net2_cw_winexpiry)
+			 cw_rx_winexpiry,	/* Window RX expiry event. */
+			 cw_tx_winexpiry;	/* Window TX expiry event. */
 };
 
 
@@ -119,6 +124,12 @@ void			 net2_connwindow_tx_commit(struct net2_cw_tx*,
 			    struct net2_tx_callback*);
 ILIAS_NET2_LOCAL
 void			 net2_connwindow_tx_rollback(struct net2_cw_tx*);
+ILIAS_NET2_LOCAL
+struct net2_promise*	 net2_connwindow_rx_expiry(struct net2_connwindow*,
+			    uint32_t);
+ILIAS_NET2_LOCAL
+struct net2_promise*	 net2_connwindow_tx_expiry(struct net2_connwindow*,
+			    uint32_t);
 #endif /* BUILDING_ILIAS_NET2 */
 
 

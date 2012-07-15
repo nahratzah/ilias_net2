@@ -159,6 +159,19 @@ struct net2_cw_rx {
 #define NET2_CWRX_RCVMASK	(NET2_CWRX_F_RECVOK|NET2_CWRX_F_LOST)
 };
 
+/*
+ * Window expiry information.
+ *
+ * Once the start of a window crosses the ID (i.e. the ID becomes invalid)
+ * the promise will reach completed state.  The promise holds no data.
+ */
+struct net2_cw_winexpiry {
+	TAILQ_ENTRY(net2_cw_winexpiry)
+				 wxq;
+	struct net2_promise	*prom;
+	uint32_t		 seq;
+};
+
 
 #define MAX_WINDOW_SIZE		16384	/* TODO: make dynamic. */
 #define INITIAL_WINDOW_SIZE	8	/* Dynamically incremented each ack. */
@@ -656,6 +669,7 @@ static int
 fix_txstart(struct net2_connwindow *w)
 {
 	struct net2_cw_tx		*tx, tx_search;
+	struct net2_cw_winexpiry	*wx;
 
 	/* Find the first unconfirmed datagram at or after cw_tx_start. */
 	tx_search.cwt_seq = w->cw_tx_start;
@@ -674,6 +688,17 @@ fix_txstart(struct net2_connwindow *w)
 
 	/* Window was moved, unstall connection. */
 	update_stalled(w);
+
+	/* Check for tx window IDs having shifted out of the window. */
+	while ((wx = TAILQ_FIRST(&w->cw_tx_winexpiry)) != NULL &&
+	    wx->seq - w->cw_tx_start >= w->cw_tx_windowsz) {
+		TAILQ_REMOVE(&w->cw_tx_winexpiry, wx, wxq);
+		if (net2_promise_set_finok(wx->prom, NULL, NULL, NULL,
+		    NET2_PROMFLAG_RELEASE) != 0)
+			net2_promise_release(wx->prom);
+		net2_free(wx);
+	}
+
 	return 0;
 }
 
@@ -717,6 +742,7 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 {
 	size_t				 i;
 	struct net2_cw_rx		*rx, rx_search;
+	struct net2_cw_winexpiry	*wx;
 
 	/*
 	 * Handle all items written as BAD in the window.
@@ -755,7 +781,20 @@ do_window_update(struct net2_connwindow *w, struct windowheader *wh,
 	}
 
 	/* Move the rx window up to the new starting point. */
+	wx = TAILQ_FIRST(&w->cw_rx_winexpiry);
 	for (; w->cw_rx_start != wh->tx_start; w->cw_rx_start++) {
+		/* Update expired window ID. */
+		if (wx != NULL && wx->seq == w->cw_rx_start) {
+			TAILQ_REMOVE(&w->cw_rx_winexpiry, wx, wxq);
+			if (net2_promise_set_finok(wx->prom, NULL, NULL, NULL,
+			    NET2_PROMFLAG_RELEASE) != 0)
+				net2_promise_release(wx->prom);
+			net2_free(wx);
+
+			wx = TAILQ_FIRST(&w->cw_rx_winexpiry);
+			assert(wx == NULL || wx->seq != w->cw_rx_start);
+		}
+
 		/* Skip elements outside window. */
 		if (wh->tx_start - w->cw_rx_start >= w->cw_rx_windowsz)
 			continue;
@@ -829,6 +868,8 @@ net2_connwindow_init(struct net2_connwindow *w, struct net2_connection *c)
 	TAILQ_INIT(&w->cw_rx_wantack);
 	RB_INIT(&w->cw_rx_id);
 	w->cw_flags = NET2_CW_F_WANTRECV;
+	TAILQ_INIT(&w->cw_rx_winexpiry);
+	TAILQ_INIT(&w->cw_tx_winexpiry);
 	if ((w->cw_stallbackoff = net2_workq_timer_new(workq,
 	    &stallbackoff, w, NULL)) == NULL)
 		goto fail_0;
@@ -853,6 +894,22 @@ net2_connwindow_deinit(struct net2_connwindow *w)
 {
 	struct net2_cw_rx		*rx;
 	struct net2_cw_tx		*tx;
+	struct net2_cw_winexpiry	*wx;
+
+	while ((wx = TAILQ_FIRST(&w->cw_rx_winexpiry)) != NULL) {
+		TAILQ_REMOVE(&w->cw_rx_winexpiry, wx, wxq);
+		if (net2_promise_set_cancel(wx->prom,
+		    NET2_PROMFLAG_RELEASE) != 0)
+			net2_promise_release(wx->prom);
+		net2_free(wx);
+	}
+	while ((wx = TAILQ_FIRST(&w->cw_tx_winexpiry)) != NULL) {
+		TAILQ_REMOVE(&w->cw_tx_winexpiry, wx, wxq);
+		if (net2_promise_set_cancel(wx->prom,
+		    NET2_PROMFLAG_RELEASE) != 0)
+			net2_promise_release(wx->prom);
+		net2_free(wx);
+	}
 
 	while ((rx = RB_ROOT(&w->cw_rx_id)) != NULL) {
 		if (rx->cwr_flags & NET2_CWRX_F_WANTACK)
@@ -1462,4 +1519,81 @@ dup_ack(struct net2_connwindow *w)
 {
 	w->cw_tx_windowsz++;
 	update_stalled(w);
+}
+
+/*
+ * Create a new winexpiry event in the window.
+ * The promise is shared between any instances of the same seq.
+ *
+ * If the promise falls outside the window, the returned promise will have
+ * completed immediately.
+ */
+static struct net2_promise*
+cw_expiry_create(struct net2_cw_winexpiry_q *q, uint32_t seq, uint32_t wstart)
+{
+	struct net2_promise		*p;
+	struct net2_cw_winexpiry	*wx, *wx_after;
+	const uint32_t			 off = seq - wstart;
+
+	/* Handle already expired window. */
+	if (off > MAX_WINDOW_SIZE) {
+		if ((p = net2_promise_new()) == NULL)
+			goto fail_0;
+		if (net2_promise_set_finok(p, NULL, NULL, NULL, 0) != 0)
+			goto fail_1;
+		return p;
+	}
+
+	/* Search expiry set for seq. */
+	TAILQ_FOREACH_REVERSE(wx, q, net2_cw_winexpiry_q, wxq) {
+		/* Share promise. */
+		if (wx->seq == seq) {
+			p = wx->prom;
+			net2_promise_ref(p);
+			return p;
+		}
+		/* Stop search after finding the first entry prior to seq. */
+		if (wx->seq - wstart < off)
+			break;
+	}
+	wx_after = wx;	/* Insert after. */
+
+	/* Create promise. */
+	if ((p = net2_promise_new()) == NULL)
+		goto fail_0;
+	if ((wx = net2_malloc(sizeof(*wx))) == NULL)
+		goto fail_1;
+	wx->seq = seq;
+	wx->prom = p;
+
+	/* Insert into list. */
+	if (wx_after == NULL)
+		TAILQ_INSERT_HEAD(q, wx, wxq);
+	else
+		TAILQ_INSERT_AFTER(q, wx_after, wx, wxq);
+
+	net2_promise_ref(p);
+	return p;
+
+
+fail_2:
+	net2_free(wx);
+fail_1:
+	net2_promise_release(p);
+fail_0:
+	return NULL;
+}
+
+/* Add a window expiry notification. */
+ILIAS_NET2_LOCAL struct net2_promise*
+net2_connwindow_rx_expiry(struct net2_connwindow *w, uint32_t seq)
+{
+	return cw_expiry_create(&w->cw_rx_winexpiry, seq, w->cw_rx_start);
+}
+
+/* Add a window expiry notification. */
+ILIAS_NET2_LOCAL struct net2_promise*
+net2_connwindow_tx_expiry(struct net2_connwindow *w, uint32_t seq)
+{
+	return cw_expiry_create(&w->cw_tx_winexpiry, seq, w->cw_tx_start);
 }
