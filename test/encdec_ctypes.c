@@ -78,7 +78,7 @@ test_string_cp(char **in, char **out,
 		goto cleanup;
 	}
 	*out = NULL;
-	if (net2_cp_init(ctx, cp, out, NULL)) {
+	if (net2_cp_init(cp, out, NULL)) {
 		printf("  pre-decode initialization failure\n");
 		goto cleanup;
 	}
@@ -101,7 +101,7 @@ test_string_cp(char **in, char **out,
 		goto cleanup;
 	}
 
-	if (net2_cp_destroy(ctx, cp, out, NULL)) {
+	if (net2_cp_destroy(cp, out, NULL)) {
 		printf("  post-decode destruction failure\n");
 		goto cleanup;
 	}
@@ -136,7 +136,7 @@ test_stringlist_cp(char **in, char **out,
 	printf("  encoded buffer is %lu bytes\n",
 	    (unsigned long)net2_buffer_length(buf));
 	out = NULL;
-	if (net2_cp_init(ctx, cp, &out, NULL)) {
+	if (net2_cp_init(cp, &out, NULL)) {
 		printf("  pre-decode initialization failure\n");
 		goto cleanup;
 	}
@@ -166,7 +166,7 @@ test_stringlist_cp(char **in, char **out,
 		goto cleanup;
 	}
 
-	if (net2_cp_destroy(ctx, cp, &out, NULL)) {
+	if (net2_cp_destroy(cp, &out, NULL)) {
 		printf("  post-decode destruction failure\n");
 		goto cleanup;
 	}
