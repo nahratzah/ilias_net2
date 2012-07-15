@@ -467,6 +467,13 @@ segment_sensitive(struct net2_buffer_segment *s)
 	return 0;
 }
 
+/* Test if a buffer segment contains sensitive data. */
+static __inline int
+segment_is_sensitive(struct net2_buffer_segment *s)
+{
+	return (s->data->flags & BUF_SENSITIVE);
+}
+
 
 /*
  * A network buffer.
@@ -735,6 +742,13 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 		/* Attempt to simply append the data to list[0]. */
 		if (segment_append(&list[0], segment_getptr(&list[next]),
 		    list[next].len) == 0) {
+			/*
+			 * Cascade flag that this segment contains sensitive
+			 * data.
+			 */
+			if (segment_is_sensitive(&list[next]))
+				segment_sensitive(&list[0]);
+
 			segment_deinit(&list[next]);
 			next++;
 			continue;
@@ -746,6 +760,11 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 			fail = 1;
 			break;
 		}
+
+		/* Cascade flag that this segment contains sensitive data. */
+		if (segment_is_sensitive(&list[0]))
+			segment_sensitive(&new0);
+
 		segment_deinit(&list[0]);
 		list[0] = new0;
 
