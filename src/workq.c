@@ -16,6 +16,7 @@
 #include <ilias/net2/workq.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/refcnt.h>
 #include <ilias/net2/thread.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ev.h>
@@ -75,7 +76,7 @@ struct net2_workq {
 			 wqe_member;		/* Membership of evbase. */
 	TAILQ_ENTRY(net2_workq)
 			 wqe_runq;		/* Runqueue of evbase. */
-	size_t		 refcnt;		/* Reference counter. */
+	net2_refcnt_t	 refcnt;		/* Reference counter. */
 
 	/*
 	 * Below is locked using evbase->mtx.
@@ -616,7 +617,7 @@ net2_workq_new(struct net2_workq_evbase *wqev)
 		goto fail_2;
 	TAILQ_INIT(&wq->runqueue);
 	wq->flags = 0;
-	wq->refcnt = 1;
+	net2_refcnt_set(&wq->refcnt, 1);
 	wq->wanted = 0;
 	if ((wq->wanted_cond = net2_cond_alloc()) == NULL)
 		goto fail_3;
@@ -644,10 +645,7 @@ fail_0:
 ILIAS_NET2_EXPORT void
 net2_workq_ref(struct net2_workq *wq)
 {
-	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
-	wq->refcnt++;
-	assert(wq->refcnt > 0);
-	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
+	net2_refcnt_ref(&wq->refcnt, wq->mtx, 0);
 }
 
 /* Destroy workq. */
@@ -667,20 +665,20 @@ net2_workq_release(struct net2_workq *wq)
 	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
 	wqev = wq->evbase;
 	assert(wqev != NULL);
-	assert(wq->refcnt > 0);
-	wq->refcnt--;
-	do_free = (wq->refcnt == 0);
-	if (do_free) {
-		net2_mutex_lock(wqev->mtx);
-		/*
-		 * Mark as dying, so that jobs will no longer modify
-		 * the runqueue.
-		 */
-		wq->flags |= NET2_WQ_F_DYING;
+
+	if (!net2_refcnt_release(&wq->refcnt, wq->mtx,
+	    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT)) {
+		net2_mutex_unlock(wq->mtx);
+		return;
 	}
+	net2_mutex_lock(wqev->mtx);
+
+	/*
+	 * Mark as dying, so that jobs will no longer modify
+	 * the runqueue.
+	 */
+	wq->flags |= NET2_WQ_F_DYING;
 	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
-	if (!do_free)
-		return; /* Still in use. */
 
 	/* Remove us from the runq. */
 	if (wq->flags & NET2_WQ_F_ONQUEUE)
@@ -864,7 +862,8 @@ net2_workq_activate(struct net2_workq_job *jj)
 		j->flags |= NET2_WORKQ_ONQUEUE;
 
 		/* Keep the workq alive until after the callback. */
-		wq->refcnt++;
+		net2_refcnt_ref(&wq->refcnt, wq->mtx,
+		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
 		j_added = 1;
 	} else
 		add_me = 0;
@@ -1010,8 +1009,10 @@ net2_workq_get(struct net2_workq_job *jj)
 		net2_mutex_lock(wq->mtx);
 		wq_is_dead = (wq->flags & NET2_WQ_F_DYING);
 		/* Keep the workq alive for the return value. */
-		if (!wq_is_dead)
-			wq->refcnt++;
+		if (!wq_is_dead) {
+			net2_refcnt_ref(&wq->refcnt, wq->mtx,
+			    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
+		}
 		net2_mutex_unlock(wq->mtx);
 	}
 
