@@ -45,6 +45,17 @@ fail_0:
 }
 
 /*
+ * Clone src into dst.
+ */
+ILIAS_NET2_EXPORT
+int	 net2_encdec_ctx_copy(struct net2_encdec_ctx *dst,
+	    const struct net2_encdec_ctx *src)
+{
+	return net2_encdec_ctx_init(dst, (struct net2_pvlist*)&src->ed_proto,
+	    src->ed_objman);
+}
+
+/*
  * Perform a rollback on the encoding/decoding context.
  */
 ILIAS_NET2_EXPORT void

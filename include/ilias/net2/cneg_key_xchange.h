@@ -73,6 +73,15 @@ ILIAS_NET2_LOCAL
 struct net2_promise
 	*net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange*, int);
 
+ILIAS_NET2_LOCAL
+void	 net2_cneg_key_xchange_forget_local(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+void	 net2_cneg_key_xchange_forget_remote(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+int	 net2_cneg_key_xchange_recreate_local(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+int	 net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange*);
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CNEG_KEY_XCHANGE_H */

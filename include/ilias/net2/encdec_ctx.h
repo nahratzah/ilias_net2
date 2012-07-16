@@ -47,6 +47,9 @@ ILIAS_NET2_EXPORT
 int	 net2_encdec_ctx_init(struct net2_encdec_ctx*, struct net2_pvlist*,
 			    struct net2_objmanager*);
 ILIAS_NET2_EXPORT
+int	 net2_encdec_ctx_copy(struct net2_encdec_ctx*,
+	    const struct net2_encdec_ctx*);
+ILIAS_NET2_EXPORT
 void	 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
 ILIAS_NET2_EXPORT
 void	 net2_encdec_ctx_deinit(struct net2_encdec_ctx*);

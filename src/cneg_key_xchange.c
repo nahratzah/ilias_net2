@@ -230,6 +230,31 @@ struct net2_cneg_key_xchange {
 	struct net2_workq_timer	*renegotiate_local;
 	/* Timeout at which the connection will be killed by Damocles. */
 	struct net2_workq_timer	*kill_me;
+
+	struct {
+		struct net2_encdec_ctx
+				 ectx;
+		struct net2_ctx	*nctx;
+
+		int		 hash_alg;
+		int		 enc_alg;
+		int		 xchange_alg;
+		int		 sighash_alg;
+
+		void		(*rts_fn)(void*, void*);
+		void		*rts_arg0;
+		void		*rts_arg1;
+
+		uint32_t	 num_outsigs;
+		struct net2_sign_ctx
+				**outsigs;
+
+		uint32_t	 num_insigs;
+		struct net2_sign_ctx
+				**insigs;
+		struct net2_workq
+				*wq;
+	}			 initial; /* Initial arguments. */
 };
 
 /* Direct initialization (i.e. without factory) of xchange promise. */
@@ -1705,60 +1730,116 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 	if ((ke = net2_malloc(sizeof(*ke))) == NULL)
 		goto fail_0;
 
+	if (net2_encdec_ctx_copy(&ke->initial.ectx, ectx) != 0)
+		goto fail_1;
+	ke->initial.nctx = nctx;
+	ke->initial.hash_alg = hash_alg;
+	ke->initial.enc_alg = enc_alg;
+	ke->initial.xchange_alg = xchange_alg;
+	ke->initial.sighash_alg = sighash_alg;
+	ke->initial.rts_fn = rts_fn;
+	ke->initial.rts_arg0 = rts_arg0;
+	ke->initial.rts_arg1 = rts_arg1;
+
+	if ((ke->initial.outsigs =
+	    net2_calloc(num_outsigs, sizeof(*ke->initial.outsigs))) == NULL)
+		goto fail_2;
+	for (ke->initial.num_outsigs = 0;
+	    ke->initial.num_outsigs < num_outsigs;
+	    ke->initial.num_outsigs++) {
+		if ((ke->initial.outsigs[ke->initial.num_outsigs] =
+		    net2_signctx_clone(outsigs[ke->initial.num_outsigs])) ==
+		    NULL)
+			goto fail_3;
+	}
+
+	if ((ke->initial.insigs =
+	    net2_calloc(num_insigs, sizeof(*ke->initial.insigs))) == NULL)
+		goto fail_3;
+	for (ke->initial.num_insigs = 0;
+	    ke->initial.num_insigs < num_insigs;
+	    ke->initial.num_insigs++) {
+		if ((ke->initial.insigs[ke->initial.num_insigs] =
+		    net2_signctx_clone(insigs[ke->initial.num_insigs])) ==
+		    NULL)
+			goto fail_4;
+	}
+
+	ke->initial.wq = wq;
+	net2_workq_ref(wq);	/* fail_5 */
+
 	ke->renegotiate_local = ke->kill_me = NULL;
 
 	if ((ke->local = cneg_kx_local_new(
-	    wq, ectx, nctx,
+	    wq, &ke->initial.ectx, nctx,
 	    hash_alg, enc_alg,
 	    xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
-		goto fail_1;
+	    num_outsigs, ke->initial.outsigs,
+	    num_insigs, ke->initial.insigs)) == NULL)
+		goto fail_5;
 	if ((ke->remote = cneg_kx_remote_new(
-	    wq, ectx, nctx, sighash_alg,
+	    wq, &ke->initial.ectx, nctx, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
-		goto fail_2;
+	    num_outsigs, ke->initial.outsigs,
+	    num_insigs, ke->initial.insigs)) == NULL)
+		goto fail_6;
 
 	/* Set up combined promise for keys. */
 	proms[0] = ke->local->keys;
 	proms[1] = ke->local->keys;
 	if ((ke->keys = net2_promise_combine(wq, &key_xchange_combine_final,
 	    NULL, proms, 2)) == NULL)
-		goto fail_3;
+		goto fail_7;
 
 	/* Set up combined promise for completion. */
 	proms[0] = ke->local->complete;
 	proms[1] = ke->local->complete;
 	if ((ke->complete = net2_promise_combine(wq, &key_xchange_combine_final,
 	    NULL, proms, 2)) == NULL)
-		goto fail_4;
+		goto fail_8;
 
 	/* Prepare timers. */
 	if ((ke->renegotiate_local = net2_workq_timer_new(wq, &local_restart,
 	    ke, NULL)) == NULL)
-		goto fail_5;
+		goto fail_9;
 	if ((ke->kill_me = net2_workq_timer_new(wq, &killme,
 	    destroy_me, NULL)) == NULL)
-		goto fail_6;
+		goto fail_10;
 
 	return ke;
 
 
-fail_7:
+fail_11:
 	net2_workq_timer_free(ke->kill_me);
-fail_6:
+fail_10:
 	net2_workq_timer_free(ke->renegotiate_local);
-fail_5:
+fail_9:
 	net2_promise_cancel(ke->complete);
 	net2_promise_release(ke->complete);
-fail_4:
+fail_8:
 	net2_promise_cancel(ke->keys);
 	net2_promise_release(ke->keys);
-fail_3:
+fail_7:
 	cneg_kx_remote_destroy(ke->remote);
-fail_2:
+fail_6:
 	cneg_kx_local_destroy(ke->local);
+fail_5:
+	net2_workq_release(ke->initial.wq);
+fail_4:
+	while (ke->initial.num_insigs-- > 0) {
+		net2_signctx_free(
+		    ke->initial.insigs[ke->initial.num_insigs]);
+	}
+	net2_free(ke->initial.insigs);
+fail_3:
+	while (ke->initial.num_outsigs-- > 0) {
+		net2_signctx_free(
+		    ke->initial.outsigs[ke->initial.num_outsigs]);
+	}
+	net2_free(ke->initial.outsigs);
+fail_2:
+	net2_encdec_ctx_deinit(&ke->initial.ectx);
 fail_1:
 	net2_free(ke);
 fail_0:
@@ -1776,8 +1857,27 @@ net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 	net2_promise_release(ke->complete);
 	net2_promise_release(ke->keys);
 
-	cneg_kx_remote_destroy(ke->remote);
-	cneg_kx_local_destroy(ke->local);
+	if (ke->remote != NULL)
+		cneg_kx_remote_destroy(ke->remote);
+	if (ke->local != NULL)
+		cneg_kx_local_destroy(ke->local);
+
+
+	/*
+	 * Clean up initial arguments.
+	 */
+	net2_workq_release(ke->initial.wq);
+	net2_encdec_ctx_deinit(&ke->initial.ectx);
+
+	while (ke->initial.num_outsigs-- > 0)
+		net2_signctx_free(ke->initial.outsigs[ke->initial.num_outsigs]);
+	if (ke->initial.outsigs != NULL)
+		net2_free(ke->initial.outsigs);
+
+	while (ke->initial.num_insigs-- > 0)
+		net2_signctx_free(ke->initial.insigs[ke->initial.num_insigs]);
+	if (ke->initial.insigs != NULL)
+		net2_free(ke->initial.insigs);
 
 	net2_free(ke);
 }
@@ -2285,4 +2385,56 @@ ILIAS_NET2_LOCAL struct net2_promise*
 net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange *ke, int verified)
 {
 	return (verified ? ke->complete : ke->keys);
+}
+
+/* Forget local key exchange state. */
+ILIAS_NET2_LOCAL void
+net2_cneg_key_xchange_forget_local(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->local != NULL)
+		cneg_kx_local_destroy(ke->local);
+	ke->local = NULL;
+}
+/* Forget remote key exchange state. */
+ILIAS_NET2_LOCAL void
+net2_cneg_key_xchange_forget_remote(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->remote != NULL)
+		cneg_kx_remote_destroy(ke->remote);
+	ke->remote = NULL;
+}
+/* Restart local key exchange. */
+ILIAS_NET2_LOCAL int
+net2_cneg_key_xchange_recreate_local(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->local != NULL)
+		return EINVAL;
+
+	if ((ke->local = cneg_kx_local_new(
+	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
+	    ke->initial.hash_alg, ke->initial.enc_alg,
+	    ke->initial.xchange_alg, ke->initial.sighash_alg,
+	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
+	    ke->initial.num_outsigs, ke->initial.outsigs,
+	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
+		return ENOMEM;
+
+	return 0;
+}
+/* Restart remote key exchange. */
+ILIAS_NET2_LOCAL int
+net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->remote != NULL)
+		return EINVAL;
+
+	if ((ke->remote = cneg_kx_remote_new(
+	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
+	    ke->initial.sighash_alg,
+	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
+	    ke->initial.num_outsigs, ke->initial.outsigs,
+	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
+		return ENOMEM;
+
+	return 0;
 }
