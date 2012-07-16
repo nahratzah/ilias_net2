@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/promise.h>
 #include <ilias/net2/mutex.h>
+#include <ilias/net2/refcnt.h>
 #include <ilias/net2/event.h>
 #include <ilias/net2/memory.h>
 #include <stdlib.h>
