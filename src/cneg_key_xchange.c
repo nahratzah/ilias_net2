@@ -231,7 +231,7 @@ struct net2_cneg_key_xchange {
 	/* Timeout at which the connection will be killed by Damocles. */
 	struct net2_workq_timer	*kill_me;
 
-	struct {
+	struct initial {
 		struct net2_encdec_ctx
 				 ectx;
 		struct net2_ctx	*nctx;
@@ -1040,27 +1040,21 @@ fail:
  * nctx: allowed to be null
  */
 static int
-xchange_local_init(
-    struct xchange_local *xl,
-    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx, const struct xchange_spec *spec,
-    int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
-    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
-    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
-    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+xchange_local_init(struct xchange_local *xl, struct initial *ini,
+    const struct xchange_spec *spec, int alg, uint32_t keysize)
 {
 	struct net2_promise	*key_unverified;
 	struct net2_promise	*prom2[2]; /* tmp references. */
 	int			 error;
 
 	if ((error = xchange_shared_init(&xl->shared, alg, keysize,
-	    xchange_alg, sighash_alg, spec,
-	    rts_fn, rts_arg0, rts_arg1)) != 0)
+	    ini->xchange_alg, ini->sighash_alg, spec,
+	    ini->rts_fn, ini->rts_arg0, ini->rts_arg1)) != 0)
 		goto fail_0;
 
 	/* Setup carver setup data. */
-	if ((xl->shared.out_xcsd = xchange_carver_setup_data(wq, ectx,
-	    num_outsigs, outsigs)) == NULL) {
+	if ((xl->shared.out_xcsd = xchange_carver_setup_data(ini->wq,
+	    &ini->ectx, ini->num_outsigs, ini->outsigs)) == NULL) {
 		error = ENOMEM;
 		goto fail_1;
 	}
@@ -1070,15 +1064,15 @@ xchange_local_init(
 	 * If nctx is NULL or fails to create a promise,
 	 * create an in-thread promise instead.
 	 */
-	if (xl->shared.xchange == NULL && nctx != NULL) {
+	if (xl->shared.xchange == NULL && ini->nctx != NULL) {
 		/* Try to use net2_ctx. */
-		xl->shared.xchange = net2_ctx_get_xchange(nctx,
-		    xchange_alg, keysize);
+		xl->shared.xchange = net2_ctx_get_xchange(ini->nctx,
+		    ini->xchange_alg, keysize);
 	}
 	if (xl->shared.xchange == NULL) {
 		/* Create direct promise. */
-		xl->shared.xchange = xchange_promise_direct_new(wq,
-		    xchange_alg, keysize);
+		xl->shared.xchange = xchange_promise_direct_new(ini->wq,
+		    ini->xchange_alg, keysize);
 	}
 	if (xl->shared.xchange == NULL) {
 		error = ENOMEM;
@@ -1086,23 +1080,23 @@ xchange_local_init(
 	}
 
 	/* Set up import combiner. */
-	if ((xl->import = net2_signed_combiner_new(wq, ectx,
-	    num_insigs, insigs)) == NULL) {
+	if ((xl->import = net2_signed_combiner_new(ini->wq, &ini->ectx,
+	    ini->num_insigs, ini->insigs)) == NULL) {
 		error = ENOMEM;
 		goto fail_1;
 	}
 	/* Set up xchange+import promise. */
 	prom2[0] = xl->shared.xchange;
 	prom2[1] = net2_signed_combiner_payload(xl->import);
-	if ((key_unverified = net2_promise_combine(wq, &xchange_import_combine,
-	    &xl->shared, prom2, 2)) == NULL) {
+	if ((key_unverified = net2_promise_combine(ini->wq,
+	    &xchange_import_combine, &xl->shared, prom2, 2)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
 	}
 	/* Set up verified key promise. */
 	prom2[0] = key_unverified;
 	prom2[1] = net2_signed_combiner_complete(xl->import);
-	if ((xl->shared.key_promise = net2_promise_combine(wq,
+	if ((xl->shared.key_promise = net2_promise_combine(ini->wq,
 	    &key_verified_combine, NULL, prom2, 2)) == NULL) {
 		error = ENOMEM;
 		goto fail_3;
@@ -1113,13 +1107,13 @@ xchange_local_init(
 
 	/* Event: create carvers from xchange. */
 	if ((error = net2_promise_event_init(&xl->setup_carvers,
-	    xl->shared.xchange, NET2_PROM_ON_RUN, wq,
+	    xl->shared.xchange, NET2_PROM_ON_RUN, ini->wq,
 	    &xchange_local_on_xchange, xl, NULL)) != 0)
 		goto event_0;
 
 	/* Assign event to completion routine. */
 	if ((error = net2_promise_event_init(&xl->key_promise_complete,
-	    xl->shared.key_promise, NET2_PROM_ON_FINISH, wq,
+	    xl->shared.key_promise, NET2_PROM_ON_FINISH, ini->wq,
 	    &xchange_local_complete, xl, NULL)) != 0)
 		goto event_1;
 	if ((error = net2_promise_set_running(xl->shared.complete)) != 0)
@@ -1172,61 +1166,55 @@ xchange_local_deinit(struct xchange_local *xl)
  * nctx: allowed to be null
  */
 static int
-xchange_remote_init(
-    struct xchange_remote *xr,
-    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx ILIAS_NET2__unused, const struct xchange_spec *spec,
-    int sighash_alg,
-    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
-    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
-    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+xchange_remote_init(struct xchange_remote *xr, struct initial *ini,
+    const struct xchange_spec *spec)
 {
 	struct net2_promise	*key_unverified;
 	struct net2_promise	*prom2[3]; /* tmp references. */
 	int			 error;
 
 	if ((error = xchange_shared_init(&xr->shared, -1, 0,
-	    -1, sighash_alg, spec,
-	    rts_fn, rts_arg0, rts_arg1)) != 0)
+	    -1, ini->sighash_alg, spec,
+	    ini->rts_fn, ini->rts_arg0, ini->rts_arg1)) != 0)
 		goto fail_0;
 
 	/* Set up init combiner. */
-	if ((xr->init = net2_signed_combiner_new(wq, ectx,
-	    num_insigs, insigs)) == NULL) {
+	if ((xr->init = net2_signed_combiner_new(ini->wq, &ini->ectx,
+	    ini->num_insigs, ini->insigs)) == NULL) {
 		error = ENOMEM;
 		goto fail_1;
 	}
 
 	/* Setup carver setup data. */
-	if ((xr->shared.out_xcsd = xchange_carver_setup_data(wq, ectx,
-	    num_outsigs, outsigs)) == NULL) {
+	if ((xr->shared.out_xcsd = xchange_carver_setup_data(ini->wq,
+	    &ini->ectx, ini->num_outsigs, ini->outsigs)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
 	}
 
 	/* Set up xchange promise. */
 	prom2[0] = net2_signed_combiner_payload(xr->init);
-	if ((xr->shared.xchange = net2_promise_combine(wq, &initbuf_import,
-	    xr, prom2, 1)) == NULL) {
+	if ((xr->shared.xchange = net2_promise_combine(ini->wq,
+	    &initbuf_import, xr, prom2, 1)) == NULL) {
 		error = ENOMEM;
 		goto fail_2;
 	}
 
 	/* Set up import combiner. */
-	if ((xr->import = net2_signed_combiner_new(wq, ectx,
-	    num_insigs, insigs)) == NULL)
+	if ((xr->import = net2_signed_combiner_new(ini->wq, &ini->ectx,
+	    ini->num_insigs, ini->insigs)) == NULL)
 		goto fail_2;
 	/* Set up xchange+import promise. */
 	prom2[0] = xr->shared.xchange;
 	prom2[1] = net2_signed_combiner_payload(xr->import);
-	if ((key_unverified = net2_promise_combine(wq, &xchange_import_combine,
-	    &xr->shared, prom2, 2)) == NULL)
+	if ((key_unverified = net2_promise_combine(ini->wq,
+	    &xchange_import_combine, &xr->shared, prom2, 2)) == NULL)
 		goto fail_3;
 	/* Set up verified key promise. */
 	prom2[0] = key_unverified;
 	prom2[1] = net2_signed_combiner_complete(xr->import);
 	prom2[2] = net2_signed_combiner_complete(xr->init);
-	if ((xr->shared.key_promise = net2_promise_combine(wq,
+	if ((xr->shared.key_promise = net2_promise_combine(ini->wq,
 	    &key_verified_combine, NULL, prom2, 2)) == NULL)
 		goto fail_4;
 	net2_promise_release(key_unverified);
@@ -1235,13 +1223,13 @@ xchange_remote_init(
 
 	/* Event: create carvers from xchange. */
 	if ((error = net2_promise_event_init(&xr->setup_carvers,
-	    xr->shared.xchange, NET2_PROM_ON_RUN, wq,
+	    xr->shared.xchange, NET2_PROM_ON_RUN, ini->wq,
 	    &xchange_remote_on_xchange, xr, NULL)) != 0)
 		goto event_0;
 
 	/* Assign event to completion routine. */
 	if ((error = net2_promise_event_init(&xr->key_promise_complete,
-	    xr->shared.key_promise, NET2_PROM_ON_FINISH, wq,
+	    xr->shared.key_promise, NET2_PROM_ON_FINISH, ini->wq,
 	    &xchange_remote_complete, xr, NULL)) != 0)
 		goto event_1;
 	if ((error = net2_promise_set_running(xr->shared.complete)) != 0)
@@ -1420,14 +1408,7 @@ xchange_local_accept(struct xchange_local *xl,
 
 /* Initialize remote key negotiation state. */
 static struct cneg_kx_local*
-cneg_kx_local_new(
-    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx,
-    int hash_alg, int enc_alg,
-    int xchange_alg, int sighash_alg,
-    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
-    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
-    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+cneg_kx_local_new(struct initial *ini)
 {
 	size_t			 i;
 	int			 alg[NET2_CNEG_S2_MAX];
@@ -1439,31 +1420,30 @@ cneg_kx_local_new(
 	if ((local = net2_malloc(sizeof(*local))) == NULL)
 		goto fail_0;
 
-	alg[NET2_CNEG_S2_HASH] = hash_alg;
-	alg[NET2_CNEG_S2_ENC] = enc_alg;
-	keysize[NET2_CNEG_S2_HASH] = net2_hash_getkeylen(hash_alg);
-	keysize[NET2_CNEG_S2_ENC] = net2_enc_getkeylen(enc_alg);
+	alg[NET2_CNEG_S2_HASH] = ini->hash_alg;
+	alg[NET2_CNEG_S2_ENC] = ini->enc_alg;
+	keysize[NET2_CNEG_S2_HASH] = net2_hash_getkeylen(ini->hash_alg);
+	keysize[NET2_CNEG_S2_ENC] = net2_enc_getkeylen(ini->enc_alg);
 
 	/* Set up key exchanges. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (xchange_local_init(&local->xc[i], wq, ectx, nctx,
-		    &xchange_specs[i], alg[i], keysize[i],
-		    xchange_alg, sighash_alg,
-		    rts_fn, rts_arg0, rts_arg1,
-		    num_outsigs, outsigs, num_insigs, insigs) != 0)
+		if (xchange_local_init(&local->xc[i], ini,
+		    &xchange_specs[i], alg[i], keysize[i]) != 0)
 			goto fail_1;
 		proms[i] = local->xc[i].shared.key_promise;
 		verify[i + 1] = local->xc[i].shared.complete;
 	}
 
 	/* Combine keys. */
-	if ((local->keys = net2_promise_combine(wq, &key_xchange_combine,
+	if ((local->keys = net2_promise_combine(ini->wq,
+	    &key_xchange_combine,
 	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
 		goto fail_2;
 	verify[0] = local->keys;
 
 	/* Verify keys. */
-	if ((local->complete = net2_promise_combine(wq, &key_xchange_checked,
+	if ((local->complete = net2_promise_combine(ini->wq,
+	    &key_xchange_checked,
 	    NULL, verify, NET2_CNEG_S2_MAX + 1)) == NULL)
 		goto fail_3;
 
@@ -1522,12 +1502,7 @@ cneg_kx_local_accept(size_t i, struct cneg_kx_local *local,
 }
 /* Initialize remote key negotiation state. */
 static struct cneg_kx_remote*
-cneg_kx_remote_new(
-    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx, int sighash_alg,
-    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
-    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
-    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+cneg_kx_remote_new(struct initial *ini)
 {
 	size_t			 i;
 	struct net2_promise	*proms[NET2_CNEG_S2_MAX];
@@ -1539,23 +1514,23 @@ cneg_kx_remote_new(
 
 	/* Set up key exchanges. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (xchange_remote_init(&remote->xc[i], wq, ectx, nctx,
-		    &xchange_specs[i], sighash_alg,
-		    rts_fn, rts_arg0, rts_arg1,
-		    num_outsigs, outsigs, num_insigs, insigs) != 0)
+		if (xchange_remote_init(&remote->xc[i],
+		    ini, &xchange_specs[i]) != 0)
 			goto fail_1;
 		proms[i] = remote->xc[i].shared.key_promise;
 		verify[i + 1] = remote->xc[i].shared.complete;
 	}
 
 	/* Combine keys. */
-	if ((remote->keys = net2_promise_combine(wq, &key_xchange_combine,
+	if ((remote->keys = net2_promise_combine(ini->wq,
+	    &key_xchange_combine,
 	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
 		goto fail_2;
 	verify[0] = remote->keys;
 
 	/* Verify keys. */
-	if ((remote->complete = net2_promise_combine(wq, &key_xchange_checked,
+	if ((remote->complete = net2_promise_combine(ini->wq,
+	    &key_xchange_checked,
 	    NULL, verify, NET2_CNEG_S2_MAX + 1)) == NULL)
 		goto fail_3;
 
@@ -1700,19 +1675,9 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 
 	ke->renegotiate_local = ke->kill_me = NULL;
 
-	if ((ke->local = cneg_kx_local_new(
-	    wq, &ke->initial.ectx, nctx,
-	    hash_alg, enc_alg,
-	    xchange_alg, sighash_alg,
-	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, ke->initial.outsigs,
-	    num_insigs, ke->initial.insigs)) == NULL)
+	if ((ke->local = cneg_kx_local_new(&ke->initial)) == NULL)
 		goto fail_5;
-	if ((ke->remote = cneg_kx_remote_new(
-	    wq, &ke->initial.ectx, nctx, sighash_alg,
-	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, ke->initial.outsigs,
-	    num_insigs, ke->initial.insigs)) == NULL)
+	if ((ke->remote = cneg_kx_remote_new(&ke->initial)) == NULL)
 		goto fail_6;
 
 	/* Set up combined promise for keys. */
@@ -2340,13 +2305,7 @@ net2_cneg_key_xchange_recreate_local(struct net2_cneg_key_xchange *ke)
 	if (ke->local != NULL)
 		goto fail;
 
-	if ((ke->local = cneg_kx_local_new(
-	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
-	    ke->initial.hash_alg, ke->initial.enc_alg,
-	    ke->initial.xchange_alg, ke->initial.sighash_alg,
-	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
-	    ke->initial.num_outsigs, ke->initial.outsigs,
-	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
+	if ((ke->local = cneg_kx_local_new(&ke->initial)) == NULL)
 		goto fail;
 
 	net2_promise_ref(ke->local->complete);
@@ -2362,12 +2321,7 @@ net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange *ke)
 	if (ke->remote != NULL)
 		goto fail;
 
-	if ((ke->remote = cneg_kx_remote_new(
-	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
-	    ke->initial.sighash_alg,
-	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
-	    ke->initial.num_outsigs, ke->initial.outsigs,
-	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
+	if ((ke->remote = cneg_kx_remote_new(&ke->initial)) == NULL)
 		goto fail;
 
 	net2_promise_ref(ke->remote->complete);
