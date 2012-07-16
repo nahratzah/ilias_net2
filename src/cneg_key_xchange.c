@@ -1586,6 +1586,9 @@ cneg_kx_local_get_transmit(size_t i, struct cneg_kx_local *local,
     struct net2_encdec_ctx *ectx, struct net2_workq *wq,
     struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
 {
+	if (local == NULL)
+		return 0;
+
 	return xchange_local_get_transmit(&local->xc[i], ectx,
 	    wq, buf, txcb, maxsz);
 }
@@ -1594,6 +1597,9 @@ static int
 cneg_kx_local_accept(size_t i, struct cneg_kx_local *local,
     struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
 {
+	if (local == NULL)
+		return EINVAL;
+
 	return xchange_local_accept(&local->xc[i], ectx, buf);
 }
 /* Initialize remote key negotiation state. */
@@ -1672,6 +1678,9 @@ cneg_kx_remote_get_transmit(size_t i, struct cneg_kx_remote *remote,
     struct net2_encdec_ctx *ectx, struct net2_workq *wq,
     struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
 {
+	if (remote == NULL)
+		return 0;
+
 	return xchange_remote_get_transmit(&remote->xc[i], ectx,
 	    wq, buf, txcb, maxsz);
 }
@@ -1680,6 +1689,9 @@ static int
 cneg_kx_remote_accept(size_t i, struct cneg_kx_remote *remote,
     struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
 {
+	if (remote == NULL)
+		return EINVAL;
+
 	return xchange_remote_accept(&remote->xc[i], ectx, buf);
 }
 
