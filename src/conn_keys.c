@@ -442,3 +442,99 @@ net2_ck_deinit(struct net2_conn_keys *ck)
 	for (i = 0; i < sizeof(ck->keys) / sizeof(ck->keys[0]); i++)
 		free_keys(&ck->keys[i]);
 }
+
+
+/* Duplicate a key. */
+ILIAS_NET2_LOCAL
+struct net2_ck_key_single*
+net2_ck_ks_dup(const struct net2_ck_key_single *k)
+{
+	struct net2_ck_key_single	*clone;
+
+	if ((clone = net2_malloc(sizeof(*clone))) == NULL)
+		goto fail_0;
+	if (net2_ck_ks_copy(clone, k) != 0)
+		goto fail_1;
+	return clone;
+
+
+fail_1:
+	net2_free(clone);
+fail_0:
+	return NULL;
+}
+/* Copy a key. */
+ILIAS_NET2_LOCAL
+int
+net2_ck_ks_copy(struct net2_ck_key_single *dst,
+    const struct net2_ck_key_single *src)
+{
+	return net2_ck_ks_init(dst, src->alg, src->key);
+}
+/* Create a new key (allocated). */
+ILIAS_NET2_LOCAL
+struct net2_ck_key_single*
+net2_ck_ks_new(int alg, const struct net2_buffer *buf)
+{
+	struct net2_ck_key_single	*clone;
+
+	if ((clone = net2_malloc(sizeof(*clone))) == NULL)
+		goto fail_0;
+	if (net2_ck_ks_init(clone, alg, buf) != 0)
+		goto fail_1;
+	return clone;
+
+
+fail_1:
+	net2_free(clone);
+fail_0:
+	return NULL;
+}
+/* Initialize a key. */
+ILIAS_NET2_LOCAL
+int
+net2_ck_ks_init(struct net2_ck_key_single *k,
+    int alg, const struct net2_buffer *buf)
+{
+	k->alg = alg;
+	if (buf == NULL)
+		k->key = NULL;
+	else if ((k->key = net2_buffer_copy(buf)) == NULL)
+		return ENOMEM;
+	return 0;
+}
+/* Destroy a key (freeing it). */
+ILIAS_NET2_LOCAL
+void
+net2_ck_ks_destroy(struct net2_ck_key_single *k)
+{
+	net2_ck_ks_deinit(k);
+	net2_free(k);
+}
+/* Deinitialize a key. */
+ILIAS_NET2_LOCAL
+void
+net2_ck_ks_deinit(struct net2_ck_key_single *k)
+{
+	if (k != NULL && k->key != NULL)
+		net2_buffer_free(k->key);
+}
+
+
+/* Initialize connection keys to empty. */
+ILIAS_NET2_LOCAL void
+net2_ck_keys_init(net2_ck_keys *k)
+{
+	size_t			 i;
+
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+		net2_ck_ks_init(&(*k)[i], 0, NULL);
+}
+ILIAS_NET2_LOCAL void
+net2_ck_keys_deinit(net2_ck_keys *k)
+{
+	size_t			 i;
+
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+		net2_ck_ks_deinit(&(*k)[i]);
+}

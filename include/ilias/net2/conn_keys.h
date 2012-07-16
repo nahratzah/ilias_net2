@@ -111,5 +111,29 @@ ILIAS_NET2_LOCAL
 void			 net2_ck_deinit(struct net2_conn_keys*);
 
 
+ILIAS_NET2_LOCAL
+int			 net2_ck_ks_copy(struct net2_ck_key_single*,
+			    const struct net2_ck_key_single*);
+ILIAS_NET2_LOCAL
+struct net2_ck_key_single
+			*net2_ck_ks_dup(const struct net2_ck_key_single*);
+ILIAS_NET2_LOCAL
+struct net2_ck_key_single
+			*net2_ck_ks_new(int, const struct net2_buffer*);
+ILIAS_NET2_LOCAL
+int			 net2_ck_ks_init(struct net2_ck_key_single*,
+			    int, const struct net2_buffer*);
+ILIAS_NET2_LOCAL
+void			 net2_ck_ks_destroy(struct net2_ck_key_single*);
+ILIAS_NET2_LOCAL
+void			 net2_ck_ks_deinit(struct net2_ck_key_single*);
+
+
+ILIAS_NET2_LOCAL
+void			 net2_ck_keys_init(net2_ck_keys*);
+ILIAS_NET2_LOCAL
+void			 net2_ck_keys_deinit(net2_ck_keys*);
+
+
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONN_KEYS_H */
