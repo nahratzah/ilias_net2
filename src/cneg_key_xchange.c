@@ -2416,11 +2416,11 @@ net2_cneg_key_xchange_forget_remote(struct net2_cneg_key_xchange *ke)
 	ke->remote = NULL;
 }
 /* Restart local key exchange. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_LOCAL struct net2_promise*
 net2_cneg_key_xchange_recreate_local(struct net2_cneg_key_xchange *ke)
 {
 	if (ke->local != NULL)
-		return EINVAL;
+		goto fail;
 
 	if ((ke->local = cneg_kx_local_new(
 	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
@@ -2429,16 +2429,20 @@ net2_cneg_key_xchange_recreate_local(struct net2_cneg_key_xchange *ke)
 	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
 	    ke->initial.num_outsigs, ke->initial.outsigs,
 	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
-		return ENOMEM;
+		goto fail;
 
-	return 0;
+	net2_promise_ref(ke->local->complete);
+	return ke->local->complete;
+
+fail:
+	return NULL;
 }
 /* Restart remote key exchange. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_LOCAL struct net2_promise*
 net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange *ke)
 {
 	if (ke->remote != NULL)
-		return EINVAL;
+		goto fail;
 
 	if ((ke->remote = cneg_kx_remote_new(
 	    ke->initial.wq, &ke->initial.ectx, ke->initial.nctx,
@@ -2446,7 +2450,11 @@ net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange *ke)
 	    ke->initial.rts_fn, ke->initial.rts_arg0, ke->initial.rts_arg1,
 	    ke->initial.num_outsigs, ke->initial.outsigs,
 	    ke->initial.num_insigs, ke->initial.insigs)) == NULL)
-		return ENOMEM;
+		goto fail;
 
-	return 0;
+	net2_promise_ref(ke->remote->complete);
+	return ke->remote->complete;
+
+fail:
+	return NULL;
 }
