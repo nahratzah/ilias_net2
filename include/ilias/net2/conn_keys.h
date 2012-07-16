@@ -32,11 +32,13 @@ struct packet_header;		/* From packet.h */
 #define NET2_CNEG_S2_ENC	1	/* Encryption key. */
 #define NET2_CNEG_S2_MAX	2	/* # exchanges. */
 
-/* Connection keys. */
-struct net2_ck_keys {
-	int			 alg[NET2_CNEG_S2_MAX];
-	struct net2_buffer	*key[NET2_CNEG_S2_MAX];
+/* Connection key. */
+struct net2_ck_key_single {
+	int			 alg;
+	struct net2_buffer	*key;
 };
+/* Connection keys. */
+typedef struct net2_ck_key_single net2_ck_keys[NET2_CNEG_S2_MAX];
 
 /*
  * Connection keys.
@@ -59,7 +61,7 @@ struct net2_ck_keys {
  */
 struct net2_conn_keys {
 	/* Active and alt rx/tx keys. */
-	struct net2_ck_keys	 keys[4];
+	net2_ck_keys		 keys[4];
 #define NET2_CK_RX_ACTIVE	 0
 #define NET2_CK_RX_ALT		 1
 #define NET2_CK_TX_ACTIVE	 2
@@ -84,7 +86,7 @@ struct net2_conn_keys {
 };
 
 ILIAS_NET2_LOCAL
-struct net2_ck_keys	*net2_ck_rx_key(struct net2_conn_keys*,
+net2_ck_keys		*net2_ck_rx_key(struct net2_conn_keys*,
 			    struct net2_connwindow*,
 			    const struct packet_header*);
 ILIAS_NET2_LOCAL
@@ -92,20 +94,19 @@ int			 net2_ck_rx_key_commit(struct net2_conn_keys*,
 			    struct net2_workq*, struct net2_connwindow*,
 			    const struct packet_header*);
 ILIAS_NET2_LOCAL
-struct net2_ck_keys	*net2_ck_tx_key(struct net2_conn_keys*,
+net2_ck_keys		*net2_ck_tx_key(struct net2_conn_keys*,
 			    struct net2_workq*, struct net2_connwindow*,
 			    struct packet_header*);
 ILIAS_NET2_LOCAL
 int			 net2_ck_rx_key_inject(struct net2_conn_keys*,
-			    const struct net2_ck_keys*);
+			    const net2_ck_keys*);
 ILIAS_NET2_LOCAL
 int			 net2_ck_tx_key_inject(struct net2_conn_keys*,
-			    const struct net2_ck_keys*);
+			    const net2_ck_keys*);
 
 ILIAS_NET2_LOCAL
 int			 net2_ck_init(struct net2_conn_keys*,
-			    const struct net2_ck_keys*,
-			    const struct net2_ck_keys*);
+			    const net2_ck_keys*, const net2_ck_keys*);
 ILIAS_NET2_LOCAL
 void			 net2_ck_deinit(struct net2_conn_keys*);
 

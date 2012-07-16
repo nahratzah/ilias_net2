@@ -20,46 +20,47 @@
 #include <ilias/net2/promise.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 
 #include "packet.h"
 
 
 /* Test if the key set has keys. */
 static __inline int
-has_keys(const struct net2_ck_keys *k)
+has_keys(const net2_ck_keys *k)
 {
 	size_t				 i;
 
-	for (i = 0; i < sizeof(k->key) / sizeof(k->key[0]); i++) {
-		if (k->key[i] != NULL)
+	for (i = 0; i < sizeof(*k) / sizeof((*k)[0]); i++) {
+		if ((*k)[i].key != NULL)
 			return 1;
 	}
 	return 0;
 }
 /* Free keys. */
 static __inline void
-free_keys(struct net2_ck_keys *k)
+free_keys(net2_ck_keys *k)
 {
 	size_t				 i;
 
-	for (i = 0; i < sizeof(k->key) / sizeof(k->key[0]); i++)
-		net2_buffer_free(k->key[i]);
+	for (i = 0; i < sizeof(*k) / sizeof((*k)[0]); i++)
+		net2_buffer_free((*k)[i].key);
 }
 /* Forget keys (without releasing them). */
 static __inline void
-zero_keys(struct net2_ck_keys *k)
+zero_keys(net2_ck_keys *k)
 {
 	size_t				 i;
 
-	for (i = 0; i < sizeof(k->key) / sizeof(k->key[0]); i++)
-		k->key[i] = NULL;
+	for (i = 0; i < sizeof(*k) / sizeof((*k)[0]); i++)
+		(*k)[i].key = NULL;
 }
 
 /*
  * Retrieve specific keys.
  * Returns NULL if the keys are not present.
  */
-static __inline struct net2_ck_keys*
+static __inline net2_ck_keys*
 net2_ck_key(struct net2_conn_keys *ck, int which)
 {
 	assert(which >= 0 &&
@@ -74,7 +75,7 @@ static void
 do_rx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
 {
 	struct net2_conn_keys		*ck = ck_ptr;
-	struct net2_ck_keys		*active, *alt;
+	net2_ck_keys			*active, *alt;
 
 	/* Check state. */
 	active = &ck->keys[NET2_CK_RX_ACTIVE];
@@ -83,7 +84,7 @@ do_rx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
 
 	/* Switch alt over to active. */
 	free_keys(active);
-	*active = *alt;	/* struct copy */
+	memcpy(active, alt, sizeof(*active));	/* struct copy */
 	zero_keys(alt);
 
 	/* Destroy event that ran this function. */
@@ -98,7 +99,7 @@ static void
 do_tx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
 {
 	struct net2_conn_keys		*ck = ck_ptr;
-	struct net2_ck_keys		*active, *alt;
+	net2_ck_keys			*active, *alt;
 
 	/* Check state. */
 	active = &ck->keys[NET2_CK_TX_ACTIVE];
@@ -107,7 +108,7 @@ do_tx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
 
 	/* Switch alt over to active. */
 	free_keys(active);
-	*active = *alt;	/* struct copy */
+	memcpy(active, alt, sizeof(*active));	/* struct copy */
 	zero_keys(alt);
 
 	/* Destroy event that ran this function. */
@@ -238,11 +239,11 @@ fail_0:
  * Note that this function may not alter the net2_conn_keys,
  * unless the hash and decryption succeed.
  */
-ILIAS_NET2_LOCAL struct net2_ck_keys*
+ILIAS_NET2_LOCAL net2_ck_keys*
 net2_ck_rx_key(struct net2_conn_keys *ck,
     struct net2_connwindow *w, const struct packet_header *ph)
 {
-	struct net2_ck_keys	*k;
+	net2_ck_keys		*k;
 
 	/*
 	 * If no altkey is present, the active key must be the right
@@ -295,7 +296,7 @@ net2_ck_rx_key_commit(struct net2_conn_keys *ck, struct net2_workq *wq,
  */
 ILIAS_NET2_LOCAL int
 net2_ck_rx_key_inject(struct net2_conn_keys *ck,
-    const struct net2_ck_keys *key)
+    const net2_ck_keys *key)
 {
 	size_t				 i;
 
@@ -306,9 +307,9 @@ net2_ck_rx_key_inject(struct net2_conn_keys *ck,
 
 	/* Assign alternate key. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		ck->keys[NET2_CK_RX_ALT].alg[i] = key->alg[i];
-		if ((ck->keys[NET2_CK_RX_ALT].key[i] =
-		    net2_buffer_copy(key->key[i])) == NULL) {
+		ck->keys[NET2_CK_RX_ALT][i].alg = (*key)[i].alg;
+		if ((ck->keys[NET2_CK_RX_ALT][i].key =
+		    net2_buffer_copy((*key)[i].key)) == NULL) {
 			free_keys(&ck->keys[NET2_CK_RX_ALT]);
 			return ENOMEM;
 		}
@@ -323,11 +324,11 @@ net2_ck_rx_key_inject(struct net2_conn_keys *ck,
  * Return the key that is to be used for transmission.
  * May modify packet header flags to indicate the use of an alternative key.
  */
-ILIAS_NET2_LOCAL struct net2_ck_keys*
+ILIAS_NET2_LOCAL net2_ck_keys*
 net2_ck_tx_key(struct net2_conn_keys *ck, struct net2_workq *wq,
     struct net2_connwindow *w, struct packet_header *ph)
 {
-	struct net2_ck_keys		*k;
+	net2_ck_keys			*k;
 
 	/* No alt key, return active key. */
 	if ((k = net2_ck_key(ck, NET2_CK_TX_ALT)) == NULL)
@@ -356,7 +357,7 @@ net2_ck_tx_key(struct net2_conn_keys *ck, struct net2_workq *wq,
  */
 ILIAS_NET2_LOCAL int
 net2_ck_tx_key_inject(struct net2_conn_keys *ck,
-    const struct net2_ck_keys *key)
+    const net2_ck_keys *key)
 {
 	size_t				 i;
 
@@ -367,9 +368,9 @@ net2_ck_tx_key_inject(struct net2_conn_keys *ck,
 
 	/* Assign alternate key. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		ck->keys[NET2_CK_TX_ALT].alg[i] = key->alg[i];
-		if ((ck->keys[NET2_CK_TX_ALT].key[i] =
-		    net2_buffer_copy(key->key[i])) == NULL) {
+		ck->keys[NET2_CK_TX_ALT][i].alg = (*key)[i].alg;
+		if ((ck->keys[NET2_CK_TX_ALT][i].key =
+		    net2_buffer_copy((*key)[i].key)) == NULL) {
 			free_keys(&ck->keys[NET2_CK_TX_ALT]);
 			return ENOMEM;
 		}
@@ -385,7 +386,7 @@ net2_ck_tx_key_inject(struct net2_conn_keys *ck,
  */
 ILIAS_NET2_LOCAL int
 net2_ck_init(struct net2_conn_keys *ck,
-    const struct net2_ck_keys *tx, const struct net2_ck_keys *rx)
+    const net2_ck_keys *tx, const net2_ck_keys *rx)
 {
 	size_t			 i;
 	int			 error;
@@ -395,9 +396,9 @@ net2_ck_init(struct net2_conn_keys *ck,
 
 	if (tx != NULL) {
 		for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-			ck->keys[NET2_CK_TX_ACTIVE].alg[i] = tx->alg[i];
-			if ((ck->keys[NET2_CK_TX_ACTIVE].key[i] =
-			    net2_buffer_copy(tx->key[i])) == NULL) {
+			ck->keys[NET2_CK_TX_ACTIVE][i].alg = (*tx)[i].alg;
+			if ((ck->keys[NET2_CK_TX_ACTIVE][i].key =
+			    net2_buffer_copy((*tx)[i].key)) == NULL) {
 				error = ENOMEM;
 				goto fail;
 			}
@@ -405,9 +406,9 @@ net2_ck_init(struct net2_conn_keys *ck,
 	}
 	if (rx != NULL) {
 		for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-			ck->keys[NET2_CK_RX_ACTIVE].alg[i] = rx->alg[i];
-			if ((ck->keys[NET2_CK_RX_ACTIVE].key[i] =
-			    net2_buffer_copy(rx->key[i])) == NULL) {
+			ck->keys[NET2_CK_RX_ACTIVE][i].alg = (*rx)[i].alg;
+			if ((ck->keys[NET2_CK_RX_ACTIVE][i].key =
+			    net2_buffer_copy((*rx)[i].key)) == NULL) {
 				error = ENOMEM;
 				goto fail;
 			}
