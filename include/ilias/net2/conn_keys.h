@@ -32,6 +32,11 @@ struct packet_header;		/* From packet.h */
 #define NET2_CNEG_S2_ENC	1	/* Encryption key. */
 #define NET2_CNEG_S2_MAX	2	/* # exchanges. */
 
+#define NET2_REKEY_INTERVAL_WIN	0x7fffffff
+#define NET2_REKEY_DAMOCLES_WIN	0xbfffffff
+#define NET2_REKEY_INTERVAL_SEC	7200	/* Rekey every 2 hours. */
+#define NET2_REKEY_DAMOCLES_SEC	(NET2_REKEY_INTERVAL_SEC + 15 * 60)
+
 /* Connection key. */
 struct net2_ck_key_single {
 	int			 alg;

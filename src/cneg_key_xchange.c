@@ -26,7 +26,6 @@
 #include <ilias/net2/bsd_compat/secure_random.h>
 #include <ilias/net2/signed_carver.h>
 #include <ilias/net2/tx_callback.h>
-#include <ilias/net2/workq_timer.h>
 
 #include <ilias/net2/hash.h>
 #include <ilias/net2/enc.h>
@@ -40,12 +39,6 @@
 #include <stdint.h>
 
 #include "exchange.h"
-
-
-/* Create new keys every 2 hours. */
-#define KEY_RENEGOTIATE_TIMEOUT	7200
-/* Keys expire 15 minutes after renegotiation start. */
-#define KEY_FORGET_TIMEOUT	(KEY_RENEGOTIATE_TIMEOUT + 15 * 60)
 
 
 /* Free a key set. */
@@ -226,11 +219,6 @@ struct net2_cneg_key_xchange {
 	struct net2_promise	*keys;	/* Unverified keys are ready. */
 	struct net2_promise	*complete; /* Completion promise. */
 
-	/* Timeout at which local keys must be renegotiated. */
-	struct net2_workq_timer	*renegotiate_local;
-	/* Timeout at which the connection will be killed by Damocles. */
-	struct net2_workq_timer	*kill_me;
-
 	struct initial {
 		struct net2_encdec_ctx
 				 ectx;
@@ -301,8 +289,6 @@ static void	 key_xchange_combine_final(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
 static void	 key_xchange_checked(struct net2_promise*,
 		    struct net2_promise**, size_t, void*);
-
-static void	 killme(void*, void*);
 
 
 /* Initialize shared portion of xchange_{local,remote}. */
@@ -1596,26 +1582,6 @@ flip_slot(uint16_t slot)
 	return slot ^ NET2_CNEG__LRMASK;
 }
 
-/* Destroy the connection on key expiry. */
-static void
-killme(void *conn_ptr, void * ILIAS_NET2__unused unused)
-{
-	struct net2_connection	*conn = conn_ptr;
-
-	net2_connection_destroy(conn);
-}
-
-/* Reset and restart the locally initialized key exchange. */
-static void
-local_restart(void *ke_ptr, void * ILIAS_NET2__unused unused)
-{
-	struct net2_cneg_key_xchange	*ke = ke_ptr;
-
-	assert(ke != NULL);
-
-	assert(0);	/* XXX Implement. */
-}
-
 /* Initialize key exchange. */
 ILIAS_NET2_LOCAL struct net2_cneg_key_xchange*
 net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
@@ -1673,8 +1639,6 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 	ke->initial.wq = wq;
 	net2_workq_ref(wq);	/* fail_5 */
 
-	ke->renegotiate_local = ke->kill_me = NULL;
-
 	if ((ke->local = cneg_kx_local_new(&ke->initial)) == NULL)
 		goto fail_5;
 	if ((ke->remote = cneg_kx_remote_new(&ke->initial)) == NULL)
@@ -1694,21 +1658,9 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 	    NULL, proms, 2)) == NULL)
 		goto fail_8;
 
-	/* Prepare timers. */
-	if ((ke->renegotiate_local = net2_workq_timer_new(wq, &local_restart,
-	    ke, NULL)) == NULL)
-		goto fail_9;
-	if ((ke->kill_me = net2_workq_timer_new(wq, &killme,
-	    destroy_me, NULL)) == NULL)
-		goto fail_10;
-
 	return ke;
 
 
-fail_11:
-	net2_workq_timer_free(ke->kill_me);
-fail_10:
-	net2_workq_timer_free(ke->renegotiate_local);
 fail_9:
 	net2_promise_cancel(ke->complete);
 	net2_promise_release(ke->complete);
@@ -1744,9 +1696,6 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 {
-	net2_workq_timer_free(ke->renegotiate_local);
-	net2_workq_timer_free(ke->kill_me);
-
 	net2_promise_cancel(ke->complete);
 	net2_promise_cancel(ke->keys);
 	net2_promise_release(ke->complete);
@@ -1967,25 +1916,6 @@ key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
 		net2_cneg_keyset_free(keys);
 		net2_promise_set_error(out, EIO, 0);
 	}
-}
-
-/* Setup timeout for locally initialized key renegotiation. */
-static void
-reschedule_local(struct net2_cneg_key_xchange *ke)
-{
-	static const struct timeval	tv_renegotiate_local =
-	    { KEY_RENEGOTIATE_TIMEOUT, 0 };
-
-	net2_workq_timer_set(ke->renegotiate_local, &tv_renegotiate_local);
-}
-/* Set up timeout for failed remote key renegotiation. */
-static void
-reschedule_remote(struct net2_cneg_key_xchange *ke)
-{
-	static const struct timeval	tv_kill_me =
-	    { KEY_FORGET_TIMEOUT, 0 };
-
-	net2_workq_timer_set(ke->renegotiate_local, &tv_kill_me);
 }
 
 
