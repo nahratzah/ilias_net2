@@ -1233,7 +1233,7 @@ xchange_remote_init(
     struct xchange_remote *xr,
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
     struct net2_ctx *nctx ILIAS_NET2__unused, const struct xchange_spec *spec,
-    int alg, uint32_t keysize, int xchange_alg, int sighash_alg,
+    int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
     uint32_t num_insigs, struct net2_sign_ctx **insigs)
@@ -1242,8 +1242,8 @@ xchange_remote_init(
 	struct net2_promise	*prom2[3]; /* tmp references. */
 	int			 error;
 
-	if ((error = xchange_shared_init(&xr->shared, alg, keysize,
-	    xchange_alg, sighash_alg, spec,
+	if ((error = xchange_shared_init(&xr->shared, -1, 0,
+	    -1, sighash_alg, spec,
 	    rts_fn, rts_arg0, rts_arg1)) != 0)
 		goto fail_0;
 
@@ -1480,7 +1480,7 @@ static struct cneg_kx_local*
 cneg_kx_local_new(
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
     struct net2_ctx *nctx,
-    int hash_alg, int enc_alg, uint32_t hash_keysize, uint32_t enc_keysize,
+    int hash_alg, int enc_alg,
     int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
@@ -1498,8 +1498,8 @@ cneg_kx_local_new(
 
 	alg[NET2_CNEG_S2_HASH] = hash_alg;
 	alg[NET2_CNEG_S2_ENC] = enc_alg;
-	keysize[NET2_CNEG_S2_HASH] = hash_keysize;
-	keysize[NET2_CNEG_S2_ENC] = enc_keysize;
+	keysize[NET2_CNEG_S2_HASH] = net2_hash_getkeylen(hash_alg);
+	keysize[NET2_CNEG_S2_ENC] = net2_enc_getkeylen(enc_alg);
 
 	/* Set up key exchanges. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
@@ -1575,16 +1575,12 @@ cneg_kx_local_accept(size_t i, struct cneg_kx_local *local,
 static struct cneg_kx_remote*
 cneg_kx_remote_new(
     struct net2_workq *wq, struct net2_encdec_ctx *ectx,
-    struct net2_ctx *nctx,
-    int hash_alg, int enc_alg, uint32_t hash_keysize, uint32_t enc_keysize,
-    int xchange_alg, int sighash_alg,
+    struct net2_ctx *nctx, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
     uint32_t num_insigs, struct net2_sign_ctx **insigs)
 {
 	size_t			 i;
-	int			 alg[NET2_CNEG_S2_MAX];
-	uint32_t		 keysize[NET2_CNEG_S2_MAX];
 	struct net2_promise	*proms[NET2_CNEG_S2_MAX];
 	struct net2_promise	*verify[NET2_CNEG_S2_MAX + 1];
 	struct cneg_kx_remote	*remote;
@@ -1592,16 +1588,10 @@ cneg_kx_remote_new(
 	if ((remote = net2_malloc(sizeof(*remote))) == NULL)
 		goto fail_0;
 
-	alg[NET2_CNEG_S2_HASH] = hash_alg;
-	alg[NET2_CNEG_S2_ENC] = enc_alg;
-	keysize[NET2_CNEG_S2_HASH] = hash_keysize;
-	keysize[NET2_CNEG_S2_ENC] = enc_keysize;
-
 	/* Set up key exchanges. */
 	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
 		if (xchange_remote_init(&remote->xc[i], wq, ectx, nctx,
-		    &xchange_specs[i], alg[i], keysize[i],
-		    xchange_alg, sighash_alg,
+		    &xchange_specs[i], sighash_alg,
 		    rts_fn, rts_arg0, rts_arg1,
 		    num_outsigs, outsigs, num_insigs, insigs) != 0)
 			goto fail_1;
@@ -1669,8 +1659,6 @@ cneg_kx_remote_accept(size_t i, struct cneg_kx_remote *remote,
 }
 
 
-
-
 /* Flip a slot from local to remote. */
 static __inline uint16_t
 flip_slot(uint16_t slot)
@@ -1711,13 +1699,8 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 {
 	struct net2_cneg_key_xchange	*ke;
 	struct net2_promise		*proms[2];
-	size_t				 hash_keysize, enc_keysize;
 
 	assert(destroy_me != NULL);
-
-	/* XXX calculate key len in local constructor. */
-	hash_keysize = net2_hash_getkeylen(hash_alg);
-	enc_keysize = net2_enc_getkeylen(enc_alg);
 
 	if ((ke = net2_malloc(sizeof(*ke))) == NULL)
 		goto fail_0;
@@ -1726,15 +1709,13 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 
 	if ((ke->local = cneg_kx_local_new(
 	    wq, ectx, nctx,
-	    hash_alg, enc_alg, hash_keysize, enc_keysize,
+	    hash_alg, enc_alg,
 	    xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
 		goto fail_1;
 	if ((ke->remote = cneg_kx_remote_new(
-	    wq, ectx, nctx,
-	    hash_alg, enc_alg, hash_keysize, enc_keysize,
-	    xchange_alg, sighash_alg,
+	    wq, ectx, nctx, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
 	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
 		goto fail_2;
