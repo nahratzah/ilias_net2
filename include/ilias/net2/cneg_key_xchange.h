@@ -17,6 +17,7 @@
 #define ILIAS_NET2_CNEG_KEY_XCHANGE_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/conn_keys.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -30,10 +31,6 @@ struct net2_tx_callback;	/* From ilias/net2/tx_callback.h */
 struct net2_ctx;		/* From ilias/net2/context.h */
 struct net2_sign_ctx;		/* From ilias/net2/sign.h */
 struct net2_connection;		/* From ilias/net2/connection.h */
-
-#define NET2_CNEG_S2_HASH	0	/* Secure hash key. */
-#define NET2_CNEG_S2_ENC	1	/* Encryption key. */
-#define NET2_CNEG_S2_MAX	2	/* # exchanges. */
 
 /* Result output of key negotiation. */
 struct net2_cneg_keyset {

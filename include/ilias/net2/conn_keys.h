@@ -2,7 +2,6 @@
 #define ILIAS_NET2_CONN_KEYS_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <ilias/net2/cneg_key_xchange.h>
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -13,6 +12,10 @@ struct net2_buffer;		/* From ilias/net2/buffer.h */
 struct net2_connwindow;		/* From ilias/net2/connwindow.h */
 struct net2_workq;		/* From ilias/net2/workq.h */
 struct packet_header;		/* From packet.h */
+
+#define NET2_CNEG_S2_HASH	0	/* Secure hash key. */
+#define NET2_CNEG_S2_ENC	1	/* Encryption key. */
+#define NET2_CNEG_S2_MAX	2	/* # exchanges. */
 
 /* Connection keys. */
 struct net2_ck_keys {
