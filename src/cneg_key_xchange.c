@@ -190,6 +190,24 @@ struct xchange_remote {
 							 * complete */
 };
 
+/*
+ * All locally initialized keys.
+ */
+struct cneg_kx_local {
+	struct xchange_local	 xc[NET2_CNEG_S2_MAX];
+	struct net2_promise	*keys;
+	struct net2_promise	*complete;
+};
+
+/*
+ * All remotely initialized keys.
+ */
+struct cneg_kx_remote {
+	struct xchange_remote	 xc[NET2_CNEG_S2_MAX];
+	struct net2_promise	*keys;
+	struct net2_promise	*complete;
+};
+
 /* Key negotiation handler. */
 struct net2_cneg_key_xchange {
 #define NET2_CNEG_S2_HASH	0	/* Hash key negotiation. */
@@ -202,8 +220,9 @@ struct net2_cneg_key_xchange {
 #define NET2_CNEG__LRMASK	0x8000	/* Mask local/remote bit. */
 #define NET2_CNEG__MASK		(~NET2_CNEG__LRMASK) /* Slot index mask. */
 
-	struct xchange_local	 local[NET2_CNEG_S2_MAX];
-	struct xchange_remote	 remote[NET2_CNEG_S2_MAX];
+	struct cneg_kx_local	*local;
+	struct cneg_kx_remote	*remote;
+
 	struct net2_promise	*keys;	/* Unverified keys are ready. */
 	struct net2_promise	*complete; /* Completion promise. */
 
@@ -1328,7 +1347,6 @@ xchange_remote_deinit(struct xchange_remote *xr)
 	xchange_shared_deinit(&xr->shared);
 }
 
-
 /*
  * For data originating from a local exchange, these two bits
  * determine what data is present.
@@ -1457,6 +1475,202 @@ xchange_local_accept(struct xchange_local *xl,
 }
 
 
+/* Initialize remote key negotiation state. */
+static struct cneg_kx_local*
+cneg_kx_local_new(
+    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
+    struct net2_ctx *nctx,
+    int hash_alg, int enc_alg, uint32_t hash_keysize, uint32_t enc_keysize,
+    int xchange_alg, int sighash_alg,
+    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
+    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
+    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+{
+	size_t			 i;
+	int			 alg[NET2_CNEG_S2_MAX];
+	uint32_t		 keysize[NET2_CNEG_S2_MAX];
+	struct net2_promise	*proms[NET2_CNEG_S2_MAX];
+	struct net2_promise	*verify[NET2_CNEG_S2_MAX + 1];
+	struct cneg_kx_local	*local;
+
+	if ((local = net2_malloc(sizeof(*local))) == NULL)
+		goto fail_0;
+
+	alg[NET2_CNEG_S2_HASH] = hash_alg;
+	alg[NET2_CNEG_S2_ENC] = enc_alg;
+	keysize[NET2_CNEG_S2_HASH] = hash_keysize;
+	keysize[NET2_CNEG_S2_ENC] = enc_keysize;
+
+	/* Set up key exchanges. */
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+		if (xchange_local_init(&local->xc[i], wq, ectx, nctx,
+		    &xchange_specs[i], alg[i], keysize[i],
+		    xchange_alg, sighash_alg,
+		    rts_fn, rts_arg0, rts_arg1,
+		    num_outsigs, outsigs, num_insigs, insigs) != 0)
+			goto fail_1;
+		proms[i] = local->xc[i].shared.key_promise;
+		verify[i + 1] = local->xc[i].shared.complete;
+	}
+
+	/* Combine keys. */
+	if ((local->keys = net2_promise_combine(wq, &key_xchange_combine,
+	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
+		goto fail_2;
+	verify[0] = local->keys;
+
+	/* Verify keys. */
+	if ((local->complete = net2_promise_combine(wq, &key_xchange_checked,
+	    NULL, verify, NET2_CNEG_S2_MAX + 1)) == NULL)
+		goto fail_3;
+
+	return local;
+
+fail_4:
+	net2_promise_cancel(local->complete);
+	net2_promise_release(local->complete);
+fail_3:
+	net2_promise_cancel(local->keys);
+	net2_promise_release(local->keys);
+fail_2:
+	i = NET2_CNEG_S2_MAX;
+fail_1:
+	while (i-- > 0)
+		xchange_local_deinit(&local->xc[i]);
+	net2_free(local);
+fail_0:
+	return NULL;
+}
+/* Deinit local key negotiation state. */
+static void
+cneg_kx_local_destroy(struct cneg_kx_local *local)
+{
+	size_t			 i;
+
+	net2_promise_cancel(local->complete);
+	net2_promise_release(local->complete);
+	net2_promise_cancel(local->keys);
+	net2_promise_release(local->keys);
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+		xchange_local_deinit(&local->xc[i]);
+	net2_free(local);
+}
+/* Get transmit data for local key negotiation state. */
+static int
+cneg_kx_local_get_transmit(size_t i, struct cneg_kx_local *local,
+    struct net2_encdec_ctx *ectx, struct net2_workq *wq,
+    struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
+{
+	return xchange_local_get_transmit(&local->xc[i], ectx,
+	    wq, buf, txcb, maxsz);
+}
+/* Accept data for local key negotiation state. */
+static int
+cneg_kx_local_accept(size_t i, struct cneg_kx_local *local,
+    struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
+{
+	return xchange_local_accept(&local->xc[i], ectx, buf);
+}
+/* Initialize remote key negotiation state. */
+static struct cneg_kx_remote*
+cneg_kx_remote_new(
+    struct net2_workq *wq, struct net2_encdec_ctx *ectx,
+    struct net2_ctx *nctx,
+    int hash_alg, int enc_alg, uint32_t hash_keysize, uint32_t enc_keysize,
+    int xchange_alg, int sighash_alg,
+    void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,
+    uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
+    uint32_t num_insigs, struct net2_sign_ctx **insigs)
+{
+	size_t			 i;
+	int			 alg[NET2_CNEG_S2_MAX];
+	uint32_t		 keysize[NET2_CNEG_S2_MAX];
+	struct net2_promise	*proms[NET2_CNEG_S2_MAX];
+	struct net2_promise	*verify[NET2_CNEG_S2_MAX + 1];
+	struct cneg_kx_remote	*remote;
+
+	if ((remote = net2_malloc(sizeof(*remote))) == NULL)
+		goto fail_0;
+
+	alg[NET2_CNEG_S2_HASH] = hash_alg;
+	alg[NET2_CNEG_S2_ENC] = enc_alg;
+	keysize[NET2_CNEG_S2_HASH] = hash_keysize;
+	keysize[NET2_CNEG_S2_ENC] = enc_keysize;
+
+	/* Set up key exchanges. */
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
+		if (xchange_remote_init(&remote->xc[i], wq, ectx, nctx,
+		    &xchange_specs[i], alg[i], keysize[i],
+		    xchange_alg, sighash_alg,
+		    rts_fn, rts_arg0, rts_arg1,
+		    num_outsigs, outsigs, num_insigs, insigs) != 0)
+			goto fail_1;
+		proms[i] = remote->xc[i].shared.key_promise;
+		verify[i + 1] = remote->xc[i].shared.complete;
+	}
+
+	/* Combine keys. */
+	if ((remote->keys = net2_promise_combine(wq, &key_xchange_combine,
+	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
+		goto fail_2;
+	verify[0] = remote->keys;
+
+	/* Verify keys. */
+	if ((remote->complete = net2_promise_combine(wq, &key_xchange_checked,
+	    NULL, verify, NET2_CNEG_S2_MAX + 1)) == NULL)
+		goto fail_3;
+
+	return 0;
+
+fail_4:
+	net2_promise_cancel(remote->complete);
+	net2_promise_release(remote->complete);
+fail_3:
+	net2_promise_cancel(remote->keys);
+	net2_promise_release(remote->keys);
+fail_2:
+	i = NET2_CNEG_S2_MAX;
+fail_1:
+	while (i-- > 0)
+		xchange_remote_deinit(&remote->xc[i]);
+	net2_free(remote);
+fail_0:
+	return NULL;
+}
+/* Deinit remote key negotiation state. */
+static void
+cneg_kx_remote_destroy(struct cneg_kx_remote *remote)
+{
+	size_t			 i;
+
+	net2_promise_cancel(remote->complete);
+	net2_promise_release(remote->complete);
+	net2_promise_cancel(remote->keys);
+	net2_promise_release(remote->keys);
+	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
+		xchange_remote_deinit(&remote->xc[i]);
+	net2_free(remote);
+}
+/* Get transmit data for remote key negotiation state. */
+static int
+cneg_kx_remote_get_transmit(size_t i, struct cneg_kx_remote *remote,
+    struct net2_encdec_ctx *ectx, struct net2_workq *wq,
+    struct net2_buffer *buf, struct net2_tx_callback *txcb, size_t maxsz)
+{
+	return xchange_remote_get_transmit(&remote->xc[i], ectx,
+	    wq, buf, txcb, maxsz);
+}
+/* Accept data for remote key negotiation state. */
+static int
+cneg_kx_remote_accept(size_t i, struct cneg_kx_remote *remote,
+    struct net2_encdec_ctx *ectx, struct net2_buffer *buf)
+{
+	return xchange_remote_accept(&remote->xc[i], ectx, buf);
+}
+
+
+
+
 /* Flip a slot from local to remote. */
 static __inline uint16_t
 flip_slot(uint16_t slot)
@@ -1496,13 +1710,12 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
     struct net2_connection *destroy_me)
 {
 	struct net2_cneg_key_xchange	*ke;
-	struct net2_promise		*proms[2 * NET2_CNEG_S2_MAX + 1];
-	struct net2_promise		*local_keys, *remote_keys;
-	size_t				 i;
+	struct net2_promise		*proms[2];
 	size_t				 hash_keysize, enc_keysize;
 
 	assert(destroy_me != NULL);
 
+	/* XXX calculate key len in local constructor. */
 	hash_keysize = net2_hash_getkeylen(hash_alg);
 	enc_keysize = net2_enc_getkeylen(enc_alg);
 
@@ -1510,110 +1723,61 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
 		goto fail_0;
 
 	ke->renegotiate_local = ke->kill_me = NULL;
-	if (xchange_local_init(&ke->local[NET2_CNEG_S2_HASH],
-	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_HASH],
-	    hash_alg, hash_keysize, xchange_alg, sighash_alg,
+
+	if ((ke->local = cneg_kx_local_new(
+	    wq, ectx, nctx,
+	    hash_alg, enc_alg, hash_keysize, enc_keysize,
+	    xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs))
+	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
 		goto fail_1;
-	if (xchange_local_init(&ke->local[NET2_CNEG_S2_ENC],
-	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_ENC],
-	    enc_alg, enc_keysize, xchange_alg, sighash_alg,
+	if ((ke->remote = cneg_kx_remote_new(
+	    wq, ectx, nctx,
+	    hash_alg, enc_alg, hash_keysize, enc_keysize,
+	    xchange_alg, sighash_alg,
 	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs))
+	    num_outsigs, outsigs, num_insigs, insigs)) == NULL)
 		goto fail_2;
-	if (xchange_remote_init(&ke->remote[NET2_CNEG_S2_HASH],
-	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_HASH],
-	    hash_alg, hash_keysize, xchange_alg, sighash_alg,
-	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs))
-		goto fail_3;
-	if (xchange_remote_init(&ke->remote[NET2_CNEG_S2_ENC],
-	    wq, ectx, nctx, &xchange_specs[NET2_CNEG_S2_ENC],
-	    enc_alg, enc_keysize, xchange_alg, sighash_alg,
-	    rts_fn, rts_arg0, rts_arg1,
-	    num_outsigs, outsigs, num_insigs, insigs))
-		goto fail_4;
-
-	/* Set up promise for local keys. */
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		proms[i] = ke->local[i].shared.key_promise;
-	if ((local_keys = net2_promise_combine(wq, &key_xchange_combine,
-	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
-		goto fail_5;
-
-	/* Set up promise for remote keys. */
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		proms[i] = ke->remote[i].shared.key_promise;
-	if ((remote_keys = net2_promise_combine(wq, &key_xchange_combine,
-	    NULL, proms, NET2_CNEG_S2_MAX)) == NULL)
-		goto fail_6;
 
 	/* Set up combined promise for keys. */
-	proms[0] = local_keys;
-	proms[1] = remote_keys;
+	proms[0] = ke->local->keys;
+	proms[1] = ke->local->keys;
 	if ((ke->keys = net2_promise_combine(wq, &key_xchange_combine_final,
 	    NULL, proms, 2)) == NULL)
-		goto fail_7;
-
-	/*
-	 * Now that ke->keys is set up, release {local,remote}_keys.
-	 * These promises will be free-floating.
-	 */
-	net2_promise_release(local_keys);
-	local_keys = NULL;
-	net2_promise_release(remote_keys);
-	remote_keys = NULL;
+		goto fail_3;
 
 	/* Set up combined promise for completion. */
-	proms[0] = ke->keys;
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		proms[2 * i + 1] = ke->local[i].shared.complete;
-		proms[2 * i + 2] = ke->remote[i].shared.complete;
-	}
-	if ((ke->complete = net2_promise_combine(wq, &key_xchange_checked,
-	    NULL, proms, 2 * NET2_CNEG_S2_MAX + 1)) == NULL)
-		goto fail_8;
+	proms[0] = ke->local->complete;
+	proms[1] = ke->local->complete;
+	if ((ke->complete = net2_promise_combine(wq, &key_xchange_combine_final,
+	    NULL, proms, 2)) == NULL)
+		goto fail_4;
 
 	/* Prepare timers. */
 	if ((ke->renegotiate_local = net2_workq_timer_new(wq, &local_restart,
 	    ke, NULL)) == NULL)
-		goto fail_9;
+		goto fail_5;
 	if ((ke->kill_me = net2_workq_timer_new(wq, &killme,
 	    destroy_me, NULL)) == NULL)
-		goto fail_10;
+		goto fail_6;
 
 	return ke;
 
 
-fail_11:
+fail_7:
 	net2_workq_timer_free(ke->kill_me);
-fail_10:
+fail_6:
 	net2_workq_timer_free(ke->renegotiate_local);
-fail_9:
+fail_5:
 	net2_promise_cancel(ke->complete);
 	net2_promise_release(ke->complete);
-fail_8:
+fail_4:
 	net2_promise_cancel(ke->keys);
 	net2_promise_release(ke->keys);
-fail_7:
-	if (remote_keys != NULL) {
-		net2_promise_cancel(remote_keys);
-		net2_promise_release(remote_keys);
-	}
-fail_6:
-	if (local_keys != NULL) {
-		net2_promise_cancel(local_keys);
-		net2_promise_release(local_keys);
-	}
-fail_5:
-	xchange_remote_deinit(&ke->remote[NET2_CNEG_S2_ENC]);
-fail_4:
-	xchange_remote_deinit(&ke->remote[NET2_CNEG_S2_HASH]);
 fail_3:
-	xchange_local_deinit(&ke->local[NET2_CNEG_S2_ENC]);
+	cneg_kx_remote_destroy(ke->remote);
 fail_2:
-	xchange_local_deinit(&ke->local[NET2_CNEG_S2_HASH]);
+	cneg_kx_local_destroy(ke->local);
 fail_1:
 	net2_free(ke);
 fail_0:
@@ -1623,8 +1787,6 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 {
-	size_t			 i;
-
 	net2_workq_timer_free(ke->renegotiate_local);
 	net2_workq_timer_free(ke->kill_me);
 
@@ -1633,10 +1795,9 @@ net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 	net2_promise_release(ke->complete);
 	net2_promise_release(ke->keys);
 
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		xchange_remote_deinit(&ke->remote[i]);
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		xchange_local_deinit(&ke->local[i]);
+	cneg_kx_remote_destroy(ke->remote);
+	cneg_kx_local_destroy(ke->local);
+
 	net2_free(ke);
 }
 
@@ -2000,14 +2161,14 @@ net2_cneg_key_xchange_get_transmit(struct net2_cneg_key_xchange *ke,
 			 */
 			switch (lr) {
 			case 0: /* Local. */
-				error = xchange_local_get_transmit(
-				    &ke->local[i], ectx, wq,
+				error = cneg_kx_local_get_transmit(i,
+				    ke->local, ectx, wq,
 				    tmp_buf, &tmp_txcb, lmax);
 				dstslot = flip_slot(i | NET2_CNEG_LOCAL);
 				break;
 			case 1: /* Remote. */
-				error = xchange_remote_get_transmit(
-				    &ke->remote[i], ectx, wq,
+				error = cneg_kx_remote_get_transmit(i,
+				    ke->remote, ectx, wq,
 				    tmp_buf, &tmp_txcb, lmax);
 				dstslot = flip_slot(i | NET2_CNEG_REMOTE);
 				break;
@@ -2111,12 +2272,12 @@ net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange *ke,
 		/* Decode data. */
 		switch (slot & NET2_CNEG__LRMASK) {
 		case NET2_CNEG_LOCAL:
-			error = xchange_local_accept(
-			    &ke->local[slot & NET2_CNEG__MASK], ectx, in);
+			error = cneg_kx_local_accept(
+			    slot & NET2_CNEG__MASK, ke->local, ectx, in);
 			break;
 		case NET2_CNEG_REMOTE:
-			error = xchange_remote_accept(
-			    &ke->remote[slot & NET2_CNEG__MASK], ectx, in);
+			error = cneg_kx_remote_accept(
+			    slot & NET2_CNEG__MASK, ke->remote, ectx, in);
 			break;
 		default:
 			error = EINVAL;
