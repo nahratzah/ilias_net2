@@ -54,8 +54,7 @@ struct net2_cneg_key_xchange
 	    int, int,
 	    void (*)(void*, void*), void*, void*,
 	    uint32_t, struct net2_sign_ctx**,
-	    uint32_t, struct net2_sign_ctx**,
-	    struct net2_connection*);
+	    uint32_t, struct net2_sign_ctx**);
 ILIAS_NET2_LOCAL
 void	 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange*);
 ILIAS_NET2_LOCAL

@@ -1590,13 +1590,10 @@ net2_cneg_key_xchange_new(struct net2_workq *wq, struct net2_encdec_ctx *ectx,
     int xchange_alg, int sighash_alg,
     void (*rts_fn)(void*, void*), void *rts_arg0, void *rts_arg1,	/* XXX Hide these. */
     uint32_t num_outsigs, struct net2_sign_ctx **outsigs,
-    uint32_t num_insigs, struct net2_sign_ctx **insigs,
-    struct net2_connection *destroy_me)
+    uint32_t num_insigs, struct net2_sign_ctx **insigs)
 {
 	struct net2_cneg_key_xchange	*ke;
 	struct net2_promise		*proms[2];
-
-	assert(destroy_me != NULL);
 
 	if ((ke = net2_malloc(sizeof(*ke))) == NULL)
 		goto fail_0;

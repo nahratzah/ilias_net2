@@ -422,7 +422,7 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
 	    *hash, *crypt, *sign, *sighash,
 	    &cneg_ready_to_send_arg, cn, NULL,
 	    out_signs->sz, out_signs->sctx,
-	    in_signs->sz, in_signs->sctx, CNEG_CONN(cn));
+	    in_signs->sz, in_signs->sctx);
 	if (kx == NULL) {
 		error = ENOMEM;
 		goto fail_1;
