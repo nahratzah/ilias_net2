@@ -16,10 +16,10 @@
 #include "test.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/carver.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/tx_callback.h>
 #include <ilias/net2/encdec_ctx.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
 #include <ilias/net2/bsd_compat/minmax.h>
 #include <stdint.h>
@@ -74,7 +74,7 @@ mk_encdec_ctx(struct net2_encdec_ctx *ctx)
 
 void
 transmit(struct net2_carver *carver, struct net2_combiner *combiner,
-    struct net2_evbase *evbase, size_t packet_sz)
+    struct net2_workq *wq, size_t packet_sz)
 {
 	struct net2_tx_callback	 callbacks;
 	struct net2_buffer	*buf;
@@ -86,8 +86,7 @@ transmit(struct net2_carver *carver, struct net2_combiner *combiner,
 
 	printf("Starting transmit with packet size %zu\n", packet_sz);
 
-	while (!(net2_carver_is_done(carver) ||
-	    net2_combiner_is_done(combiner))) {
+	while (!net2_carver_is_done(carver)) {
 		if ((buf = net2_buffer_new()) == NULL) {
 			fprintf(stderr, "Failed to allocate buffer.\n");
 			abort();
@@ -99,7 +98,7 @@ transmit(struct net2_carver *carver, struct net2_combiner *combiner,
 		}
 
 		error = net2_carver_get_transmit(carver, &ctx,
-		    evbase, buf, &callbacks, packet_sz);
+		    wq, buf, &callbacks, packet_sz);
 		if (error != 0) {
 			fprintf(stderr, "carver_get_trnasmit: fatal error "
 			    "%d: %s\n", error, strerror(error));
@@ -125,16 +124,18 @@ transmit(struct net2_carver *carver, struct net2_combiner *combiner,
 			abort();
 		}
 
-skip:
 		net2_txcb_ack(&callbacks);
+skip:
 		net2_txcb_nack(&callbacks);
 		net2_txcb_deinit(&callbacks);
-		event_base_dispatch(evbase->evbase);
 		net2_buffer_free(buf);
 	}
 
 	net2_encdec_ctx_deinit(&ctx);
 	printf("Done transmitting\n");
+	printf("Waiting for combiner to signal ready...");
+	net2_promise_wait(net2_combiner_prom_ready(combiner));
+	printf(" ready\n");
 }
 
 int
@@ -143,13 +144,18 @@ test_run(size_t packet_sz, enum net2_carver_type carver_type)
 	struct net2_buffer	*original, *copy;
 	struct net2_carver	 carver;
 	struct net2_combiner	 combiner;
-	struct net2_evbase	*evbase;
-	struct net2_encdec_ctx	 ctx;
+	struct net2_workq	*wq;
+	struct net2_workq_evbase*wqev;
 
-	if ((evbase = net2_evbase_new()) == NULL) {
-		fprintf(stderr, "Failed to init net2_evbase.\n");
+	if ((wqev = net2_workq_evbase_new("test_run")) == NULL) {
+		fprintf(stderr, "Failed to init net2_workq_evbase.\n");
 		abort();
 	}
+	if ((wq = net2_workq_new(wqev)) == NULL) {
+		fprintf(stderr, "Failed to init net2_workq.\n");
+		abort();
+	}
+	net2_workq_evbase_release(wqev);
 	original = mk_buffer();
 
 	if (net2_carver_init(&carver, carver_type, original)) {
@@ -161,7 +167,7 @@ test_run(size_t packet_sz, enum net2_carver_type carver_type)
 		return 1;
 	}
 
-	transmit(&carver, &combiner, evbase, packet_sz);
+	transmit(&carver, &combiner, wq, packet_sz);
 
 	if (!net2_carver_is_done(&carver)) {
 		fprintf(stderr, "Carver has not completed...\n");
@@ -186,8 +192,7 @@ test_run(size_t packet_sz, enum net2_carver_type carver_type)
 	net2_combiner_deinit(&combiner);
 	net2_buffer_free(original);
 
-	event_base_dispatch(evbase->evbase);
-	net2_evbase_release(evbase);
+	net2_workq_release(wq);
 
 	return 0;
 }
