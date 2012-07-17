@@ -29,8 +29,6 @@ struct net2_sign_ctx;
 extern ILIAS_NET2_EXPORT const int net2_signmax;
 
 ILIAS_NET2_EXPORT
-size_t			 net2_sign_getsignlen(int);
-ILIAS_NET2_EXPORT
 const char		*net2_sign_getname(int);
 ILIAS_NET2_EXPORT
 int			 net2_sign_findname(const char*);
