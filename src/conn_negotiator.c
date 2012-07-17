@@ -327,8 +327,7 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
     size_t insz, void *cn_ptr)
 {
 	struct net2_cneg_stage1_pver	*pver;
-	int				*hash, *crypt, *xchange, *sign,
-					*sighash;
+	int				*hash, *crypt, *xchange, *sighash;
 	uint32_t			 error;
 	struct net2_encdec_ctx		 ectx;
 	struct net2_pvlist		 pvlist;
@@ -390,7 +389,7 @@ create_key_xchange(struct net2_promise *out, struct net2_promise **in,
 
 	/* Create key exchange. */
 	kx = net2_cneg_key_xchange_new(wq, &ectx, cn->context,
-	    *hash, *crypt, *sign, *sighash,
+	    *hash, *crypt, *xchange, *sighash,
 	    &cneg_ready_to_send_arg, cn, NULL,
 	    out_signs->sz, out_signs->sctx,
 	    in_signs->sz, in_signs->sctx);
