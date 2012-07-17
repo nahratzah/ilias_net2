@@ -119,6 +119,17 @@ net2_promise_event_deinit(struct net2_promise_event *ev)
 	net2_workq_deinit_work(net2_promise_event_wqjob((ev)));
 }
 
+/* Initialize a null event. */
+static __inline void
+net2_promise_event_init_null(struct net2_promise_event *ev)
+{
+	ev->owner = NULL;
+	ev->fn = NULL;
+	ev->evno = -1;
+	ev->arg0 = NULL;
+	net2_workq_init_work_null(&ev->job);
+}
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_PROMISE_H */
