@@ -472,7 +472,7 @@ active:
 	/*
 	 * Packet is prior to cutoff point, return old key.
 	 */
-	*out = net2_ck_key(ck, NET2_CK_RX_ACTIVE);
+	*out = &ck->keys[NET2_CK_RX_ACTIVE];
 	return;
 }
 
@@ -552,7 +552,7 @@ net2_ck_tx_key(net2_ck_keys **out, struct net2_conn_keys *ck,
 	if ((k = net2_ck_key(ck, NET2_CK_TX_ALT)) == NULL) {
 		if (ck->kx != NULL && ck->tx_expirekey_off == ph->seq)
 			return ERANGE;
-		*out = net2_ck_key(ck, NET2_CK_TX_ACTIVE);
+		*out = &ck->keys[NET2_CK_TX_ACTIVE];
 		return 0;
 	}
 
@@ -566,7 +566,7 @@ net2_ck_tx_key(net2_ck_keys **out, struct net2_conn_keys *ck,
 		 * we can use the altkey instead.
 		 */
 		if (update_tx_alt_cutoff(ck, w, ph->seq) != 0) {
-			*out = net2_ck_key(ck, NET2_CK_TX_ACTIVE);
+			*out = &ck->keys[NET2_CK_TX_ACTIVE];
 			return 0;
 		}
 	}

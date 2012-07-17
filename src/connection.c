@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/connection.h>
+#include <ilias/net2/conn_keys.h>
 #include <ilias/net2/context.h>
 #include <ilias/net2/encdec_ctx.h>
 #include <ilias/net2/cp.h>
@@ -273,7 +274,7 @@ net2_conn_gather_tx(struct net2_connection *c,
 	int				 negotiation_ready;
 	int				 stealth;
 	struct net2_tx_callback		 callbacks;
-	struct net2_cneg_keys		 keys;
+	net2_ck_keys			*keys;
 
 	has_payload = 0;
 	*bptr = NULL;
@@ -326,16 +327,15 @@ net2_conn_gather_tx(struct net2_connection *c,
 	}
 
 	/* Find keys. */
-	if ((rv = net2_cneg_txkeys(&keys, &c->n2c_negotiator, &ph,
-	    c->n2c_window.cw_tx_start, &callbacks)) != 0)
-		goto fail_2;	/* TODO: double check if this is correct. */
-	if (keys.hash.algorithm != 0) {
+	if (net2_ck_tx_key(&keys, &c->n2c_keys, &c->n2c_window, &ph) != 0)
+		goto fail_2;
+	if ((*keys)[NET2_CNEG_S2_HASH].alg != 0) {
 		ph.flags |= PH_SIGNED;
-		avail -= net2_hash_gethashlen(keys.hash.algorithm);
+		avail -= net2_hash_gethashlen((*keys)[NET2_CNEG_S2_HASH].alg);
 	}
-	if (keys.enc.algorithm != 0) {
+	if ((*keys)[NET2_CNEG_S2_ENC].alg != 0) {
 		ph.flags |= PH_ENCRYPTED;
-		avail -= net2_enc_getoverhead(keys.enc.algorithm);
+		avail -= net2_enc_getoverhead((*keys)[NET2_CNEG_S2_ENC].alg);
 	}
 	if (maxlen < avail)	/* Overflow. */
 		goto fail_2;	/* TODO: double check if this is correct. */
@@ -460,7 +460,7 @@ write_window_buf:
 	if (count > 0)
 		ph.flags |= PH_PAYLOAD;
 
-	if (net2_packet_encode(c, &net2_encdec_proto0, &ph, bptr, b, &keys))
+	if (net2_packet_encode(c, &net2_encdec_proto0, &ph, bptr, b, keys))
 		goto fail_2;
 
 	/* Succes!. */
