@@ -753,7 +753,7 @@ net2_signed_carver_get_transmit(struct net2_signed_carver *sc,
 			if (sch.pl_segs == 0 && sch.sig_segs == 0)
 				goto fail_1;
 			else
-				do_break = 1;
+				break;
 		}
 
 		do_break = 0;
