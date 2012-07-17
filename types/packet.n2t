@@ -19,8 +19,6 @@
 #include <sys/types.h>
 #include <stdint.h>
 
-struct net2_cneg_keys;		/* From ilias/net2/conn_negotiator.h */
-
 struct packet_header {
 	uint32_t		 seq;
 	uint32_t		 flags;

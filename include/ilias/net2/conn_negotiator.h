@@ -78,31 +78,7 @@ struct net2_conn_negotiator {
 	struct net2_promise_event pver_event;	/* Handle pver information. */
 };
 
-/*
- * Connection negotiator is responsible for negotiating the security keys.
- *
- * Two security keys are defined: message hash and message encryption.
- * Each sending side has its own keys.
- */
-struct net2_cneg_keys {
-	struct {
-		int		 algorithm;	/* Hash/enc algorithm. */
-		const void	*key;		/* Key. */
-		size_t		 keylen;	/* Length of key. */
-		int		 allow_insecure; /* Iff set, received data
-						  * does not need enc/hash. */
-	}			 hash,		/* Message hash key. */
-				 enc;		/* Message enc key. */
-};
-
 #ifdef BUILDING_ILIAS_NET2
-
-ILIAS_NET2_LOCAL
-int	 net2_cneg_rxkeys(struct net2_cneg_keys*, struct net2_conn_negotiator*,
-	    struct packet_header*);
-ILIAS_NET2_LOCAL
-int	 net2_cneg_txkeys(struct net2_cneg_keys*, struct net2_conn_negotiator*,
-	    struct packet_header*, uint32_t, struct net2_tx_callback*);
 
 ILIAS_NET2_LOCAL
 int	net2_cneg_allow_payload(struct net2_conn_negotiator*, uint32_t);
