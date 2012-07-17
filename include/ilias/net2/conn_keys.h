@@ -125,6 +125,8 @@ struct net2_conn_keys {
 	struct net2_connection	*conn;
 };
 
+#ifdef BUILDING_ILIAS_NET2
+
 ILIAS_NET2_LOCAL
 void			 net2_ck_rx_key(net2_ck_keys**, struct net2_conn_keys*,
 			    struct net2_connwindow*,
@@ -175,6 +177,8 @@ ILIAS_NET2_LOCAL
 void			 net2_ck_keys_init(net2_ck_keys*);
 ILIAS_NET2_LOCAL
 void			 net2_ck_keys_deinit(net2_ck_keys*);
+
+#endif /* BUILDING_ILIAS_NET2 */
 
 
 ILIAS_NET2__end_cdecl

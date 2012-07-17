@@ -95,6 +95,7 @@ struct net2_cneg_keys {
 				 enc;		/* Message enc key. */
 };
 
+#ifdef BUILDING_ILIAS_NET2
 
 ILIAS_NET2_LOCAL
 int	 net2_cneg_rxkeys(struct net2_cneg_keys*, struct net2_conn_negotiator*,
@@ -118,6 +119,8 @@ int	net2_cneg_accept(struct net2_conn_negotiator*, struct packet_header*,
 	    struct net2_buffer*);
 ILIAS_NET2_LOCAL
 int	net2_cneg_pvlist(struct net2_conn_negotiator*, struct net2_pvlist*);
+
+#endif /* BUILDING_ILIAS_NET2 */
 
 
 ILIAS_NET2__end_cdecl

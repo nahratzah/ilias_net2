@@ -20,6 +20,7 @@
 #include <ilias/net2/connstats.h>
 #include <ilias/net2/connwindow.h>
 #include <ilias/net2/conn_negotiator.h>
+#include <ilias/net2/conn_keys.h>
 #include <ilias/net2/acceptor.h>
 #include <ilias/net2/workq.h>
 
