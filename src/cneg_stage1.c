@@ -1435,7 +1435,7 @@ txh_init_fingerprints(struct txh_head *list, struct net2_signset *set,
 			TAILQ_INSERT_AFTER(list, *after, h, q);
 		else
 			TAILQ_INSERT_TAIL(list, h, q);
-		if (*after != NULL)
+		if (after != NULL)
 			*after = h;
 	}
 
