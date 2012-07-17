@@ -395,7 +395,37 @@ check_struct_has_member ("struct sockaddr_in" "sin_len"
     "${CMAKE_EXTRA_INCLUDE_FILES}" HAVE_STRUCT_SOCKADDR_IN_SIN_LEN)
 
 
+#
+# Configure libev.
+#
+if (USE_EMBEDDED_EV)
+	check_include_files (poll.h HAVE_POLL_H)
+	check_include_files (port.h HAVE_PORT_H)
+	check_include_files ("sys/types.h;sys/epoll.h" HAVE_SYS_EPOLL_H)
+	check_include_files ("sys/types.h;sys/event.h" HAVE_SYS_EVENT_H)
+	check_include_files ("sys/types.h;sys/inotify.h" HAVE_SYS_INOTIFY_H)
+	check_include_files ("sys/types.h;sys/select.h" HAVE_SYS_SELECT_H)
+	check_include_files ("sys/types.h;sys/signalfd.h" HAVE_SYS_SIGNALFD_H)
+	check_function_exists (clock_gettime HAVE_CLOCK_GETTIME)
+	# XXX HAVE_CLOCK_SYSCALL
+	check_function_exists (epoll_ctl HAVE_EPOLL_CTL)
+	check_function_exists (eventfd HAVE_EVENTFD)
+	# HAVE_FLOOR
+	check_function_exists (inotify_init HAVE_INOTIFY_INIT)
+	check_function_exists (kqueue HAVE_KQUEUE)
+	check_function_exists (nanosleep HAVE_NANOSLEEP)
+	check_function_exists (poll HAVE_POLL)
+	check_function_exists (port_create HAVE_PORT_CREATE)
+	check_function_exists (select HAVE_SELECT)
+	check_function_exists (signalfd HAVE_SIGNALFD)
+
+	# Wrap our configuration around ev.h, so libev will configure well.
+	add_definitions (-DEV_H=\"config_ev.h\")
+endif (USE_EMBEDDED_EV)
+
+
 configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
+configure_file (${PROJECT_SOURCE_DIR}/config_ev.h.in ${CMAKE_CURRENT_BINARY_DIR}/config_ev.h)
 list (APPEND headers ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
 
 add_definitions(-DBUILDING_ILIAS_NET2)
