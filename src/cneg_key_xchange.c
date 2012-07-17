@@ -41,60 +41,6 @@
 #include "exchange.h"
 
 
-/* Free a key set. */
-ILIAS_NET2_LOCAL void
-net2_cneg_keyset_free(struct net2_cneg_keyset *ks)
-{
-	size_t			 i;
-
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (ks->tx[i] != NULL)
-			net2_buffer_free(ks->tx[i]);
-		if (ks->rx[i] != NULL)
-			net2_buffer_free(ks->rx[i]);
-	}
-	net2_free(ks);
-}
-/* Duplicate a keyset. */
-ILIAS_NET2_LOCAL struct net2_cneg_keyset*
-net2_cneg_keyset_dup(struct net2_cneg_keyset *ks)
-{
-	struct net2_cneg_keyset	*copy;
-	size_t			 i;
-
-	/* Initialize empty keyset. */
-	if ((copy = net2_malloc(sizeof(*copy))) == NULL)
-		return NULL;
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++)
-		copy->tx[i] = copy->rx[i] = NULL;
-
-	/* Copy all tx keys. */
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (ks->tx[i] == NULL)
-			continue;
-		if ((copy->tx[i] = net2_buffer_copy(ks->tx[i])) == NULL)
-			goto fail;
-	}
-	/* Copy all rx keys. */
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		if (ks->rx[i] == NULL)
-			continue;
-		if ((copy->rx[i] = net2_buffer_copy(ks->rx[i])) == NULL)
-			goto fail;
-	}
-
-	/* Copy algorithms. */
-	memcpy(&copy->tx_alg, &ks->tx_alg, sizeof(copy->tx_alg));
-	memcpy(&copy->rx_alg, &ks->rx_alg, sizeof(copy->rx_alg));
-
-	return copy;
-
-fail:
-	net2_cneg_keyset_free(copy);
-	return NULL;
-}
-
-
 /* Domain specific conversion between algorithm ID and name. */
 struct xchange_spec {
 	const char*		(*getname)(int);
@@ -1800,13 +1746,6 @@ fail_0:
 	net2_promise_set_error(out, ENOMEM, 0);
 }
 
-/* Simple wrapper around keyset free, for promise. */
-static void
-net2_cneg_keyset_promfree(void *ks, void *unused ILIAS_NET2__unused)
-{
-	net2_cneg_keyset_free(ks);
-}
-
 /*
  * Combine tx and rx keys together into final promise.
  */
@@ -1814,11 +1753,9 @@ static void
 key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
     size_t insz, void *unused ILIAS_NET2__unused)
 {
-	net2_ck_keys		*r[2];
 	int			 fin;
 	uint32_t		 err;
 	size_t			 i;
-	struct net2_cneg_keyset	*keys;
 
 	assert(insz == 2);
 
@@ -1830,7 +1767,7 @@ key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
 
 	/* Check that all in promises completed succesfully. */
 	for (i = 0; i < 2; i++) {
-		fin = net2_promise_get_result(in[i], (void**)&r[i], &err);
+		fin = net2_promise_get_result(in[i], NULL, &err);
 		if (fin == NET2_PROM_FIN_ERROR) {
 			net2_promise_set_error(out, err, 0);
 			return;
@@ -1841,28 +1778,9 @@ key_xchange_combine_final(struct net2_promise *out, struct net2_promise **in,
 		}
 	}
 
-	if ((keys = net2_malloc(sizeof(*keys))) == NULL) {
-		net2_promise_set_error(out, ENOMEM, 0);
-		return;
-	}
-	/*
-	 * Simply claim all keys for ourselves (in promises are only
-	 * refered by us, so it's safe.
-	 */
-	for (i = 0; i < NET2_CNEG_S2_MAX; i++) {
-		keys->tx_alg[i] = (*r[0])[i].alg;
-		keys->tx[i] = (*r[0])[i].key;
-		keys->rx_alg[i] = (*r[1])[i].alg;
-		keys->rx[i] = (*r[1])[i].key;
-		(*r[0])[i].key = (*r[1])[i].key = NULL;
-	}
-
-	/* Assign keys to out promise. */
-	if (net2_promise_set_finok(out, keys, &net2_cneg_keyset_promfree,
-	    NULL, 0) != 0) {
-		net2_cneg_keyset_free(keys);
+	/* Success. */
+	if (net2_promise_set_finok(out, NULL, NULL, NULL, 0) != 0)
 		net2_promise_set_error(out, EIO, 0);
-	}
 }
 
 /* Assign keyset from in[0] to out, unless any of in failed. */
@@ -1873,7 +1791,6 @@ key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
 	size_t			 i;
 	int			 fin;
 	uint32_t		 err;
-	struct net2_cneg_keyset	*keys;
 
 	assert(insz >= 1);
 
@@ -1892,7 +1809,7 @@ key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
 	}
 
 	/* Read result, cascade errors. */
-	fin = net2_promise_get_result(in[0], (void**)&keys, &err);
+	fin = net2_promise_get_result(in[0], NULL, &err);
 	if (fin == NET2_PROM_FIN_ERROR) {
 		net2_promise_set_error(out, err, 0);
 		return;
@@ -1901,18 +1818,9 @@ key_xchange_checked(struct net2_promise *out, struct net2_promise **in,
 		return;
 	}
 
-	/* Duplicate result keyset. */
-	if ((keys = net2_cneg_keyset_dup(keys)) == NULL) {
-		net2_promise_set_error(out, ENOMEM, 0);
-		return;
-	}
-
-	/* Assign keyset. */
-	if (net2_promise_set_finok(out, keys, &net2_cneg_keyset_promfree,
-	    NULL, 0) != 0) {
-		net2_cneg_keyset_free(keys);
+	/* Success. */
+	if (net2_promise_set_finok(out, NULL, NULL, NULL, 0) != 0)
 		net2_promise_set_error(out, EIO, 0);
-	}
 }
 
 
@@ -2195,16 +2103,16 @@ fail:
 }
 
 /*
- * Retrieve the negotiated keys.
+ * Return promise describing when the key xchange is ready.
  *
  * If verified is set, the retrieved keys will have been verified.
- * Otherwise, unverified keys will be retrieved.
+ * Otherwise, unverified keys will have been retrieved.
  *
  * Note that if no verification was specified (in net2_ctx),
  * unverified keys and verified keys will be the same.
  */
 ILIAS_NET2_LOCAL struct net2_promise*
-net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange *ke, int verified)
+net2_cneg_key_xchange_ready(struct net2_cneg_key_xchange *ke, int verified)
 {
 	return (verified ? ke->complete : ke->keys);
 }
@@ -2256,4 +2164,20 @@ net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange *ke)
 
 fail:
 	return NULL;
+}
+ILIAS_NET2_LOCAL struct net2_promise*
+net2_cneg_key_xchange_promise_local(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->local == NULL)
+		return NULL;
+	net2_promise_ref(ke->local->complete);
+	return ke->local->complete;
+}
+ILIAS_NET2_LOCAL struct net2_promise*
+net2_cneg_key_xchange_promise_remote(struct net2_cneg_key_xchange *ke)
+{
+	if (ke->remote == NULL)
+		return NULL;
+	net2_promise_ref(ke->remote->complete);
+	return ke->remote->complete;
 }

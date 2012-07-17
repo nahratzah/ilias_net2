@@ -32,20 +32,6 @@ struct net2_ctx;		/* From ilias/net2/context.h */
 struct net2_sign_ctx;		/* From ilias/net2/sign.h */
 struct net2_connection;		/* From ilias/net2/connection.h */
 
-/* Result output of key negotiation. */
-struct net2_cneg_keyset {
-	int			 tx_alg[NET2_CNEG_S2_MAX];
-	int			 rx_alg[NET2_CNEG_S2_MAX];
-	struct net2_buffer	*tx[NET2_CNEG_S2_MAX];
-	struct net2_buffer	*rx[NET2_CNEG_S2_MAX];
-};
-
-ILIAS_NET2_LOCAL
-void	 net2_cneg_keyset_free(struct net2_cneg_keyset*);
-ILIAS_NET2_LOCAL
-struct net2_cneg_keyset
-	*net2_cneg_keyset_dup(struct net2_cneg_keyset*);
-
 ILIAS_NET2_LOCAL
 struct net2_cneg_key_xchange
 	*net2_cneg_key_xchange_new(struct net2_workq*, struct net2_encdec_ctx*,
@@ -67,7 +53,7 @@ int	 net2_cneg_key_xchange_accept(struct net2_cneg_key_xchange*,
 
 ILIAS_NET2_LOCAL
 struct net2_promise
-	*net2_cneg_key_xchange_keys(struct net2_cneg_key_xchange*, int);
+	*net2_cneg_key_xchange_ready(struct net2_cneg_key_xchange*, int);
 
 ILIAS_NET2_LOCAL
 void	 net2_cneg_key_xchange_forget_local(struct net2_cneg_key_xchange*);
@@ -79,6 +65,12 @@ struct net2_promise
 ILIAS_NET2_LOCAL
 struct net2_promise
 	*net2_cneg_key_xchange_recreate_remote(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+struct net2_promise
+	*net2_cneg_key_xchange_promise_local(struct net2_cneg_key_xchange*);
+ILIAS_NET2_LOCAL
+struct net2_promise
+	*net2_cneg_key_xchange_promise_remote(struct net2_cneg_key_xchange*);
 
 
 ILIAS_NET2__end_cdecl
