@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/conn_negotiator.h>
 #include <ilias/net2/connection.h>
+#include <ilias/net2/conn_keys.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/bitset.h>
 #include <ilias/net2/buffer.h>
@@ -456,13 +457,16 @@ key_xchange_assign(void *kx_promise, void *cn_ptr)
 	case NET2_PROM_FIN_OK:
 		assert(kx != NULL);
 		cn->keyx = kx;
-		net2_ck_init_key_xchange(&CNEG_CONN(cn)->n2c_keys, kx);
+		if (net2_ck_init_key_xchange(&CNEG_CONN(cn)->n2c_keys, kx) != 0)
+			goto fail;	/* Handle failure. */
+		net2_promise_dontfree(kx_promise);
 		break;
 	default:
 		err = EIO;
 		/* FALLTHROUGH */
 	case NET2_PROM_FIN_ERROR:
-		assert(0); /* XXX handle failure. */
+fail:
+		net2_connection_destroy(CNEG_CONN(cn)); /* Handle failure. */
 		break;
 	}
 }
