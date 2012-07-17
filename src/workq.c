@@ -366,6 +366,7 @@ net2_workq_set_thread_count(struct net2_workq_evbase *wqev, size_t target)
 			error = ENOMEM;
 			break;
 		}
+		w->evbase = wqev;
 
 		/* Start the new worker. */
 		if ((w->worker = net2_thread_new(&net2_workq_worker, w,
