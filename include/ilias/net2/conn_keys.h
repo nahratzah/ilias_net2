@@ -139,18 +139,14 @@ ILIAS_NET2_LOCAL
 int			 net2_ck_tx_key(net2_ck_keys**, struct net2_conn_keys*,
 			    struct net2_connwindow*,
 			    struct packet_header*);
-ILIAS_NET2_LOCAL
-int			 net2_ck_rx_key_inject(struct net2_conn_keys*,
-			    const net2_ck_keys*);
-ILIAS_NET2_LOCAL
-int			 net2_ck_tx_key_inject(struct net2_conn_keys*,
-			    const net2_ck_keys*);
 
 ILIAS_NET2_LOCAL
 int			 net2_ck_init(struct net2_conn_keys*,
 			    struct net2_workq*,
-			    struct net2_cneg_key_xchange*,
 			    struct net2_connection*);
+ILIAS_NET2_LOCAL
+int			 net2_ck_init_key_xchange(struct net2_conn_keys*,
+			    struct net2_cneg_key_xchange*);
 ILIAS_NET2_LOCAL
 void			 net2_ck_deinit(struct net2_conn_keys*);
 

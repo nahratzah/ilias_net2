@@ -80,9 +80,14 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 		goto fail_4;
 	if ((error = net2_connstats_init(&conn->n2c_stats, conn)) != 0)
 		goto fail_5;
+	if ((error = net2_ck_init(&conn->n2c_keys, workq, conn)) != 0)
+		goto fail_6;
 
 	return 0;
 
+
+fail_7:
+	net2_ck_deinit(&conn->n2c_keys);
 fail_6:
 	net2_connstats_deinit(&conn->n2c_stats);
 fail_5:
@@ -108,6 +113,7 @@ net2_connection_deinit(struct net2_connection *conn)
 {
 	struct net2_conn_receive	*r;
 
+	net2_ck_deinit(&conn->n2c_keys);
 	net2_cneg_deinit(&conn->n2c_negotiator);
 	net2_connstats_deinit(&conn->n2c_stats);
 	net2_connwindow_deinit(&conn->n2c_window);

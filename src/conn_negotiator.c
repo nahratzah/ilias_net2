@@ -454,7 +454,9 @@ key_xchange_assign(void *kx_promise, void *cn_ptr)
 	assert(fin != NET2_PROM_FIN_UNFINISHED);
 	switch (fin) {
 	case NET2_PROM_FIN_OK:
+		assert(kx != NULL);
 		cn->keyx = kx;
+		net2_ck_init_key_xchange(&CNEG_CONN(cn)->n2c_keys, kx);
 		break;
 	default:
 		err = EIO;

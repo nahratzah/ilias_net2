@@ -35,12 +35,18 @@ static const struct timeval tv_expire = { NET2_REKEY_DAMOCLES_SEC, 0 };
 static void	do_killme(void*, void*);
 static void	do_rx_alt_cutoff(void*, void*);
 static void	do_tx_alt_cutoff(void*, void*);
-static int	update_rx_alt_cutoff(struct net2_conn_keys*, struct net2_connwindow*, uint32_t);
-static int	update_tx_alt_cutoff(struct net2_conn_keys*, struct net2_connwindow*, uint32_t);
+static int	update_rx_alt_cutoff(struct net2_conn_keys*,
+		    struct net2_connwindow*, uint32_t);
+static int	update_tx_alt_cutoff(struct net2_conn_keys*,
+		    struct net2_connwindow*, uint32_t);
 static void	ck_assign_kx(void*, void*);
 static void	do_rx_rekey_assign(void*, void*);
 static void	do_tx_rekey_assign(void*, void*);
 static void	do_rx_rekey(void*, void*);
+static int	net2_ck_rx_key_inject(struct net2_conn_keys*,
+		    const net2_ck_keys*);
+static int	net2_ck_tx_key_inject(struct net2_conn_keys*,
+		    const net2_ck_keys*);
 
 
 /* Test if the key set has keys. */
@@ -482,7 +488,8 @@ net2_ck_rx_key_commit(struct net2_conn_keys *ck,
 		/*
 		 * Test if the rx packet exceeds the rekey point.
 		 */
-		if (net2_promise_event_is_null(&ck->rx_rekey_ready) &&
+		if (ck->kx != NULL &&
+		    net2_promise_event_is_null(&ck->rx_rekey_ready) &&
 		    ph->seq - w->cw_rx_start >=
 		    ck->rx_rekey_off - w->cw_rx_start)
 			do_rx_rekey(ck, ck->kx);
@@ -505,7 +512,7 @@ net2_ck_rx_key_commit(struct net2_conn_keys *ck,
 /*
  * Update the key set with a new alternative RX key.
  */
-ILIAS_NET2_LOCAL int
+static int
 net2_ck_rx_key_inject(struct net2_conn_keys *ck,
     const net2_ck_keys *key)
 {
@@ -543,7 +550,7 @@ net2_ck_tx_key(net2_ck_keys **out, struct net2_conn_keys *ck,
 
 	/* No alt key, return active key. */
 	if ((k = net2_ck_key(ck, NET2_CK_TX_ALT)) == NULL) {
-		if (ck->tx_expirekey_off == ph->seq)
+		if (ck->kx != NULL && ck->tx_expirekey_off == ph->seq)
 			return ERANGE;
 		*out = net2_ck_key(ck, NET2_CK_TX_ACTIVE);
 		return 0;
@@ -573,7 +580,7 @@ net2_ck_tx_key(net2_ck_keys **out, struct net2_conn_keys *ck,
 /*
  * Update the key set with a new alternative TX key.
  */
-ILIAS_NET2_LOCAL int
+static int
 net2_ck_tx_key_inject(struct net2_conn_keys *ck,
     const net2_ck_keys *key)
 {
@@ -604,25 +611,17 @@ net2_ck_tx_key_inject(struct net2_conn_keys *ck,
  */
 ILIAS_NET2_LOCAL int
 net2_ck_init(struct net2_conn_keys *ck, struct net2_workq *wq,
-    struct net2_cneg_key_xchange *kx, struct net2_connection *conn)
+    struct net2_connection *conn)
 {
 	size_t			 i;
-	int			 error;
 
 	ck->wq = wq;
 	ck->kx = NULL;
 	ck->conn = conn;
+	ck->tx_rekey_expire = NULL;
+	ck->rx_rekey = NULL;
 	for (i = 0; i < sizeof(ck->keys) / sizeof(ck->keys[0]); i++)
 		zero_keys(&ck->keys[i]);
-
-	/* Set up timer for rekeying. */
-	if ((ck->tx_rekey_expire = net2_workq_timer_new(wq,
-	    &do_killme, ck, conn)) == NULL)
-		goto fail_0;
-	/* Set up expiry for remotely created keys. */
-	if ((ck->rx_rekey = net2_workq_timer_new(wq,
-	    &do_rx_rekey, ck, kx)) == NULL)
-		goto fail_1;
 
 	ck->rx_alt_cutoff = ck->tx_alt_cutoff = 0;
 	ck->flags = 0;
@@ -630,13 +629,44 @@ net2_ck_init(struct net2_conn_keys *ck, struct net2_workq *wq,
 	net2_promise_event_init_null(&ck->tx_alt_cutoff_expire);
 	net2_promise_event_init_null(&ck->rx_rekey_ready);
 	net2_promise_event_init_null(&ck->tx_rekey_ready);
+	net2_promise_event_init_null(&ck->kx_complete);
 
+	return 0;
+}
+
+/* Assign key xchange to conn keys. */
+ILIAS_NET2_LOCAL int
+net2_ck_init_key_xchange(struct net2_conn_keys *ck,
+    struct net2_cneg_key_xchange *kx)
+{
+	int			 error;
+
+	/* Validate state. */
+	if (ck->tx_rekey_expire != NULL ||
+	    ck->rx_rekey != NULL ||
+	    ck->kx != NULL ||
+	    !net2_promise_event_is_null(&ck->kx_complete)) {
+		error = EINVAL;
+		goto fail_0;
+	}
+
+	/* Set up timer for rekeying. */
+	if ((ck->tx_rekey_expire = net2_workq_timer_new(ck->wq,
+	    &do_killme, ck, ck->conn)) == NULL)
+		goto fail_0;
+	/* Set up expiry for remotely created keys. */
+	if ((ck->rx_rekey = net2_workq_timer_new(ck->wq,
+	    &do_rx_rekey, ck, kx)) == NULL)
+		goto fail_1;
+
+	/* Assign completion event. */
 	if ((error = net2_promise_event_init(&ck->kx_complete,
 	    net2_cneg_key_xchange_ready(kx, 1),
-	    NET2_PROM_ON_FINISH, wq, &ck_assign_kx, ck, kx)) != 0)
+	    NET2_PROM_ON_FINISH, ck->wq, &ck_assign_kx, ck, kx)) != 0)
 		goto fail_2;
 
 	return 0;
+
 
 fail_3:
 	net2_promise_event_deinit(&ck->kx_complete);
@@ -656,8 +686,10 @@ net2_ck_deinit(struct net2_conn_keys *ck)
 {
 	size_t			 i;
 
-	net2_workq_timer_free(ck->tx_rekey_expire);
-	net2_workq_timer_free(ck->rx_rekey);
+	if (ck->tx_rekey_expire)
+		net2_workq_timer_free(ck->tx_rekey_expire);
+	if (ck->rx_rekey)
+		net2_workq_timer_free(ck->rx_rekey);
 
 	net2_promise_event_deinit(&ck->rx_alt_cutoff_expire);
 	net2_promise_event_deinit(&ck->tx_alt_cutoff_expire);

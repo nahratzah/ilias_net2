@@ -58,6 +58,7 @@ struct net2_conn_receive {
 struct net2_connection {
 	struct net2_acceptor_socket
 				 n2c_socket;	/* Acceptor socket base. */
+	struct net2_conn_keys	 n2c_keys;
 	struct net2_conn_negotiator
 				 n2c_negotiator; /* Protocol negotiator. */
 
