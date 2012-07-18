@@ -534,7 +534,7 @@ test_truncate()
 
 
 	printf("- attempting truncate from 6 to 3 bytes "
-	    "of buffer with two segments, at split point");
+	    "of buffer with two segments, at split point\n");
 	net2_buffer_add(buf, "bar", 3);
 	net2_buffer_truncate(buf, 3);
 	if (net2_buffer_length(buf) != 3) {
