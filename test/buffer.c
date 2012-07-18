@@ -503,6 +503,79 @@ test_remove()
 }
 
 int
+test_truncate()
+{
+	struct net2_buffer	*buf, *tmp;
+
+	if ((buf = net2_buffer_new()) == NULL) {
+		printf("  net2_buffer_new fail\n");
+		fail++;
+		return -1;
+	}
+	if (net2_buffer_add(buf, "foobar", 6)) {
+		printf("  net2_buffer_add fail\n");
+		fail++;
+		return -1;
+	}
+	if ((tmp = net2_buffer_copy(buf)) == NULL) {
+		printf("  net2_buffer_copy fail\n");
+		fail++;
+		return -1;
+	}
+	net2_buffer_add(tmp, "baz", 3);
+
+	printf("- attempting truncate from 6 to 3 bytes "
+	    "of single segment buffer\n");
+	net2_buffer_truncate(buf, 3);
+	if (net2_buffer_length(buf) != 3) {
+		printf("  net2_buffer_length not truncated to %u, but to %u\n",
+		    3U, (unsigned int)net2_buffer_length(buf));
+	}
+
+
+	printf("- attempting truncate from 6 to 3 bytes "
+	    "of buffer with two segments, at split point");
+	net2_buffer_add(buf, "bar", 3);
+	net2_buffer_truncate(buf, 3);
+	net2_buffer_free(tmp);
+	if (net2_buffer_length(buf) != 3) {
+		printf("  net2_buffer_length not truncated to %u, but to %u\n",
+		    3U, (unsigned int)net2_buffer_length(buf));
+	}
+
+
+	printf("- attempting to truncate from 6 to 2 bytes "
+	    "of buffer with two segments, clipping first segment");
+	net2_buffer_add(buf, "bar", 3);
+	net2_buffer_truncate(buf, 2);
+	net2_buffer_free(tmp);
+	if (net2_buffer_length(buf) != 2) {
+		printf("  net2_buffer_length not truncated to %u, but to %u\n",
+		    2U, (unsigned int)net2_buffer_length(buf));
+	}
+
+
+	printf("- attempting to truncate from 6 to 4 bytes "
+	    "of buffer with two segments, clipping second segment");
+	net2_buffer_free(buf);
+	net2_buffer_free(tmp);
+	buf = net2_buffer_new();
+	net2_buffer_add(buf, "foo", 3);
+	tmp = net2_buffer_copy(buf);
+	net2_buffer_add(tmp, "baz", 3);
+	net2_buffer_add(buf, "bar", 3);
+	net2_buffer_truncate(buf, 4);
+	if (net2_buffer_length(buf) != 4) {
+		printf("  net2_buffer_length not truncated to %u, but to %u\n",
+		    4U, (unsigned int)net2_buffer_length(buf));
+	}
+
+	net2_buffer_free(buf);
+	net2_buffer_free(tmp);
+	return 0;
+}
+
+int
 main()
 {
 	test_start();
@@ -534,6 +607,10 @@ main()
 
 	printf("test 7: search\n");
 	if (test_search())
+		return -1;
+
+	printf("test 8: truncate\n");
+	if (test_truncate())
 		return -1;
 
 	if (fail == 0)
