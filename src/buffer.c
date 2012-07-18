@@ -1188,7 +1188,7 @@ net2_buffer_remove_buffer(struct net2_buffer *src, struct net2_buffer *dst,
 	src_list = src->list;
 
 	/* Always succeeds. */
-	if (len == 0)
+	if (len == 0 || net2_buffer_empty(src))
 		return 0;
 
 #ifndef NDEBUG
