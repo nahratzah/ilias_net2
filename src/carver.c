@@ -175,6 +175,10 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 			err = ENOMEM;
 			goto fail_1;
 		}
+		if ((err = net2_txcb_entryq_init(&r->txcbeq)) != 0) {
+			err = ENOMEM;
+			goto fail_2;
+		}
 		RB_INSERT(net2_carver_ranges, &c->ranges, r);
 		TAILQ_INSERT_HEAD(&c->ranges_tx, r, txq);
 	}
@@ -182,25 +186,29 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 	/* Initialize completion promise. */
 	if ((c->ready = net2_promise_new()) == NULL) {
 		err = ENOMEM;
-		goto fail_1;
+		goto fail_3;
 	}
 
 	/* Initialize size callbacks. */
 	if ((err = net2_txcb_entryq_init(&c->size_txq)) != 0)
-		goto fail_2;
+		goto fail_4;
 
 	/* Mark the promise as having started. */
 	net2_promise_set_running(c->ready);
 
 	return 0;
 
-fail_2:
+fail_4:
 	net2_promise_release(c->ready);
-fail_1:
-	if (r != NULL) {
+fail_3:
+	if (r != NULL)
+		net2_txcb_entryq_deinit(&r->txcbeq);
+fail_2:
+	if (r != NULL)
 		net2_buffer_free(r->data);
+fail_1:
+	if (r != NULL)
 		net2_free(r);
-	}
 fail_0:
 	return err;
 }
