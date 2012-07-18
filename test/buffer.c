@@ -537,7 +537,6 @@ test_truncate()
 	    "of buffer with two segments, at split point");
 	net2_buffer_add(buf, "bar", 3);
 	net2_buffer_truncate(buf, 3);
-	net2_buffer_free(tmp);
 	if (net2_buffer_length(buf) != 3) {
 		printf("  net2_buffer_length not truncated to %u, but to %u\n",
 		    3U, (unsigned int)net2_buffer_length(buf));
@@ -545,10 +544,9 @@ test_truncate()
 
 
 	printf("- attempting to truncate from 6 to 2 bytes "
-	    "of buffer with two segments, clipping first segment");
+	    "of buffer with two segments, clipping first segment\n");
 	net2_buffer_add(buf, "bar", 3);
 	net2_buffer_truncate(buf, 2);
-	net2_buffer_free(tmp);
 	if (net2_buffer_length(buf) != 2) {
 		printf("  net2_buffer_length not truncated to %u, but to %u\n",
 		    2U, (unsigned int)net2_buffer_length(buf));
@@ -556,7 +554,7 @@ test_truncate()
 
 
 	printf("- attempting to truncate from 6 to 4 bytes "
-	    "of buffer with two segments, clipping second segment");
+	    "of buffer with two segments, clipping second segment\n");
 	net2_buffer_free(buf);
 	net2_buffer_free(tmp);
 	buf = net2_buffer_new();
