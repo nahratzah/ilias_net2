@@ -17,9 +17,7 @@
 #include "test.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/connection.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
-#include <ilias/net2/packet.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
