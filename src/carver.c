@@ -661,7 +661,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 		error = ENOMEM;
 		goto fail_1;
 	}
-	if ((error = net2_txcb_entryq_init(&r->txcbeq)) != 0)
+	if ((error = net2_txcb_entryq_init(&sibling->txcbeq)) != 0)
 		goto fail_2;
 
 	/* Adjust buffers and sibling offset. */
