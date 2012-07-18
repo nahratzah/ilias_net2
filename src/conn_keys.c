@@ -652,12 +652,16 @@ net2_ck_init_key_xchange(struct net2_conn_keys *ck,
 
 	/* Set up timer for rekeying. */
 	if ((ck->tx_rekey_expire = net2_workq_timer_new(ck->wq,
-	    &do_killme, ck, ck->conn)) == NULL)
+	    &do_killme, ck, ck->conn)) == NULL) {
+		error = ENOMEM;
 		goto fail_0;
+	}
 	/* Set up expiry for remotely created keys. */
 	if ((ck->rx_rekey = net2_workq_timer_new(ck->wq,
-	    &do_rx_rekey, ck, kx)) == NULL)
+	    &do_rx_rekey, ck, kx)) == NULL) {
+		error = ENOMEM;
 		goto fail_1;
+	}
 
 	/* Assign completion event. */
 	if ((error = net2_promise_event_init(&ck->kx_complete,
