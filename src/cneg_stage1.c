@@ -2330,8 +2330,6 @@ get_promise(struct net2_cneg_stage1 *s, unsigned int which)
 {
 	struct net2_promise	*p;
 
-	assert((which & F_TYPEMASK) != which);
-
 	if (which & F_SET_ELEMENT) {
 		/* Return set element. */
 		which &= ~F_SET_ELEMENT;
