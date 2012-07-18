@@ -642,6 +642,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
     size_t maxsz)
 {
 	struct net2_carver_range*sibling;
+	int			 error;
 
 	assert(r != NULL);
 	assert(maxsz > 0);
@@ -650,14 +651,18 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	assert(net2_txcb_entryq_empty(&r->txcbeq, NET2_TXCB_EQ_ALL));
 
 	/* Allocate sibling as a copy or r. */
-	if ((sibling = net2_malloc(sizeof(*sibling))) == NULL)
-		return ENOMEM;
+	if ((sibling = net2_malloc(sizeof(*sibling))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
 	sibling->offset = r->offset;
 	sibling->flags = r->flags;
 	if ((sibling->data = net2_buffer_copy(r->data)) == NULL) {
-		net2_free(sibling);
-		return ENOMEM;
+		error = ENOMEM;
+		goto fail_1;
 	}
+	if ((error = net2_txcb_entryq_init(&r->txcbeq)) != 0)
+		goto fail_2;
 
 	/* Adjust buffers and sibling offset. */
 	sibling->offset += maxsz;
@@ -666,6 +671,16 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	/* Update ranges tree. */
 	RB_INSERT(net2_carver_ranges, &c->ranges, sibling);
 	return 0;
+
+
+fail_3:
+	net2_txcb_entryq_deinit(&r->txcbeq);
+fail_2:
+	net2_buffer_free(r->data);
+fail_1:
+	net2_free(sibling);
+fail_0:
+	return error;
 }
 
 /* Read back carver range message into r. */
