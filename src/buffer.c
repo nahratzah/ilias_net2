@@ -1722,38 +1722,36 @@ ILIAS_NET2_EXPORT void
 net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 {
 	struct net2_buffer_segment	*list;
-	size_t				 listlen, avail, lastlen;
+	size_t				 i, listlen, avail;
 
 	list = b->list;
 	avail = maxlen;
-	lastlen = 0;
+	/* Skip segments, decreasing avail bytes as we go. */
 	for (listlen = 0; avail > 0 && listlen < b->listlen; listlen++) {
-		if (avail <= list[listlen].len) {
-			lastlen = avail;
+		if (avail < list[listlen].len) {
+			segment_trunc(&list[listlen], avail);
 			avail = 0;
 		} else
 			avail -= list[listlen].len;
 	}
 
-	/* Buffer is already shorter than maxlen. */
+	/* No reduction in number of segments. */
 	if (listlen == b->listlen)
-		return;
+		goto out;
 
-	/* Truncate partial segment. */
-	if (lastlen > 0) {
-		segment_trunc(&list[listlen], lastlen);
-		if (++listlen == b->listlen)
-			return;
-	}
-
-	/* Throw away segments that are no longer used. */
-	while (b->listlen > listlen)
-		segment_deinit(&list[--b->listlen]);
+	/* Deinitialize no longer referenced segments. */
+	for (i = listlen; i < b->listlen; i++)
+		segment_deinit(&list[i]);
+	b->listlen = listlen;
 
 	/* Attempt to conserve memory. */
-	if ((list = net2_recalloc(list, listlen, sizeof(*list))) != NULL)
+	if (listlen == 0) {
+		net2_free(list);
+		b->list = NULL;
+	} else if ((list = net2_recalloc(list, listlen, sizeof(*list))) != NULL)
 		b->list = list;
 
+out:
 	kill_reserve(b);
 	ASSERTBUFFER(b);
 }
