@@ -667,8 +667,10 @@ net2_cneg_get_transmit(struct net2_conn_negotiator *cn,
 		break;
 
 	case NET2_CNEG_STAGE_KEY_EXCHANGE:
-		if (cn->keyx == NULL)
+		if (cn->keyx == NULL) {
+			error = 0;
 			break;
+		}
 
 		/* Fill stage 2 transmission data. */
 		if ((error = net2_encdec_ctx_newaccsocket(&ectx,
