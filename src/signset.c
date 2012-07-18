@@ -188,11 +188,10 @@ net2_signset_all_fingerprints(struct net2_signset *s,
 	if (s == NULL || listptr == NULL || countptr == NULL)
 		return EINVAL;
 
-	if ((list = calloc(s->size, sizeof(*list))) == NULL)
+	if ((list = net2_calloc(s->size, sizeof(*list))) == NULL)
 		return ENOMEM;
 
 	count = 0;
-	list = NULL;
 	RB_FOREACH(e, net2_signset_tree, &s->data) {
 		if ((list[count] = net2_signctx_fingerprint(e->key)) == NULL) {
 			error = ENOMEM;
