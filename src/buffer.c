@@ -1736,12 +1736,15 @@ net2_buffer_truncate(struct net2_buffer *b, size_t maxlen)
 	}
 
 	/* Buffer is already shorter than maxlen. */
-	if (avail > 0)
+	if (listlen == b->listlen)
 		return;
 
 	/* Truncate partial segment. */
-	if (listlen > 0)
-		segment_trunc(&list[listlen - 1], lastlen);
+	if (lastlen > 0) {
+		segment_trunc(&list[listlen], lastlen);
+		if (++listlen == b->listlen)
+			return;
+	}
 
 	/* Throw away segments that are no longer used. */
 	while (b->listlen > listlen)
