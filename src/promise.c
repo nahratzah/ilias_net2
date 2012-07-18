@@ -115,9 +115,9 @@ net2_promise_init(struct net2_promise *p)
 	net2_refcnt_set(&p->refcnt, 1);
 	net2_refcnt_set(&p->combi_refcnt, 0);
 	if ((p->mtx = net2_mutex_alloc()) == NULL)
-		goto fail_1;
+		goto fail_0;
 	if ((p->cnd = net2_event_alloc()) == NULL)
-		goto fail_2;
+		goto fail_1;
 	p->flags = 0;
 	p->error = 0;
 	p->result = NULL;
@@ -132,10 +132,11 @@ net2_promise_init(struct net2_promise *p)
 
 	return 0;
 
+
 fail_2:
-	net2_mutex_free(p->mtx);
+	net2_event_free(p->cnd);
 fail_1:
-	net2_free(p);
+	net2_mutex_free(p->mtx);
 fail_0:
 	return ENOMEM;
 }
