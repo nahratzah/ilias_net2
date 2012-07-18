@@ -1064,6 +1064,7 @@ run_wq(struct net2_workq_evbase *wqev, struct net2_workq *wq)
 	if (died)
 		goto out;
 
+	assert(wq->died == &died);
 	wq->died = NULL;
 	wq->execing = NULL;
 
