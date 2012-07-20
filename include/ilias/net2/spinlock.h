@@ -26,38 +26,39 @@ ILIAS_NET2__begin_cdecl
 typedef CRITICAL_SECTION	net2_spinlock;
 
 static __inline int
-net2_spinlock_init(struct net2_spinlock *l)
+net2_spinlock_init(net2_spinlock *l)
 {
 	InitializeCriticalSection(l);
 	return 0;
 }
 static __inline void
-net2_spinlock_deinit(struct net2_spinlock *l)
+net2_spinlock_deinit(net2_spinlock *l)
 {
 	DeleteCriticalSection(l);
 }
 static __inline void
-net2_spinlock_lock(struct net2_spinlock *l)
+net2_spinlock_lock(net2_spinlock *l)
 {
 	EnterCriticalSection(l);
 }
 static __inline int
-net2_spinlock_trylock(struct net2_spinlock *l)
+net2_spinlock_trylock(net2_spinlock *l)
 {
 	return TryEnterCriticalSection(l);
 }
 static __inline void
-net2_spinlock_unlock(struct net2_spinlock *l)
+net2_spinlock_unlock(net2_spinlock *l)
 {
 	LeaveCriticalSection(l);
 }
 #else	/* Posix implementation. */
 #include <pthread.h>
+#include <errno.h>
 
 typedef pthread_spinlock_t	net2_spinlock;
 
 static __inline int
-net2_spinlock_init(struct net2_spinlock *l)
+net2_spinlock_init(net2_spinlock *l)
 {
 	int		 rv;
 
@@ -66,7 +67,7 @@ net2_spinlock_init(struct net2_spinlock *l)
 	return rv;
 }
 static __inline void
-net2_spinlock_deinit(struct net2_spinlock *l)
+net2_spinlock_deinit(net2_spinlock *l)
 {
 	int		 rv;
 
@@ -74,7 +75,7 @@ net2_spinlock_deinit(struct net2_spinlock *l)
 	assert(rv == 0);
 }
 static __inline void
-net2_spinlock_lock(struct net2_spinlock *l)
+net2_spinlock_lock(net2_spinlock *l)
 {
 	int		 rv;
 
@@ -82,7 +83,7 @@ net2_spinlock_lock(struct net2_spinlock *l)
 	assert(rv == 0);
 }
 static __inline int
-net2_spinlock_trylock(struct net2_spinlock *l)
+net2_spinlock_trylock(net2_spinlock *l)
 {
 	int		 rv;
 
@@ -93,7 +94,7 @@ net2_spinlock_trylock(struct net2_spinlock *l)
 	return 1;
 }
 static __inline void
-net2_spinlock_unlock(struct net2_spinlock *l)
+net2_spinlock_unlock(net2_spinlock *l)
 {
 	int		 rv;
 
