@@ -170,7 +170,7 @@ int	net2_semaphore_trydown(struct net2_semaphore*, unsigned int);
 static __inline int
 net2_semaphore_init(struct net2_semaphore *s)
 {
-	return net2_semaphore_init(s, 0);
+	return net2_semaphore_initval(s, 0);
 }
 
 
