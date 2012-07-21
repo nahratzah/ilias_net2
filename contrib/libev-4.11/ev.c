@@ -661,7 +661,7 @@ typedef int ecb_bool;
 
 #define ecb_function_ ecb_inline
 
-#if ECB_GCC_VERSION(3,1)
+#if ECB_GCC_VERSION(3,1) || defined(__clang__)
   #define ecb_attribute(attrlist)        __attribute__(attrlist)
   #define ecb_is_constant(expr)          __builtin_constant_p (expr)
   #define ecb_expect(expr,value)         __builtin_expect ((expr),(value))
@@ -869,7 +869,7 @@ ecb_inline uint64_t ecb_rotr64 (uint64_t x, unsigned int count) { return (x << (
   }
 #endif
 
-#if ECB_GCC_VERSION(4,5)
+#if ECB_GCC_VERSION(4,5) || defined(__clang__)
   #define ecb_unreachable() __builtin_unreachable ()
 #else
   /* this seems to work fine, but gcc always emits a warning for it :/ */
