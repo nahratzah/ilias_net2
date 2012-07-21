@@ -120,6 +120,7 @@ check_function_exists (snprintf HAS_SNPRINTF)
 check_function_exists (vsnprintf HAS_VSNPRINTF)
 check_function_exists (strlcpy HAS_STRLCPY)
 check_function_exists (strlcat HAS_STRLCAT)
+check_function_exists (nanosleep HAS_NANOSLEEP)
 check_include_files (sys/param.h HAVE_SYS_PARAM_H)
 check_include_files (sysexits.h HAVE_SYSEXITS_H)
 check_include_files (sys/time.h HAVE_SYS_TIME_H)
@@ -129,6 +130,7 @@ check_include_files (sys/queue.h HAVE_SYS_QUEUE_H)
 check_include_files (sys/tree.h HAVE_SYS_TREE_H)
 check_include_files (getopt.h HAVE_GETOPT_H)
 check_include_files (stdatomic.h HAVE_STDATOMIC_H)
+check_include_files (semaphore.h HAVE_SEMAPHORE_H)
 
 list (APPEND headers
 	include/ilias/net2/bsd_compat/error.h

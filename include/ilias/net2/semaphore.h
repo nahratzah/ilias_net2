@@ -27,7 +27,6 @@ ILIAS_NET2__begin_cdecl
 
 struct net2_semaphore {
 	HANDLE			 s;
-	CRITICAL_SECTION	 down_excl;
 };
 
 static __inline int
@@ -35,7 +34,6 @@ net2_semaphore_initval(struct net2_semaphore *s, unsigned int initval)
 {
 	if ((s->s = CreateSemaphore(NULL, initval, (unsigned int)-1, NULL)) == NULL)
 		return ENOMEM;
-	InitializeCriticalSection(&s->down_excl);
 	return 0;
 }
 
@@ -43,7 +41,6 @@ static __inline void
 net2_semaphore_deinit(struct net2_semaphore *s)
 {
 	CloseHandle(s->s);
-	DeleteCriticalSection(&s->down_excl);
 }
 
 static __inline void
@@ -53,41 +50,20 @@ net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
 }
 
 static __inline void
-net2_semaphore_down(struct net2_semaphore *s, unsigned int count)
+net2_semaphore_down(struct net2_semaphore *s)
 {
-	EnterCriticalSection(&s->down_excl);
-	while (count > 0) {
-		if (WaitForSingleObject(s->s, INFINITE) == WAIT_OBJECT_0)
-			count--;
-	}
-	LeaveCriticalSection(&s->down_excl);
+	while (WaitForSingleObject(s->s, INFINITE) != WAIT_OBJECT_0);
 }
 
 static __inline int
-net2_semaphore_trydown(struct net2_semaphore *s, unsigned int count)
+net2_semaphore_trydown(struct net2_semaphore *s)
 {
-	unsigned int		 dec;
-	DWORD			 wait;
-
-	dec = 0;
-	EnterCriticalSection(&s->down_excl);
-	while (dec < count) {
-		wait = WaitForSingleObject(s->s, 0);
-		if (wait == WAIT_OBJECT_0)
-			dec++;
-		else if (wait == WAIT_TIMEOUT) {
-			/* Undo the damage and report failure. */
-			ReleaseSemaphore(s->s, dec, NULL);
-			LeaveCriticalSection(&s->down_excl);
-			return 0;
-		}
-	}
-	LeaveCriticalSection(&s->down_excl);
-	return 1;
+	return (WaitForSingleObject(s->s, 0) == WAIT_OBJECT_0);
 }
 
-#elif defined(HAVE_STDATOMIC_H)
+#elif defined(HAVE_STDATOMIC_H) && defined(HAS_NANOSLEEP)
 #include <stdatomic.h>
+#include <time.h>
 
 struct net2_semaphore {
 	atomic_uint		 v;
@@ -113,40 +89,80 @@ net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
 }
 
 static __inline int
-net2_semaphore_down(struct net2_semaphore *s, unsigned int count)
+net2_semaphore_down(struct net2_semaphore *s)
 {
-	unsigned int		 v, new_v, dec;
-
-	v = atomic_load_explicit(&s->v, memory_order_consume);
-	while (count > 0) {
-		do {
-			while (v == 0) {
-				pthread_yield();
-				v = atomic_load_explicit(&s->v, memory_order_consume);
-			}
-			dec = (v < count ? v : count);
-			new_v = v - dec;
-		} while (!atomic_compare_exchange_weak_explicit(&s->v, v, new_v, memory_order_acquire, memory_order_consume));
-		count -= dec;
-		v = new_v;
-	}
-}
-
-static __inline int
-net2_semaphore_trydown(struct net2_semaphore *s, unsigned int count)
-{
-	unsigned int		 v, new_v;
+	unsigned int		 v;
+	const struct timespec	 yield = { 0, 1000 };
 
 	v = atomic_load_explicit(&s->v, memory_order_consume);
 	do {
-		if (v < count)
+		while (v == 0) {
+			nanosleep(&yield, NULL);
+			v = atomic_load_explicit(&s->v, memory_order_consume);
+		}
+	} while (!atomic_compare_exchange_weak_explicit(&s->v, v, v - 1, memory_order_acquire, memory_order_consume));
+}
+
+static __inline int
+net2_semaphore_trydown(struct net2_semaphore *s)
+{
+	unsigned int		 v;
+
+	v = atomic_load_explicit(&s->v, memory_order_consume);
+	do {
+		if (v == 0)
 			return 0;
-		new_v = v - count;
-	} while (!atomic_compare_exchange_weak_explicit(&s->v, v, new_v, memory_order_acquire, memory_order_consume));
+	} while (!atomic_compare_exchange_weak_explicit(&s->v, v, v - 1, memory_order_acquire, memory_order_consume));
 	return 1;
 }
 
-#else /* !HAVE_STDATOMIC_H */
+#elif defined(HAVE_SEMAPHORE_H)
+#include <semaphore.h>
+
+struct net2_semaphore {
+	sem_t			 s;
+};
+
+static __inline int
+net2_semaphore_initval(struct net2_semaphore *s, unsigned int initial)
+{
+	int			 rv;
+
+	if (sem_init(&s->s, 0, initial)) {
+		if (errno == ENOSPC || errno == ENOMEM)
+			return ENOMEM;
+		return EINVAL;
+	}
+	return 0;
+}
+
+static __inline void
+net2_semaphore_deinit(struct net2_semaphore *s)
+{
+	sem_destroy(&s->s);
+}
+
+static __inline void
+net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
+{
+	while (count-- > 0)
+		sem_post(&s->s);
+}
+
+static __inline void
+net2_semaphore_down(struct net2_semaphore *s)
+{
+	while (sem_wait(&s->s))
+		assert(errno == EINTR);
+}
+
+static __inline int
+net2_semaphore_trydown(struct net2_semaphore *s)
+{
+	return !sem_trywait(&s->s);
+}
+
+#else /* !HAVE_STDATOMIC_H, !HAVE_SEMAPHORE_H */
 #include <ilias/net2/mutex.h>
 
 struct net2_semaphore {
@@ -162,9 +178,9 @@ void	net2_semaphore_deinit(struct net2_semaphore*);
 ILIAS_NET2_LOCAL
 void	net2_semaphore_up(struct net2_semaphore*, unsigned int);
 ILIAS_NET2_LOCAL
-void	net2_semaphore_down(struct net2_semaphore*, unsigned int);
+void	net2_semaphore_down(struct net2_semaphore*);
 ILIAS_NET2_LOCAL
-int	net2_semaphore_trydown(struct net2_semaphore*, unsigned int);
+int	net2_semaphore_trydown(struct net2_semaphore*);
 #endif /* HAVE_STDATOMIC_H */
 
 static __inline int

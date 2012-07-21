@@ -15,7 +15,7 @@
  */
 #include <ilias/net2/semaphore.h>
 
-#if !defined(_WIN32) && !defined(HAVE_STDATOMIC_H)
+#if !defined(_WIN32) && !defined(HAVE_STDATOMIC_H) && !defined(HAVE_SEMAPHORE_H)
 #include <ilias/net2/mutex.h>
 
 
@@ -56,33 +56,25 @@ net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
 }
 
 ILIAS_NET2_LOCAL void
-net2_semaphore_down(struct net2_semaphore *s, unsigned int count)
+net2_semaphore_down(struct net2_semaphore *s)
 {
 	net2_mutex_lock(s->mtx);
-	while (count > 0) {
-		while (s->v == 0)
-			net2_cond_wait(s->cnd, s->mtx);
-		if (s->v >= count) {
-			s->v -= count;
-			count = 0;
-		} else {
-			count -= s->v;
-			s->v = 0;
-		}
-	}
+	while (s->v == 0)
+		net2_cond_wait(s->cnd, s->mtx);
+	s->v--;
 	net2_mutex_unlock(s->mtx);
 }
 
 ILIAS_NET2_LOCAL int
-net2_semaphore_trydown(struct net2_semaphore *s, unsigned int count)
+net2_semaphore_trydown(struct net2_semaphore *s)
 {
 	int	succeeded;
 
 	net2_mutex_lock(s->mtx);
-	if (v < count)
+	if (s->v == 0)
 		succeeded = 0;
 	else {
-		v -= count;
+		s->v--;
 		succeeded = 1;
 	}
 	net2_mutex_unlock(s->mtx);

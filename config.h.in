@@ -39,6 +39,9 @@
 /* Set if arc4random is implemented by system. */
 #cmakedefine HAS_ARC4RANDOM
 
+/* Set if the nanosleep function exists. */
+#cmakedefine HAS_NANOSLEEP
+
 /* Set if vasprintf function exists. */
 #cmakedefine HAS_VASPRINTF
 /* Set if asprintf function exists. */
@@ -81,3 +84,6 @@
 
 /* Set if stdatomic.h exists. */
 #cmakedefine HAVE_STDATOMIC_H
+
+/* Set if semaphore.h exists. */
+#cmakedefine HAVE_SEMAPHORE_H
