@@ -18,6 +18,17 @@ if ("${CMAKE_CXX_COMPILER}" MATCHES "clang(\\+\\+)?$" OR "${CMAKE_CXX_COMPILER_I
 	unset(CMAKE_COMPILER_IS_GNUCXX)
 endif ("${CMAKE_CXX_COMPILER}" MATCHES "clang(\\+\\+)?$" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 
+include (CheckCCompilerFlag)
+include (CheckCXXCompilerFlag)
+check_c_compiler_flag("-std=c11" STD_C11)
+check_cxx_compiler_flag("-std=c++11" STD_CXX11)
+if (STD_C11)
+	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
+endif (STD_C11)
+if (STD_CXX11)
+	set (CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++11")
+endif (STD_CXX11)
+
 # Include necessary submodules
 set (CMAKE_MODULE_PATH
     "${IliasNet2_SOURCE_DIR}/CMake"
@@ -54,9 +65,11 @@ list (APPEND headers
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/refcnt.h
+	include/ilias/net2/semaphore.h
 	include/ilias/net2/sign.h
 	include/ilias/net2/signset.h
 	include/ilias/net2/sockdgram.h
+	include/ilias/net2/spinlock.h
 	include/ilias/net2/stream_acceptor.h
 	include/ilias/net2/tx_callback.h
 	include/ilias/net2/workq.h
@@ -93,6 +106,7 @@ list (APPEND srcs
 	src/poetry.c
 	src/promise.c
 	src/protocol.c
+	src/semaphore.c
 	src/sign.c
 	src/signset.c
 	src/sockdgram.c
