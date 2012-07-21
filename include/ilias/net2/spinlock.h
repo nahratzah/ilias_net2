@@ -54,6 +54,7 @@ net2_spinlock_unlock(net2_spinlock *l)
 #else	/* Posix implementation. */
 #include <pthread.h>
 #include <errno.h>
+#include <assert.h>
 
 typedef pthread_spinlock_t	net2_spinlock;
 
