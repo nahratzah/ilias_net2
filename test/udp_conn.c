@@ -18,9 +18,7 @@
 #include <ilias/net2/init.h>
 #include <ilias/net2/udp_connection.h>
 #include <ilias/net2/stream_acceptor.h>
-#include <ilias/net2/evbase.h>
 #include <ilias/net2/buffer.h>
-#include <ilias/net2/packet.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
 #include <sys/types.h>
 #include <string.h>
