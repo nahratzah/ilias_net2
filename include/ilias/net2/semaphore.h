@@ -88,7 +88,7 @@ net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
 	atomic_fetch_add_explicit(&s->v, count, memory_order_release);
 }
 
-static __inline int
+static __inline void
 net2_semaphore_down(struct net2_semaphore *s)
 {
 	unsigned int		 v;
@@ -100,7 +100,7 @@ net2_semaphore_down(struct net2_semaphore *s)
 			nanosleep(&yield, NULL);
 			v = atomic_load_explicit(&s->v, memory_order_consume);
 		}
-	} while (!atomic_compare_exchange_weak_explicit(&s->v, v, v - 1, memory_order_acquire, memory_order_consume));
+	} while (!atomic_compare_exchange_weak_explicit(&s->v, &v, v - 1, memory_order_acquire, memory_order_consume));
 }
 
 static __inline int
@@ -112,7 +112,7 @@ net2_semaphore_trydown(struct net2_semaphore *s)
 	do {
 		if (v == 0)
 			return 0;
-	} while (!atomic_compare_exchange_weak_explicit(&s->v, v, v - 1, memory_order_acquire, memory_order_consume));
+	} while (!atomic_compare_exchange_weak_explicit(&s->v, &v, v - 1, memory_order_acquire, memory_order_consume));
 	return 1;
 }
 
