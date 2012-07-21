@@ -24,12 +24,8 @@
 #define NET2_REFCNT_LOCK_ENTER	0x00000001	/* Has lock on entry. */
 #define NET2_REFCNT_LOCK_EXIT	0x00000002	/* Keep lock on exit. */
 
-#if defined(HAVE_STDATOMIC_H) || defined(__clang__)
-#ifndef HAVE_STDATOMIC_H
-#include <ilias/net2/bsd_compat/stdatomic.h>
-#else
+#if defined(HAVE_STDATOMIC_H)
 #include <stdatomic.h>
-#endif
 #include <sys/types.h>
 #include <stdint.h>
 
