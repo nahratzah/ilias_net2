@@ -37,9 +37,8 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <bsd_compat/printf.h>
-#include <bsd_compat/string.h>
 #include "flexdef.h"
+#include "compat.h"
 
 
 /* declare functions that have forward references */

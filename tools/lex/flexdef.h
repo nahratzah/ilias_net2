@@ -59,7 +59,6 @@
 #else
 #include <strings.h>
 #endif
-#include <bsd_compat/string.h>
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -67,7 +66,6 @@
 
 #ifdef STDC_HEADERS
 #include <stdlib.h>
-#include <bsd_compat/printf.h>
 #else
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>

@@ -13,8 +13,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <bsd_compat/printf.h>
-#include <bsd_compat/string.h>
 #include <errno.h>
 
 #ifdef WIN32
@@ -34,10 +32,10 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <bsd_compat/string.h>
 #ifndef WIN32
 #include <unistd.h>
 #endif
+#include "compat.h"
 
 /* Use prototypes in function declarations. */
 #define YY_USE_PROTOS

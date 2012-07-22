@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <bsd_compat/string.h>
 #define YYBYACC 1
 #define YYMAJOR 1
 #define YYMINOR 9
@@ -57,6 +56,7 @@
 #endif
 
 #include "flexdef.h"
+#include "compat.h"
 
 /* The remainder of the alloca() cruft has to come after including flexdef.h,
  * so HAVE_ALLOCA_H is (possibly) defined.

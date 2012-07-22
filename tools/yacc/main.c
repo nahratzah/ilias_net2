@@ -37,13 +37,13 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <bsd_compat/printf.h>
 
 #ifndef WIN32
 #include <paths.h>
 #include <unistd.h>
 #else
 #include <stdio.h>
+#include "compat.h"
 
 static __inline char*
 _path_tmp()

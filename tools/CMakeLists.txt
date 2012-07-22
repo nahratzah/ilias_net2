@@ -4,6 +4,22 @@ project (tools)
 include_directories ("${PROJECT_SOURCE_DIR}/lex" "${PROJECT_SOURCE_DIR}/yacc")
 include_directories (${bsd_compat_INCLUDE_DIRS})
 
+include (CheckFunctionExists)
+include (CheckIncludeFiles)
+check_function_exists (vasprintf	HAS_VASPRINTF)
+check_function_exists (asprintf		HAS_ASPRINTF)
+check_function_exists (vsnprintf	HAS_VSNPRINTF)
+check_function_exists (snprintf		HAS_SNPRINTF)
+check_function_exists (strlcat		HAS_STRLCAT)
+check_function_exists (strlcpy		HAS_STRLCPY)
+check_include_files (getopt.h		HAVE_GETOPT_H)
+
+if (NOT HAVE_GETOPT_H)
+	set (GETOPT "${PROJECT_SOURCE_DIR}/getopt.h;${PROJECT_SOURCE_DIR}/getopt_long.c")
+endif (NOT HAVE_GETOPT_H)
+
+configure_file (${PROJECT_SOURCE_DIR}/compat.h.in ${CMAKE_CURRENT_BINARY_DIR}/compat.h)
+
 find_program (YACC_BIN yacc)
 find_program (LEX_BIN lex)
 if (NOT LEX_BIN)
@@ -39,6 +55,11 @@ else (LEX_BIN)
 		lex/parse.c
 		lex/parse.h
 		lex/skel.c
+
+		# porting compatibility
+		${CMAKE_CURRENT_BINARY_DIR}/config.h
+		compat.c
+		${GETOPT}
 		)
 	add_library (l
 		lex/libmain.c
@@ -64,6 +85,10 @@ else (YACC_BIN)
 		yacc/symtab.c
 		yacc/verbose.c
 		yacc/warshall.c
+
+		# porting compatibility
+		${CMAKE_CURRENT_BINARY_DIR}/config.h
+		compat.c
 		)
 	add_library (y
 		yacc/main.c
