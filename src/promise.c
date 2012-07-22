@@ -286,7 +286,7 @@ prom_on_finish(struct net2_promise *p)
 	net2_event_signal(p->cnd);
 
 	TAILQ_FOREACH(pcb, &p->event[NET2_PROM_ON_FINISH], promq)
-		net2_workq_activate(net2_promise_event_wqjob(pcb));
+		net2_workq_activate(net2_promise_event_wqjob(pcb), 0);
 	p->flags |= NET2_PROM_F_FINISH_FIRED;
 }
 
@@ -329,7 +329,7 @@ prom_on_run(struct net2_promise *p)
 
 	if ((pcb = TAILQ_FIRST(&p->event[NET2_PROM_ON_RUN])) != NULL) {
 		assert(TAILQ_NEXT(pcb, promq) == NULL);
-		net2_workq_activate(net2_promise_event_wqjob(pcb));
+		net2_workq_activate(net2_promise_event_wqjob(pcb), 0);
 		p->flags |= (NET2_PROM_F_RUN_FIRED | NET2_PROM_F_RUNNING);
 	}
 
@@ -775,7 +775,7 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 	case NET2_PROM_ON_FINISH:
 		/* If the promise is finished, fire immediately. */
 		if (p->flags & NET2_PROM_F_FINISH_FIRED)
-			net2_workq_activate(&cb->job);
+			net2_workq_activate(&cb->job, 0);
 		/* On-finish event: we need to run. */
 		if (fire)
 			prom_on_run(p);

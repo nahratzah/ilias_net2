@@ -82,7 +82,7 @@ timer_evcb(struct ev_loop *loop, ev_timer *t,
 	ev = EV_2_TIMER(t);
 	delay = ev->timeo_at - ev_now(loop);
 	if (delay < 0.)
-		net2_workq_activate(&ev->job);
+		net2_workq_activate(&ev->job, 0);
 	else {
 		ev_timer_set(t, delay, 0.);
 		ev_timer_start(loop, t);

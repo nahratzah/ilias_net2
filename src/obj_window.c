@@ -664,7 +664,7 @@ RB_GENERATE_STATIC(net2_objwin_txs, net2_objwin_tx, tree, objwin_tx_cmp);
 static __inline void
 n2ow_stub_ready_to_send(struct net2_objwin_stub *w)
 {
-	net2_workq_activate(&w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND]);
+	net2_workq_activate(&w->event[NET2_OBJWIN_STUB_ON_READY_TO_SEND], 0);
 }
 
 /* Initialize stub. */

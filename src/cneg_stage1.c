@@ -2220,7 +2220,7 @@ txh_nack(void *s_ptr, void *txh_ptr)
 		txh->whichq = TXH_WQ_TX;
 
 		/* There is work to do. */
-		net2_workq_activate(&s->rts);
+		net2_workq_activate(&s->rts, 0);
 		break;
 	}
 
@@ -2248,7 +2248,7 @@ txh_timeout(void *s_ptr, void *txh_ptr)
 		txh->whichq = TXH_WQ_TX;
 
 		/* There is work to do. */
-		net2_workq_activate(&s->rts);
+		net2_workq_activate(&s->rts, 0);
 		break;
 	}
 }

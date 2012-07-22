@@ -43,7 +43,7 @@ testconn_1()
 	int			 error;
 
 	if (global_evbase == NULL) {
-		if ((global_evbase = net2_workq_evbase_new("testconn")) == NULL)
+		if ((global_evbase = net2_workq_evbase_new("testconn", 1, 1)) == NULL)
 			return NULL;
 	}
 

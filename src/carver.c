@@ -453,7 +453,7 @@ fire_rts(struct net2_carver *c)
 	if (!(c->flags & NET2_CARVER_F_SZ_TX) ||
 	    (c->flags & NET2_CARVER_F_SZ_TX_TIMEOUT) ||
 	    !TAILQ_EMPTY(&c->ranges_tx))
-		net2_workq_activate(&c->rts);
+		net2_workq_activate(&c->rts, 0);
 	else
 		net2_workq_deactivate(&c->rts);
 }
@@ -993,7 +993,7 @@ carver_txcb_nack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
-	net2_workq_activate(&c->rts);
+	net2_workq_activate(&c->rts, 0);
 	if (!(r->flags & RANGE_ON_TXQ)) {
 		TAILQ_INSERT_HEAD(&c->ranges_tx, r, txq);
 		r->flags |= RANGE_ON_TXQ;
@@ -1007,7 +1007,7 @@ carver_setup_timeout(void *c_ptr, void *unusued ILIAS_NET2__unused)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags |= NET2_CARVER_F_SZ_TX_TIMEOUT;
-	net2_workq_activate(&c->rts);
+	net2_workq_activate(&c->rts, 0);
 }
 
 /* Ack setup receival. */
@@ -1028,7 +1028,7 @@ carver_setup_nack(void *c_ptr, void *unusued ILIAS_NET2__unused)
 	struct net2_carver	*c = c_ptr;
 
 	c->flags &= ~NET2_CARVER_F_SZ_TX;
-	net2_workq_activate(&c->rts);
+	net2_workq_activate(&c->rts, 0);
 }
 
 /* Set carver ready-to-send callback. */

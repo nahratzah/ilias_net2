@@ -149,7 +149,7 @@ net2_connection_recv(struct net2_connection *conn,
 	TAILQ_INSERT_TAIL(&conn->n2c_recvq, r, recvq);
 	conn->n2c_recvqsz++;
 
-	net2_workq_activate(&conn->n2c_recv_ev);
+	net2_workq_activate(&conn->n2c_recv_ev, 0);
 	net2_mutex_unlock(conn->n2c_recvmtx);
 }
 

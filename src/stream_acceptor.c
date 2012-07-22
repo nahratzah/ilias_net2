@@ -921,7 +921,7 @@ sa_on_lowbuffer(struct net2_sa_tx *sa)
 	 */
 
 	if (!(sa->flags & SATX_LOWBUFFER_FIRED)) {
-		net2_workq_activate(&sa->event[NET2_SATX_ON_LOWBUFFER]);
+		net2_workq_activate(&sa->event[NET2_SATX_ON_LOWBUFFER], 0);
 		sa->flags |= SATX_LOWBUFFER_FIRED;
 	}
 }
@@ -1832,7 +1832,7 @@ ILIAS_NET2_LOCAL void
 sa_rx_on_recv(struct net2_sa_rx *sa)
 {
 	/* No locking: this is always called with recvbuf_mtx locked. */
-	net2_workq_activate(&sa->event[NET2_SARX_ON_RECV]);
+	net2_workq_activate(&sa->event[NET2_SARX_ON_RECV], 0);
 }
 
 /* Fire on_finish event. */

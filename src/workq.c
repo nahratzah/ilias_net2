@@ -16,121 +16,242 @@
 #include <ilias/net2/workq.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/mutex.h>
-#include <ilias/net2/refcnt.h>
 #include <ilias/net2/thread.h>
+#include <ilias/net2/semaphore.h>
+#include <ilias/net2/spinlock.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ev.h>
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
 
+#ifdef HAS_NANOSLEEP
+#include <time.h>
+#endif
+
 #ifdef EV_C
 #include EV_C
 #endif
 
-/* Internal flags for workq jobs. */
-#define NET2_WORKQ_ONQUEUE	0x00010000	/* Job is on ready queue. */
-#define NET2_WORKQ_RUNNING	0x00020000	/* Job is running. */
-#define NET2_WORKQ_ACTIVE	0x00040000	/* Job is (re)queued. */
-#define NET2_WORKQ_WANT_EXE	0x00080000	/* Signal at job completion. */
+/*
+ * net2_workq, net2_workq_evbase, net2_workq_job implementation.
+ *
+ * net2_workq_evbase exists while it has a reference.  References are either
+ * external (due to user code holding a reference) or internal (due to a workq
+ * pointing at this evbase).  Consequently, a workq can always safely
+ * dereference its workq_evbase pointer.
+ *
+ *
+ * A net2_workq_job is not guaranteed to have a workq.  Dereferencing
+ * the workq is safe while it is in the running state and has the HAS_OWNER
+ * flag set.  It cannot enter the running state while it does not have the
+ * HAS_OWNER flag set.  If a workq is dying, it will clear the HAS_OWNER bit
+ * from each of the workq_jobs.
+ *
+ * The workq_job entering the running state must mark the workq as RUNNING.
+ * Failure to switch the workq to RUNNING state is a failure to start the job.
+ *
+ *
+ * When the workq is destroyed, it can be either destroyed from within
+ * its current worker thread or from another thread.  In the former case,
+ * it must currently be RUNNING.  And the latter case, it may be RUNNING,
+ * or may not be.
+ * If the workq is destroyed from an external thread, the destructor may
+ * not return while the workq is in the RUNNING state.  Once it is no longer
+ * in the running state, the destruction may complete.
+ * If the workq is destroyed from within the thread that is currently
+ * running it, it must not wait until it is done running (doing so would
+ * cause a deadlock).
+ *
+ * When the workq is being destroyed, it must mark itself as dying.  Because
+ * the workq job can re-expose the workq, the workq must then proceed to
+ * test the reference counter, if it is non-zero, it must abort the release
+ * operation.
+ * Next, the workq must wait until it exits the RUNNING state, unless it
+ * is running in the current thread.
+ */
+
+
+#if defined(__GNUC__) || defined(__clang__)
+#define predict_true(_x)	__builtin_expect(((_x) != 0), 1)
+#define predict_false(_x)	__builtin_expect(((_x) != 0), 0)
+
+#if defined(__amd64__) || defined(__x86_64__) || defined(__i386__)
+#define SPINWAIT()	do { __asm __volatile("pause":::"memory"); } while (0)
+#endif
+#else
+#define predict_true(_x)	((_x) != 0)
+#define predict_false(_x)	((_x) != 0)
+#define __attribute__(_x)	/* No attributes. */
+#endif
+
+/* Spinwait assembly for ms compiler. */
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+#define SPINWAIT()							\
+	do {								\
+		__asm {							\
+			__asm pause					\
+		};							\
+	} while (0)
+#endif
+
+
+#ifdef _WIN32
+static void
+thryield()
+{
+	if (!SwitchToThread())
+		Sleep(1);	/* Sleep one millisecond. */
+}
+#elif defined(HAS_NANOSLEEP)
+static void
+thryield()
+{
+	const struct timespec	yield = { 0, 1000 };
+
+	nanosleep(&yield, NULL);
+}
+#else
+static inline void
+thryield()
+{
+	pthread_yield();
+}
+#endif
+
+
+/* Fallback spinwait implementation. */
+#ifndef SPINWAIT
+#define SPINWAIT	do {} while (0)
+#endif
+
+
+#ifdef HAVE_STDATOMIC_H
+typedef atomic_uint	flags_t;
+typedef atomic_bool	died_t;
+#else
+typedef unsigned int	flags_t;
+typedef volatile int	died_t;
+#endif
+
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
-/* Internal data for workq job. */
-struct net2_workq_job_internal {
-	struct net2_mutex
-			*mtx;			/* Protect workq pointer. */
-	struct net2_condition
-			*wq_death;		/* Workq death event. */
-	struct net2_workq
-			*workq;			/* Owner workq. */
-	int		 flags;			/* Flags/options. */
 
-	net2_workq_cb	 fn;			/* Callback. */
-	void		*cb_arg[2];		/* Callback arguments. */
-
-	TAILQ_ENTRY(net2_workq_job_internal)
-			 readyq,		/* Link into ready queue. */
-			 memberq;		/* Link into workq. */
-
-	int		*died;			/* Set only if running. */
-	struct net2_workq_job
-			*backptr;		/* Point back to job. */
-
-	struct net2_condition
-			*exe_complete;		/* Execution finished with
-						 * WANT_EXE set. */
+/*
+ * Dying state of the workq.
+ *
+ * A dying workq can either be getting killed by another thread,
+ * or having to be killed by the thread running it.
+ */
+enum workq_dying_state {
+	wq_none,
+	wq_dying,
+	wq_killme
 };
+/*
+ * Want acquisition result of the workq.
+ *
+ * A want acquisition may fail due to being called from inside the workq or
+ * memory shortage.
+ * If the try flag was given and the workq was already want-locked or running,
+ * the operation will fail with tryfail.
+ */
+enum workq_want_state {
+	wq_want_succes,
+	wq_want_running,
+	wq_want_tryfail,
+	wq_want_memfail
+};
+/*
+ * Job_run_set return values.
+ *
+ * The job may only be set running if:
+ * - the job is not currently running (job_run_twice),
+ * - the job is active (job_run_inactive),
+ * - the job has a workq (job_run_nowq),
+ * - the job workq is not currently running or wantlocked (job_run_wqbusy).
+ * - no threads are waiting for the job to cease the running state (job_run_wait).
+ */
+enum job_run_state {
+	job_run_succes,
+	job_run_twice,
+	job_run_inactive,
+	job_run_wait,
+	job_run_nowq,
+	job_run_wqbusy
+};
+
+
+/* Internal state flags for workq job. */
+#define JOB_RUNNING	0x00010000		/* Job is executing. */
+#define JOB_ACTIVE	0x00020000		/* Job is to run. */
+#define JOB_DEREFING	0x00040000		/* Dereferencing wq. */
+#define JOB_ONQUEUE	0x00080000		/* Job is on workq runq. */
+
 
 /* Workq data. */
 struct net2_workq {
-	struct net2_mutex
-			*mtx;			/* Mutex. */
+	flags_t		 flags;			/* State bits. */
+#define WQ_RUNNING	0x00000001		/* Running. */
+#define WQ_ONQUEUE	0x00000002		/* Waiting to run. */
+#define WQ_KILLME	0x00000004		/* Kill workq after run. */
+#define WQ_DYING	0x00000008		/* Workq is dying. */
+#define WQ_WANTLOCK	0x00000010		/* Workq is wanted. */
+#define WQ_THRLOCK	0x00000020		/* Thread modify/eval lock. */
 	struct net2_workq_evbase
-			*evbase;		/* Event base for IO/timers. */
+			*wqev;
 
-	TAILQ_HEAD(, net2_workq_job_internal)
-			 runqueue,		/* Jobs that are to run now. */
-			 members;		/* Jobs on this workq. */
 	TAILQ_ENTRY(net2_workq)
-			 wqe_member;		/* Membership of evbase. */
-	TAILQ_ENTRY(net2_workq)
-			 wqe_runq;		/* Runqueue of evbase. */
-	net2_refcnt_t	 refcnt;		/* Reference counter. */
+			 wqev_runq;		/* WQ evbase runqueue. */
+	TAILQ_HEAD(, net2_workq_job)
+			 runqueue;		/* All active jobs. */
 
-	/*
-	 * Below is locked using evbase->mtx.
-	 */
-	struct net2_condition
-			*dying;			/* After running, fire. */
-	struct net2_thread
-			*execing;		/* Executing in this thread. */
-	int		 flags;			/* Workq flags. */
-#define NET2_WQ_F_RUNNING	0x00000001	/* Workq is executing. */
-#define NET2_WQ_F_ONQUEUE	0x00000002	/* Workq is on runqueue. */
-#define NET2_WQ_F_DYING		0x00000004	/* Workq is dying. */
-	int		*died;			/* Pointer to boolean, only
-						 * set if thread is in the
-						 * running state. */
+	atomic_uint	 refcnt;		/* Reference counter. */
+	atomic_uintptr_t thread;		/* Execing thread
+						 * (pointer to net2_thread). */
+	atomic_uint	 want_refcnt;		/* Want refcnt. */
+	atomic_uint	 want_queued;		/* # queued wants. */
+	struct net2_mutex
+			*want_mtx;		/* For want sleep sync. */
 
-	size_t		 wanted;		/* Want to suspend workq. */
-	struct net2_condition
-			*wanted_cond;		/* Ready for suspension. */
+	net2_spinlock	 spl;			/* Protect runq. */
+	TAILQ_HEAD(, net2_workq_job)
+			 members;		/* All jobs on wq. */
 };
 
-/*
- * Event base and thread pool.
- */
+/* Event base and thread pool. */
 struct net2_workq_evbase {
-	struct net2_mutex
-			*mtx;			/* Mutex. */
-	struct net2_condition
-			*wakeup;		/* Element added to runq. */
-
-	TAILQ_HEAD(, net2_workq)
-			 workq;			/* All workq on this evbase. */
+	net2_spinlock	 spl;			/* Protect runq. */
 	TAILQ_HEAD(, net2_workq)
 			 runq;			/* All workq that need run. */
 
-	struct ev_loop	*evloop;		/* Event loop. */
+	atomic_uintptr_t evloop;		/* Event loop. */
 	ev_async	 ev_wakeup;		/* Wakeup for evloop. */
 	ev_async	 ev_newevent;		/* Wakeup: events are added. */
 
-	size_t		 thread_active;		/* # threads active. */
-	size_t		 thread_target;		/* # threads active. */
-	size_t		 thread_waiting;	/* # threads that waiting. */
-	int		 evbase_wait;		/* Set if worker in evbase. */
-	struct net2_condition
-			*thread_death;		/* Condition on thread stop. */
-	TAILQ_HEAD(, net2_workq_evbase_worker)
-			 dead_threads;		/* Dead threads. */
+	int		 jobthreads;		/* # threads running jobs. */
+	int		 maxthreads;		/* # threads total. */
+	struct net2_semaphore
+			 thr_active,		/* Limit # running
+						 * worker threads. */
+			 thr_idle,		/* # worker thread idling. */
+			 thr_die,		/* # worker threads
+						 * that need to die. */
+			 thr_death;		/* # dead worker threads. */
 
 	char		*wq_worker_name;	/* Thread name of workers. */
-	int		 wakeup_sent;		/* Cleared once awoken thread
-						 * starts execution. */
-	int		 modify_thread_count;	/* Set while thread count is
-						 * modified. */
-	size_t		 refcnt;		/* Reference counter. */
+	atomic_uint	 refcnt;		/* Reference counter. */
+
+	struct net2_mutex
+			*workers_mtx;		/* Locked when changing
+						 * thread counts. */
+	net2_spinlock	 spl_workers;		/* Protect workers tailq. */
+	TAILQ_HEAD(, net2_workq_evbase_worker)
+			 workers,		/* All active worker
+						 * threads. */
+			 dead_workers;		/* All dead worker
+						 * threads. */
 };
 
 /*
@@ -146,1133 +267,1599 @@ struct net2_workq_evbase_worker {
 };
 
 
-static void	 net2_workq_wakeup(struct net2_workq_evbase*);
-static void	*net2_workq_worker(void *);
-static void	 wqev_unlock(struct ev_loop*);
-static void	 wqev_lock(struct ev_loop*);
-static void	 evloop_wakeup(struct ev_loop*, ev_async*, int);
-static void	 evloop_new_event(struct ev_loop*, ev_async*, int);
-static int	 wqev_mtx_unlock(struct net2_workq_evbase*, int);
-static void	 net2_workq_deactivate_internal(
-		    struct net2_workq_job_internal*, int);
-static int	 run_wq(struct net2_workq_evbase*, struct net2_workq*);
-static void	 run_job(struct net2_workq*, struct net2_workq_job_internal*);
+static void	evloop_wakeup(struct ev_loop*, ev_async*, int);
+static void	evloop_new_event(struct ev_loop*, ev_async*, int);
 
 
-/*
- * Wake up a workq worker.
- * Must be called with wqev->mtx locked.
- */
-static void
-net2_workq_wakeup(struct net2_workq_evbase *wqev)
+/* Only called with non-zero reference count. */
+static inline void
+workq_ref(struct net2_workq *wq)
 {
+	atomic_fetch_add_explicit(&wq->refcnt, 1, memory_order_acquire);
+}
+/*
+ * Release reference to a workq.
+ *
+ * Returns true if the last reference went away.
+ */
+static inline int
+workq_release(struct net2_workq *wq)
+{
+	return (atomic_fetch_sub_explicit(&wq->refcnt, 1, memory_order_release) == 1);
+}
+/*
+ * Put the workq on the runq.
+ *
+ * Returns true if the workq was moved from !WQ_ONQUEUE to WQ_ONQUEUE.
+ */
+static inline int
+workq_onqueue(struct net2_workq *wq)
+{
+	struct net2_workq_evbase
+			*wqev;
+	int		 rv;
+
+	wqev = wq->wqev;
+	rv = 0;
+	if (atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_ONQUEUE)
+		return 0;
+
+	net2_spinlock_lock(&wqev->spl);
+	if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume) & WQ_ONQUEUE)) {
+		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
+		rv = 1;
+
+		/* Activate worker. */
+		if (net2_semaphore_trydown(&wqev->thr_idle))
+			net2_semaphore_up(&wqev->thr_active, 1);
+	}
+	net2_spinlock_unlock(&wqev->spl);
+	return rv;
+}
+/*
+ * Remove the workq from the runq.
+ *
+ * Returns true if the workq was moved from WQ_ONQUEUE to !WQ_ONQUEUE.
+ */
+static inline int
+workq_offqueue(struct net2_workq *wq)
+{
+	struct net2_workq_evbase
+			*wqev;
+	int		 rv;
+
+	wqev = wq->wqev;
+	rv = 0;
+	if (!(atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_ONQUEUE))
+		return 0;
+
+	net2_spinlock_lock(&wqev->spl);
+	if (atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume) & WQ_ONQUEUE) {
+		TAILQ_REMOVE(&wqev->runq, wq, wqev_runq);
+		rv = 1;
+	}
+	net2_spinlock_unlock(&wqev->spl);
+	return rv;
+}
+/*
+ * Returns true if the workq is executing on the current thread.
+ */
+static inline int
+workq_self(struct net2_workq *wq)
+{
+	int			 selflocked;
+	struct net2_thread	*thr;
+
+	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK, memory_order_acquire) & WQ_THRLOCK)
+		SPINWAIT();
+	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread, memory_order_relaxed));
+	selflocked = (thr != NULL && net2_thread_is_self(thr));
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK, memory_order_release);
+	return selflocked;
+}
+/* Clear the current thread ID. */
+static inline struct net2_thread*
+workq_self_clear(struct net2_workq *wq)
+{
+	struct net2_thread	*thr;
+
+	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK, memory_order_acquire) & WQ_THRLOCK)
+		SPINWAIT();
+	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread, memory_order_relaxed));
+	atomic_store_explicit(&wq->thread, 0, memory_order_release);
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK, memory_order_release);
+
+	return thr;
+}
+/*
+ * Set the current thread ID.
+ * Returns true if the assignment succeeded (i.e. wq->thread was clear).
+ */
+static inline int
+workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
+{
+	uintptr_t	 t;
+
+	assert(curthread != NULL && net2_thread_is_self(curthread));
+	t = 0;
 	/*
-	 * Only 1 thread is woken up at a time.
-	 * This thread will wake up more threads, if it sees reason
-	 * to do so.  These reasons are:
-	 * - the runq is not empty,
-	 * - the thread is asked to die.
-	 *
-	 * Required to get threads not to miss their wakeup (this may happen
-	 * because waking up the event queue is special and cond_signal does
-	 * not report succes or failure).
-	 *
-	 * As a side effect, this prevents thundering herd on the mutex,
-	 * which may improve performance slightly.
+	 * Don't acquire THRLOCK during upgrade:
+	 * it's only used for testing if the thread is self, so we don't
+	 * care if another thread reads 0 or curthread, since both indicate
+	 * to that thread it isn't its thread executing on the workq.
 	 */
-	if (wqev->wakeup_sent)
+	return atomic_compare_exchange_strong_explicit(&wq->thread, &t, (uintptr_t)curthread, memory_order_acquire, memory_order_relaxed);
+}
+/*
+ * Lock workq dereference and return the workq of a job.
+ * The lock is only acquired if a non-null value is returned.
+ *
+ * Returns NULL if the workq is unavailable.
+ */
+static inline struct net2_workq*
+job_deref_lock(struct net2_workq_job *j)
+{
+	struct net2_workq	*wq;
+
+	/* Spin acquire lock. */
+	while (atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acquire) & JOB_DEREFING)
+		SPINWAIT();
+
+	wq = j->wq;
+	if (wq != NULL && atomic_load_explicit(&wq->flags, memory_order_acquire) == 0)
+		wq = NULL;
+	if (wq == NULL)
+		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	return wq;
+}
+/*
+ * Unlock the job deref state.
+ * Returns the state of the flags as a hint.
+ */
+static inline unsigned int
+job_deref_unlock(struct net2_workq_job *j)
+{
+	unsigned int	 f;
+
+	f = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	assert(f & JOB_DEREFING);
+	return (f & ~JOB_DEREFING);
+}
+/*
+ * Put the job on the workq runqueue.
+ *
+ * Workq must exist and be reachable.
+ */
+static inline void
+job_onqueue(struct net2_workq_job *j)
+{
+	struct net2_workq	*wq;
+	unsigned int		 jf;
+	int			 activate_wq;
+
+	activate_wq = 0;
+	wq = j->wq;
+	assert(wq != NULL);
+	jf = atomic_load_explicit(&j->flags, memory_order_relaxed);
+	assert((jf & JOB_DEREFING) ||
+	    (atomic_load_explicit(&wq->refcnt, memory_order_relaxed) != 0));
+	if (jf & JOB_ONQUEUE)
 		return;
 
-	if (wqev->thread_waiting == 0)
-		ev_async_send(wqev->evloop, &wqev->ev_wakeup);
-	else
-		net2_cond_signal(wqev->wakeup);
-	wqev->wakeup_sent = 1; /* Cleared once worker acquires the lock. */
+	net2_spinlock_lock(&wq->spl);
+	if (!(atomic_fetch_or_explicit(&j->flags, JOB_ONQUEUE, memory_order_acquire) & JOB_ONQUEUE)) {
+		activate_wq = TAILQ_EMPTY(&wq->runqueue);
+		TAILQ_INSERT_TAIL(&wq->runqueue, j, runqueue);
+	}
+	net2_spinlock_unlock(&wq->spl);
+
+	if (activate_wq)
+		workq_onqueue(wq);
 }
-
-/* Workq worker thread. */
-static void*
-net2_workq_worker(void *w_ptr)
+/*
+ * Remove the job from its workq runqueue.
+ */
+static inline unsigned int
+job_offqueue(struct net2_workq_job *j)
 {
-	struct net2_workq_evbase_worker	*w = w_ptr;
-	struct net2_workq_evbase	*wqev = w->evbase;
-	struct net2_workq		*run;
-	struct net2_workq_job_internal	*job;
-	int				 died;
-	int				 jobdied;
+	struct net2_workq	*wq;
+	unsigned int		 jf;
 
-	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
-	while (wqev->thread_active <= wqev->thread_target) {
-		run = TAILQ_FIRST(&wqev->runq);
+	wq = j->wq;
+	assert(wq != NULL);
+	jf = atomic_load_explicit(&j->flags, memory_order_relaxed);
+	assert((jf & JOB_DEREFING) ||
+	    (atomic_load_explicit(&wq->refcnt, memory_order_relaxed) != 0));
+	if (!(jf & JOB_ONQUEUE))
+		return jf;
 
-		/* Unblock future wakeups. */
-		wqev->wakeup_sent = 0;
+	net2_spinlock_lock(&wq->spl);
+	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_ONQUEUE,
+	    memory_order_acquire);
+	if (jf & JOB_ONQUEUE)
+		TAILQ_REMOVE(&wq->runqueue, j, runqueue);
+	net2_spinlock_unlock(&wq->spl);
 
-		if (!wqev->evbase_wait) {
-			/*
-			 * No thread is currently running the event loop.
-			 *
-			 * We'll check it now.
-			 * If we have a job, we run the non-blocking version,
-			 * otherwise we'll block.
-			 */
-			wqev->evbase_wait = 1;
-			ev_run(wqev->evloop, (run == NULL ? 0 : EVRUN_NOWAIT));
-			wqev->evbase_wait = 0;
-		} else if (run == NULL) {
-			/*
-			 * We have no workq to run.
-			 * Wait until we are woken up.
-			 */
-			wqev->thread_waiting++;
-			net2_cond_wait(wqev->wakeup, wqev->mtx);
-			wqev->thread_waiting--;
+	return jf & ~JOB_ONQUEUE;
+}
+/*
+ * Attempt to acquire a workq from within a job.
+ *
+ * Upon succesful acquire, the reference counter to the workq is updated.
+ */
+static inline struct net2_workq*
+workq_job_wq(struct net2_workq_job *j)
+{
+	struct net2_workq
+			*wq;
+
+	/* Spin acquire lock. */
+	if ((wq = job_deref_lock(j)) == NULL)
+		return NULL;
+
+	atomic_fetch_add_explicit(&wq->refcnt, 1, memory_order_acquire);
+
+	/* Release lock. */
+	job_deref_unlock(j);
+
+	return wq;
+}
+/*
+ * Detach a job from its workq.
+ *
+ * Returns true if this call detached the wq.
+ */
+static inline int
+workq_job_wq_clear(struct net2_workq_job *j)
+{
+	struct net2_workq
+			*wq;
+	unsigned int	 jf;
+	int		 selflocked;
+	struct net2_thread
+			*thr;
+
+	/* Spin acquire derefence lock. */
+	if ((wq = job_deref_lock(j)) == NULL)
+		return 0;
+
+	/* Clear workq on job. */
+	j->wq = NULL;
+
+	/* Remove job from workq queues. */
+	jf = job_offqueue(j);
+
+	/*
+	 * If the job is running, wait until it stops unless this
+	 * would result in deadlock.
+	 *
+	 * Note that we have to refetch the flags, since the code above may have
+	 * slept (by spinning).
+	 */
+	if (!(jf & JOB_RUNNING))
+		goto out;
+
+	/* Check if we are the ones holding the lock. */
+	if (workq_self(wq))
+		goto out;
+
+	/* Spinwait for the job to exit the running state. */
+	while (atomic_load_explicit(&j->flags, memory_order_consume) & JOB_RUNNING)
+		thryield();
+
+out:
+	/*
+	 * Spinwait to give all other threads waiting to notice that
+	 * the job is no longer runing a chance to find this out
+	 * prior to job destruction.
+	 */
+	while (atomic_load_explicit(&j->runwait, memory_order_acquire) != 0)
+		thryield();
+
+	job_deref_unlock(j);
+	return 1;
+}
+/*
+ * Put a workq on the runq.
+ * Will fail if the workq is already on the runqueue.
+ *
+ * Returns true if the operation succeeded.
+ */
+static inline int
+workq_activate(struct net2_workq *wq)
+{
+	return workq_onqueue(wq);
+}
+/*
+ * Remove workq from the runq.
+ * Will fail if the workq is not on the runqueue.
+ *
+ * Returns true if the operation succeeded.
+ */
+static inline int
+workq_deactivate(struct net2_workq *wq)
+{
+	return workq_offqueue(wq);
+}
+/*
+ * Change workq to running state.
+ *
+ * Returns true if the operation succeeded.
+ */
+static inline int
+__attribute__((hot))
+workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
+{
+	unsigned int	 f;
+
+	assert(curthread != NULL);
+
+	/* Set running flag. */
+	f = atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING, memory_order_acquire);
+
+	/* Already running?  Fail. */
+	if (f & WQ_RUNNING)
+		return 0;
+	/* Dying or wanted? Clear running state and fail. */
+	if (f & (WQ_DYING | WQ_WANTLOCK)) {
+fail:
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+		return 0;
+	}
+	if (predict_false(atomic_load_explicit(&wq->want_queued, memory_order_relaxed) != 0))
+		goto fail;
+
+	/* Store current thread. */
+	if (workq_self_set(wq, curthread))
+		goto fail;
+
+	return 1;
+}
+/*
+ * Clear the run state on the workq.
+ * If activate is set, the workq will be placed on the wqev runq.
+ *
+ * Returns the dying state of the workq.
+ */
+static inline enum workq_dying_state
+__attribute__((hot))
+workq_run_clear(struct net2_workq *wq, int activate)
+{
+	unsigned int	 f;
+	struct net2_workq_evbase
+			*wqev;
+
+	/* Assert that the current thread holds the running state. */
+	assert(workq_self(wq));
+
+	workq_self_clear(wq);
+
+	/* Activate workq. */
+	if (activate && !(atomic_load_explicit(&wq->flags, memory_order_consume) & (WQ_DYING | WQ_ONQUEUE)))
+		workq_onqueue(wq);
+
+	/* Clear running bit. */
+	f = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+	assert(f & WQ_RUNNING);
+	if (f & WQ_KILLME)
+		return wq_killme;
+	else if (f & WQ_DYING)
+		return wq_dying;
+	return wq_none;
+}
+/*
+ * Mark the workq as wanted.
+ *
+ * Acquires the mutex.
+ * Note that the workq must be referenced for this function to be possible.
+ */
+static inline enum workq_want_state
+workq_want_set(struct net2_workq *wq, int try)
+{
+	unsigned int	 f;
+	struct net2_thread
+			*thr;
+	int		 selflocked;
+
+	/*
+	 * First check if we are already owner of the wq.
+	 */
+	f = atomic_load_explicit(&wq->flags, memory_order_acquire);
+	if (f & (WQ_RUNNING | WQ_WANTLOCK)) {
+		/*
+		 * Check if we are the thread currently holding the want/run lock.
+		 */
+		if (workq_self(wq)) {
+			if (f & WQ_RUNNING)
+				return wq_want_running;
+			atomic_fetch_add_explicit(&wq->want_refcnt, 1, memory_order_acquire);
+			return wq_want_succes;
 		}
+		if (try)
+			return wq_want_tryfail;
+	}
 
-		/* If we have nothing to do, simply restart the loop. */
-		if (run == NULL) {
-			/*
-			 * Below, the code will attempt to immediately dive
-			 * into a workq, skipping another (pointless) run
-			 * of the event loop.
-			 * Ofcourse, if the thread was woken up because it
-			 * needs to die, it should not do this, but return
-			 * immediately.
-			 */
-			if (wqev->thread_active > wqev->thread_target)
+	/*
+	 * We are not the lock owner, so we'll have to acquire it.
+	 * For that, we need a thread.
+	 *
+	 * We allocate the thread prior to modifying the workq, so
+	 * memfail error recovery can be atomic.
+	 */
+	if (predict_false((thr = net2_thread_self()) == NULL))
+		return wq_want_memfail;
+
+	/*
+	 * Increment waiter count and block on the want_mtx.
+	 *
+	 * The want_mtx is mainly intended for the wakeup
+	 * call (wish there was a condition variable to
+	 * wakeup without locking anything).
+	 *
+	 * The try counterpart of the function is on purpose written in
+	 * such a way that it won't modify the workq state until it is
+	 * commited.
+	 */
+	if (try) {
+		if (!net2_mutex_trylock(wq->want_mtx))
+			goto tryfail_0;
+
+		f = atomic_load_explicit(&wq->flags, memory_order_consume);
+		for (;;) {
+			if (f & (WQ_WANTLOCK | WQ_RUNNING))
+				goto tryfail_1;
+			if (atomic_compare_exchange_weak_explicit(&wq->flags,
+			    &f, f | WQ_WANTLOCK,
+			    memory_order_acquire, memory_order_consume))
 				break;	/* GUARD */
+			SPINWAIT();
+		}
 
-			/*
-			 * The above code will have waited for work.
-			 * Try to pick up work immediately.
-			 */
-			if ((run = TAILQ_FIRST(&wqev->runq)) == NULL)
-				continue;
+		atomic_fetch_add_explicit(&wq->want_queued, 1,
+		    memory_order_acquire);
+	} else {
+		atomic_fetch_add_explicit(&wq->want_queued, 1,
+		    memory_order_acquire);
+		net2_mutex_lock(wq->want_mtx);
 
+		/* Mark ourselves as the owner. */
+		for (;;) {
+			f = atomic_fetch_or_explicit(&wq->flags, WQ_WANTLOCK,
+			    memory_order_acquire);
+			if (!(f & WQ_WANTLOCK))
+				break;	/* GUARD */
+			SPINWAIT();
+		}
+
+		/* Wait until RUNNING state is released. */
+		while (f & WQ_RUNNING) {
+			thryield();
+			f = atomic_load_explicit(&wq->flags,
+			    memory_order_acquire);
+		}
+	}
+
+	/* Increment the reference count. */
+	atomic_fetch_add_explicit(&wq->want_refcnt, 1, memory_order_acquire);
+
+	/* We now hold the wantlock exclusively. */
+	while (predict_false(!workq_self_set(wq, thr)))
+		SPINWAIT();
+
+	return wq_want_succes;
+
+
+tryfail_1:
+	net2_mutex_unlock(wq->want_mtx);
+tryfail_0:
+	net2_thread_free(thr);
+	return wq_want_tryfail;
+}
+/*
+ * Release a want from the wq.
+ * Releases the mutex if the last reference goes away.
+ *
+ * Note that the workq must be referenced for this function to be possible.
+ *
+ * Returns true if the workq requires activation.
+ */
+static inline int
+workq_want_clear(struct net2_workq *wq)
+{
+	int		 do_activate = 0;
+	struct net2_thread
+			*thr;
+
+	assert(workq_self(wq));
+	if (atomic_fetch_sub_explicit(&wq->want_refcnt, 1, memory_order_release) == 1) {
+		/*
+		 * Last reference went away.
+		 * Clear parameters.
+		 */
+		thr = workq_self_clear(wq);
+
+		net2_mutex_unlock(wq->want_mtx);
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK, memory_order_release);
+		if (atomic_fetch_sub_explicit(&wq->want_queued, 1, memory_order_release) == 1) {
 			/*
-			 * We slept, then we acquired a job.
-			 * Unblock wakeup events, since we picked up on it.
+			 * No other thread wants this workq, check if it needs to be
+			 * activated.
 			 */
-			wqev->wakeup_sent = 0;
+			do_activate = !(atomic_load_explicit(&wq->flags, memory_order_relaxed) & WQ_ONQUEUE);
+
+			if (do_activate && net2_spinlock_trylock(&wq->spl)) {
+				/* Empty workq is never active. */
+				if (TAILQ_EMPTY(&wq->runqueue))
+					do_activate = 0;
+			}
+		}
+
+		net2_thread_free(thr);
+	}
+
+	return do_activate;
+}
+/*
+ * Change a job to the running state.
+ *
+ * If update_wq is set, the workq will also be marked running.
+ * If update_wq is clear, it is assumed the caller will verify if the workq is reachable and prevent it from running in parallel.
+ * If the job is not active, the operation will fail.
+ *
+ * Return:
+ * - job_run_succes: the job is succesfully marked running.
+ * - job_run_twice: the job is already running.
+ * - job_run_inactive: the job is not active.
+ * - job_run_wait: at least one thread is waiting for this job to cease running and runwait was not set.
+ * - job_run_nowq: job has lost its workq (only if updatewq was specified).
+ * - job_run_wqbusy: workq is currently running or wanted (only if updatewq was specified).
+ *
+ * If job_run_succes is returned, the job will be deactivated unless it is marked persistent.
+ *
+ * If allow_inactive is set, the job does not need to be active to run.
+ */
+static inline enum job_run_state
+__attribute__((hot))
+job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthread, int runwait, int allow_inactive)
+{
+	unsigned int	 jf, wqf;
+	struct net2_workq
+			*wq;
+	int		 dying;
+
+	assert(!update_wq || curthread != NULL);
+
+	/*
+	 * Some threads may be processing the end of the previous time this job ran.
+	 * Wait until they notice it isn't running.
+	 *
+	 * While those threads are waiting, we cannot modify the flag bits.
+	 */
+	while (atomic_load_explicit(&j->runwait, memory_order_release) != 0) {
+		jf = atomic_load_explicit(&j->flags, memory_order_consume);
+		if (!(jf & JOB_ACTIVE) && !allow_inactive)
+			return job_run_inactive;
+		if (jf & JOB_RUNNING)
+			return job_run_twice;
+		if (!runwait)
+			return job_run_wait;
+		thryield();
+	}
+
+	/* Attempt to mark job as running. */
+	jf = atomic_fetch_or_explicit(&j->flags, JOB_RUNNING, memory_order_acquire);
+	if (jf & JOB_RUNNING)
+		return job_run_twice;
+	if (!(jf & JOB_ACTIVE) && !allow_inactive) {
+		atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+		return job_run_inactive;
+	}
+
+	if (update_wq) {
+		/* Spin acquire workq. */
+		if ((wq = job_deref_lock(j)) == NULL) {
+			/* Undo job flag change. */
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			return job_run_nowq;
 		}
 
 		/*
-		 * We have something to run.
-		 * Check if there are more workqs waiting to run.
-		 * If so, wake them up.
+		 * Mark workq as running.
+		 *
+		 * Note that this cannot be done in a loop, since the wq flags also maintains onqueue state etc.
 		 */
-		if (TAILQ_NEXT(run, wqe_runq) != NULL)
-			net2_workq_wakeup(wqev);
-
-		if (run_wq(wqev, run)) {
-			/*
-			 * Workq died while running it.
-			 *
-			 * Test if this was the last workq to go down.
-			 * If so, destroy the wqev from within.
-			 */
-			if (wqev_mtx_unlock(wqev, 1))
-				goto wqev_destroy_from_within;
+		wqf = atomic_load_explicit(&wq->flags, memory_order_consume);
+		for (;;) {
+			if (wqf & (WQ_RUNNING | WQ_WANTLOCK |
+			    WQ_DYING | WQ_KILLME)) {
+				job_deref_unlock(j);
+				/* Undo job flag change. */
+				atomic_fetch_and_explicit(&j->flags,
+				    ~JOB_RUNNING, memory_order_release);
+				return ((wqf & (WQ_RUNNING | WQ_WANTLOCK)) ?
+				    job_run_wqbusy : job_run_nowq);
+			}
+			if (atomic_compare_exchange_weak_explicit(&wq->flags, &wqf, wqf | WQ_RUNNING, memory_order_acquire, memory_order_consume))
+				break;	/* GUARD */
+			SPINWAIT();
 		}
-	}
 
-	/*
-	 * Dying code.
-	 * Add the thread to the list of dead threads, to allow wqev
-	 * to collect it.
-	 */
-	TAILQ_INSERT_TAIL(&wqev->dead_threads, w, tq);
-	net2_cond_signal(wqev->thread_death);
-	assert(wqev->thread_active > 0);
-	wqev->thread_active--;
-	/*
-	 * Wake up more threads.
-	 * Obviously, if more threads are to die, they must be woken up.
-	 * But if the runq is not empty, there's a chance that our thread
-	 * death consumed a wakeup for the runqueue.  In this case, we simply
-	 * signal for the runq (awoken thread can deal with it).
-	 *
-	 * Ofcourse, to force the wakeup to succeed, we need to actually clear
-	 * the block flag.
-	 */
-	wqev->wakeup_sent = 0;
-	if (!TAILQ_EMPTY(&wqev->runq) ||
-	    wqev->thread_active > wqev->thread_target)
-		net2_workq_wakeup(wqev);
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
-	return NULL;
-
-
-wqev_destroy_from_within:
-	/*
-	 * Special case dying code: this worker will execute the death.
-	 *
-	 * In this case, the thread cannot be collected and thus, it must free
-	 * its own data structures internally.
-	 */
-	net2_cond_signal(wqev->thread_death);
-	assert(wqev->thread_active > 0);
-	wqev->thread_active--;
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
-
-	/* Free data structure. */
-	net2_thread_free(w->worker);
-	net2_free(w);
-
-	/* Deamonize the thread, so it won't become a zombie thread. */
-	net2_thread_detach_self();
-	return NULL;
-}
-
-/* Change the number of worker threads. */
-ILIAS_NET2_EXPORT int
-net2_workq_set_thread_count(struct net2_workq_evbase *wqev, size_t target)
-{
-	struct net2_workq_evbase_worker	*w;
-	size_t				 i;
-	int				 error = 0;
-
-	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
-
-	/* Prevent multiple set_thread_count calls from interfering. */
-	while (wqev->modify_thread_count)
-		net2_cond_wait(wqev->thread_death, wqev->mtx);
-	wqev->modify_thread_count = 1;
-
-	wqev->thread_target = target;
-
-	/*
-	 * Reduce number of active threads to target.
-	 */
-	if (wqev->thread_active > wqev->thread_target) {
 		/*
-		 * Wake up a thread to die.
-		 * Thread will ensure other threads get woken up
-		 * if necessary.
+		 * Check that the queue is actually available.
+		 * If not, undo all operations and return.
+		 *
+		 * Note that this only happens in the small window where
+		 * the refcnt reaches zero until the WQ_DYING flag (tested
+		 * above) is set.
+		 *
+		 * Despite the earlier test for this in job_deref_lock, the
+		 * state can change between then and now.
 		 */
-		net2_workq_wakeup(wqev);
+		if (predict_false(atomic_load_explicit(&wq->refcnt, memory_order_consume) == 0)) {
+			/* Undo update to running flag. */
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+			/* Undo job flag change. */
+			job_deref_unlock(j);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			return job_run_nowq;
+		}
+		if (predict_false(atomic_load_explicit(&wq->want_refcnt, memory_order_consume) != 0)) {
+			/* Undo update to running flag. */
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+			/* Undo job flag change. */
+			job_deref_unlock(j);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			return job_run_wqbusy;
+		}
 
-		/* Wait for these threads to die. */
-		while (wqev->thread_active > wqev->thread_target)
-			net2_cond_wait(wqev->thread_death, wqev->mtx);
+		/* Release lock on workq. */
+		job_deref_unlock(j);
+
+		/* We acquired the workq running state, fill in the thread pointer. */
+		workq_self_set(wq, curthread);
+	}
+
+	if (!(jf & NET2_WORKQ_PERSIST))
+		atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE, memory_order_consume);
+
+	/*
+	 * job is now marked running.
+	 * If update_wq was set, workq is also marked running.
+	 */
+	return job_run_succes;
+}
+/*
+ * Clear running flag from job.
+ *
+ * Returns true if the job is active.
+ */
+static inline int
+__attribute__((hot))
+job_run_clear(struct net2_workq_job *j)
+{
+	int		 active;
+	struct net2_workq
+			*wq;
+	struct net2_workq_evbase
+			*wqev;
+	unsigned int	 jfl;
+
+	/*
+	 * Mark as not running.
+	 * If the job is active but not onqueue, update the workq.
+	 */
+	jfl = atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+	active = (jfl & JOB_ACTIVE);
+	if (!active || (jfl & JOB_ONQUEUE))
+		return active;
+
+	/* Acquire the workq. */
+	if ((wq = job_deref_lock(j)) == NULL)
+		return active;
+
+	/* Put the job on its workq runq. */
+	job_onqueue(j);
+
+	job_deref_unlock(j);
+	return active;
+}
+/*
+ * Kill the workq.
+ *
+ * Workq must have a refcnt of zero.
+ * If wait is set, the operation will not complete until the workq has ceased to be running.
+ * The operation may complete with running jobs, if the current thread is executing this job.
+ *
+ * If killme is set, the operation is invoked due to the killme flag being set.
+ * In this case, the DYING flag must already be present, so the duplicate assignment is ignored.
+ *
+ * Returns true if the workq was killed immediately.
+ */
+static int
+__attribute__((cold))
+kill_wq(struct net2_workq *wq, int wait, int killme)
+{
+	unsigned int	 wqf;
+	unsigned int	 jf;
+	struct net2_workq_job
+			*j;
+	struct net2_thread
+			*thr;
+	int		 spin;
+	int		 selflocked;
+
+	assert(atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0);
+
+	/* Mark workq as dying. */
+	wqf = atomic_fetch_or_explicit(&wq->flags, WQ_DYING, memory_order_acquire);
+	assert(killme || !(wqf & WQ_DYING));
+	wqf |= WQ_DYING;
+
+	/* If this workq is on the runqueue, remove it now. */
+	if (wqf & WQ_ONQUEUE)
+		workq_offqueue(wq);
+
+	if (wqf & WQ_RUNNING) {
+		/*
+		 * Figure out which thread is running this workq.
+		 *
+		 * If the current thread is running this workq, it cannot wait
+		 * and final destruction must be forwarded to the running
+		 * thread.
+		 *
+		 * Note that if thr is null, it cannot be the current thread,
+		 * since no thread will call this function between modifying
+		 * the running state and modifying the thread.
+		 */
+		if (workq_self(wq)) {
+			atomic_fetch_or_explicit(&wq->flags, WQ_KILLME, memory_order_acq_rel);
+			return 0;
+		}
+
+		/*
+		 * If wait is set, wait for the running job to complete.
+		 * Otherwise, put the requirement to clean up on the running thread.
+		 */
+		if (wait) {
+			while (atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_RUNNING);
+				thryield();
+		} else {
+			if (atomic_fetch_or_explicit(&wq->flags, WQ_KILLME, memory_order_acq_rel) & WQ_RUNNING)
+				return 0;
+			/* Running state was disengaged. */
+			wqf = atomic_fetch_and_explicit(&wq->flags, ~WQ_KILLME, memory_order_relaxed);
+			assert(wqf & WQ_KILLME);
+			wqf &= ~WQ_KILLME;
+		}
 	}
 
 	/*
-	 * Add threads to reach active target.
+	 * Workq is not running and can be released.
 	 */
-	while (wqev->thread_active < wqev->thread_target) {
-		/* Allocate a new worker. */
-		if ((w = net2_malloc(sizeof(*w))) == NULL) {
-			error = ENOMEM;
-			break;
+	net2_spinlock_lock(&wq->spl);
+	while ((j = TAILQ_FIRST(&wq->members)) != NULL) {
+#define SPIN 128
+		/* Acquire the dereference lock.
+		 * If the lock is held, there's a chance wq_clear is running,
+		 * which means it will deadlock on our spl.
+		 *
+		 * Release the spl, yield, then continue.
+		 * This also means we cannot touch the job.
+		 *
+		 * Because the deref lock is also used for very short failing
+		 * attempts at referencing the workq, allow a short duration
+		 * spin.
+		 */
+		spin = SPIN;
+		for (spin = SPIN; spin > 0; spin--) {
+			jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acquire);
+			if (!(jf & JOB_DEREFING))
+				break;	/* GUARD */
+			SPINWAIT();
 		}
-		w->evbase = wqev;
+		if (jf & JOB_DEREFING) {
+			/*
+			 * Since we hold the spinlock, we may as well move the
+			 * job to the back of the members queue, to enable us
+			 * to progress with less chance of entering the wait
+			 * again.
+			 */
+			TAILQ_REMOVE(&wq->members, j, members);
+			TAILQ_INSERT_TAIL(&wq->members, j, members);
 
-		/* Start the new worker. */
-		if ((w->worker = net2_thread_new(&net2_workq_worker, w,
-		    wqev->wq_worker_name)) == NULL) {
-			error = ENOMEM;
-			net2_free(w);
-			break;
+			net2_spinlock_unlock(&wq->spl);
+			thryield();
+			net2_spinlock_lock(&wq->spl);
+			continue;
 		}
 
-		/* Increment worker counter. */
-		wqev->thread_active++;
+		/*
+		 * We hold the lock and the job is on the queue,
+		 * workq pointer must be valid.
+		 */
+		assert(j->wq == wq);
+		j->wq = NULL;
+		/* Don't care about active. */
+		TAILQ_REMOVE(&wq->members, j, members);
+
+		/* Release dereference lock. */
+		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+
+		/*
+		 * If the job had a callback set, invoke it now.
+		 *
+		 * XXX job_internal should be squashed so the callbacks are dereferenced easier.
+		 */
+		if (j->callbacks != NULL &&
+		    j->callbacks->on_wqdestroy != NULL) {
+			net2_spinlock_unlock(&wq->spl);
+			j->callbacks->on_wqdestroy(j);
+			net2_spinlock_lock(&wq->spl);
+		}
+#undef SPIN
+	}
+	net2_spinlock_unlock(&wq->spl);
+
+	/*
+	 * No jobs point at this workq, it has no references, nor is it running.
+	 * It can now safely be destroyed.
+	 */
+	net2_workq_evbase_release(wq->wqev);
+	net2_mutex_free(wq->want_mtx);
+	net2_spinlock_deinit(&wq->spl);
+	net2_free(wq);
+
+	/* Since the workq is now fully dead, return succes. */
+	return 1;
+}
+/*
+ * Mark job as active.
+ *
+ * Returns true if the job transitioned from inactive to active.
+ */
+static inline int
+job_active_set(struct net2_workq_job *j)
+{
+	unsigned int	 jf;
+	struct net2_workq
+			*wq;
+
+	/* Mark the job as active. */
+	if (atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE, memory_order_acq_rel) & JOB_ACTIVE)
+		return 0;	/* Already active. */
+
+	/* Acquire workq. */
+	if (job_deref_lock(j) == NULL) {
+		/*
+		 * Undo activation and fail.
+		 *
+		 * Since a job without a workq can never regain another workq,
+		 * we maintain the ACTIVE flag so future invocations will
+		 * complete faster (by erronously detecting double activation).
+		 */
+		return 0;
 	}
 
-	/* Collect all dead threads. */
-	while ((w = TAILQ_FIRST(&wqev->dead_threads)) != NULL) {
-		TAILQ_REMOVE(&wqev->dead_threads, w, tq);
-		net2_thread_join(w->worker, NULL);
-		net2_thread_free(w->worker);
-		net2_free(w);
+	/* Put the job on its workq runq. */
+	job_onqueue(j);
+
+	/* Release our hold on the job. */
+	job_deref_unlock(j);
+	return 1;
+}
+/*
+ * Mark job as inactive.
+ *
+ * Note that a deactivated job is not removed from the workq.
+ * The workq will encounter the job and noticing it cannot run,
+ * remove it from the queue.
+ */
+static inline void
+job_active_clear(struct net2_workq_job *j, int wait)
+{
+	unsigned int	 jf;
+	int		 selflocked;
+	struct net2_thread
+			*thr;
+	struct net2_workq
+			*wq;
+
+	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE, memory_order_acq_rel);
+	if (!wait || !(jf & JOB_RUNNING))
+		return;
+
+	/*
+	 * Acquire workq.
+	 *
+	 * Note that we do not test if the workq is live:
+	 * a workq can cease to be live while still completing its last
+	 * job.  Since we hold the DEREF lock, the workq cannot go away
+	 * without us allowing it.
+	 */
+	for (;;) {
+		jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acq_rel);
+		if (!(jf & JOB_DEREFING))
+			break;	/* GUARD */
+		SPINWAIT();
+	}
+	if (predict_false(!(jf & JOB_RUNNING))) {
+		/* Shortcut: while we waited, the job ceased to be running. */
+		goto out;
 	}
 
-	/* Allow any blocked set_thread_count calls from continueing. */
-	wqev->modify_thread_count = 0;
-	net2_cond_signal(wqev->thread_death);
+	/* Test that the workq is alive. */
+	wq = j->wq;
+	if (predict_false(wq == NULL)) {
+		/*
+		 * Job cannot be running if workq is nonexistant.
+		 * Predicted false since a running workq is usually live.
+		 */
+		goto out;
+	}
 
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+	/*
+	 * Check if we are running the thread.
+	 * Waiting for ourselves would be silly.
+	 */
+	if (workq_self(wq))
+		goto out;
 
-	return error;
+	/* Release the workq but wait for the job to cease running. */
+	atomic_fetch_add_explicit(&j->runwait, 1, memory_order_acquire);
+	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	while (jf & JOB_RUNNING) {
+		thryield();
+		jf = atomic_load_explicit(&j->flags, memory_order_consume);
+	}
+	atomic_fetch_sub_explicit(&j->runwait, 1, memory_order_release);
+	return;
+
+out:
+	atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	return;
 }
 
-/* Ev loop callback: release wqev lock. */
-static void
-wqev_unlock(struct ev_loop *loop)
-{
-	struct net2_workq_evbase	*wqev;
-
-	wqev = ev_userdata(loop);
-	assert(wqev != NULL);
-	net2_mutex_unlock(wqev->mtx);
-}
-
-/* Ev loop callback: acquire wqev lock. */
-static void
-wqev_lock(struct ev_loop *loop)
-{
-	struct net2_workq_evbase	*wqev;
-
-	wqev = ev_userdata(loop);
-	assert(wqev != NULL);
-	net2_mutex_lock(wqev->mtx);
-}
-
-/* Stop the event loop (async wakeup callback). */
-static void
-evloop_wakeup(struct ev_loop *loop, ev_async * ILIAS_NET2__unused w,
-    int ILIAS_NET2__unused events)
-{
-	ev_break(loop, EVBREAK_ALL);
-}
-
-/* Inform the evloop that new events have been added. */
-static void
-evloop_new_event(struct ev_loop * ILIAS_NET2__unused loop,
-    ev_async * ILIAS_NET2__unused w,
-    int ILIAS_NET2__unused events)
-{
-	/* Do nothing: desired behaviour is a side effect from invocation. */
-}
-
-/* Create a new workq evbase. */
+/* Create a new evbase. */
 ILIAS_NET2_EXPORT struct net2_workq_evbase*
-net2_workq_evbase_new(const char *name)
+__attribute__((cold))
+net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 {
-	struct net2_workq_evbase	*wqev;
-	size_t				 nlen;
-	char				*buf;
+	struct net2_workq_evbase
+			*wqev;
+
+	if (maxthreads < jobthreads)
+		return NULL;
 
 	if ((wqev = net2_malloc(sizeof(*wqev))) == NULL)
 		goto fail_0;
-	if ((wqev->mtx = net2_mutex_alloc()) == NULL)
+	if (net2_spinlock_init(&wqev->spl))
 		goto fail_1;
-	if ((wqev->wakeup = net2_cond_alloc()) == NULL)
-		goto fail_2;
-
-	TAILQ_INIT(&wqev->workq);
 	TAILQ_INIT(&wqev->runq);
-
-	if ((wqev->evloop = ev_loop_new(EVFLAG_AUTO)) == NULL)
-		goto fail_3;
-	/* Assign wqev as the user data for the event loop. */
-	ev_set_userdata(wqev->evloop, wqev);
-	/* Unlock wqev during runs of evloop. */
-	ev_set_loop_release_cb(wqev->evloop, &wqev_unlock, &wqev_lock);
-	/* Set up the wakeup callback for the event loop. */
+	atomic_init(&wqev->evloop, 0);	/* Lazily allocated. */
 	ev_async_init(&wqev->ev_wakeup, &evloop_wakeup);
-	ev_async_start(wqev->evloop, &wqev->ev_wakeup);
-	/* Set up the wakeup callback to inform evloop of new events. */
 	ev_async_init(&wqev->ev_newevent, &evloop_new_event);
-	ev_async_start(wqev->evloop, &wqev->ev_newevent);
 
-	if ((wqev->thread_death = net2_cond_alloc()) == NULL)
+	wqev->jobthreads = 0;
+	wqev->maxthreads = 0;
+	net2_semaphore_init(&wqev->thr_active);
+	net2_semaphore_init(&wqev->thr_idle);
+	net2_semaphore_init(&wqev->thr_die);
+	net2_semaphore_init(&wqev->thr_death);
+	if (name == NULL)
+		wqev->wq_worker_name = NULL;
+	else if ((wqev->wq_worker_name = net2_strdup(name)) == NULL)
+		goto fail_2;
+	atomic_init(&wqev->refcnt, 1);
+
+	if ((wqev->workers_mtx = net2_mutex_alloc()) == NULL)
+		goto fail_3;
+	if (net2_spinlock_init(&wqev->spl_workers))
 		goto fail_4;
+	TAILQ_INIT(&wqev->workers);
+	TAILQ_INIT(&wqev->dead_workers);
 
-	TAILQ_INIT(&wqev->dead_threads);
-
-	/* Store name for workers. */
-	if (name == NULL || name[0] == '\0') {
-		if ((wqev->wq_worker_name = net2_strdup("wq-worker")) == NULL)
-			goto fail_5;
-	} else {
-		/* Detect name len. */
-		nlen = snprintf(NULL, 0, "wq-%s-worker", name) + 1;
-		/* Allocate name. */
-		if ((buf = net2_malloc(nlen)) == NULL)
-			goto fail_5;
-		/* Write worker name. */
-		snprintf(buf, nlen, "wq-%s-worker", name);
-		wqev->wq_worker_name = buf;
+	if (net2_workq_set_thread_count(wqev, jobthreads, maxthreads)) {
+		net2_workq_set_thread_count(wqev, 0, 0);
+		goto fail_5;
 	}
-
-	/* Create with single reference. */
-	wqev->refcnt = 1;
-
-	/* Clear busy flags. */
-	wqev->wakeup_sent = 0;
-	wqev->modify_thread_count = 0;
-	/* No threads are active/waiting, since none exist (yet). */
-	wqev->thread_target = wqev->thread_active = wqev->thread_waiting = 0;
-
-	/* Start a single thread. */
-	if (net2_workq_set_thread_count(wqev, 1) != 0)
-		goto fail_6;
 
 	return wqev;
 
+
 fail_6:
-	net2_free(wqev->wq_worker_name);
+	net2_workq_set_thread_count(wqev, 0, 0);
 fail_5:
-	net2_cond_free(wqev->thread_death);
+	net2_spinlock_deinit(&wqev->spl_workers);
 fail_4:
-	ev_loop_destroy(wqev->evloop);
+	net2_mutex_free(wqev->workers_mtx);
 fail_3:
-	net2_cond_free(wqev->wakeup);
+	if (wqev->wq_worker_name != NULL)
+		net2_free(wqev->wq_worker_name);
 fail_2:
-	net2_mutex_free(wqev->mtx);
+	net2_spinlock_deinit(&wqev->spl);
 fail_1:
 	net2_free(wqev);
 fail_0:
 	return NULL;
 }
-
-/*
- * Unlock the workq eventbase.
- * Destroys the wqev if it has no references left.
- *
- * If keep_lock is set, the lock will be maintained unless
- * the wqev dies.  Keep_lock may only be set by a worker thread.
- * Returns nonzero if the wqev was destroyed.
- */
-static int
-wqev_mtx_unlock(struct net2_workq_evbase *wqev, int keep_lock)
-{
-	int			 error;
-
-	/*
-	 * Another thread or external function is already destroying
-	 * this.
-	 */
-	if (keep_lock && wqev->thread_target == 0)
-		return 0;
-
-	/* Test if destruction is required prior to unlocking. */
-	if (wqev->refcnt == 0 && TAILQ_EMPTY(&wqev->workq)) {
-		if (!keep_lock)
-			net2_mutex_unlock(wqev->mtx);	/* UNLOCK: wqev */
-		return 0; /* Still in use. */
-	}
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
-
-	/*
-	 * Destroy all threads.
-	 */
-	error = net2_workq_set_thread_count(wqev, 0);
-	if (error != 0) {
-		errno = error;
-		warn("net2_workq_evbase: failed to kill all threads in workq eventbase");
-		/*
-		 * Continuing here would cause a segfault once the thread
-		 * tries to access wqev.  If this wouldn't deadlock first
-		 * because the eventloop might have f.i. a file descriptor
-		 * in use while it is being closed.
-		 *
-		 * We'll leak instead (fucked either way...).
-		 */
-		return 1;
-	}
-
-	/* Destroy all resources used by wqev. */
-	net2_free(wqev->wq_worker_name);
-	net2_cond_free(wqev->thread_death);
-	ev_loop_destroy(wqev->evloop);
-	net2_cond_free(wqev->wakeup);
-	net2_mutex_free(wqev->mtx);
-	net2_free(wqev);
-	return 1;
-}
-
-/* Add reference to the workq eventbase. */
+/* Acquire an additional reference to the wwqev. */
 ILIAS_NET2_EXPORT void
+__attribute__((cold))
 net2_workq_evbase_ref(struct net2_workq_evbase *wqev)
 {
-	net2_mutex_lock(wqev->mtx);
-	wqev->refcnt++;
-	assert(wqev->refcnt > 0);
-	net2_mutex_unlock(wqev->mtx);
+	atomic_fetch_add_explicit(&wqev->refcnt, 1, memory_order_acquire);
 }
-
-/* Remove reference to the workq eventbase. */
+/*
+ * Release reference to wqev.
+ *
+ * Destroys the wqev if the last reference went away.
+ */
 ILIAS_NET2_EXPORT void
+__attribute__((cold))
 net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 {
-	net2_mutex_lock(wqev->mtx);
-	assert(wqev->refcnt > 0);
-	wqev->refcnt--;
-	wqev_mtx_unlock(wqev, 0);
-}
+	struct ev_loop	*evl;
 
-ILIAS_NET2_EXPORT void
+	if (predict_false(wqev == NULL))
+		return;
+	if (predict_true(atomic_fetch_sub_explicit(&wqev->refcnt, 1, memory_order_release) != 1))
+		return;
+
+	/* Kill all worker threads. */
+	net2_workq_set_thread_count(wqev, 0, 0);
+
+	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop, memory_order_relaxed));
+	if (evl != NULL)
+		ev_loop_destroy(evl);
+
+	if (wqev->wq_worker_name != NULL)
+		net2_free(wqev->wq_worker_name);
+	net2_spinlock_deinit(&wqev->spl);
+	net2_semaphore_deinit(&wqev->thr_active);
+	net2_semaphore_deinit(&wqev->thr_idle);
+	net2_semaphore_deinit(&wqev->thr_die);
+	net2_semaphore_deinit(&wqev->thr_death);
+	net2_mutex_free(wqev->workers_mtx);
+	net2_spinlock_deinit(&wqev->spl_workers);
+	net2_free(wqev);
+}
+/* Inform the workq that the set of events changed. */
+ILIAS_NET2_LOCAL void
 net2_workq_evbase_evloop_changed(struct net2_workq_evbase *wqev)
 {
-	ev_async_send(wqev->evloop, &wqev->ev_wakeup);
+	struct ev_loop	*evl;
+
+	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop, memory_order_relaxed));
+	if (evl != NULL)
+		ev_async_send(evl, &wqev->ev_wakeup);
 }
 
-
-/* Initialize new workq. */
+/* Create a new workq. */
 ILIAS_NET2_EXPORT struct net2_workq*
 net2_workq_new(struct net2_workq_evbase *wqev)
 {
-	struct net2_workq		*wq;
+	struct net2_workq	*wq;
 
 	if (wqev == NULL)
 		return NULL;
 
 	if ((wq = net2_malloc(sizeof(*wq))) == NULL)
 		goto fail_0;
-	if ((wq->mtx = net2_mutex_alloc()) == NULL)
-		goto fail_1;
-	if ((wq->dying = net2_cond_alloc()) == NULL)
-		goto fail_2;
-	TAILQ_INIT(&wq->runqueue);
-	wq->flags = 0;
-	net2_refcnt_set(&wq->refcnt, 1);
-	wq->wanted = 0;
-	if ((wq->wanted_cond = net2_cond_alloc()) == NULL)
-		goto fail_3;
 
-	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
-	TAILQ_INSERT_TAIL(&wqev->workq, wq, wqe_member);
-	wq->evbase = wqev;
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
+	atomic_init(&wq->flags, 0);
+	wq->wqev = wqev;
+	TAILQ_INIT(&wq->runqueue);
+
+	atomic_init(&wq->refcnt, 1);
+	atomic_init(&wq->thread, 0);
+
+	atomic_init(&wq->want_refcnt, 0);
+	atomic_init(&wq->want_queued, 0);
+
+	if ((wq->want_mtx = net2_mutex_alloc()) == NULL)
+		goto fail_1;
+
+	if (net2_spinlock_init(&wq->spl))
+		goto fail_2;
+
+	TAILQ_INIT(&wq->members);
+
+	net2_workq_evbase_ref(wqev);
 	return wq;
 
 
-fail_4:
-	net2_cond_free(wq->wanted_cond);
 fail_3:
-	net2_cond_free(wq->dying);
+	net2_spinlock_deinit(&wq->spl);
 fail_2:
-	net2_mutex_free(wq->mtx);
+	net2_mutex_free(wq->want_mtx);
 fail_1:
 	net2_free(wq);
 fail_0:
 	return NULL;
 }
-
-/* Increment reference count to wq. */
+/* Acquire a reference to a workq. */
 ILIAS_NET2_EXPORT void
 net2_workq_ref(struct net2_workq *wq)
 {
-	net2_refcnt_ref(&wq->refcnt, wq->mtx, 0);
+	workq_ref(wq);
 }
-
-/* Destroy workq. */
+/* Release reference to a workq. */
 ILIAS_NET2_EXPORT void
 net2_workq_release(struct net2_workq *wq)
 {
-	struct net2_workq_evbase	*wqev;
-	struct net2_workq_job_internal	*job;
-	int				 do_free;
-
-	if (wq == NULL)
+	if (predict_false(wq == NULL))
 		return;
-
-	/*
-	 * Decrement reference counter.
-	 */
-	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
-	wqev = wq->evbase;
-	assert(wqev != NULL);
-
-	if (!net2_refcnt_release(&wq->refcnt, wq->mtx,
-	    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT)) {
-		net2_mutex_unlock(wq->mtx);
-		return;
-	}
-	net2_mutex_lock(wqev->mtx);
-
-	/*
-	 * Mark as dying, so that jobs will no longer modify
-	 * the runqueue.
-	 */
-	wq->flags |= NET2_WQ_F_DYING;
-	net2_mutex_unlock(wq->mtx);			/* LOCK: wq */
-
-	/* Remove us from the runq. */
-	if (wq->flags & NET2_WQ_F_ONQUEUE)
-		TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
-
-	/* Ensure the workq isn't running. */
-	if (wq->flags & NET2_WQ_F_RUNNING) {
-		/* Kill in this thread. */
-		if (net2_thread_is_self(wq->execing))
-			*wq->died = 1;
-		else {
-			/* Wait until execing thread is done. */
-			while (wq->flags & NET2_WQ_F_RUNNING)
-				net2_cond_wait(wq->dying, wqev->mtx);
-		}
-	}
-	TAILQ_REMOVE(&wqev->workq, wq, wqe_member);
-
-	/*
-	 * Unlock wqev.
-	 * Note that we don't use wqev_mtx_unlock, since the worker has
-	 * to clean up the thread.  The worker has to detect the wqev
-	 * destruction case by itself.
-	 */
-	net2_mutex_unlock(wqev->mtx);
-
-	/*
-	 * Remove all jobs.
-	 * Note that until this has completed, jobs may still access
-	 * the workq.
-	 */
-	while ((job = TAILQ_FIRST(&wq->members)) != NULL) {
-		net2_mutex_lock(job->mtx);
-		job->flags &= ~NET2_WORKQ_ONQUEUE;
-		TAILQ_REMOVE(&wq->members, job, memberq);
-		job->workq = NULL;
-		net2_cond_broadcast(job->wq_death);
-		net2_mutex_unlock(job->mtx);
-
-		/* Inform job of workq destruction. */
-		if (job->backptr->callbacks != NULL &&
-		    job->backptr->callbacks->on_wqdestroy != NULL)
-			(*job->backptr->callbacks->on_wqdestroy)(job->backptr);
-	}
-
-	/* Free resources. */
-	net2_mutex_free(wq->mtx);
-	net2_cond_free(wq->dying);
-	net2_cond_free(wq->wanted_cond);
-	wq->evbase = NULL;
+	if (predict_false(workq_release(wq)))
+		kill_wq(wq, 0, 0);
 }
-
 /*
- * Returns the workq_evbase that manages this workq.
- * Returned evbase is not referenced.
+ * Return the workq_evbase that this workq runs on.
+ * The returned wqev is not referenced.
  */
 ILIAS_NET2_EXPORT struct net2_workq_evbase*
 net2_workq_evbase(struct net2_workq *wq)
 {
-	return wq->evbase;	/* No lock required: is only set once. */
+	return wq->wqev;
 }
 
-/* Add a job to the workq. */
+/* Initialize a job. */
 ILIAS_NET2_EXPORT int
-net2_workq_init_work(struct net2_workq_job *jj, struct net2_workq *wq,
-    net2_workq_cb fn, void *arg0, void *arg1, int flags)
+__attribute__((hot))
+net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
-	struct net2_workq_job_internal	*j;
-	int				 error;
-
-	jj->internal = NULL;
-	jj->callbacks = NULL;
-
-	if ((flags & NET2_WORKQ_VALID_USERFLAGS) != flags)
+	if (fn == NULL || wq == NULL || j == NULL)
 		return EINVAL;
-	/* fn == NULL is allowed: it won't ever activate however. */
+	if (flags & ~NET2_WORKQ_VALID_USERFLAGS)
+		return EINVAL;
 
-	if ((j = net2_malloc(sizeof(*j))) == NULL) {
-		error = ENOMEM;
-		goto fail_0;
-	}
-	j->backptr = jj;
-
-	if ((j->mtx = net2_mutex_alloc()) == NULL) {
-		error = ENOMEM;
-		goto fail_1;
-	}
-	if ((j->wq_death = net2_cond_alloc()) == NULL) {
-		error = ENOMEM;
-		goto fail_2;
-	}
-	if ((j->exe_complete = net2_cond_alloc()) == NULL) {
-		error = ENOMEM;
-		goto fail_3;
-	}
-
-	j->workq = wq;
-	j->flags = flags;
 	j->fn = fn;
 	j->cb_arg[0] = arg0;
 	j->cb_arg[1] = arg1;
+	atomic_init(&j->flags, flags);
+	j->wq = wq;
+	atomic_init(&j->runwait, 0);
+	j->callbacks = NULL;
 
-	jj->internal = j;
+	/* Add new job to workq member set. */
+	net2_spinlock_lock(&wq->spl);
+	TAILQ_INSERT_TAIL(&wq->members, j, members);
+	net2_spinlock_unlock(&wq->spl);
+
+	workq_ref(wq);
 	return 0;
-
-
-fail_4:
-	net2_cond_free(j->exe_complete);
-fail_3:
-	net2_cond_free(j->wq_death);
-fail_2:
-	net2_mutex_free(j->mtx);
-fail_1:
-	net2_free(j);
-fail_0:
-	assert(error != 0);
-	return error;
 }
-
-/* Destroy workq job. */
+/* Deinit a job. */
 ILIAS_NET2_EXPORT void
-net2_workq_deinit_work(struct net2_workq_job *jj)
+__attribute__((hot))
+net2_workq_deinit_work(struct net2_workq_job *j)
 {
-	struct net2_workq		*wq;
-	struct net2_workq_job_internal	*j;
-
-	j = jj->internal;
-	jj->internal = NULL;
-
-	/* Detach from the workq in a permanent fashion. */
-	if (j != NULL) {
-		net2_workq_deactivate_internal(j, 1);
-
-		net2_cond_free(j->wq_death);
-		net2_mutex_free(j->mtx);
-	}
-
-	if (jj->callbacks != NULL && jj->callbacks->on_destroy != NULL)
-		(*jj->callbacks->on_destroy)(jj);
-	jj->callbacks = NULL;
-
-	net2_free(j);
-}
-
-/*
- * Mark a job as active.
- * An active job will have its callback run.
- */
-ILIAS_NET2_EXPORT void
-net2_workq_activate(struct net2_workq_job *jj)
-{
-	struct net2_workq		*wq;
-	struct net2_workq_evbase	*wqev;
-	struct net2_workq_job_internal	*j = jj->internal;
-	int				 add_me;
-	int				 j_added = 0;
-
-	if (j == NULL)
-		return;
-
-	net2_mutex_lock(j->mtx);
 	if (j->fn == NULL)
-		goto out; /* Noop. */
-	wq = j->workq;
-	if (wq == NULL)
-		goto out; /* Queue died. */
-
-	/* Add job to workq. */
-	net2_mutex_lock(wq->mtx);			/* LOCK: wq */
-	if (wq->flags & NET2_WQ_F_DYING) {
-		/* Queue is dying, we cannot activate. */
-		net2_mutex_unlock(wq->mtx);
-		goto out;
-	}
-
-	wqev = wq->evbase;
-	j->flags |= NET2_WORKQ_ACTIVE;
-	if (!(j->flags & NET2_WORKQ_ONQUEUE)) {
-		add_me = TAILQ_EMPTY(&wq->runqueue);
-		TAILQ_INSERT_TAIL(&wq->runqueue, j, readyq);
-		j->flags |= NET2_WORKQ_ONQUEUE;
-
-		/* Keep the workq alive until after the callback. */
-		net2_refcnt_ref(&wq->refcnt, wq->mtx,
-		    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
-		j_added = 1;
-	} else
-		add_me = 0;
-	net2_mutex_unlock(wq->mtx);			/* UNLOCK: wq */
-
-	/*
-	 * Workq already had jobs, so it must already be active.
-	 * No scheduling required.
-	 */
-	if (!add_me)
-		goto out;
-
-	/* Notify the workq evbase. */
-	net2_mutex_lock(wqev->mtx);			/* LOCK: wqev */
-	if (!(wq->flags & (NET2_WQ_F_RUNNING | NET2_WQ_F_ONQUEUE)) &&
-	    wq->wanted == 0) {
-		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
-		wq->flags |= NET2_WQ_F_ONQUEUE;
-		net2_workq_wakeup(wqev);
-	}
-	net2_mutex_unlock(wqev->mtx);			/* UNLOCK: wqev */
-
-out:
-	net2_mutex_unlock(j->mtx);
-
-	if (j_added) {
-		if (jj->callbacks != NULL &&
-		    jj->callbacks->on_activate != NULL)
-			(*jj->callbacks->on_activate)(jj);
-		/* Undo refcount increment. */
-		net2_workq_release(wq);
-	}
-}
-
-/* Mark job as inactive. */
-static void
-net2_workq_deactivate_internal(struct net2_workq_job_internal *j, int die)
-{
-	struct net2_workq		*wq;
-	int				 deleted = 0;
-
-	/* Lock job and acquire workq. */
-	net2_mutex_lock(j->mtx);
-	wq = j->workq;
-	if (wq == NULL) {
-		if (j->flags & NET2_WORKQ_ACTIVE) {
-			j->flags &= ~NET2_WORKQ_ACTIVE;
-			goto out;
-		}
-		net2_mutex_unlock(j->mtx);
 		return;
+
+	if (predict_true(workq_job_wq_clear(j))) {
+		if (j->callbacks->on_destroy)
+			j->callbacks->on_destroy(j);
 	}
-
-	net2_mutex_lock(wq->mtx);
-	if (wq->flags & NET2_WQ_F_DYING) {
-		net2_mutex_unlock(wq->mtx);
-		if (!die)
-			goto out; /* Not dying, just deactivating. */
-
-		/* Workq is marking all jobs, wait until that has completed. */
-		while (j->workq != NULL)
-			net2_cond_wait(j->wq_death, j->mtx);
-		goto out;
-	}
-
-	/* Deactivate job. */
-	j->flags &= ~NET2_WORKQ_ACTIVE;
-	if (j->flags & NET2_WORKQ_ONQUEUE) {
-		TAILQ_REMOVE(&wq->runqueue, j, readyq);
-		j->flags &= ~NET2_WORKQ_ONQUEUE;
-		deleted = 1;
-	}
-
-	/*
-	 * If the job dies, it may no longer be a member of the workq.
-	 * The workq must also be informed if the job disappears from under it.
-	 */
-	if (die) {
-		TAILQ_REMOVE(&wq->members, j, memberq);
-		if (j->flags & NET2_WORKQ_RUNNING)
-			*j->died = 1;
-		j->workq = NULL;	/* No longer owned by workq. */
-	}
-
-	/*
-	 * Wait until the job completes before erasing it.
-	 * Avoid deadlock if this thread is running the job.
-	 */
-	if ((j->flags & NET2_WORKQ_RUNNING) && !net2_thread_is_self(wq->execing)) {
-		j->flags |= NET2_WORKQ_WANT_EXE;
-		while (j->flags & NET2_WORKQ_RUNNING)
-			net2_cond_wait(j->exe_complete, wq->mtx);
-		j->flags &= ~NET2_WORKQ_WANT_EXE;
-	}
-
-	net2_mutex_unlock(wq->mtx);
-out:
-	net2_mutex_unlock(j->mtx);
-
-	if (deleted && j->backptr->callbacks != NULL &&
-	    j->backptr->callbacks->on_deactivate != NULL)
-		(*j->backptr->callbacks->on_deactivate)(j->backptr);
+	j->fn = NULL;
 }
-
-/* Mark job as inactive. */
+/* Activate a job. */
 ILIAS_NET2_EXPORT void
+__attribute__((hot))
+net2_workq_activate(struct net2_workq_job *j, int flags)
+{
+	struct net2_thread
+			*thr;
+
+	if (predict_false(j->fn == NULL))
+		return;
+
+	if (flags & NET2_WQ_ACT_IMMED) {
+		thr = net2_thread_self();
+		if (thr != NULL && job_run_set(j, 1, thr, 0, 1) == job_run_succes) {
+			/* Mark the job as active if it is a persistent job. */
+			if (atomic_load_explicit(&j->flags, memory_order_consume) & NET2_WORKQ_PERSIST)
+				atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE, memory_order_seq_cst);
+
+			/* Invoke the job. */
+			j->fn(j->cb_arg[0], j->cb_arg[1]);
+
+			/* Release job and thread. */
+			job_run_clear(j);
+			net2_thread_free(thr);
+			return;
+		}
+	}
+
+	job_active_set(j);
+}
+/* Deactivate a job. */
+ILIAS_NET2_EXPORT void
+__attribute__((hot))
 net2_workq_deactivate(struct net2_workq_job *j)
 {
-	if (j->internal == NULL)
+	if (j->fn == NULL)
 		return;
-	net2_workq_deactivate_internal(j->internal, 0);
-}
 
-/* Returns the event loop used for the workq. */
-ILIAS_NET2_LOCAL struct ev_loop*
-net2_workq_get_evloop(struct net2_workq *wq)
-{
-	return wq->evbase->evloop;
+	job_active_clear(j, 1);
 }
 
 /*
- * Returns the workq on which this job is running.
- * Returns NULL if the workq has been destroyed.
+ * Returns the workq that runs the specified job.
+ * Returns NULL if the workq no longer exists.
  *
- * The returned workq has its refcount incremented.
- * Call net2_workq_release to release the workq again.
+ * The returned workq is referenced.
  */
 ILIAS_NET2_EXPORT struct net2_workq*
-net2_workq_get(struct net2_workq_job *jj)
+net2_workq_get(struct net2_workq_job *j)
 {
-	struct net2_workq_job_internal	*j = jj->internal;
-	struct net2_workq		*wq;
-	int				 wq_is_dead = 0;
-
-	if (j == NULL)
+	if (j->fn == NULL)
 		return NULL;
-
-	/* Read the workq from j. */
-	net2_mutex_lock(j->mtx);
-	wq = j->workq;
-	/* Check if the workq is still alive. */
-	if (wq != NULL) {
-		net2_mutex_lock(wq->mtx);
-		wq_is_dead = (wq->flags & NET2_WQ_F_DYING);
-		/* Keep the workq alive for the return value. */
-		if (!wq_is_dead) {
-			net2_refcnt_ref(&wq->refcnt, wq->mtx,
-			    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT);
-		}
-		net2_mutex_unlock(wq->mtx);
-	}
-
-out:
-	net2_mutex_unlock(j->mtx);
-	return (wq_is_dead ? NULL : wq);
-}
-
-
-/*
- * Run a wq from the wqev.
- *
- * If wq is NULL, a workq will be selected.
- *
- * Called with wqev locked, returns with wqev locked.
- *
- * If wq dies, returns 1, otherwise 0.
- */
-static int
-run_wq(struct net2_workq_evbase *wqev, struct net2_workq *wq)
-{
-	int			 died;
-	struct net2_thread	*th_self;
-
-	/* If no workq was selected, select one manually. */
-	if (wq == NULL) {
-		if ((wq = TAILQ_FIRST(&wqev->runq)) == NULL)
-			return 0;
-	}
-	/* Acquire this thread. */
-	if ((th_self = net2_thread_self()) == NULL)
-		return 0;
-
-	TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
-	wq->flags &= ~NET2_WQ_F_ONQUEUE;
-	wq->flags |= NET2_WQ_F_RUNNING;
-
-	assert(wq->died == NULL);
-	died = 0;
-	wq->died = &died;
-	wq->execing = th_self;
-	net2_mutex_unlock(wqev->mtx);
-
-	net2_mutex_lock(wq->mtx);
-	run_job(wq, NULL);
-
-	net2_mutex_lock(wqev->mtx);
-	if (died)
-		goto out;
-
-	assert(wq->died == &died);
-	wq->died = NULL;
-	wq->execing = NULL;
-
-	assert(!(wq->flags & NET2_WQ_F_ONQUEUE));
-	wq->flags &= ~NET2_WQ_F_RUNNING;
-	if (wq->flags & NET2_WQ_F_DYING)
-		net2_cond_broadcast(wq->dying);
-	else if (wq->wanted > 0)
-		net2_cond_signal(wq->wanted_cond);
-	else if (!TAILQ_EMPTY(&wq->runqueue)) {
-		wq->flags |= NET2_WQ_F_ONQUEUE;
-		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
-	}
-
-	net2_mutex_unlock(wq->mtx);
-
-out:
-	net2_thread_free(th_self);
-	return died;
+	return workq_job_wq(j);
 }
 
 /*
- * Run a job on the workq.
- *
- * If j is NULL, the first job from the workq will be selected.
- *
- * Called with wq locked, exits with wq locked unless wq died.
- */
-static void
-run_job(struct net2_workq *wq, struct net2_workq_job_internal *j)
-{
-	int			*wq_died;
-	int			 died;
-
-	assert(wq->flags & NET2_WQ_F_RUNNING);
-	wq_died = wq->died;
-
-	assert(wq->execing != NULL && net2_thread_is_self(wq->execing));
-	if (j == NULL) {
-		/* Find the first job that is not blocking on exec. */
-		if ((j = TAILQ_FIRST(&wq->runqueue)) == NULL)
-			return;
-	}
-	assert(j->flags & NET2_WORKQ_ACTIVE);
-	TAILQ_REMOVE(&wq->runqueue, j, readyq);
-
-	assert(j->died == NULL);
-	died = 0;
-	j->died = &died;
-	j->flags |= NET2_WORKQ_RUNNING;
-	/*
-	 * Deactivate job now, unless it is persistent.
-	 */
-	if (!(j->flags & NET2_WORKQ_PERSIST))
-		j->flags &= ~NET2_WORKQ_ACTIVE;
-	net2_mutex_unlock(wq->mtx);
-
-	/* Run the callback. */
-	(*j->fn)(j->cb_arg[0], j->cb_arg[1]);
-
-	if (!*wq_died)
-		net2_mutex_lock(wq->mtx);
-	if (!died) {
-		/* Clear modifications. */
-		j->died = NULL;
-		j->flags &= ~NET2_WORKQ_RUNNING;
-	}
-	if (died || *wq_died) {
-		/*
-		 * If either the job or its workq ceased to exist,
-		 * we did all we can do.
-		 *
-		 * Note that unless wq_died, we exit with the workq lock
-		 * held.
-		 */
-		return;
-	}
-
-	/* If the active bit survived all that the job did, requeue it now. */
-	if ((j->flags & (NET2_WORKQ_ACTIVE | NET2_WORKQ_ONQUEUE)) ==
-	    NET2_WORKQ_ACTIVE) {
-		TAILQ_INSERT_TAIL(&wq->runqueue, j, readyq);
-		j->flags |= NET2_WORKQ_ONQUEUE;
-	}
-	/* Signal that the job has completed. */
-	if (j->flags & NET2_WORKQ_WANT_EXE)
-		net2_cond_broadcast(j->exe_complete);
-}
-
-/*
- * Wait for a specific workq to become available.
+ * Wait until the workq becomes available.
  *
  * Returns:
  * 0:		succes
- * EDEADLK:	called from within workq
- * ETIMEDOUT:	lock failed
- * ENOMEM:	insufficient memory to acquire lock
+ * EDEADLK:	called from within the workq
+ * ETIMEDOUT:	failed to acquire lock
+ * ENOMEM:	insufficient memory to start operation
+ *
+ * Workq want state acquisition is reentrant: for each succesful
+ * net2_workq_want() invocation, a matching net2_workq_unwant()
+ * invocation must occur in the same thread.
  */
 ILIAS_NET2_EXPORT int
 net2_workq_want(struct net2_workq *wq, int try)
 {
-	struct net2_workq_evbase*wqev;
-	int			 error;
-
-	net2_mutex_lock(wq->mtx);
-	wqev = wq->evbase;
-
-	/*
-	 * Test if this thread is already on the workq it attempts to join.
-	 */
-	net2_mutex_lock(wqev->mtx);
-	if ((wq->flags & NET2_WQ_F_RUNNING)) {
-		if (net2_thread_is_self(wq->execing))
-			error = EDEADLK;
-		else if (try)
-			error = EINTR;
-		else
-			error = 0;
-		if (error != 0) {
-			net2_mutex_unlock(wqev->mtx);
-			net2_mutex_unlock(wq->mtx);
-			return error;
-		}
-	}
-	net2_mutex_unlock(wqev->mtx);
-
-	/*
-	 * If other wanted threads are queued, they'll have done
-	 * the necessary work.  Simply skip forward to join the wait
-	 * queue.
-	 */
-	if (wq->wanted > 0)
-		goto wait;
-
-	/* Retry until we acquire the workq. */
-	for (;;) {
-		net2_mutex_lock(wqev->mtx);
-		if (!(wq->flags & NET2_WQ_F_RUNNING)) {
-			error = 0;
-			wq->flags |= NET2_WQ_F_RUNNING;
-			if ((wq->execing = net2_thread_self()) == NULL)
-				error = ENOMEM;
-			net2_mutex_unlock(wqev->mtx);
-			net2_mutex_unlock(wq->mtx);
-			return error;
-		}
-
-		/*
-		 * WQ is running, wait until it becomes available.
-		 * We must unlock the wqev, since we are going to block
-		 * on a variable controlled by wq.
-		 *
-		 * Before we unlock the workq, we must remove it from the
-		 * runqueue, so it won't be picked up by another worker.
-		 */
-		if (wq->flags & NET2_WQ_F_ONQUEUE) {
-			wq->flags &= ~NET2_WQ_F_ONQUEUE;
-			TAILQ_REMOVE(&wqev->runq, wq, wqe_runq);
-		}
-		net2_mutex_unlock(wqev->mtx);
-
-wait:
-		wq->wanted++;
-		net2_cond_wait(wq->wanted_cond, wq->mtx);
-		wq->wanted--;
+	switch (workq_want_set(wq, try)) {
+	case wq_want_succes:
+		return 0;
+	case wq_want_running:
+		return EDEADLK;
+	case wq_want_tryfail:
+		return ETIMEDOUT;
+	case wq_want_memfail:
+		return ENOMEM;
 	}
 }
-
-/*
- * Release the want-lock on the workq.
- */
+/* Release workq want state. */
 ILIAS_NET2_EXPORT void
 net2_workq_unwant(struct net2_workq *wq)
 {
+	if (workq_want_clear(wq))
+		workq_activate(wq);
+}
+
+/*
+ * Return the event loop.
+ *
+ * The ev_loop is created on demand (calling this function being the demand).
+ */
+ILIAS_NET2_LOCAL struct ev_loop*
+net2_workq_get_evloop(struct net2_workq *wq)
+{
+	uintptr_t	 evl;
+	struct ev_loop	*new;
+	struct net2_workq_evbase
+			*wqev;
+
+	wqev = wq->wqev;
+
+	/* Load existing evloop. */
+	evl = atomic_load_explicit(&wqev->evloop, memory_order_relaxed);
+	if (predict_true(evl != 0))
+		return (struct ev_loop*)evl;
+
+	/* No existing evloop, create a new evloop. */
+	new = ev_loop_new(EVFLAG_AUTO);
+	if (new == NULL)
+		return NULL;
+
+	/* Assign wqev as the user data for the event loop. */
+	ev_set_userdata(new, wqev);
+
+	/*
+	 * Assign the new evloop.
+	 * Failure indicates another thread assigned an ev_loop while we were creating one.
+	 */
+	if (atomic_compare_exchange_strong_explicit(&wqev->evloop, &evl, (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed))
+		return new;
+
+	/*
+	 * Failure to assign.
+	 * Free the new ev_loop and return the updated evl.
+	 */
+	ev_loop_destroy(new);
+	return (struct ev_loop*)evl;
+}
+
+/* Interrupt the evloop (async wakeup callback). */
+static void
+evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
+    int events ILIAS_NET2__unused)
+{
+	ev_break(loop, EVBREAK_ALL);
+}
+
+/* Interrupt the evloop so that it will re-evaluate its list of events. */
+static void
+evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused, ev_async *ev,
+    int events ILIAS_NET2__unused)
+{
+	/*
+	 * Do nothing: desired behaviour is a side effect from invoking this
+	 * function.
+	 */
+}
+
+/* Acquire a queued workq from the wqev. */
+static inline struct net2_workq*
+__attribute__((hot))
+wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
+{
+	struct net2_workq	*wq;
+
+	/* Acquire a workq and mark it running. */
+	TAILQ_FOREACH(wq, &wqev->runq, wqev_runq) {
+		if (workq_run_set(wq, curthread)) {
+			assert(atomic_load_explicit(&wq->flags, memory_order_relaxed) & WQ_ONQUEUE);
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE, memory_order_seq_cst);
+			TAILQ_REMOVE(&wqev->runq, wq, wqev_runq);
+			return wq;
+		}
+	}
+	return NULL;
+}
+
+/*
+ * Release a workq previously acquired using wqev_run_pop.
+ *
+ * If did_something is set, the workq had some workq queued and is immediately activated.
+ */
+static inline void
+__attribute__((hot))
+wqev_run_push(struct net2_workq *wq, int did_something)
+{
+	if (workq_run_clear(wq, did_something) == wq_killme)
+		kill_wq(wq, 1, 1);
+}
+
+/* Acquire a job from the workq. */
+static inline struct net2_workq_job*
+__attribute__((hot))
+wq_run_pop(struct net2_workq *wq, int *did_something)
+{
+	struct net2_workq_job	*j, *j_next, *first, *last;
+
+	net2_spinlock_lock(&wq->spl);
+	first = TAILQ_FIRST(&wq->runqueue);
+	last = NULL;
+	for (j = first; j != last; j = j_next) {
+		j_next = TAILQ_NEXT(j, runqueue);
+
+		switch (job_run_set(j, 0, NULL, 0, 0)) {
+		case job_run_succes:
+			*did_something = 1;
+			TAILQ_REMOVE(&wq->runqueue, j, runqueue);
+			TAILQ_INSERT_TAIL(&wq->runqueue, j, runqueue);
+			goto out;	/* Loop break. */
+		case job_run_inactive:
+			atomic_fetch_and_explicit(&j->flags, ~JOB_ONQUEUE, memory_order_seq_cst);
+			TAILQ_REMOVE(&wq->runqueue, j, runqueue);
+			break;
+		case job_run_wait:
+			*did_something = 1;
+			/* FALLTHROUGH */
+		case job_run_twice:
+			TAILQ_REMOVE(&wq->runqueue, j, runqueue);
+			TAILQ_INSERT_TAIL(&wq->runqueue, j, runqueue);
+			if (last == NULL)
+				last = j;
+			break;
+		case job_run_nowq:
+		case job_run_wqbusy:
+			/* Shouldn't happen: the workq must be in the running state. */
+			abort();
+			break;
+		}
+	}
+out:
+	net2_spinlock_unlock(&wq->spl);
+	return j;
+}
+
+/* Release a job previously acquire using wq_run_pop. */
+static inline void
+__attribute__((hot))
+wq_run_push(struct net2_workq_job *j)
+{
+	job_run_clear(j);
+}
+
+/*
+ * Worker thread implementation.
+ */
+static void*
+__attribute__((hot))
+wqev_worker(void *wthr_ptr)
+{
+	struct net2_workq_evbase_worker
+				*wthr;
+	struct net2_thread	*curthread;
 	struct net2_workq_evbase*wqev;
+	struct net2_workq	*wq;
+	struct net2_workq_job	*j;
+	int			 did_something;
+	int			 count;
+	const int		 COUNT = 8;
 
-	wqev = wq->evbase;
-	net2_mutex_lock(wq->mtx);
+	/* XXX put wthr into ThreadLocalStorage. */
+	wthr = wthr_ptr;
+	wqev = wthr->evbase;
 
-	/* Clear running flag. */
-	net2_mutex_lock(wqev->mtx);
-	assert(wq->flags & NET2_WQ_F_RUNNING);
-	wq->flags &= ~NET2_WQ_F_RUNNING;
+	if ((curthread = net2_thread_self()) == NULL)
+		return NULL;
 
-	/* Signal next blocking thread. */
-	if (wq->wanted > 0) {
-		net2_mutex_unlock(wqev->mtx);
-		net2_cond_signal(wq->wanted_cond);
-		net2_mutex_unlock(wq->mtx);
+	/*
+	 * A worker always transitions from active to idle.
+	 *
+	 * To run, it decrements thr_active.
+	 * When it ceases to run, it increments thr_idle.
+	 * The workq_onqueue function always attempts to transfer one
+	 * semaphore level from idle to active.
+	 *
+	 * thr_active is also incremented when threads need to die.
+	 * In this case, the trydown on thr_die will enable the thread to
+	 * die immediately.
+	 */
+	for (;;) {
+		did_something = 0;
+		net2_semaphore_down(&wqev->thr_active);
+		if (net2_semaphore_trydown(&wqev->thr_die))
+			break;	/* GUARD */
+
+		/* Lock runq. */
+		net2_spinlock_lock(&wqev->spl);
+		while ((wq = wqev_run_pop(wqev, curthread)) != NULL) {
+			net2_spinlock_unlock(&wqev->spl);
+
+			/* Execute up to count jobs from this workq. */
+			count = COUNT;
+			while (count-- > 0 &&
+			    (j = wq_run_pop(wq, &did_something)) != NULL) {
+				j->fn(j->cb_arg[0], j->cb_arg[1]);
+				wq_run_push(j);
+			}
+
+			/* Release the workq exec state. */
+			wqev_run_push(wq, did_something);
+
+			/* Check in every so often to see if we need to die. */
+			if (net2_semaphore_trydown(&wqev->thr_die))
+				goto die;	/* double GUARD */
+
+			/* Reacquire the wqev runq. */
+			net2_spinlock_lock(&wqev->spl);
+		}
+
+		/* Go to sleep. */
+		net2_semaphore_up(&wqev->thr_idle, 1);	/* XXX must be done while holding the spinlock! */
+		net2_spinlock_unlock(&wqev->spl);
+	}
+
+die:
+	net2_thread_free(curthread);
+
+	/* Mark this wthr as dead. */
+	net2_spinlock_lock(&wqev->spl_workers);
+	TAILQ_REMOVE(&wqev->workers, wthr, tq);
+	TAILQ_INSERT_TAIL(&wqev->dead_workers, wthr, tq);
+	net2_spinlock_unlock(&wqev->spl_workers);
+	/* Signal for cleanup. */
+	net2_semaphore_up(&wqev->thr_death, 1);
+	return NULL;
+}
+
+/* Create a worker thread for this wqev. */
+static int
+__attribute__((cold))
+create_thread(struct net2_workq_evbase *wqev)
+{
+	struct net2_workq_evbase_worker
+				*wthr;
+
+	if ((wthr = net2_malloc(sizeof(*wthr))) == NULL)
+		return ENOMEM;
+	wthr->evbase = wqev;
+	wthr->worker = net2_thread_new(&wqev_worker, wqev, (wqev->wq_worker_name == NULL ? "workq worker" : wqev->wq_worker_name));
+	if (wthr->worker == NULL) {
+		net2_free(wthr);
+		return ENOMEM;
+	}
+
+	TAILQ_INSERT_TAIL(&wqev->workers, wthr, tq);
+	return 0;
+}
+static void
+__attribute__((cold))
+destroy_thread(struct net2_workq_evbase *wqev, int count)
+{
+	struct net2_workq_evbase_worker
+				*wthr;
+	int			 i;
+
+	if (count <= 0)
 		return;
+
+	/* Mark count threads as having to die. */
+	net2_semaphore_up(&wqev->thr_die, count);
+	/* Make the same number of threads active. */
+	net2_semaphore_up(&wqev->thr_active, count);
+
+	/* Wait for all dying threads to finish. */
+	for (i = 0; i < count; i++)
+		net2_semaphore_down(&wqev->thr_death);
+
+	/* Collect all dead threads. */
+	while ((wthr = TAILQ_FIRST(&wqev->dead_workers)) != NULL) {
+		TAILQ_REMOVE(&wqev->dead_workers, wthr, tq);
+		net2_thread_join(wthr->worker, NULL);
+		net2_thread_free(wthr->worker);
+		net2_free(wthr);
+	}
+}
+
+/* Modify the thread counts. */
+ILIAS_NET2_EXPORT int
+__attribute__((cold))
+net2_workq_set_thread_count(struct net2_workq_evbase *wqev, int jobthreads, int maxthreads)
+{
+	int	 kill;
+	int	 error;
+
+	/* Lock out other threads from modifying the counts. */
+	net2_mutex_lock(wqev->workers_mtx);
+
+	/* Increase number of worker threads. */
+	while (wqev->maxthreads < maxthreads) {
+		if ((error = create_thread(wqev)) != 0)
+			goto out;
+		wqev->maxthreads++;
+	}
+	/* Decrease number of worker threads. */
+	if (wqev->maxthreads > maxthreads) {
+		kill = wqev->maxthreads - maxthreads;
+		destroy_thread(wqev, kill);
+		wqev->maxthreads -= kill;
 	}
 
-	/* Lock on wq no longer required. */
-	net2_mutex_unlock(wq->mtx);
-
-	/* Enqueue wq if it has running tasks. */
-	if (wq->flags & NET2_WQ_F_DYING)
-		net2_cond_broadcast(wq->dying);
-	else if (!TAILQ_EMPTY(&wq->runqueue)) {
-		wq->flags |= NET2_WQ_F_ONQUEUE;
-		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqe_runq);
-		/*
-		 * Since this is not a worker thread that can pick up
-		 * the workq immediately, wake up a workq.
-		 */
-		net2_workq_wakeup(wqev);
+	/* Change the number of job threads. */
+	if (jobthreads > wqev->jobthreads) {
+		/* Increment activity. */
+		net2_semaphore_up(&wqev->thr_active, jobthreads - wqev->jobthreads);
+		wqev->jobthreads = jobthreads;
+	} else {
+		/* Descrement activity. */
+		while (jobthreads < wqev->jobthreads) {
+			if (net2_semaphore_trydown(&wqev->thr_active))
+				wqev->jobthreads--;
+			else
+				break;
+		}
+		/* Decrement idle threads. */
+		while (jobthreads < wqev->jobthreads) {
+			net2_semaphore_down(&wqev->thr_idle);
+			wqev->jobthreads--;
+		}
 	}
 
-	/* Release wqev. */
-	net2_mutex_unlock(wqev->mtx);
+	error = 0;
+
+out:
+	/* Unlock thread count modification. */
+	net2_mutex_unlock(wqev->workers_mtx);
+
+	return error;
 }

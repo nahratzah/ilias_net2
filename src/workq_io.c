@@ -238,7 +238,7 @@ rx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
 	net2_mutex_unlock(dg->rx_guard);
 
 	/* Activate event. */
-	net2_workq_activate(&dgrx->impl);
+	net2_workq_activate(&dgrx->impl, 0);
 
 	return;
 
@@ -385,7 +385,7 @@ tx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
 	 */
 	net2_mutex_lock(dg->tx_guard);
 	if (TAILQ_EMPTY(&dg->tx_spare))
-		net2_workq_activate(&dg->ask_for_tx);
+		net2_workq_activate(&dg->ask_for_tx, 0);
 	TAILQ_INSERT_HEAD(&dg->tx_spare, dgtx, q);
 	net2_mutex_unlock(dg->tx_guard);
 }
@@ -470,7 +470,7 @@ ready_to_send:
 			net2_promise_release(dgtx->tx_promdata);
 			dgtx->tx_promdata = NULL;
 
-			net2_workq_activate(&dg->ask_for_tx);
+			net2_workq_activate(&dg->ask_for_tx, 0);
 
 			goto no_new_tx;
 		}
@@ -590,7 +590,7 @@ no_new_tx:
 		net2_promise_release(dgtx->tx_promdata);
 		dgtx->tx_promdata = NULL;
 
-		net2_workq_activate(&dg->ask_for_tx);
+		net2_workq_activate(&dg->ask_for_tx, 0);
 
 		goto no_new_tx;
 	}
@@ -795,7 +795,7 @@ net2_workq_io_activate_tx(struct net2_workq_io *dg)
 
 	net2_mutex_lock(dg->fguard);
 	dg->flags |= IO_FLAG_TX;
-	net2_workq_activate(&dg->ask_for_tx);
+	net2_workq_activate(&dg->ask_for_tx, 0);
 	net2_mutex_unlock(dg->fguard);
 }
 /* Disable listening for write events. */

@@ -147,7 +147,7 @@ test_run(size_t packet_sz, enum net2_carver_type carver_type)
 	struct net2_workq	*wq;
 	struct net2_workq_evbase*wqev;
 
-	if ((wqev = net2_workq_evbase_new("test_run")) == NULL) {
+	if ((wqev = net2_workq_evbase_new("test_run", 1, 1)) == NULL) {
 		fprintf(stderr, "Failed to init net2_workq_evbase.\n");
 		abort();
 	}

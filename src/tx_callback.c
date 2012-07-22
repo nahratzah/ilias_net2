@@ -189,7 +189,7 @@ txcb_fire(struct net2_tx_callback *q, int which)
 		TAILQ_FOREACH(e, &q->entries, q_entry) {
 			assert(e->active == Q_TIMEOUT);
 			if (e->fn[Q_TIMEOUT] != NULL)
-				net2_workq_activate(&e->callback);
+				net2_workq_activate(&e->callback, 0);
 		}
 		net2_mutex_unlock(q->mtx);
 		return;
@@ -226,7 +226,7 @@ txcb_fire(struct net2_tx_callback *q, int which)
 			if (rv != 0 && rv != EDEADLK)
 				net2_workq_deactivate(&e->callback);
 			e->active = which;
-			net2_workq_activate(&e->callback);
+			net2_workq_activate(&e->callback, 0);
 			if (rv == 0)
 				net2_workq_unwant(wq);
 
