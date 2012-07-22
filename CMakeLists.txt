@@ -209,6 +209,11 @@ endif (${WITH_EXUDE})
 #
 add_subdirectory (tools)
 
+# On windows, use contrib openssl binaries.
+if (WIN32)
+	set (OPENSSL_ROOT_DIR "${PROJECT_SOURCE_DIR}/openssl-win32" CACHE PATH "Path to OpenSSL.")
+endif (WIN32)
+
 find_package (OpenSSL REQUIRED)
 find_package (Threads)
 if (NOT USE_EMBEDDED_EV)
