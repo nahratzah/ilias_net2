@@ -211,7 +211,7 @@ add_subdirectory (tools)
 
 # On windows, use contrib openssl binaries.
 if (WIN32)
-	set (OPENSSL_ROOT_DIR "${PROJECT_SOURCE_DIR}/openssl-win32" CACHE PATH "Path to OpenSSL.")
+	set (OPENSSL_ROOT_DIR "${PROJECT_SOURCE_DIR}/contrib/openssl-win32" CACHE PATH "Path to OpenSSL.")
 endif (WIN32)
 
 find_package (OpenSSL REQUIRED)
