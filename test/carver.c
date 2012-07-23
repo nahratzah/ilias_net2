@@ -97,8 +97,11 @@ transmit(struct net2_carver *carver, struct net2_combiner *combiner,
 			abort();
 		}
 
+		net2_workq_want(wq, 0);
 		error = net2_carver_get_transmit(carver, &ctx,
 		    wq, buf, &callbacks, packet_sz);
+		net2_workq_unwant(wq);
+
 		if (error != 0) {
 			fprintf(stderr, "carver_get_trnasmit: fatal error "
 			    "%d: %s\n", error, strerror(error));
