@@ -190,12 +190,12 @@ ILIAS_NET2_LOCAL const size_t net2_connwindow_overhead = 128;
 ILIAS_NET2_LOCAL const size_t net2_connwindow_min_overhead =
     WINDOWHEADER_MINSIZE + WINDOWHEADER_RANGE_SIZE;
 
-static inline int
+static __inline int
 tx_cmp(struct net2_cw_tx *tx1, struct net2_cw_tx *tx2)
 {
 	return (tx1->cwt_seq < tx2->cwt_seq ? -1 : tx1->cwt_seq > tx2->cwt_seq);
 }
-static inline int
+static __inline int
 rx_cmp(struct net2_cw_rx *rx1, struct net2_cw_rx *rx2)
 {
 	return (rx1->cwr_seq < rx2->cwr_seq ? -1 : rx1->cwr_seq > rx2->cwr_seq);
@@ -366,7 +366,7 @@ cw_transmits_remove(struct net2_connwindow *w, struct net2_cw_tx *tx)
 
 
 /* Set the stalled flag, depending on the transmission window. */
-static inline void
+static __inline void
 update_stalled(struct net2_connwindow *w)
 {
 	if (w->cw_tx_nextseq - w->cw_tx_start < w->cw_tx_windowsz) {

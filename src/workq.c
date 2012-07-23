@@ -112,7 +112,7 @@ thryield()
 	nanosleep(&yield, NULL);
 }
 #else
-static inline void
+static __inline void
 thryield()
 {
 	pthread_yield();
@@ -264,7 +264,7 @@ static void	evloop_new_event(struct ev_loop*, ev_async*, int);
 
 
 /* Only called with non-zero reference count. */
-static inline void
+static __inline void
 workq_ref(struct net2_workq *wq)
 {
 	atomic_fetch_add_explicit(&wq->refcnt, 1, memory_order_acquire);
@@ -274,7 +274,7 @@ workq_ref(struct net2_workq *wq)
  *
  * Returns true if the last reference went away.
  */
-static inline int
+static __inline int
 workq_release(struct net2_workq *wq)
 {
 	return (atomic_fetch_sub_explicit(&wq->refcnt, 1, memory_order_release) == 1);
@@ -284,7 +284,7 @@ workq_release(struct net2_workq *wq)
  *
  * Returns true if the workq was moved from !WQ_ONQUEUE to WQ_ONQUEUE.
  */
-static inline int
+static __inline int
 workq_onqueue(struct net2_workq *wq)
 {
 	struct net2_workq_evbase
@@ -313,7 +313,7 @@ workq_onqueue(struct net2_workq *wq)
  *
  * Returns true if the workq was moved from WQ_ONQUEUE to !WQ_ONQUEUE.
  */
-static inline int
+static __inline int
 workq_offqueue(struct net2_workq *wq)
 {
 	struct net2_workq_evbase
@@ -336,7 +336,7 @@ workq_offqueue(struct net2_workq *wq)
 /*
  * Returns true if the workq is executing on the current thread.
  */
-static inline int
+static __inline int
 workq_self(struct net2_workq *wq)
 {
 	int			 selflocked;
@@ -350,7 +350,7 @@ workq_self(struct net2_workq *wq)
 	return selflocked;
 }
 /* Clear the current thread ID. */
-static inline struct net2_thread*
+static __inline struct net2_thread*
 workq_self_clear(struct net2_workq *wq)
 {
 	struct net2_thread	*thr;
@@ -367,7 +367,7 @@ workq_self_clear(struct net2_workq *wq)
  * Set the current thread ID.
  * Returns true if the assignment succeeded (i.e. wq->thread was clear).
  */
-static inline int
+static __inline int
 workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
 {
 	uintptr_t	 t;
@@ -388,7 +388,7 @@ workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
  *
  * Returns NULL if the workq is unavailable.
  */
-static inline struct net2_workq*
+static __inline struct net2_workq*
 job_deref_lock(struct net2_workq_job *j)
 {
 	struct net2_workq	*wq;
@@ -408,7 +408,7 @@ job_deref_lock(struct net2_workq_job *j)
  * Unlock the job deref state.
  * Returns the state of the flags as a hint.
  */
-static inline unsigned int
+static __inline unsigned int
 job_deref_unlock(struct net2_workq_job *j)
 {
 	unsigned int	 f;
@@ -422,7 +422,7 @@ job_deref_unlock(struct net2_workq_job *j)
  *
  * Workq must exist and be reachable.
  */
-static inline void
+static __inline void
 job_onqueue(struct net2_workq_job *j)
 {
 	struct net2_workq	*wq;
@@ -451,7 +451,7 @@ job_onqueue(struct net2_workq_job *j)
 /*
  * Remove the job from its workq runqueue.
  */
-static inline unsigned int
+static __inline unsigned int
 job_offqueue(struct net2_workq_job *j)
 {
 	struct net2_workq	*wq;
@@ -479,7 +479,7 @@ job_offqueue(struct net2_workq_job *j)
  *
  * Upon succesful acquire, the reference counter to the workq is updated.
  */
-static inline struct net2_workq*
+static __inline struct net2_workq*
 workq_job_wq(struct net2_workq_job *j)
 {
 	struct net2_workq
@@ -501,7 +501,7 @@ workq_job_wq(struct net2_workq_job *j)
  *
  * Returns true if this call detached the wq.
  */
-static inline int
+static __inline int
 workq_job_wq_clear(struct net2_workq_job *j)
 {
 	struct net2_workq
@@ -557,7 +557,7 @@ out:
  *
  * Returns true if the operation succeeded.
  */
-static inline int
+static __inline int
 workq_activate(struct net2_workq *wq)
 {
 	return workq_onqueue(wq);
@@ -568,7 +568,7 @@ workq_activate(struct net2_workq *wq)
  *
  * Returns true if the operation succeeded.
  */
-static inline int
+static __inline int
 workq_deactivate(struct net2_workq *wq)
 {
 	return workq_offqueue(wq);
@@ -578,7 +578,7 @@ workq_deactivate(struct net2_workq *wq)
  *
  * Returns true if the operation succeeded.
  */
-static inline int
+static __inline int
 __attribute__((hot))
 workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 {
@@ -613,7 +613,7 @@ fail:
  *
  * Returns the dying state of the workq.
  */
-static inline enum workq_dying_state
+static __inline enum workq_dying_state
 __attribute__((hot))
 workq_run_clear(struct net2_workq *wq, int activate)
 {
@@ -645,7 +645,7 @@ workq_run_clear(struct net2_workq *wq, int activate)
  * Acquires the mutex.
  * Note that the workq must be referenced for this function to be possible.
  */
-static inline enum workq_want_state
+static __inline enum workq_want_state
 workq_want_set(struct net2_workq *wq, int try)
 {
 	unsigned int	 f;
@@ -755,7 +755,7 @@ tryfail_0:
  *
  * Returns true if the workq requires activation.
  */
-static inline int
+static __inline int
 workq_want_clear(struct net2_workq *wq)
 {
 	int		 do_activate = 0;
@@ -810,7 +810,7 @@ workq_want_clear(struct net2_workq *wq)
  *
  * If allow_inactive is set, the job does not need to be active to run.
  */
-static inline enum job_run_state
+static __inline enum job_run_state
 __attribute__((hot))
 job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthread, int runwait, int allow_inactive)
 {
@@ -925,7 +925,7 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
  *
  * Returns true if the job is active.
  */
-static inline int
+static __inline int
 __attribute__((hot))
 job_run_clear(struct net2_workq_job *j)
 {
@@ -1109,7 +1109,7 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
  *
  * Returns true if the job transitioned from inactive to active.
  */
-static inline int
+static __inline int
 job_active_set(struct net2_workq_job *j)
 {
 	unsigned int	 jf;
@@ -1146,7 +1146,7 @@ job_active_set(struct net2_workq_job *j)
  * The workq will encounter the job and noticing it cannot run,
  * remove it from the queue.
  */
-static inline void
+static __inline void
 job_active_clear(struct net2_workq_job *j, int wait)
 {
 	unsigned int	 jf;
@@ -1587,7 +1587,7 @@ evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused, ev_async *ev,
 }
 
 /* Acquire a queued workq from the wqev. */
-static inline struct net2_workq*
+static __inline struct net2_workq*
 __attribute__((hot))
 wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
 {
@@ -1610,7 +1610,7 @@ wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
  *
  * If did_something is set, the workq had some workq queued and is immediately activated.
  */
-static inline void
+static __inline void
 __attribute__((hot))
 wqev_run_push(struct net2_workq *wq, int did_something)
 {
@@ -1619,7 +1619,7 @@ wqev_run_push(struct net2_workq *wq, int did_something)
 }
 
 /* Acquire a job from the workq. */
-static inline struct net2_workq_job*
+static __inline struct net2_workq_job*
 __attribute__((hot))
 wq_run_pop(struct net2_workq *wq, int *did_something)
 {
@@ -1663,7 +1663,7 @@ out:
 }
 
 /* Release a job previously acquire using wq_run_pop. */
-static inline void
+static __inline void
 __attribute__((hot))
 wq_run_push(struct net2_workq_job *j)
 {

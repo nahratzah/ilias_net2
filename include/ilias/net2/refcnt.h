@@ -36,7 +36,7 @@ ILIAS_NET2__begin_cdecl
 #define NET2_REFCNT_IS_ATOMIC	1
 typedef atomic_size_t net2_refcnt_t;
 
-static inline void
+static __inline void
 net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	if (mtx) {
@@ -54,7 +54,7 @@ net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 			net2_mutex_unlock(mtx);
 	}
 }
-static inline int
+static __inline int
 net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	int			 do_free;
@@ -75,17 +75,17 @@ net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 
 	return do_free;
 }
-static inline void
+static __inline void
 net2_refcnt_set(net2_refcnt_t *refcnt, unsigned initial)
 {
 	atomic_init(refcnt, initial);
 }
-static inline int
+static __inline int
 net2_refcnt_iszero(net2_refcnt_t *refcnt)
 {
 	return atomic_load(refcnt) == 0;
 }
-static inline size_t
+static __inline size_t
 net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	size_t			 rv;

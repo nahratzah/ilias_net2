@@ -290,7 +290,7 @@ RB_PROTOTYPE_STATIC(range_tree, range, entry, sa_range_cmp);
 RB_GENERATE_STATIC(range_tree, range, entry, sa_range_cmp);
 
 /* Fragment comparator. */
-static inline int
+static __inline int
 sa_fragment_cmp(struct fragment *f1, struct fragment *f2)
 {
 	uint32_t			 off1, off2;
