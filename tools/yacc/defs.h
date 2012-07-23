@@ -41,7 +41,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <ilias/net2/config.h>
 #include "compat.h"
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>

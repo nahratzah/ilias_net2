@@ -2,6 +2,7 @@ cmake_minimum_required (VERSION 2.6)
 project (tools)
 
 include_directories ("${PROJECT_SOURCE_DIR}/lex" "${PROJECT_SOURCE_DIR}/yacc")
+include_directories ("${PROJECT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 include_directories (${bsd_compat_INCLUDE_DIRS})
 
 include (CheckFunctionExists)
