@@ -20,6 +20,7 @@
 #include <ilias/net2/config.h>
 #include <sys/types.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>

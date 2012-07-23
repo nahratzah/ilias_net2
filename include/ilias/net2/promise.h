@@ -20,6 +20,7 @@
 #include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 ILIAS_NET2__begin_cdecl
 

@@ -120,7 +120,7 @@ net2_acceptor_socket_get_transmit(struct net2_acceptor_socket *s,
 ILIAS_NET2_EXPORT void
 net2_acceptor_accept(struct net2_acceptor *a, struct net2_buffer *buf)
 {
-	return (*a->fn->accept)(a, buf);
+	(*a->fn->accept)(a, buf);
 }
 
 /* Make acceptor socket process received data. */
