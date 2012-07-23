@@ -69,7 +69,6 @@ else (LEX_BIN)
 		lex/libmain.c
 		lex/libyywrap.c
 		)
-	target_link_libraries (lex bsd_compat)
 endif (LEX_BIN)
 
 if (YACC_BIN)
@@ -100,6 +99,4 @@ else (YACC_BIN)
 		yacc/yyerror.c
 		)
 	target_link_libraries (yacc y)
-	target_link_libraries (yacc bsd_compat)
-	target_link_libraries (y bsd_compat)
 endif (YACC_BIN)
