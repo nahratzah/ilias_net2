@@ -19,7 +19,7 @@
 #include <ilias/net2/bsd_compat/secure_random.h>
 
 #ifdef WIN32
-
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>

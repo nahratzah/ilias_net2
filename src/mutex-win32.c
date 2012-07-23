@@ -18,6 +18,7 @@
 #include <ilias/net2/config.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <ilias/net2/bsd_compat/error.h>
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <assert.h>
 
@@ -219,6 +220,7 @@ net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 	/* Relock m. */
 	for (i = 0; i < locks; i++)
 		EnterCriticalSection(&m->s);
+	assert(m->locks == 0);
 	m->locks = locks;
 
 	destroy_waiter(&self);
