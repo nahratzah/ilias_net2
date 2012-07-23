@@ -126,14 +126,6 @@ thryield()
 #endif
 
 
-#ifdef HAVE_STDATOMIC_H
-typedef atomic_uint	flags_t;
-typedef atomic_bool	died_t;
-#else
-typedef unsigned int	flags_t;
-typedef volatile int	died_t;
-#endif
-
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
@@ -192,7 +184,7 @@ enum job_run_state {
 
 /* Workq data. */
 struct net2_workq {
-	flags_t		 flags;			/* State bits. */
+	atomic_uint	 flags;			/* State bits. */
 #define WQ_RUNNING	0x00000001		/* Running. */
 #define WQ_ONQUEUE	0x00000002		/* Waiting to run. */
 #define WQ_KILLME	0x00000004		/* Kill workq after run. */
