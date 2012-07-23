@@ -38,6 +38,7 @@
 
 #include "flexdef.h"
 #include "version.h"
+#include "compat.h"
 
 static char flex_version[] = FLEX_VERSION;
 

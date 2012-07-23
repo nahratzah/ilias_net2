@@ -15,11 +15,15 @@ check_function_exists (strlcpy		HAS_STRLCPY)
 check_include_files (getopt.h		HAVE_GETOPT_H)
 check_include_files (err.h		HAVE_ERR_H)
 
+list (APPEND compat_srcs "compat.c")
+list (APPEND compat_hdrs "${CMAKE_CURRENT_BINARY_DIR}/compat.h")
 if (NOT HAVE_GETOPT_H)
-	set (compat_srcs "${PROJECT_SOURCE_DIR}/getopt.h;${PROJECT_SOURCE_DIR}/getopt_long.c")
+	list (APPEND compat_srcs "getopt_long.c")
+	list (APPEND compat_hdrs "getopt.h")
 endif (NOT HAVE_GETOPT_H)
 if (NOT HAVE_ERR_H)
-	set (compat_srcs "${PROJECT_SOURCE_DIR}/err.h;${PROJECT_SOURCE_DIR}/err.c")
+	list (APPEND compat_srcs "err.c")
+	list (APPEND compat_hdrs "err.h")
 endif (NOT HAVE_ERR_H)
 
 configure_file (${PROJECT_SOURCE_DIR}/compat.h.in ${CMAKE_CURRENT_BINARY_DIR}/compat.h)
@@ -33,6 +37,13 @@ endif (NOT LEX_BIN)
 if (NOT YACC_BIN)
 	find_program (YACC_BIN bison)
 endif (NOT YACC_BIN)
+
+if (NOT LEX_BIN OR NOT YACC_BIN)
+	add_library (compat STATIC
+		${compat_srcs}
+		${compat_hdrs}
+		)
+endif (NOT LEX_BIN OR NOT YACC_BIN)
 
 if (LEX_BIN)
 	set (LEX "${LEX_BIN}" CACHE PATH "lexer")
@@ -61,14 +72,16 @@ else (LEX_BIN)
 		lex/skel.c
 
 		# porting compatibility
-		${CMAKE_CURRENT_BINARY_DIR}/compat.h
-		compat.c
-		${compat_srcs}
+		${compat_hdrs}
 		)
-	add_library (l
+	add_library (l STATIC
 		lex/libmain.c
 		lex/libyywrap.c
+
+		# porting compatibility
+		${compat_hdrs}
 		)
+	target_link_libraries (lex compat)
 endif (LEX_BIN)
 
 if (YACC_BIN)
@@ -90,13 +103,14 @@ else (YACC_BIN)
 		yacc/warshall.c
 
 		# porting compatibility
-		${CMAKE_CURRENT_BINARY_DIR}/compat.h
-		compat.c
-		${compat_srcs}
+		${compat_hdrs}
 		)
-	add_library (y
+	add_library (y STATIC
 		yacc/main.c
 		yacc/yyerror.c
+
+		# porting compatibility
+		${compat_hdrs}
 		)
-	target_link_libraries (yacc y)
+	target_link_libraries (yacc y compat)
 endif (YACC_BIN)
