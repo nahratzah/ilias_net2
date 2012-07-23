@@ -258,7 +258,7 @@ static __inline int32_t
 atomic_fetch_sub32(volatile int32_t *v, uint32_t add)
 {
 	assert(sizeof(int32_t) == sizeof(long));
-	return _InterlockedExchangeAdd((volatile long*)v, ~add);
+	return _InterlockedExchangeAdd((volatile long*)v, -(int32_t)add);
 }
 static __inline int64_t
 atomic_fetch_sub64(volatile int64_t *v, uint64_t add)
@@ -512,32 +512,39 @@ workq_release(struct net2_workq *wq)
 }
 /*
  * Put the workq on the runq.
+ * If clear_run is set, the run bit will be cleared.
  *
- * Returns true if the workq was moved from !WQ_ONQUEUE to WQ_ONQUEUE.
+ * Returns the updated flags of the workq.
  */
-static __inline int
-workq_onqueue(struct net2_workq *wq)
+static __inline unsigned int
+workq_onqueue(struct net2_workq *wq, int clear_run)
 {
 	struct net2_workq_evbase
 			*wqev;
-	int		 rv;
+	unsigned int	 fl;
 
 	wqev = wq->wqev;
-	rv = 0;
-	if (atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_ONQUEUE)
-		return 0;
+	if (!clear_run &&
+	    ((fl = atomic_load_explicit(&wq->flags, memory_order_consume)) &
+	     WQ_ONQUEUE))
+		return fl;
 
 	net2_spinlock_lock(&wqev->spl);
-	if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume) & WQ_ONQUEUE)) {
+	if (!((fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume)) & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
-		rv = 1;
 
-		/* Activate worker. */
-		if (net2_semaphore_trydown(&wqev->thr_idle))
-			net2_semaphore_up(&wqev->thr_active, 1);
+	if (clear_run) {
+		fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+		assert(fl & WQ_RUNNING);
+		fl &= ~WQ_RUNNING;
 	}
+
+	/* Activate worker. */
+	if (net2_semaphore_trydown(&wqev->thr_idle))
+		net2_semaphore_up(&wqev->thr_active, 1);
+
 	net2_spinlock_unlock(&wqev->spl);
-	return rv;
+	return fl;
 }
 /*
  * Remove the workq from the runq.
@@ -679,7 +686,7 @@ job_onqueue(struct net2_workq_job *j)
 	net2_spinlock_unlock(&wq->spl);
 
 	if (activate_wq)
-		workq_onqueue(wq);
+		workq_onqueue(wq, 0);
 }
 /*
  * Remove the job from its workq runqueue.
@@ -784,13 +791,11 @@ out:
 /*
  * Put a workq on the runq.
  * Will fail if the workq is already on the runqueue.
- *
- * Returns true if the operation succeeded.
  */
-static __inline int
+static __inline void
 workq_activate(struct net2_workq *wq)
 {
-	return workq_onqueue(wq);
+	workq_onqueue(wq, 0);
 }
 /*
  * Remove workq from the runq.
@@ -832,7 +837,7 @@ fail:
 		goto fail;
 
 	/* Store current thread. */
-	if (workq_self_set(wq, curthread))
+	if (!workq_self_set(wq, curthread))
 		goto fail;
 
 	return 1;
@@ -854,13 +859,14 @@ workq_run_clear(struct net2_workq *wq, int activate)
 
 	workq_self_clear(wq);
 
-	/* Activate workq. */
-	if (activate && !(atomic_load_explicit(&wq->flags, memory_order_consume) & (WQ_DYING | WQ_ONQUEUE)))
-		workq_onqueue(wq);
+	/* Activate workq and clear running bit. */
+	if (activate)
+		f = workq_onqueue(wq, 1);
+	else {
+		f = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+		assert(f & WQ_RUNNING);
+	}
 
-	/* Clear running bit. */
-	f = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
-	assert(f & WQ_RUNNING);
 	if (f & WQ_KILLME)
 		return wq_killme;
 	else if (f & WQ_DYING)
@@ -1004,12 +1010,12 @@ workq_want_clear(struct net2_workq *wq)
 			 * No other thread wants this workq, check if it needs to be
 			 * activated.
 			 */
-			do_activate = !(atomic_load_explicit(&wq->flags, memory_order_relaxed) & WQ_ONQUEUE);
-
-			if (do_activate && net2_spinlock_trylock(&wq->spl)) {
+			do_activate = 1;
+			if (net2_spinlock_trylock(&wq->spl)) {
 				/* Empty workq is never active. */
 				if (TAILQ_EMPTY(&wq->runqueue))
 					do_activate = 0;
+				net2_spinlock_unlock(&wq->spl);
 			}
 		}
 
