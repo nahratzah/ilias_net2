@@ -42,6 +42,6 @@ else (LEX_BIN)
 		libyywrap.c
 		)
 	target_link_libraries (lex compat)
-	add_dependancies (lex compat)
-	add_dependancies (l compat)
+	add_dependencies (lex compat)
+	add_dependencies (l compat)
 endif (LEX_BIN)

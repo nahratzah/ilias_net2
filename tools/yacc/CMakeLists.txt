@@ -33,6 +33,6 @@ else (YACC_BIN)
 		yyerror.c
 		)
 	target_link_libraries (yacc y compat)
-	add_dependancies (yacc compat)
-	add_dependancies (y compat)
+	add_dependencies (yacc compat)
+	add_dependencies (y compat)
 endif (YACC_BIN)
