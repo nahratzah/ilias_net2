@@ -655,6 +655,7 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 		error = ENOMEM;
 		goto fail_0;
 	}
+	sibling->flags = 0;
 	sibling->offset = r->offset;
 	sibling->flags = r->flags;
 	if ((sibling->data = net2_buffer_copy(r->data)) == NULL) {
@@ -670,6 +671,8 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 	net2_buffer_truncate(r->data, maxsz);
 	/* Update ranges tree. */
 	RB_INSERT(net2_carver_ranges, &c->ranges, sibling);
+	TAILQ_INSERT_HEAD(&c->ranges_tx, sibling, txq);
+	sibling->flags |= RANGE_ON_TXQ;
 	return 0;
 
 
