@@ -118,7 +118,7 @@ ILIAS_NET2__begin_cdecl
 #define NET2_MUTEX_REFCNT(_x)		(_x)
 typedef size_t net2_refcnt_t;
 
-static inline void
+static __inline void
 net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	if (!(flags & NET2_REFCNT_LOCK_ENTER))
@@ -128,7 +128,7 @@ net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 	if (!(flags & NET2_REFCNT_LOCK_EXIT))
 		net2_mutex_unlock(mtx);
 }
-static inline int
+static __inline int
 net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	int			 do_free;
@@ -142,17 +142,17 @@ net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 
 	return do_free;
 }
-static inline void
+static __inline void
 net2_refcnt_set(net2_refcnt_t *refcnt, unsigned initial)
 {
 	*refcnt = initial;
 }
-static inline int
+static __inline int
 net2_refcnt_iszero(net2_refcnt_t *refcnt)
 {
 	return *refcnt == 0;
 }
-static inline size_t
+static __inline size_t
 net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
 {
 	size_t			 rv;
