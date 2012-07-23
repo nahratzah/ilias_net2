@@ -55,15 +55,10 @@ net2_init()
 	}
 #endif
 
-	if ((rv = net2_init_poetry()) != 0)
-		goto fail_2;
-
 	/* No errors. */
 	return 0;
 
 
-fail_3:
-	net2_destroy_poetry();
 fail_2:
 #ifdef WIN32
 	WSACleanup();
@@ -80,7 +75,6 @@ fail_0:
 ILIAS_NET2_EXPORT void
 net2_cleanup()
 {
-	net2_destroy_poetry();
 #ifdef WIN32
 	WSACleanup();
 #endif
