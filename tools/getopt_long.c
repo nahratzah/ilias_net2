@@ -49,11 +49,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <ilias/net2/bsd_compat/error.h>
 #include <errno.h>
-#include <ilias/net2/bsd_compat/getopt.h>
 #include <stdlib.h>
 #include <string.h>
+#include "compat.h"
+#ifdef HAVE_GETOPT_H
+#include <getopt.h>
+#else
+#include "getopt.h"
+#endif
+#ifdef HAVE_ERR_H
+#include <err.h>
+#else
+#include "err.h"
+#endif
 
 int	 opterr = 1;		/* if error message should be printed */
 int	 optind = 1;		/* index into parent argv vector */
