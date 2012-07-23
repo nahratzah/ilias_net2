@@ -14,10 +14,14 @@ check_function_exists (snprintf		HAS_SNPRINTF)
 check_function_exists (strlcat		HAS_STRLCAT)
 check_function_exists (strlcpy		HAS_STRLCPY)
 check_include_files (getopt.h		HAVE_GETOPT_H)
+check_include_files (err.h		HAVE_ERR_H)
 
 if (NOT HAVE_GETOPT_H)
-	set (GETOPT "${PROJECT_SOURCE_DIR}/getopt.h;${PROJECT_SOURCE_DIR}/getopt_long.c")
+	set (compat_srcs "${PROJECT_SOURCE_DIR}/getopt.h;${PROJECT_SOURCE_DIR}/getopt_long.c")
 endif (NOT HAVE_GETOPT_H)
+if (NOT HAVE_ERR_H
+	set (compat_srcs "${PROJECT_SOURCE_DIR}/err.h;${PROJECT_SOURCE_DIR}/err.c")
+endif (NOT HAVE_ERR_H
 
 configure_file (${PROJECT_SOURCE_DIR}/compat.h.in ${CMAKE_CURRENT_BINARY_DIR}/compat.h)
 
@@ -60,7 +64,7 @@ else (LEX_BIN)
 		# porting compatibility
 		${CMAKE_CURRENT_BINARY_DIR}/compat.h
 		compat.c
-		${GETOPT}
+		${compat_srcs}
 		)
 	add_library (l
 		lex/libmain.c

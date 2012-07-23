@@ -8,6 +8,7 @@
 #cmakedefine HAS_STRLCPY
 #cmakedefine HAS_STRLCAT
 #cmakedefine HAVE_GETOPT_H
+#cmakedefine HAVE_ERR_H
 
 
 #ifndef HAS_VASPRINTF
