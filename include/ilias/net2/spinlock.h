@@ -21,6 +21,7 @@
 ILIAS_NET2__begin_cdecl
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 typedef CRITICAL_SECTION	net2_spinlock;
