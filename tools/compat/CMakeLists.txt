@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 2.6)
-project (compat)
+project (compat C)
 
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}")
 

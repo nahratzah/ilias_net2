@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 2.6)
-project (yacc)
+project (yacc C)
 
 find_program (YACC_BIN yacc)
 if (NOT YACC_BIN)
@@ -13,6 +13,7 @@ if (YACC_BIN)
 else (YACC_BIN)
 	set (YACC "yacc" CACHE PATH "yacc")
 	include_directories ("${PROJECT_SOURCE_DIR}")
+	include_directories ("${compat_BINARY_DIR}/include")
 	add_executable (yacc
 		closure.c
 		defs.h
@@ -32,4 +33,6 @@ else (YACC_BIN)
 		yyerror.c
 		)
 	target_link_libraries (yacc y compat)
+	add_dependancies (yacc compat)
+	add_dependancies (y compat)
 endif (YACC_BIN)
