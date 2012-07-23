@@ -46,7 +46,7 @@
 /* MSDN says this is required to handle SIGFPE */
 /* my wild guess would be that using something floating-pointy is required */
 /* for the crt to do something about it */
-volatile double SIGFPE_REQ = 0.0f;
+static volatile double SIGFPE_REQ = 0.0f;
 
 /* oh, the humanity! */
 static int
