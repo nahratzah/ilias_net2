@@ -15,30 +15,30 @@ else (LEX_BIN)
 	set (LEX "lex" CACHE PATH "lexer")
 	include_directories ("${PROJECT_SOURCE_DIR}")
 	add_executable (lex
-		lex/FlexLexer.h
-		lex/ccl.c
-		lex/config.h
-		lex/dfa.c
-		lex/ecs.c
-		lex/flexdef.h
-		lex/gen.c
-		lex/main.c
-		lex/misc.c
-		lex/nfa.c
-		lex/sym.c
-		lex/tblcmp.c
-		lex/version.h
-		lex/yylex.c
+		FlexLexer.h
+		ccl.c
+		config.h
+		dfa.c
+		ecs.c
+		flexdef.h
+		gen.c
+		main.c
+		misc.c
+		nfa.c
+		sym.c
+		tblcmp.c
+		version.h
+		yylex.c
 
 		# generated files
-		lex/scan.c
-		lex/parse.c
-		lex/parse.h
-		lex/skel.c
+		scan.c
+		parse.c
+		parse.h
+		skel.c
 		)
 	add_library (l STATIC
-		lex/libmain.c
-		lex/libyywrap.c
+		libmain.c
+		libyywrap.c
 		)
 	target_link_libraries (lex compat)
 endif (LEX_BIN)
