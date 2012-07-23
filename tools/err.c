@@ -28,7 +28,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include "err.h"
 #include <errno.h>
 #include <stdio.h>
@@ -43,7 +42,7 @@ err(int eval, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	_verr(eval, fmt, ap);
+	verr(eval, fmt, ap);
 	va_end(ap);
 }
 
@@ -53,7 +52,7 @@ warn(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	_vwarn(fmt, ap);
+	vwarn(fmt, ap);
 	va_end(ap);
 }
 
@@ -77,7 +76,6 @@ vwarn(const char *fmt, va_list ap)
 	int sverrno;
 
 	sverrno = errno;
-	(void)fprintf(stderr, "%s: ", __progname);
 	if (fmt != NULL) {
 		(void)vfprintf(stderr, fmt, ap);
 		(void)fprintf(stderr, ": ");
