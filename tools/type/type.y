@@ -387,11 +387,11 @@ d_typespecs	: '(' d_ts_list ')'
 					YYERROR;
 				}
 				if ($2->encode == NULL) {
-					warnx("%s: missing encoder", yyline);
+					warnx("%d: missing encoder", yyline);
 					YYERROR;
 				}
 				if ($2->decode == NULL) {
-					warnx("%s: missing decoder", yyline);
+					warnx("%d: missing decoder", yyline);
 					YYERROR;
 				}
 				$$ = $2;
@@ -401,7 +401,7 @@ d_structspecs	: '(' d_ss_list ')'
 			{
 				$$ = $2;
 				if ($2->cname == NULL) {
-					warnx("%s: missing C type", yyline);
+					warnx("%d: missing C type", yyline);
 					YYERROR;
 				}
 			}
@@ -762,7 +762,7 @@ ss_apply(struct np_struct_spec *spec, struct y_tsline_t *line)
 		spec->is_ptr = line->ptr;
 		break;
 	case NPTS_ENCODE:
-		errx(EX_SOFTWARE, "programmer error: %s"
+		errx(EX_SOFTWARE, "programmer error: %s",
 		    "encode function in struct");
 		break;
 	case NPTS_DECODE:
