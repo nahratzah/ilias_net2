@@ -15,8 +15,9 @@
  */
 #include <ilias/net2/semaphore.h>
 
-#if !defined(_WIN32) && !defined(HAVE_STDATOMIC_H) && !defined(HAVE_SEMAPHORE_H)
+#ifdef ILIAS_NET2_SEMAPHORE_EXTERN
 #include <ilias/net2/mutex.h>
+#include <stdlib.h>
 
 
 ILIAS_NET2_LOCAL int

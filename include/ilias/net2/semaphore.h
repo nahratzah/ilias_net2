@@ -23,7 +23,7 @@
 ILIAS_NET2__begin_cdecl
 
 
-#ifdef _WIN32
+#if 0//def _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -48,7 +48,10 @@ net2_semaphore_deinit(struct net2_semaphore *s)
 static __inline void
 net2_semaphore_up(struct net2_semaphore *s, unsigned int count)
 {
-	ReleaseSemaphore(s->s, count, NULL);
+	int	rv;
+
+	rv = ReleaseSemaphore(s->s, count, NULL);
+	return;
 }
 
 static __inline void
@@ -164,13 +167,14 @@ net2_semaphore_trydown(struct net2_semaphore *s)
 	return !sem_trywait(&s->s);
 }
 
-#else /* !HAVE_STDATOMIC_H, !HAVE_SEMAPHORE_H */
+#else /* !_WIN32, !HAVE_STDATOMIC_H, !HAVE_SEMAPHORE_H */
 #include <ilias/net2/mutex.h>
+#define ILIAS_NET2_SEMAPHORE_EXTERN
 
 struct net2_semaphore {
 	struct net2_mutex	*mtx;
 	struct net2_condition	*cnd;
-	unsigned int		 v;
+	volatile unsigned int	 v;
 };
 
 ILIAS_NET2_LOCAL
