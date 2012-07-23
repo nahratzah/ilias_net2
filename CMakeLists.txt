@@ -210,8 +210,13 @@ endif (${WITH_EXUDE})
 add_subdirectory (tools)
 
 # On windows, use contrib openssl binaries.
+set (TESTS_PATH $ENV{PATH})
+mark_as_advanced (TESTS_PATH)
 if (WIN32)
 	set (OPENSSL_ROOT_DIR "${PROJECT_SOURCE_DIR}/contrib/openssl-win32" CACHE PATH "Path to OpenSSL.")
+	file (TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/contrib/openssl-win32/lib" OpenSSL_NATIVE_LIBPATH)
+	mark_as_advanced(OpenSSL_NATIVE_LIBPATH)
+	set (TESTS_PATH "${TESTS_PATH};${OpenSSL_NATIVE_LIBPATH}")
 endif (WIN32)
 
 find_package (OpenSSL REQUIRED)
@@ -459,6 +464,7 @@ install (FILES ${cluster_headers} DESTINATION include/ilias/net2/cluster)
 
 
 if (BUILD_TESTING)
+	string (REPLACE ";" "\\;" TESTS_PATH "${TESTS_PATH}")
 	enable_testing()
 
 	# Buffer tests.
@@ -468,6 +474,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_buffer ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_buffer COMMAND test_buffer)
+	set_tests_properties (test_buffer PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Carver tests.
 	add_executable (test_carver
@@ -476,6 +483,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_carver ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_carver COMMAND test_carver)
+	set_tests_properties (test_carver PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Encoding/decoding tests.
 	add_executable (test_encdec_ctypes
@@ -484,6 +492,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_encdec_ctypes ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
+	set_tests_properties (test_encdec_ctypes PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Hash tests.
 	add_executable (test_hash
@@ -492,6 +501,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_hash ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_hash COMMAND test_hash)
+	set_tests_properties (test_hash PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Signature tests.
 	add_executable (test_sign
@@ -500,6 +510,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_sign ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_sign COMMAND test_sign)
+	set_tests_properties (test_sign PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Encryption/decryption tests.
 	add_executable (test_enc
@@ -508,6 +519,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_enc ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_enc COMMAND test_enc)
+	set_tests_properties (test_enc PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Key exchange tests.
 	add_executable (test_xchange
@@ -516,6 +528,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_xchange ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_xchange COMMAND test_xchange)
+	set_tests_properties (test_xchange PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Connection management tests.
 	add_executable (test_conn
@@ -528,6 +541,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_conn ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_conn COMMAND test_conn)
+	set_tests_properties (test_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# UDP connection tests.
 	add_executable (test_udp_conn
@@ -538,6 +552,7 @@ if (BUILD_TESTING)
 	target_link_libraries (test_udp_conn ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_udp_conn COMMAND test_udp_conn)
+	set_tests_properties (test_udp_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	if (${WITH_EXUDE})
 		target_link_libraries (test_buffer debug ${exude_LIBS} debug ${clog_LIBS})
