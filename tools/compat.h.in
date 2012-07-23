@@ -16,7 +16,7 @@ extern int	vasprintf(char**, const char*, va_list);
 #endif
 
 #ifndef HAS_ASPRINTF
-extern int	vsprintf(char**, const char*, ...);
+extern int	asprintf(char**, const char*, ...);
 #endif
 
 #ifndef HAS_VSNPRINTF
