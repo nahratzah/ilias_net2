@@ -99,6 +99,7 @@ ILIAS_NET2_LOCAL void
 net2_mutex_unlock(struct net2_mutex *m)
 {
 	assert(m->locks > 0);
+	m->locks--;
 	LeaveCriticalSection(&m->s);
 }
 
