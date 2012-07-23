@@ -11,7 +11,6 @@ if (YACC_BIN)
 	add_executable (yacc IMPORTED)
 	set_property (TARGET yacc PROPERTY IMPORTED_LOCATION "${YACC_BIN}")
 else (YACC_BIN)
-	set (YACC "yacc" CACHE PATH "yacc")
 	include_directories ("${PROJECT_SOURCE_DIR}")
 	include_directories ("${compat_BINARY_DIR}/include")
 	add_executable (yacc

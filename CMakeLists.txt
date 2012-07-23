@@ -251,19 +251,6 @@ if (WIN32)
 endif (WIN32)
 
 
-add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/type_lex.c"
-	COMMAND "${LEX}" -o${CMAKE_CURRENT_BINARY_DIR}/type_lex.c ${PROJECT_SOURCE_DIR}/tools/type/type.l
-	MAIN_DEPENDENCY "tools/type/type.l"
-	COMMENT "[LEX][type.l] Building scanner with lex"
-	)
-add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/type_yacc.c" "${CMAKE_CURRENT_BINARY_DIR}/type_yacc.h"
-	COMMAND "${YACC}" -d -o${CMAKE_CURRENT_BINARY_DIR}/type_yacc.c ${PROJECT_SOURCE_DIR}/tools/type/type.y
-	MAIN_DEPENDENCY tools/type/type.y
-	DEPENDS type_lex.c
-	COMMENT "[YACC][type.y] Building parser with yacc"
-	)
-
-
 macro(net2type srclist n2tfile cfile hfile localprefix exportprefix hguard)
 	get_filename_component (cfile_path "${cfile}" PATH)
 	get_filename_component (hfile_path "${hfile}" PATH)
@@ -379,13 +366,6 @@ if (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 	list (APPEND srcs src/thread-win32.c)
 	list (APPEND srcs src/event-win32.c)
 endif (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
-
-add_executable (net2type
-	${CMAKE_CURRENT_BINARY_DIR}/type_yacc.c
-	${CMAKE_CURRENT_BINARY_DIR}/type_yacc.h
-	${CMAKE_CURRENT_BINARY_DIR}/type_lex.c
-	)
-target_link_libraries (net2type l y compat)
 
 
 #

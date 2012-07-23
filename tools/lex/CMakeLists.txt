@@ -12,7 +12,6 @@ if (LEX_BIN)
 	add_executable (lex IMPORTED)
 	set_property (TARGET lex PROPERTY IMPORTED_LOCATION "${LEX_BIN}")
 else (LEX_BIN)
-	set (LEX "lex" CACHE PATH "lexer")
 	include_directories ("${PROJECT_SOURCE_DIR}")
 	include_directories ("${compat_BINARY_DIR}/include")
 	add_executable (lex
