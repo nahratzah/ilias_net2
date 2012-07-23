@@ -29,8 +29,8 @@
 #endif
 
 #ifdef WIN32
+#include <Windows.h>
 #include <WinSock2.h>
-#include <ws2def.h>
 #else
 #include <sys/types.h>
 #include <sys/socket.h>

@@ -20,7 +20,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #ifdef _WIN32
-#include <Windows.h>
+#include <Winsock2.h>
 #endif
 
 ILIAS_NET2__begin_cdecl
@@ -36,7 +36,7 @@ struct			net2_objtype;
 struct			net2_window;
 
 #ifdef WIN32
-typedef HANDLE		net2_socket_t;
+typedef SOCKET		net2_socket_t;
 #else
 typedef int		net2_socket_t;
 #endif

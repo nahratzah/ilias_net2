@@ -13,10 +13,20 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <ilias/net2/ilias_net2_export.h>
-#include <stdlib.h>
+#include <ilias/net2/thread.h>
 #include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/memory.h>
+#include <stdlib.h>
+#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#include <process.h>
+
+#include <ilias/net2/config.h>
+#ifdef HAVE_SYS_TREE_H
+#include <sys/tree.h>
+#else
+#include <ilias/net2/bsd_compat/tree.h>
+#endif
 
 struct net2_thread {
 	HANDLE		 handle;
@@ -32,7 +42,7 @@ struct net2_thread {
 
 /* Store threads in a set, based on the tid; s is the protector. */
 static CRITICAL_SECTION s;
-static RB_HEAD(win32_threads, net2_thread) global = RB_HEAD_INITIALIZER(&global);
+static RB_HEAD(win32_threads, net2_thread) global = RB_INITIALIZER(&global);
 
 static __inline int
 tid_cmp(struct net2_thread *t1, struct net2_thread *t2)
@@ -42,7 +52,7 @@ tid_cmp(struct net2_thread *t1, struct net2_thread *t2)
 
 RB_PROTOTYPE_STATIC(win32_threads, net2_thread, rb, tid_cmp);
 
-static __stdcall DWORD
+static DWORD __stdcall
 thread_wrapper(void *tptr)
 {
 	struct net2_thread *t = tptr;
@@ -51,10 +61,10 @@ thread_wrapper(void *tptr)
 	_endthreadex(0);
 
 	/* Close the handle ourselves, if the thread is detached. */
-	EnterCriticalSection(s);
+	EnterCriticalSection(&s);
 	if (t->detached)
 		CloseHandle(t->handle);
-	LeaveCriticalSection(s);
+	LeaveCriticalSection(&s);
 	return 0;
 }
 
@@ -159,7 +169,7 @@ net2_thread_detach_self()
 {
 	struct net2_thread	*t, search;
 
-	search->tid = GetCurrentThreadId();
+	search.tid = GetCurrentThreadId();
 	EnterCriticalSection(&s);
 	t = RB_FIND(win32_threads, &global, &search);
 	if (t != NULL && !t->detached) {
@@ -174,6 +184,7 @@ ILIAS_NET2_LOCAL int
 net2_thread_init()
 {
 	InitializeCriticalSection(&s);
+	return 0;
 }
 
 /* Destroy thread mutex. */

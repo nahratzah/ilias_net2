@@ -636,7 +636,6 @@ ILIAS_NET2_LOCAL const struct header	header_fini = {
 	0,		/* reserved */
 	/* Rest is undefined. */
 	0,
-	{}
 };
 
 

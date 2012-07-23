@@ -67,61 +67,61 @@ typedef struct _SHA2_CTX {
 #ifdef __cplusplus__
 extern "C" {
 #endif /* __cplusplus__ */
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA256Init(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA256Transform(uint32_t state[8], const uint8_t [SHA256_BLOCK_LENGTH]);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA256Update(SHA2_CTX *, const uint8_t *, size_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA256Pad(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA256Final(uint8_t [SHA256_DIGEST_LENGTH], SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA256End(SHA2_CTX *, char *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA256File(const char *, char *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA256FileChunk(const char *, char *, off_t, off_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA256Data(const uint8_t *, size_t, char *);
 
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA384Init(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA384Transform(uint64_t state[8], const uint8_t [SHA384_BLOCK_LENGTH]);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA384Update(SHA2_CTX *, const uint8_t *, size_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA384Pad(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA384Final(uint8_t [SHA384_DIGEST_LENGTH], SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA384End(SHA2_CTX *, char *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA384File(const char *, char *);
 ILIAS_NET2_EXPORT
 char*SHA384FileChunk(const char *, char *, off_t, off_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA384Data(const uint8_t *, size_t, char *);
 
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA512Init(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA512Transform(uint64_t state[8], const uint8_t [SHA512_BLOCK_LENGTH]);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA512Update(SHA2_CTX *, const uint8_t *, size_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA512Pad(SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 void SHA512Final(uint8_t [SHA512_DIGEST_LENGTH], SHA2_CTX *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA512End(SHA2_CTX *, char *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA512File(const char *, char *);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA512FileChunk(const char *, char *, off_t, off_t);
-ILIAS_NET2_EXPORT
+ILIAS_NET2_LOCAL
 char*SHA512Data(const uint8_t *, size_t, char *);
 #ifdef __cplusplus__
 } /* extern "C" */

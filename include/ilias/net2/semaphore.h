@@ -18,11 +18,13 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
+#include <errno.h>
 
 ILIAS_NET2__begin_cdecl
 
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 struct net2_semaphore {

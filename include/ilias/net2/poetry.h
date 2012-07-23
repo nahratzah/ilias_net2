@@ -18,6 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 ILIAS_NET2__begin_cdecl
 

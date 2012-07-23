@@ -277,7 +277,7 @@ const static uint64_t sha512_initial_hash_value[8] = {
 #endif /* SHA256_ONLY */
 
 /*** SHA-256: *********************************************************/
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Init(SHA2_CTX *context)
 {
 	if (context == NULL)
@@ -371,7 +371,7 @@ SHA256Transform(uint32_t state[8], const uint8_t data[SHA256_BLOCK_LENGTH])
 
 #else /* SHA2_UNROLL_TRANSFORM */
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Transform(uint32_t state[8], const uint8_t data[SHA256_BLOCK_LENGTH])
 {
 	uint32_t	a, b, c, d, e, f, g, h, s0, s1;
@@ -446,7 +446,7 @@ SHA256Transform(uint32_t state[8], const uint8_t data[SHA256_BLOCK_LENGTH])
 
 #endif /* SHA2_UNROLL_TRANSFORM */
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Update(SHA2_CTX *context, const uint8_t *data, size_t len)
 {
 	size_t	freespace, usedspace;
@@ -492,7 +492,7 @@ SHA256Update(SHA2_CTX *context, const uint8_t *data, size_t len)
 	usedspace = freespace = 0;
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Pad(SHA2_CTX *context)
 {
 	unsigned int	usedspace;
@@ -542,7 +542,7 @@ SHA256Pad(SHA2_CTX *context)
 	usedspace = 0;
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Final(uint8_t digest[SHA256_DIGEST_LENGTH], SHA2_CTX *context)
 {
 	SHA256Pad(context);
@@ -565,7 +565,7 @@ SHA256Final(uint8_t digest[SHA256_DIGEST_LENGTH], SHA2_CTX *context)
 
 #ifndef SHA256_ONLY
 /*** SHA-512: *********************************************************/
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Init(SHA2_CTX *context)
 {
 	if (context == NULL)
@@ -660,7 +660,7 @@ SHA512Transform(uint64_t state[8], const uint8_t data[SHA512_BLOCK_LENGTH])
 
 #else /* SHA2_UNROLL_TRANSFORM */
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Transform(uint64_t state[8], const uint8_t data[SHA512_BLOCK_LENGTH])
 {
 	uint64_t	a, b, c, d, e, f, g, h, s0, s1;
@@ -735,7 +735,7 @@ SHA512Transform(uint64_t state[8], const uint8_t data[SHA512_BLOCK_LENGTH])
 
 #endif /* SHA2_UNROLL_TRANSFORM */
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Update(SHA2_CTX *context, const uint8_t *data, size_t len)
 {
 	size_t	freespace, usedspace;
@@ -781,7 +781,7 @@ SHA512Update(SHA2_CTX *context, const uint8_t *data, size_t len)
 	usedspace = freespace = 0;
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Pad(SHA2_CTX *context)
 {
 	unsigned int	usedspace;
@@ -831,7 +831,7 @@ SHA512Pad(SHA2_CTX *context)
 	usedspace = 0;
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Final(uint8_t digest[SHA512_DIGEST_LENGTH], SHA2_CTX *context)
 {
 	SHA512Pad(context);
@@ -860,7 +860,7 @@ SHA512Final(uint8_t digest[SHA512_DIGEST_LENGTH], SHA2_CTX *context)
 
 
 /*** SHA-384: *********************************************************/
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA384Init(SHA2_CTX *context)
 {
 	if (context == NULL)
@@ -871,25 +871,25 @@ SHA384Init(SHA2_CTX *context)
 	context->bitcount[0] = context->bitcount[1] = 0;
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA384Transform(uint64_t state[8], const uint8_t data[SHA384_BLOCK_LENGTH])
 {
 	SHA512Transform(state, data);
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA384Update(SHA2_CTX *context, const uint8_t *data, size_t len)
 {
 	SHA512Update(context, data, len);
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA384Pad(SHA2_CTX *context)
 {
 	SHA512Pad(context);
 }
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA384Final(uint8_t digest[SHA384_DIGEST_LENGTH], SHA2_CTX *context)
 {
 	SHA384Pad(context);

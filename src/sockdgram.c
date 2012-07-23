@@ -25,6 +25,7 @@
 #include <assert.h>
 
 #ifdef WIN32
+#include <Windows.h>
 #include <WinSock2.h>
 #include <ws2ipdef.h>
 #include <WS2tcpip.h>

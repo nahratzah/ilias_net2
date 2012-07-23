@@ -19,6 +19,7 @@
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <assert.h>
+#include <errno.h>
 
 #ifdef WIN32
 #include <Winsock2.h>

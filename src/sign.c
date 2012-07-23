@@ -23,6 +23,11 @@
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <assert.h>
+#include <stdlib.h>
+
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 
 #include <ilias/net2/config.h>
 #ifdef HAS_SHA2
