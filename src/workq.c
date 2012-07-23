@@ -95,6 +95,236 @@
 	} while (0)
 #endif
 
+#if !defined(HAVE_STDATOMIC_H) && defined(_MSC_VER)
+#include <intrin.h>
+
+/*
+ * Choose a statement based on the number of bits in variable.
+ */
+#define select_32_64(variable, stmt32, stmt64)				\
+	(								\
+		(sizeof (variable) == 4 ? (stmt32) :			\
+		(sizeof (variable) == 8 ? (stmt64) :			\
+		    (assert(0), 0)					\
+		))							\
+	)
+
+/*
+ * Atomic compare/exchange.
+ */
+static __inline int
+atomic_compare_exchange64_strong(volatile int64_t *v,
+    int64_t *oldval, int64_t newval)
+{
+	int64_t expect;
+
+	assert(sizeof(int64_t) == sizeof(long long));
+	_ReadBarrier();
+	expect = *oldval;
+	*oldval = _InterlockedCompareExchange64(v, *oldval, newval);
+	_ReadWriteBarrier();
+	return (*oldval == expect);
+}
+static __inline int
+atomic_compare_exchange32_strong(volatile int32_t *v,
+    int32_t *oldval, uint32_t newval)
+{
+	int32_t expect;
+
+	assert(sizeof(int32_t) == sizeof(long));
+	_ReadBarrier();
+	expect = *oldval;
+	*oldval = _InterlockedCompareExchange((volatile long*)v,
+	    *oldval, newval);
+	_ReadWriteBarrier();
+	return (*oldval == expect);
+}
+#define atomic_compare_exchange_strong(v, oldval, newval)		\
+	select_32_64(*v,						\
+	    atomic_compare_exchange32_strong((volatile int32_t*)(v),	\
+	      (int32_t*)(oldval), (newval)),				\
+	    atomic_compare_exchange64_strong((volatile int64_t*)(v),	\
+	      (int64_t*)(oldval), (newval)))
+
+static __inline int
+atomic_compare_exchange64_weak(volatile int64_t *v,
+    int64_t *oldval, int64_t newval)
+{
+	assert(sizeof(int64_t) == sizeof(long long));
+
+	if (*v != *oldval) {
+		*oldval = *v;
+		return 0;
+	}
+
+	return atomic_compare_exchange_strong(v, oldval, newval);
+}
+static __inline int
+atomic_compare_exchange32_weak(volatile int32_t *v,
+    int32_t *oldval, uint32_t newval)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+
+	if (*v != *oldval) {
+		*oldval = *v;
+		return 0;
+	}
+
+	return atomic_compare_exchange_strong(v, oldval, newval);
+}
+#define atomic_compare_exchange_weak(v, oldval, newval)		\
+	select_32_64(*v,						\
+	    atomic_compare_exchange32_weak((volatile int32_t*)(v),	\
+	      (int32_t*)(oldval), (newval)),				\
+	    atomic_compare_exchange64_weak((volatile int64_t*)(v),	\
+	      (int64_t*)(oldval), (newval)))
+
+#define atomic_compare_exchange_weak_explicit(v, o, n, succes, fail)	\
+	atomic_compare_exchange_weak((v), (o), (n))
+#define atomic_compare_exchange_strong_explicit(v, o, n, succes, fail)	\
+	atomic_compare_exchange_strong((v), (o), (n))
+
+static __inline int32_t
+atomic_load32(volatile int32_t *v)
+{
+	int32_t rv;
+	
+	_ReadWriteBarrier();
+	rv = *v;
+	_ReadWriteBarrier();
+	return rv;
+}
+static __inline int64_t
+atomic_load64(volatile int64_t *v)
+{
+	int64_t rv;
+
+	_ReadWriteBarrier();
+	rv = *v;
+	_ReadWriteBarrier();
+	return rv;
+}
+#define atomic_load(v)							\
+	select_32_64(*v,						\
+	    atomic_load32((volatile int32_t*)(v)),			\
+	    atomic_load64((volatile int64_t*)(v)))
+#define atomic_load_explicit(v, memory)					\
+	atomic_load((v))
+
+static __inline void
+atomic_store32(volatile int32_t *v, int32_t val)
+{
+	_ReadWriteBarrier();
+	*v = val;
+	_ReadWriteBarrier();
+}
+static __inline void
+atomic_store64(volatile int64_t *v, int64_t val)
+{
+	_ReadWriteBarrier();
+	*v = val;
+	_ReadWriteBarrier();
+}
+#define atomic_store(v, val)						\
+	select_32_64(*v,						\
+	    atomic_store32((volatile int32_t*)(v), (val)),		\
+	    atomic_store64((volatile int64_t*)(v), (val)))
+#define atomic_store_explicit(v, val, memory)				\
+	atomic_store((v), (val))
+
+static __inline int32_t
+atomic_fetch_add32(volatile int32_t *v, uint32_t add)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+	return _InterlockedExchangeAdd((volatile long*)v, add);
+}
+static __inline int64_t
+atomic_fetch_add64(volatile int64_t *v, uint64_t add)
+{
+#ifdef _M_IX86	/* XXX need a smarter detector. */
+	assert(0);
+#else
+	return _InterlockedExchangeAdd64(v, add);
+#endif
+}
+#define atomic_fetch_add(v, val)					\
+	select_32_64(*v,						\
+	    atomic_fetch_add32((volatile int32_t*)(v), (val)),		\
+	    atomic_fetch_add64((volatile int64_t*)(v), (val)))
+#define atomic_fetch_add_explicit(v, val, memory)			\
+	atomic_fetch_add((v), (val))
+
+static __inline int32_t
+atomic_fetch_sub32(volatile int32_t *v, uint32_t add)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+	return _InterlockedExchangeAdd((volatile long*)v, ~add);
+}
+static __inline int64_t
+atomic_fetch_sub64(volatile int64_t *v, uint64_t add)
+{
+#ifdef _M_IX86	/* XXX need a smarter detector. */
+	assert(0);
+#else
+	return _InterlockedExchangeAdd64(v, ~add);
+#endif
+}
+#define atomic_fetch_sub(v, val)					\
+	select_32_64(*v,						\
+	    atomic_fetch_sub32((volatile int32_t*)(v), (val)),		\
+	    atomic_fetch_sub64((volatile int64_t*)(v), (val)))
+#define atomic_fetch_sub_explicit(v, val, memory)			\
+	atomic_fetch_sub((v), (val))
+
+static __inline int32_t
+atomic_fetch_or32(volatile int32_t *v, int32_t f)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+	return _InterlockedOr((volatile long*)v, f);
+}
+static __inline int64_t
+atomic_fetch_or64(volatile int64_t *v, int64_t f)
+{
+#ifdef _M_IX86	/* XXX need a smarter detector. */
+	assert(0);
+#else
+	return _InterlockedOr64(v, f);
+#endif
+}
+#define atomic_fetch_or(v, val)					\
+	select_32_64(*v,						\
+	    atomic_fetch_or32((volatile int32_t*)(v), (val)),		\
+	    atomic_fetch_or64((volatile int64_t*)(v), (val)))
+#define atomic_fetch_or_explicit(v, val, memory)			\
+	atomic_fetch_or((v), (val))
+
+static __inline int32_t
+atomic_fetch_and32(volatile int32_t *v, int32_t f)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+	return _InterlockedAnd((volatile long*)v, f);
+}
+static __inline int64_t
+atomic_fetch_and64(volatile int64_t *v, int64_t f)
+{
+#ifdef _M_IX86	/* XXX need a smarter detector. */
+	assert(0);
+#else
+	return _InterlockedAnd64(v, f);
+#endif
+}
+#define atomic_fetch_and(v, val)					\
+	select_32_64(*v,						\
+	    atomic_fetch_and32((volatile int32_t*)(v), (val)),		\
+	    atomic_fetch_and64((volatile int64_t*)(v), (val)))
+#define atomic_fetch_and_explicit(v, val, memory)			\
+	atomic_fetch_and((v), (val))
+
+#define atomic_init(v, val)						\
+	do { *v = val; } while (0)
+
+#endif
+
 
 #ifdef _WIN32
 static void
@@ -507,9 +737,6 @@ workq_job_wq_clear(struct net2_workq_job *j)
 	struct net2_workq
 			*wq;
 	unsigned int	 jf;
-	int		 selflocked;
-	struct net2_thread
-			*thr;
 
 	/* Spin acquire derefence lock. */
 	if ((wq = job_deref_lock(j)) == NULL)
@@ -618,8 +845,6 @@ __attribute__((hot))
 workq_run_clear(struct net2_workq *wq, int activate)
 {
 	unsigned int	 f;
-	struct net2_workq_evbase
-			*wqev;
 
 	/* Assert that the current thread holds the running state. */
 	assert(workq_self(wq));
@@ -651,7 +876,6 @@ workq_want_set(struct net2_workq *wq, int try)
 	unsigned int	 f;
 	struct net2_thread
 			*thr;
-	int		 selflocked;
 
 	/*
 	 * First check if we are already owner of the wq.
@@ -817,7 +1041,6 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 	unsigned int	 jf, wqf;
 	struct net2_workq
 			*wq;
-	int		 dying;
 
 	assert(!update_wq || curthread != NULL);
 
@@ -932,8 +1155,6 @@ job_run_clear(struct net2_workq_job *j)
 	int		 active;
 	struct net2_workq
 			*wq;
-	struct net2_workq_evbase
-			*wqev;
 	unsigned int	 jfl;
 
 	/*
@@ -975,10 +1196,7 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 	unsigned int	 jf;
 	struct net2_workq_job
 			*j;
-	struct net2_thread
-			*thr;
 	int		 spin;
-	int		 selflocked;
 
 	assert(atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0);
 
@@ -1112,10 +1330,6 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 static __inline int
 job_active_set(struct net2_workq_job *j)
 {
-	unsigned int	 jf;
-	struct net2_workq
-			*wq;
-
 	/* Mark the job as active. */
 	if (atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE, memory_order_acq_rel) & JOB_ACTIVE)
 		return 0;	/* Already active. */
@@ -1150,9 +1364,6 @@ static __inline void
 job_active_clear(struct net2_workq_job *j, int wait)
 {
 	unsigned int	 jf;
-	int		 selflocked;
-	struct net2_thread
-			*thr;
 	struct net2_workq
 			*wq;
 
@@ -1514,6 +1725,8 @@ net2_workq_want(struct net2_workq *wq, int try)
 		return ETIMEDOUT;
 	case wq_want_memfail:
 		return ENOMEM;
+	default:
+		assert(0);
 	}
 }
 /* Release workq want state. */
