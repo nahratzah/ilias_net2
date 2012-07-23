@@ -31,6 +31,11 @@
 #include <string.h>
 #endif
 
+#ifdef _WIN32
+#define strerror_r(error, buf, sz)					\
+	strerror_s(buf, sz, error)
+#endif
+
 ILIAS_NET2_EXPORT int
 net2_cp_encode(struct net2_encdec_ctx *c, const struct command_param *cp,
     struct net2_buffer *out, const void *val, const void *arg)
