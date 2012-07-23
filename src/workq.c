@@ -486,6 +486,7 @@ struct net2_workq_evbase_worker {
 			*worker;		/* Worker thread. */
 	struct net2_workq_evbase
 			*evbase;		/* Owner. */
+	net2_spinlock	 spl;			/* Protect owner pointer. */
 };
 
 
@@ -628,7 +629,7 @@ job_deref_lock(struct net2_workq_job *j)
 		SPINWAIT();
 
 	wq = j->wq;
-	if (wq != NULL && atomic_load_explicit(&wq->flags, memory_order_acquire) == 0)
+	if (wq != NULL && atomic_load_explicit(&wq->refcnt, memory_order_acquire) == 0)
 		wq = NULL;
 	if (wq == NULL)
 		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
@@ -1914,7 +1915,9 @@ wqev_worker(void *wthr_ptr)
 
 	/* XXX put wthr into ThreadLocalStorage. */
 	wthr = wthr_ptr;
+	net2_spinlock_lock(&wthr->spl);
 	wqev = wthr->evbase;
+	net2_spinlock_unlock(&wthr->spl);
 
 	if ((curthread = net2_thread_self()) == NULL)
 		return NULL;
@@ -1990,13 +1993,19 @@ create_thread(struct net2_workq_evbase *wqev)
 	if ((wthr = net2_malloc(sizeof(*wthr))) == NULL)
 		return ENOMEM;
 	wthr->evbase = wqev;
-	wthr->worker = net2_thread_new(&wqev_worker, wqev, (wqev->wq_worker_name == NULL ? "workq worker" : wqev->wq_worker_name));
+	net2_spinlock_init(&wthr->spl);
+	net2_spinlock_lock(&wthr->spl);
+	wthr->worker = net2_thread_new(&wqev_worker, wthr, (wqev->wq_worker_name == NULL ? "workq worker" : wqev->wq_worker_name));
+	net2_spinlock_unlock(&wthr->spl);
 	if (wthr->worker == NULL) {
+		net2_spinlock_unlock(&wqev->spl_workers);
 		net2_free(wthr);
 		return ENOMEM;
 	}
 
+	net2_spinlock_lock(&wqev->spl_workers);
 	TAILQ_INSERT_TAIL(&wqev->workers, wthr, tq);
+	net2_spinlock_unlock(&wqev->spl_workers);
 	return 0;
 }
 static void
@@ -2024,6 +2033,7 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 		TAILQ_REMOVE(&wqev->dead_workers, wthr, tq);
 		net2_thread_join(wthr->worker, NULL);
 		net2_thread_free(wthr->worker);
+		net2_spinlock_deinit(&wthr->spl);
 		net2_free(wthr);
 	}
 }
