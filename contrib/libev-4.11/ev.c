@@ -413,7 +413,7 @@
 #endif
 
 #if EV_SELECT_IS_WINSOCKET
-# include <winsock.h>
+# include <winsock2.h>
 #endif
 
 #if EV_USE_EVENTFD
