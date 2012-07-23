@@ -121,13 +121,13 @@ atomic_compare_exchange64_strong(volatile int64_t *v,
 	assert(sizeof(int64_t) == sizeof(long long));
 	_ReadBarrier();
 	expect = *oldval;
-	*oldval = _InterlockedCompareExchange64(v, *oldval, newval);
+	*oldval = _InterlockedCompareExchange64(v, newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
 }
 static __inline int
 atomic_compare_exchange32_strong(volatile int32_t *v,
-    int32_t *oldval, uint32_t newval)
+    int32_t *oldval, int32_t newval)
 {
 	int32_t expect;
 
@@ -135,7 +135,7 @@ atomic_compare_exchange32_strong(volatile int32_t *v,
 	_ReadBarrier();
 	expect = *oldval;
 	*oldval = _InterlockedCompareExchange((volatile long*)v,
-	    *oldval, newval);
+	    newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
 }
@@ -161,7 +161,7 @@ atomic_compare_exchange64_weak(volatile int64_t *v,
 }
 static __inline int
 atomic_compare_exchange32_weak(volatile int32_t *v,
-    int32_t *oldval, uint32_t newval)
+    int32_t *oldval, int32_t newval)
 {
 	assert(sizeof(int32_t) == sizeof(long));
 
@@ -602,6 +602,7 @@ static __inline int
 workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
 {
 	uintptr_t	 t;
+	int		 succes;
 
 	assert(curthread != NULL && net2_thread_is_self(curthread));
 	t = 0;
@@ -611,7 +612,8 @@ workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
 	 * care if another thread reads 0 or curthread, since both indicate
 	 * to that thread it isn't its thread executing on the workq.
 	 */
-	return atomic_compare_exchange_strong_explicit(&wq->thread, &t, (uintptr_t)curthread, memory_order_acquire, memory_order_relaxed);
+	succes = atomic_compare_exchange_strong_explicit(&wq->thread, &t, (uintptr_t)curthread, memory_order_acquire, memory_order_relaxed);
+	return succes;
 }
 /*
  * Lock workq dereference and return the workq of a job.
