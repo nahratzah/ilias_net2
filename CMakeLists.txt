@@ -436,11 +436,6 @@ add_library (ilias_net2 SHARED
 	${headers}
 	${cluster_headers}
 	)
-add_library (ilias_net2_static STATIC
-	${srcs}
-	${headers}
-	${cluster_headers}
-	)
 target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${OPENSSL_LIBRARIES})
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
@@ -450,17 +445,13 @@ if (WIN32)
 endif (WIN32)
 set_property (TARGET ilias_net2 PROPERTY VERSION "0.0")
 set_property (TARGET ilias_net2 PROPERTY SOVERSION "0.0")
-if (NOT WIN32)
-	set_property (TARGET ilias_net2_static PROPERTY OUTPUT_NAME ilias_net2)
-endif (NOT WIN32)
 
 if (${WITH_EXUDE})
 	set_property (TARGET ilias_net2 PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-	set_property (TARGET ilias_net2_static PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 	target_link_libraries (ilias_net2 debug ${exude_LIBS} debug ${clog_LIBS})
 endif (${WITH_EXUDE})
 
-install (TARGETS ilias_net2 ilias_net2_static
+install (TARGETS ilias_net2
 	LIBRARY DESTINATION lib
 	ARCHIVE DESTINATION lib)
 install (FILES ${headers} DESTINATION include/ilias/net2)
