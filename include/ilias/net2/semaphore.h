@@ -34,7 +34,7 @@ struct net2_semaphore {
 static __inline int
 net2_semaphore_initval(struct net2_semaphore *s, unsigned int initval)
 {
-	if ((s->s = CreateSemaphore(NULL, initval, (unsigned int)-1, NULL)) == NULL)
+	if ((s->s = CreateSemaphore(NULL, initval, 0x7fff, NULL)) == NULL)
 		return ENOMEM;
 	return 0;
 }

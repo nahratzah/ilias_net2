@@ -1444,40 +1444,52 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 
 	wqev->jobthreads = 0;
 	wqev->maxthreads = 0;
-	net2_semaphore_init(&wqev->thr_active);
-	net2_semaphore_init(&wqev->thr_idle);
-	net2_semaphore_init(&wqev->thr_die);
-	net2_semaphore_init(&wqev->thr_death);
+	if (net2_semaphore_init(&wqev->thr_active))
+		goto fail_2;
+	if (net2_semaphore_init(&wqev->thr_idle))
+		goto fail_3;
+	if (net2_semaphore_init(&wqev->thr_die))
+		goto fail_4;
+	if (net2_semaphore_init(&wqev->thr_death))
+		goto fail_5;
 	if (name == NULL)
 		wqev->wq_worker_name = NULL;
 	else if ((wqev->wq_worker_name = net2_strdup(name)) == NULL)
-		goto fail_2;
+		goto fail_6;
 	atomic_init(&wqev->refcnt, 1);
 
 	if ((wqev->workers_mtx = net2_mutex_alloc()) == NULL)
-		goto fail_3;
+		goto fail_7;
 	if (net2_spinlock_init(&wqev->spl_workers))
-		goto fail_4;
+		goto fail_8;
 	TAILQ_INIT(&wqev->workers);
 	TAILQ_INIT(&wqev->dead_workers);
 
 	if (net2_workq_set_thread_count(wqev, jobthreads, maxthreads)) {
 		net2_workq_set_thread_count(wqev, 0, 0);
-		goto fail_5;
+		goto fail_9;
 	}
 
 	return wqev;
 
 
-fail_6:
+fail_10:
 	net2_workq_set_thread_count(wqev, 0, 0);
-fail_5:
+fail_9:
 	net2_spinlock_deinit(&wqev->spl_workers);
-fail_4:
+fail_8:
 	net2_mutex_free(wqev->workers_mtx);
-fail_3:
+fail_7:
 	if (wqev->wq_worker_name != NULL)
 		net2_free(wqev->wq_worker_name);
+fail_6:
+	net2_semaphore_deinit(&wqev->thr_death);
+fail_5:
+	net2_semaphore_deinit(&wqev->thr_die);
+fail_4:
+	net2_semaphore_deinit(&wqev->thr_idle);
+fail_3:
+	net2_semaphore_deinit(&wqev->thr_active);
 fail_2:
 	net2_spinlock_deinit(&wqev->spl);
 fail_1:
