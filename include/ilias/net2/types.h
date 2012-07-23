@@ -19,6 +19,9 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <sys/types.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 ILIAS_NET2__begin_cdecl
 
