@@ -12,19 +12,19 @@
 
 
 #ifndef HAS_VASPRINTF
-extern size_t	vasprintf(char**, const char*, va_list);
+extern int	vasprintf(char**, const char*, va_list);
 #endif
 
 #ifndef HAS_ASPRINTF
-extern size_t	vsprintf(char**, const char*, ...);
+extern int	vsprintf(char**, const char*, ...);
 #endif
 
 #ifndef HAS_VSNPRINTF
-extern size_t	vsnprintf(char*, size_t, const char*, va_list);
+extern int	vsnprintf(char*, size_t, const char*, va_list);
 #endif
 
 #ifndef HAS_SNPRINTF
-extern size_t	snprintf(char*, size_t, const char*, ...);
+extern int	snprintf(char*, size_t, const char*, ...);
 #endif
 
 #ifndef HAS_STRLCPY
