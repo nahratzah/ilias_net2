@@ -55,11 +55,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-ILIAS_NET2_EXPORT int	 opterr = 1;		/* if error message should be printed */
-ILIAS_NET2_EXPORT int	 optind = 1;		/* index into parent argv vector */
-ILIAS_NET2_EXPORT int	 optopt = '?';		/* character checked for validity */
-ILIAS_NET2_EXPORT int	 optreset;		/* reset getopt */
-ILIAS_NET2_EXPORT char	*optarg;		/* argument associated with option */
+int	 opterr = 1;		/* if error message should be printed */
+int	 optind = 1;		/* index into parent argv vector */
+int	 optopt = '?';		/* character checked for validity */
+int	 optreset;		/* reset getopt */
+char	*optarg;		/* argument associated with option */
 
 #define PRINT_ERROR	((opterr) && (*options != ':'))
 
@@ -469,7 +469,7 @@ start:
  *
  * [eventually this will replace the BSD getopt]
  */
-ILIAS_NET2_EXPORT int
+int
 getopt(int nargc, char * const *nargv, const char *options)
 {
 
@@ -488,7 +488,7 @@ getopt(int nargc, char * const *nargv, const char *options)
  * getopt_long --
  *	Parse argc/argv argument vector.
  */
-ILIAS_NET2_EXPORT int
+int
 getopt_long(int nargc, char * const *nargv, const char *options,
     const struct option *long_options, int *idx)
 {
@@ -501,7 +501,7 @@ getopt_long(int nargc, char * const *nargv, const char *options,
  * getopt_long_only --
  *	Parse argc/argv argument vector.
  */
-ILIAS_NET2_EXPORT int
+int
 getopt_long_only(int nargc, char * const *nargv, const char *options,
     const struct option *long_options, int *idx)
 {
