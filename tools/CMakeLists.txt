@@ -38,12 +38,10 @@ if (NOT YACC_BIN)
 	find_program (YACC_BIN bison)
 endif (NOT YACC_BIN)
 
-if (NOT LEX_BIN OR NOT YACC_BIN)
-	add_library (compat STATIC
-		${compat_srcs}
-		${compat_hdrs}
-		)
-endif (NOT LEX_BIN OR NOT YACC_BIN)
+add_library (compat STATIC
+	${compat_srcs}
+	${compat_hdrs}
+	)
 
 if (LEX_BIN)
 	set (LEX "${LEX_BIN}" CACHE PATH "lexer")
