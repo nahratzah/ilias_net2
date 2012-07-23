@@ -385,7 +385,7 @@ add_executable (net2type
 	${CMAKE_CURRENT_BINARY_DIR}/type_yacc.h
 	${CMAKE_CURRENT_BINARY_DIR}/type_lex.c
 	)
-target_link_libraries (net2type l y)
+target_link_libraries (net2type l y compat)
 
 
 #
