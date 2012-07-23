@@ -379,7 +379,10 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 	}
 
 	/* Setup message fits and is untransmitted, so send it now. */
-	if (!(c->flags & NET2_CARVER_F_SZ_TX) && maxsz >= setup_overhead) {
+	if ((!(c->flags & NET2_CARVER_F_SZ_TX) ||
+	     (c->flags & NET2_CARVER_F_SZ_TX_TIMEOUT)) &&
+	    maxsz >= setup_overhead &&
+	    net2_txcb_entryq_empty(&c->size_txq, NET2_TXCB_EQ_TIMEOUT)) {
 		/* Encode header for SETUP. */
 		header.msg_type = CARVER_MSGTYPE_SETUP;
 		if ((error = net2_cp_encode(ctx, &cp_carver_msg_header, out,
@@ -438,6 +441,8 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 	    &carver_txcb_ack, &carver_txcb_nack, &carver_txcb_destroy,
 	    c, r)) != 0)
 		goto out;
+	TAILQ_REMOVE(&c->ranges_tx, r, txq);
+	r->flags &= ~RANGE_ON_TXQ;
 
 	error = 0;	/* Success. */
 
@@ -978,13 +983,16 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 	struct net2_carver	*c = c_ptr;
 
 	RB_REMOVE(net2_carver_ranges, &c->ranges, r);
-	if (r->flags & RANGE_ON_TXQ)
+	if (r->flags & RANGE_ON_TXQ) {
+		r->flags &= ~RANGE_ON_TXQ;
 		TAILQ_REMOVE(&c->ranges_tx, r, txq);
+	}
 	if (net2_promise_is_running(c->ready) &&
 	    net2_carver_is_done(c))
 		net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
 
 	net2_txcb_entryq_clear(&r->txcbeq, NET2_TXCB_EQ_ALL);
+	net2_txcb_entryq_deinit(&r->txcbeq);
 	net2_buffer_free(r->data);
 	net2_free(r);
 }
