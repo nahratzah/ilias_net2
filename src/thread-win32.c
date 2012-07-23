@@ -105,6 +105,7 @@ net2_thread_new(void *(*fn)(void*), void *arg, const char *name)
 
 	RB_INSERT(win32_threads, &global, t);
 	LeaveCriticalSection(&s);
+	ResumeThread(t->handle);
 
 	return t;
 }
