@@ -3,7 +3,6 @@ project (tools)
 
 include_directories ("${PROJECT_SOURCE_DIR}/lex" "${PROJECT_SOURCE_DIR}/yacc")
 include_directories ("${PROJECT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
-include_directories (${bsd_compat_INCLUDE_DIRS})
 
 include (CheckFunctionExists)
 include (CheckIncludeFiles)
@@ -94,6 +93,7 @@ else (YACC_BIN)
 		# porting compatibility
 		${CMAKE_CURRENT_BINARY_DIR}/compat.h
 		compat.c
+		${compat_srcs}
 		)
 	add_library (y
 		yacc/main.c
