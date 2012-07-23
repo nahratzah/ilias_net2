@@ -87,7 +87,7 @@ else (YACC_BIN)
 		yacc/warshall.c
 
 		# porting compatibility
-		${CMAKE_CURRENT_BINARY_DIR}/config.h
+		${CMAKE_CURRENT_BINARY_DIR}/compat.h
 		compat.c
 		)
 	add_library (y
