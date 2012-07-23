@@ -1,32 +1,10 @@
 cmake_minimum_required (VERSION 2.6)
 project (tools)
 
+add_subdirectory (compat)
+
 include_directories ("${PROJECT_SOURCE_DIR}/lex" "${PROJECT_SOURCE_DIR}/yacc")
 include_directories ("${PROJECT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
-
-include (CheckFunctionExists)
-include (CheckIncludeFiles)
-check_function_exists (vasprintf	HAS_VASPRINTF)
-check_function_exists (asprintf		HAS_ASPRINTF)
-check_function_exists (vsnprintf	HAS_VSNPRINTF)
-check_function_exists (snprintf		HAS_SNPRINTF)
-check_function_exists (strlcat		HAS_STRLCAT)
-check_function_exists (strlcpy		HAS_STRLCPY)
-check_include_files (getopt.h		HAVE_GETOPT_H)
-check_include_files (err.h		HAVE_ERR_H)
-
-list (APPEND compat_srcs "compat.c")
-list (APPEND compat_hdrs "${CMAKE_CURRENT_BINARY_DIR}/compat.h")
-if (NOT HAVE_GETOPT_H)
-	list (APPEND compat_srcs "getopt_long.c")
-	list (APPEND compat_hdrs "getopt.h")
-endif (NOT HAVE_GETOPT_H)
-if (NOT HAVE_ERR_H)
-	list (APPEND compat_srcs "err.c")
-	list (APPEND compat_hdrs "err.h")
-endif (NOT HAVE_ERR_H)
-
-configure_file (${PROJECT_SOURCE_DIR}/compat.h.in ${CMAKE_CURRENT_BINARY_DIR}/compat.h)
 
 find_program (YACC_BIN yacc)
 find_program (LEX_BIN lex)
@@ -37,11 +15,6 @@ endif (NOT LEX_BIN)
 if (NOT YACC_BIN)
 	find_program (YACC_BIN bison)
 endif (NOT YACC_BIN)
-
-add_library (compat STATIC
-	${compat_srcs}
-	${compat_hdrs}
-	)
 
 if (LEX_BIN)
 	set (LEX "${LEX_BIN}" CACHE PATH "lexer")
