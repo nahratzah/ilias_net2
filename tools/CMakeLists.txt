@@ -18,9 +18,9 @@ check_include_files (err.h		HAVE_ERR_H)
 if (NOT HAVE_GETOPT_H)
 	set (compat_srcs "${PROJECT_SOURCE_DIR}/getopt.h;${PROJECT_SOURCE_DIR}/getopt_long.c")
 endif (NOT HAVE_GETOPT_H)
-if (NOT HAVE_ERR_H
+if (NOT HAVE_ERR_H)
 	set (compat_srcs "${PROJECT_SOURCE_DIR}/err.h;${PROJECT_SOURCE_DIR}/err.c")
-endif (NOT HAVE_ERR_H
+endif (NOT HAVE_ERR_H)
 
 configure_file (${PROJECT_SOURCE_DIR}/compat.h.in ${CMAKE_CURRENT_BINARY_DIR}/compat.h)
 
