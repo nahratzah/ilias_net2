@@ -180,6 +180,7 @@ txcb_fire(struct net2_tx_callback *q, int which)
 	struct net2_txcb_entry	*e;
 	struct net2_workq	*wq;
 	int			 rv;
+	struct net2_tx_callback	*cb;
 
 	assert(which >= 0 && which < Q__SIZE);
 
@@ -203,6 +204,7 @@ txcb_fire(struct net2_tx_callback *q, int which)
 		/* Detach from this txcb. */
 		net2_mutex_lock(q->mtx);
 		TAILQ_REMOVE(&e->q->entries, e, q_entry);
+		cb = e->q;
 		e->q = NULL;
 		net2_mutex_unlock(q->mtx);
 
@@ -210,9 +212,9 @@ txcb_fire(struct net2_tx_callback *q, int which)
 		 * Check that we can actually run, if we can't, simply
 		 * don't run, but release this entry immediately.
 		 */
-		if (wq != NULL && e->q != NULL && e->active == Q_TIMEOUT &&
+		if (wq != NULL && cb != NULL && e->active == Q_TIMEOUT &&
 		    e->fn[which] != NULL) {
-			assert(e->q == q);
+			assert(cb == q);
 
 			/*
 			 * Only fire if the entry wasn't removed already.
