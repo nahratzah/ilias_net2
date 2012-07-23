@@ -29,6 +29,9 @@
 
 #ifdef HAVE_STDATOMIC_H
 #include <stdatomic.h>
+#else
+typedef volatile unsigned int	atomic_uint;
+typedef volatile uintptr_t	atomic_uintptr_t;
 #endif
 
 ILIAS_NET2__begin_cdecl
