@@ -89,7 +89,7 @@ errx(int eval, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	_verrx(eval, fmt, ap);
+	verrx(eval, fmt, ap);
 	va_end(ap);
 }
 
@@ -99,7 +99,7 @@ warnx(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	_vwarnx(fmt, ap);
+	vwarnx(fmt, ap);
 	va_end(ap);
 }
 
