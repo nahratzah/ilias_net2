@@ -82,3 +82,40 @@ vwarn(const char *fmt, va_list ap)
 	}
 	(void)fprintf(stderr, "%s\n", strerror(sverrno));
 }
+
+void
+errx(int eval, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	_verrx(eval, fmt, ap);
+	va_end(ap);
+}
+
+void
+warnx(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	_vwarnx(fmt, ap);
+	va_end(ap);
+}
+
+void
+vwarnx(const char *fmt, va_list ap)
+{
+	if (fmt != NULL)
+		(void)vfprintf(stderr, fmt, ap);
+	(void)fprintf(stderr, "\n");
+}
+
+void
+verrx(int eval, const char *fmt, va_list ap)
+{
+	if (fmt != NULL)
+		(void)vfprintf(stderr, fmt, ap);
+	(void)fprintf(stderr, "\n");
+	exit(eval);
+}
