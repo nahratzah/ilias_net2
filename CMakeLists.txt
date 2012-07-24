@@ -436,7 +436,10 @@ endif (USE_EMBEDDED_EV)
 
 configure_file (${PROJECT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
 configure_file (${PROJECT_SOURCE_DIR}/config_ev.h.in ${CMAKE_CURRENT_BINARY_DIR}/config_ev.h)
-list (APPEND headers ${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h)
+list (APPEND headers
+	${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config.h
+	${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/config_ev.h
+	)
 
 add_definitions(-DBUILDING_ILIAS_NET2)
 add_library (ilias_net2 SHARED
