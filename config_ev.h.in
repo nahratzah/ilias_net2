@@ -38,6 +38,13 @@
 #cmakedefine01 HAVE_SELECT
 #cmakedefine01 HAVE_SIGNALFD
 
+/* Windows does have select, but our detection is faulty. */
+#ifdef WIN32
+#ifndef HAVE_SELECT
+#define HAVE_SELECT		1
+#endif
+#endif /* WIN32 */
+
 #define EV_USE_FLOOR		HAVE_FLOOR
 #define EV_USE_CLOCK_SYSCALL	HAVE_CLOCK_SYSCALL
 #define EV_USE_REALTIME		(!HAVE_CLOCK_SYSCALL && HAVE_CLOCK_REALTIME)
@@ -54,5 +61,12 @@
 
 #define EV_NO_THREADS		0
 #define EV_NO_SMP		0
+
+/* On windows, allow IOCP backend. */
+#ifdef WIN32
+#define EV_USE_IOCP		1
+#else
+#define EV_USE_IOCP		0
+#endif
 
 #include "ev.h"
