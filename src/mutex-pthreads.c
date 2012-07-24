@@ -27,7 +27,6 @@ struct net2_mutex {
 #ifndef NDEBUG
 	volatile unsigned int	n2m_magic;
 #define M_MAGIC	0x7fb838a8
-#define ASSERT_M_MAGIC(_m)	assert((_m) != NULL && (_m)->n2m_magic == M_MAGIC)
 #endif
 	pthread_mutex_t		n2m_impl;
 };
@@ -36,10 +35,17 @@ struct net2_condition {
 #ifndef NDEBUG
 	volatile unsigned int	n2c_magic;
 #define C_MAGIC	0xb9d9d9fb
-#define ASSERT_C_MAGIC(_c)	assert((_c) != NULL && (_c)->n2c_magic == C_MAGIC)
 #endif
 	pthread_cond_t		n2c_impl;
 };
+
+#ifndef NDEBUG
+#define ASSERT_M_MAGIC(_m)	assert((_m) != NULL && (_m)->n2m_magic == M_MAGIC)
+#define ASSERT_C_MAGIC(_c)	assert((_c) != NULL && (_c)->n2c_magic == C_MAGIC)
+#else
+#define ASSERT_M_MAGIC(_m)	do {} while (0)
+#define ASSERT_C_MAGIC(_c)	do {} while (0)
+#endif
 
 /*
  * Allocate a mutex.
@@ -170,7 +176,7 @@ net2_cond_alloc()
 	int			 rv;
 
 	if ((c = net2_malloc(sizeof(c))) == NULL)
-		return c;
+		return NULL;
 
 	if ((rv = pthread_cond_init(&c->n2c_impl, NULL)) != 0) {
 		warnx("%s: %s", "pthread_cond_init", strerror(rv));
