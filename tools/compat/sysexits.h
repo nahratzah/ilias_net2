@@ -34,7 +34,7 @@
 #ifndef ILIAS_NET2_BSD_COMPAT_SYSEXITS_H
 #define ILIAS_NET2_BSD_COMPAT_SYSEXITS_H
 
-#include <ilias/net2/config.h>
+#include "compat.h"
 #ifdef HAVE_SYSEXITS_H
 #include <sysexits.h>
 #else
