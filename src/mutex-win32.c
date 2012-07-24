@@ -73,7 +73,7 @@ net2_mutex_alloc()
 		return NULL;
 	InitializeCriticalSection(&m->s);
 	m->locks = 0;
-	m->n2c_magic = MAGIC;
+	m->n2m_magic = M_MAGIC;
 	return m;
 }
 
@@ -86,7 +86,7 @@ net2_mutex_free(struct net2_mutex *m)
 	if (m) {
 		ASSERT_M_MAGIC(m);
 		DeleteCriticalSection(&m->s);
-		m->n2c_magic = 0;
+		m->n2m_magic = 0;
 		net2_free(m);
 	}
 }
