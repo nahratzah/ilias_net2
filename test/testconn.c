@@ -64,6 +64,7 @@ testconn_1()
 	if (error != 0) {
 		free(tc);
 		test_ctx_free(ctx);
+		ctx = NULL;
 		return NULL;
 	}
 	tc->other = NULL;
