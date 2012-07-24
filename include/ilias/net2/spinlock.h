@@ -29,7 +29,7 @@ typedef CRITICAL_SECTION	net2_spinlock;
 static __inline int
 net2_spinlock_init(net2_spinlock *l)
 {
-	InitializeCriticalSection(l);
+	InitializeCriticalSectionAndSpincount(l, 0x4000);
 	return 0;
 }
 static __inline void
