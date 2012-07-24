@@ -21,13 +21,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 
 struct net2_mutex {
-	pthread_mutex_t	n2m_impl;
+#ifndef NDEBUG
+	volatile unsigned int	n2m_magic;
+#define M_MAGIC	0x7fb838a8
+#define ASSERT_M_MAGIC(_m)	assert((_m) != NULL && (_m)->n2m_magic == M_MAGIC)
+#endif
+	pthread_mutex_t		n2m_impl;
 };
 
 struct net2_condition {
-	pthread_cond_t	n2c_impl;
+#ifndef NDEBUG
+	volatile unsigned int	n2c_magic;
+#define C_MAGIC	0xb9d9d9fb
+#define ASSERT_C_MAGIC(_c)	assert((_c) != NULL && (_c)->n2c_magic == C_MAGIC)
+#endif
+	pthread_cond_t		n2c_impl;
 };
 
 /*
@@ -46,6 +57,9 @@ net2_mutex_alloc()
 		net2_free(m);
 		return NULL;
 	}
+#ifndef NDEBUG
+	m->n2m_magic = M_MAGIC;
+#endif
 	return m;
 }
 
@@ -59,10 +73,14 @@ net2_mutex_free(struct net2_mutex *m)
 
 	if (m == NULL)
 		return;
+	ASSERT_M_MAGIC(m);
 	if ((rv = pthread_mutex_destroy(&m->n2m_impl)) != 0) {
 		errx(EX_OSERR, "%s: %s",
 		    "pthread_mutex_destroy", strerror(rv));
 	}
+#ifndef NDEBUG
+	m->n2m_magic = 0;
+#endif
 	net2_free(m);
 }
 
@@ -74,6 +92,7 @@ net2_mutex_lock(struct net2_mutex *m)
 {
 	int rv;
 
+	ASSERT_M_MAGIC(m);
 	while ((rv = pthread_mutex_lock(&m->n2m_impl)) != 0) {
 		switch (rv) {
 		case EINTR:
@@ -99,6 +118,7 @@ net2_mutex_trylock(struct net2_mutex *m)
 {
 	int rv;
 
+	ASSERT_M_MAGIC(m);
 	if ((rv = pthread_mutex_trylock(&m->n2m_impl)) != 0) {
 		switch (rv) {
 		case EINTR:
@@ -126,6 +146,7 @@ net2_mutex_unlock(struct net2_mutex *m)
 {
 	int rv;
 
+	ASSERT_M_MAGIC(m);
 	while ((rv = pthread_mutex_unlock(&m->n2m_impl)) != 0) {
 		switch (rv) {
 		case EINTR:
@@ -156,6 +177,9 @@ net2_cond_alloc()
 		net2_free(c);
 		return NULL;
 	}
+#ifndef NDEBUG
+	c->n2c_magic = C_MAGIC;
+#endif
 	return c;
 }
 
@@ -169,10 +193,14 @@ net2_cond_free(struct net2_condition *c)
 
 	if (c == NULL)
 		return;
+	ASSERT_C_MAGIC(c);
 	if ((rv = pthread_cond_destroy(&c->n2c_impl)) != 0) {
 		errx(EX_OSERR, "%s: %s",
 		    "pthread_cond_destroy", strerror(rv));
 	}
+#ifndef NDEBUG
+	c->n2c_magic = 0;
+#endif
 	net2_free(c);
 }
 
@@ -184,6 +212,7 @@ net2_cond_signal(struct net2_condition *c)
 {
 	int rv;
 
+	ASSERT_C_MAGIC(c);
 	if ((rv = pthread_cond_signal(&c->n2c_impl)) != 0)
 		warnx("%s: %s", "pthread_cond_signal", strerror(rv));
 }
@@ -196,6 +225,7 @@ net2_cond_broadcast(struct net2_condition *c)
 {
 	int rv;
 
+	ASSERT_C_MAGIC(c);
 	if ((rv = pthread_cond_broadcast(&c->n2c_impl)) != 0)
 		warnx("%s: %s", "pthread_cond_signal", strerror(rv));
 }
@@ -208,6 +238,8 @@ net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 {
 	int rv;
 
+	ASSERT_C_MAGIC(c);
+	ASSERT_M_MAGIC(m);
 	if ((rv = pthread_cond_wait(&c->n2c_impl, &m->n2m_impl)) != 0)
 		warnx("%s: %s", "pthread_cond_wait", strerror(rv));
 }
