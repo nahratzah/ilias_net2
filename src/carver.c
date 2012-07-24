@@ -181,6 +181,7 @@ net2_carver_init(struct net2_carver *c, enum net2_carver_type type,
 		}
 		RB_INSERT(net2_carver_ranges, &c->ranges, r);
 		TAILQ_INSERT_HEAD(&c->ranges_tx, r, txq);
+		r->flags |= RANGE_ON_TXQ;
 	}
 
 	/* Initialize completion promise. */
@@ -415,7 +416,7 @@ net2_carver_get_transmit(struct net2_carver *c, struct net2_encdec_ctx *ctx,
 	TAILQ_FOREACH(r, &c->ranges_tx, txq) {
 		if (net2_txcb_entryq_empty(&r->txcbeq, NET2_TXCB_EQ_ALL))
 			break;
-		if (net2_buffer_length(r->data) < maxsz - msg_overhead)
+		if (net2_buffer_length(r->data) <= maxsz - msg_overhead)
 			break;
 	}
 	/* Nothing to send. */
@@ -688,6 +689,7 @@ fail_2:
 fail_1:
 	net2_free(sibling);
 fail_0:
+	assert(error != 0);
 	return error;
 }
 
@@ -982,6 +984,7 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
+	assert(RB_FIND(net2_carver_ranges, &c->ranges, r) == r);
 	RB_REMOVE(net2_carver_ranges, &c->ranges, r);
 	if (r->flags & RANGE_ON_TXQ) {
 		r->flags &= ~RANGE_ON_TXQ;
