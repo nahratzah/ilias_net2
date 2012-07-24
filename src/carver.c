@@ -682,9 +682,9 @@ carver_range_split(struct net2_carver *c, struct net2_carver_range *r,
 
 
 fail_3:
-	net2_txcb_entryq_deinit(&r->txcbeq);
+	net2_txcb_entryq_deinit(&sibling->txcbeq);
 fail_2:
-	net2_buffer_free(r->data);
+	net2_buffer_free(sibling->data);
 fail_1:
 	net2_free(sibling);
 fail_0:
