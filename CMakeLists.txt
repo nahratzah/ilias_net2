@@ -204,6 +204,8 @@ else (${WITH_EXUDE})
 	message (STATUS "exude build: disabled")
 endif (${WITH_EXUDE})
 
+find_library (EFENCE_LIB efence PATHS "${LOCALBASE}/lib")
+
 #
 # Lex and yacc implementation required.
 #
@@ -575,4 +577,14 @@ if (BUILD_TESTING)
 		set_property (TARGET test_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 		set_property (TARGET test_udp_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
 	endif (${WITH_EXUDE})
+
+	target_link_libraries (test_buffer ${EFENCE_LIB})
+	target_link_libraries (test_carver ${EFENCE_LIB})
+	target_link_libraries (test_encdec_ctypes ${EFENCE_LIB})
+	target_link_libraries (test_hash ${EFENCE_LIB})
+	target_link_libraries (test_sign ${EFENCE_LIB})
+	target_link_libraries (test_enc ${EFENCE_LIB})
+	target_link_libraries (test_xchange ${EFENCE_LIB})
+	target_link_libraries (test_conn ${EFENCE_LIB})
+	target_link_libraries (test_udp_conn ${EFENCE_LIB})
 endif (BUILD_TESTING)
