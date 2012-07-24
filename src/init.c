@@ -36,14 +36,15 @@ net2_init()
 #endif
 	int	rv;
 
-	net2_memory_init();
-	if ((rv = net2_thread_init()) != 0)
+	if ((rv = net2_memory_init()) != 0)
 		goto fail_0;
+	if ((rv = net2_thread_init()) != 0)
+		goto fail_1;
 
 #ifdef WIN32
 	if ((rv = WSAStartup(MAKEWORD(2, 2), &wsa_data)) != 0) {
 		warnx(EX_OSERR, "WSAStartup fail: %d", rv);
-		goto fail_1;
+		goto fail_2;
 	}
 	major = LOBYTE(wsa_data.wVersion);
 	minor = HIBYTE(wsa_data.wVersion);
@@ -51,7 +52,7 @@ net2_init()
 		warnx(EX_OSERR, "Winsock %d.%d is too old, "
 		    "upgrade your windows.", major, minor);
 		rv = EINVAL;
-		goto fail_2;
+		goto fail_3;
 	}
 #endif
 
@@ -59,15 +60,15 @@ net2_init()
 	return 0;
 
 
-fail_2:
+fail_3:
 #ifdef WIN32
 	WSACleanup();
 #endif
-fail_1:
+fail_2:
 	net2_thread_fini();
-fail_0:
+fail_1:
 	net2_memory_fini();
-
+fail_0:
 	assert(rv != 0);
 	return rv;
 }

@@ -26,7 +26,8 @@ ILIAS_NET2__begin_cdecl
 #include <sys/types.h>
 #include <stdint.h>
 
-#ifdef NET2_USE_EXUDE_DEBUG
+#if 1
+#define NET2_MEMDEBUG
 
 
 ILIAS_NET2_LOCAL void	*net2_malloc_(size_t, const char*, const char*, int);
@@ -35,7 +36,7 @@ ILIAS_NET2_LOCAL void	*net2_calloc_(size_t, size_t, const char*, const char*, in
 ILIAS_NET2_LOCAL char	*net2_strdup_(const char*, const char*, const char*, int);
 ILIAS_NET2_LOCAL void	 net2_free_(void*, const char*, const char*, int);
 
-ILIAS_NET2_LOCAL void	 net2_memory_init();
+ILIAS_NET2_LOCAL int	 net2_memory_init();
 ILIAS_NET2_LOCAL void	 net2_memory_fini();
 
 #define net2_malloc(s)							\
@@ -68,7 +69,7 @@ ILIAS_NET2_LOCAL void	 net2_memory_fini();
 	strdup((s))
 
 #define net2_memory_init()						\
-	do {} while (0)
+	(0)
 #define net2_memory_fini()						\
 	do {} while (0)
 
