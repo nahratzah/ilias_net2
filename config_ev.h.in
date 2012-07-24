@@ -40,9 +40,8 @@
 
 /* Windows does have select, but our detection is faulty. */
 #ifdef WIN32
-#ifndef HAVE_SELECT
+#undef HAVE_SELECT
 #define HAVE_SELECT		1
-#endif
 #endif /* WIN32 */
 
 #define EV_USE_FLOOR		HAVE_FLOOR
