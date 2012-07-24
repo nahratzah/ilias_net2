@@ -605,7 +605,7 @@ restart:
 ILIAS_NET2_EXPORT void
 net2_txcb_entryq_clear(struct net2_txcb_entryq *eq, int which)
 {
-	struct net2_txcb_entry	*e;
+	struct net2_txcb_entry	*e, *e_next;
 	int			 i;
 	int			 cancel, referenced, active_cancel, do_restart;
 
@@ -613,7 +613,8 @@ net2_txcb_entryq_clear(struct net2_txcb_entryq *eq, int which)
 
 	net2_mutex_lock(eq->mtx);
 restart:
-	TAILQ_FOREACH(e, &eq->entries, eq_entry) {
+	for (e = TAILQ_FIRST(&eq->entries); e != NULL; e = e_next) {
+		e_next = TAILQ_NEXT(e, eq_entry);
 		referenced = 0;
 		do_restart = 0;
 
