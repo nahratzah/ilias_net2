@@ -18,6 +18,8 @@
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/workq.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 
 struct net2_workq_evbase*global_evbase = NULL;
@@ -43,18 +45,25 @@ testconn_1()
 	int			 error;
 
 	if (global_evbase == NULL) {
-		if ((global_evbase = net2_workq_evbase_new("testconn", 1, 1)) == NULL)
+		if ((global_evbase = net2_workq_evbase_new("testconn", 1, 1)) == NULL) {
+			fprintf(stderr, "Failed to init global evbase for test\n");
 			return NULL;
+		}
 	}
 
 	if (ctx == NULL) {
-		if ((ctx = test_ctx()) == NULL)
+		if ((ctx = test_ctx()) == NULL) {
+			fprintf(stderr, "Failed to init context for test\n");
 			return NULL;
+		}
 	}
 
-	if ((tc = malloc(sizeof(*tc))) == NULL)
+	if ((tc = malloc(sizeof(*tc))) == NULL) {
+		fprintf(stderr, "Failed to allocate memory for test connection\n");
 		return NULL;
+	}
 	if ((wq = net2_workq_new(global_evbase)) == NULL) {
+		fprintf(stderr, "Failed to create workq for test\n");
 		free(tc);
 		return NULL;
 	}
@@ -62,6 +71,7 @@ testconn_1()
 	    &testconn_fn);
 	net2_workq_release(wq);
 	if (error != 0) {
+		fprintf(stderr, "Failed to initialize test connection: %s\n", strerror(errno));
 		free(tc);
 		test_ctx_free(ctx);
 		ctx = NULL;
