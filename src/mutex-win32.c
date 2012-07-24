@@ -35,9 +35,30 @@
 #endif
 
 struct net2_mutex {
+#ifndef NDEBUG
+	volatile unsigned int	n2m_magic;
+#define M_MAGIC	0x7fb838a8
+#endif
 	CRITICAL_SECTION	s;
 	volatile int		locks;
 };
+
+struct net2_condition {
+#ifndef NDEBUG
+	volatile unsigned int	n2c_magic;
+#define C_MAGIC	0xb9d9d9fb
+#endif
+	CRITICAL_SECTION	s;
+	TAILQ_HEAD(, waiter)	wq;
+};
+
+#ifndef NDEBUG
+#define ASSERT_M_MAGIC(_m)	assert((_m) != NULL && (_m)->n2m_magic == M_MAGIC)
+#define ASSERT_C_MAGIC(_c)	assert((_c) != NULL && (_c)->n2c_magic == C_MAGIC)
+#else
+#define ASSERT_M_MAGIC(_m)	do {} while (0)
+#define ASSERT_C_MAGIC(_c)	do {} while (0)
+#endif
 
 
 /*
@@ -52,6 +73,7 @@ net2_mutex_alloc()
 		return NULL;
 	InitializeCriticalSection(&m->s);
 	m->locks = 0;
+	m->n2c_magic = MAGIC;
 	return m;
 }
 
@@ -62,7 +84,9 @@ ILIAS_NET2_LOCAL void
 net2_mutex_free(struct net2_mutex *m)
 {
 	if (m) {
+		ASSERT_M_MAGIC(m);
 		DeleteCriticalSection(&m->s);
+		m->n2c_magic = 0;
 		net2_free(m);
 	}
 }
@@ -73,6 +97,7 @@ net2_mutex_free(struct net2_mutex *m)
 ILIAS_NET2_LOCAL void
 net2_mutex_lock(struct net2_mutex *m)
 {
+	ASSERT_M_MAGIC(m);
 	EnterCriticalSection(&m->s);
 	assert(m->locks == 0);	/* ilias_net2 does not do recursive locking. */
 	m->locks++;
@@ -86,6 +111,7 @@ net2_mutex_lock(struct net2_mutex *m)
 ILIAS_NET2_LOCAL int
 net2_mutex_trylock(struct net2_mutex *m)
 {
+	ASSERT_M_MAGIC(m);
 	if (!TryEnterCriticalSection(&m->s))
 		return 0;
 	assert(m->locks == 0);	/* ilias_net2 does not do recursive locking. */
@@ -99,16 +125,12 @@ net2_mutex_trylock(struct net2_mutex *m)
 ILIAS_NET2_LOCAL void
 net2_mutex_unlock(struct net2_mutex *m)
 {
+	ASSERT_M_MAGIC(m);
 	assert(m->locks > 0);
 	m->locks--;
 	LeaveCriticalSection(&m->s);
 }
 
-
-struct net2_condition {
-	CRITICAL_SECTION	s;
-	TAILQ_HEAD(, waiter)	wq;
-};
 
 struct waiter {
 	TAILQ_ENTRY(waiter)	entry;
@@ -181,6 +203,7 @@ net2_cond_alloc()
 
 	InitializeCriticalSection(&c->s);
 	TAILQ_INIT(&c->wq);
+	c->n2c_magic = C_MAGIC;
 	return c;
 }
 
@@ -188,11 +211,16 @@ net2_cond_alloc()
 ILIAS_NET2_LOCAL void
 net2_cond_free(struct net2_condition *c)
 {
+	if (!c)
+		return;
+	ASSERT_C_MAGIC(c);
 	EnterCriticalSection(&c->s);
 	assert(TAILQ_EMPTY(&c->wq));
 	LeaveCriticalSection(&c->s);
 
 	DeleteCriticalSection(&c->s);
+	c->n2c_magic = 0;
+	net2_free(c);
 }
 
 /* Wait for a condition variable to signal. */
@@ -202,6 +230,8 @@ net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 	struct waiter		self;
 	int			locks, i;
 
+	ASSERT_C_MAGIC(c);
+	ASSERT_M_MAGIC(m);
 	assert(m->locks > 0);
 
 	init_waiter(&self);
@@ -232,6 +262,7 @@ net2_cond_signal(struct net2_condition *c)
 {
 	struct waiter		*qhead;
 
+	ASSERT_C_MAGIC(c);
 	EnterCriticalSection(&c->s);
 	if ((qhead = TAILQ_FIRST(&c->wq)) == NULL)
 		goto out;
@@ -250,6 +281,7 @@ net2_cond_broadcast(struct net2_condition *c)
 {
 	struct waiter		*qhead;
 
+	ASSERT_C_MAGIC(c);
 	EnterCriticalSection(&c->s);
 
 	while ((qhead = TAILQ_FIRST(&c->wq)) != NULL) {
