@@ -110,10 +110,10 @@ net2_strdup_(const char *s, const char *file, const char *function, int line)
 }
 
 ILIAS_NET2_LOCAL void
-net2_free_(void **p, const char *file, const char *function, int line)
+net2_free_(void *p, const char *file, const char *function, int line)
 {
 	LOCK();
-	e_free_debug(p, file, function, line);
+	e_free_debug(&p, file, function, line);
 	UNLOCK();
 }
 
