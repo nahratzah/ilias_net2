@@ -64,7 +64,7 @@
 
 /* On windows, allow IOCP backend. */
 #ifdef WIN32
-#define EV_USE_IOCP		1
+#define EV_USE_IOCP		0	/* The required ev_iocp.c never existed? */
 #else
 #define EV_USE_IOCP		0
 #endif
