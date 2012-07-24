@@ -524,11 +524,6 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	unsigned int	 fl;
 
 	wqev = wq->wqev;
-	if (!clear_run &&
-	    ((fl = atomic_load_explicit(&wq->flags, memory_order_consume)) &
-	     WQ_ONQUEUE))
-		return fl;
-
 	net2_spinlock_lock(&wqev->spl);
 	if (!((fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume)) & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
@@ -752,11 +747,10 @@ workq_job_wq_clear(struct net2_workq_job *j)
 	if ((wq = job_deref_lock(j)) == NULL)
 		return 0;
 
-	/* Clear workq on job. */
-	j->wq = NULL;
-
 	/* Remove job from workq queues. */
 	jf = job_offqueue(j);
+	/* Clear workq on job. */
+	j->wq = NULL;
 
 	/*
 	 * If the job is running, wait until it stops unless this
@@ -1925,10 +1919,8 @@ wqev_worker(void *wthr_ptr)
 	wthr = wthr_ptr;
 	net2_spinlock_lock(&wthr->spl);
 	wqev = wthr->evbase;
+	curthread = wthr->worker;
 	net2_spinlock_unlock(&wthr->spl);
-
-	if ((curthread = net2_thread_self()) == NULL)
-		return NULL;
 
 	/*
 	 * A worker always transitions from active to idle.
@@ -1973,13 +1965,11 @@ wqev_worker(void *wthr_ptr)
 		}
 
 		/* Go to sleep. */
-		net2_semaphore_up(&wqev->thr_idle, 1);	/* XXX must be done while holding the spinlock! */
+		net2_semaphore_up(&wqev->thr_idle, 1);	/* Must be done while holding the spinlock! */
 		net2_spinlock_unlock(&wqev->spl);
 	}
 
 die:
-	net2_thread_free(curthread);
-
 	/* Mark this wthr as dead. */
 	net2_spinlock_lock(&wqev->spl_workers);
 	TAILQ_REMOVE(&wqev->workers, wthr, tq);
