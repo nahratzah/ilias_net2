@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 
 
 /*
@@ -32,10 +33,20 @@
  * state.
  */
 struct net2_event {
+#ifndef NDEBUG
+	volatile unsigned int	magic;
+#define MAGIC			0x8d689054
+#endif
 	pthread_mutex_t		mtx;	/* Write access and wait. */
 	pthread_cond_t		cnd;	/* Signal condition. */
 	int			active;	/* State. */
 };
+
+#ifndef NDEBUG
+#define ASSERT_MAGIC(_ev)	assert((_ev) != NULL && (_ev)->magic == MAGIC)
+#else
+#define ASSERT_MAGIC(_ev)	do {} while (0)
+#endif
 
 /* Create new event. */
 ILIAS_NET2_LOCAL struct net2_event*
@@ -50,6 +61,9 @@ net2_event_alloc()
 	if (pthread_cond_init(&ev->cnd, NULL))
 		goto fail_2;
 	ev->active = 0;
+#ifndef NDEBUG
+	ev->magic = MAGIC;
+#endif
 	return ev;
 
 fail_3:
@@ -66,6 +80,8 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_event_free(struct net2_event *ev)
 {
+	ASSERT_MAGIC(ev);
+	ev->magic = 0;
 	pthread_cond_destroy(&ev->cnd);
 	pthread_mutex_destroy(&ev->mtx);
 	net2_free(ev);
@@ -76,6 +92,8 @@ ILIAS_NET2_LOCAL void
 net2_event_wait(struct net2_event *ev)
 {
 	int rv;
+
+	ASSERT_MAGIC(ev);
 
 	/* Short cut. */
 	if (ev->active)
@@ -111,6 +129,8 @@ net2_event_signal(struct net2_event *ev)
 {
 	int rv;
 
+	ASSERT_MAGIC(ev);
+
 	/* Short cut. */
 	if (ev->active)
 		return;
@@ -142,5 +162,6 @@ net2_event_signal(struct net2_event *ev)
 ILIAS_NET2_LOCAL int
 net2_event_test(struct net2_event *ev)
 {
+	ASSERT_MAGIC(ev);
 	return ev->active;
 }
