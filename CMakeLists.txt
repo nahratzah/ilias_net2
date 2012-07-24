@@ -7,6 +7,10 @@ include (CTest)
 # Special options.
 #
 option (USE_EMBEDDED_EV "Use embedded libev library instead of system library." ON)
+option (MEMDEBUG "Enable memory debug code." OFF)
+if (MEMDEBUG)
+	add_definitions (-DMEMDEBUG)
+endif (MEMDEBUG)
 
 
 if ("${CMAKE_C_COMPILER}" MATCHES "clang$" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")

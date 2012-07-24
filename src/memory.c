@@ -15,7 +15,7 @@
  */
 #include <ilias/net2/memory.h>
 
-#ifdef NET2_MEMDEBUG
+#ifdef MEMDEBUG
 
 #include <ilias/net2/config.h>
 #ifdef HAVE_SYS_TREE_H
