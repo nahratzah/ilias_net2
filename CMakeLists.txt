@@ -342,25 +342,6 @@ if (USE_EMBEDDED_EV)
 	list (APPEND EV_LIBRARIES)
 	list (APPEND EV_INCLUDE_DIR)
 	add_definitions (-DEV_STANDALONE -DEV_API_STATIC -DEV_MULTIPLICITY)
-
-	list (APPEND headers
-		# Yes, half of these are source files, but they are built by
-		# including them into workq.c, so they need to be classified
-		# as headers in order for them not to be built.
-		contrib/libev-4.11/ev.c
-		contrib/libev-4.11/ev.h
-		contrib/libev-4.11/ev_epoll.c
-		contrib/libev-4.11/ev_kqueue.c
-		contrib/libev-4.11/ev_poll.c
-		contrib/libev-4.11/ev_port.c
-		contrib/libev-4.11/ev_select.c
-		contrib/libev-4.11/ev_vars.h
-		contrib/libev-4.11/ev_win32.c
-		contrib/libev-4.11/ev_wrap.h
-		contrib/libev-4.11/event.c
-		contrib/libev-4.11/event.h
-		)
-
 else (USE_EMBEDDED_EV)
 	include_directories (${EV_INCLUDE_DIR})
 endif (USE_EMBEDDED_EV)
