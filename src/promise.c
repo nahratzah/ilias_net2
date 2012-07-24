@@ -217,9 +217,6 @@ net2_promise_unlock(struct net2_promise *p)
 	 * Free path.
 	 */
 
-	net2_mutex_free(p->mtx);
-	net2_event_free(p->cnd);
-
 	/* Release result. */
 	if (p->result != NULL && p->free.fn != NULL)
 		(*p->free.fn)(p->result, p->free.arg);
@@ -230,22 +227,9 @@ net2_promise_unlock(struct net2_promise *p)
 			net2_promise_event_deinit(&combi->events[i]);
 
 		for (i = 0; i < combi->nprom; i++) {
-#ifdef NET2_REFCNT_IS_ATOMIC
-			if (net2_refcnt_release(&combi->prom[i]->combi_refcnt,
-			    combi->prom[i]->mtx, 0)) {
-				/*
-				 * Perform cleanup by invoking the unlock
-				 * function, which requires the mutex to be
-				 * held.
-				 */
-				net2_mutex_lock(combi->prom[i]->mtx);
-				net2_promise_unlock(combi->prom[i]);
-			}
-#else
 			net2_refcnt_release(&combi->prom[i]->combi_refcnt,
 			    combi->prom[i]->mtx, NET2_REFCNT_LOCK_EXIT);
 			net2_promise_unlock(combi->prom[i]);
-#endif
 		}
 
 		net2_free(combi->events);
@@ -257,6 +241,8 @@ net2_promise_unlock(struct net2_promise *p)
 	if (p->on_destroy.fn != NULL)
 		(*p->on_destroy.fn)(p->on_destroy.arg0, p->on_destroy.arg1);
 
+	net2_mutex_free(p->mtx);
+	net2_event_free(p->cnd);
 	net2_free(p);
 }
 
@@ -352,15 +338,8 @@ prom_on_run(struct net2_promise *p)
 ILIAS_NET2_EXPORT void
 net2_promise_release(struct net2_promise *p)
 {
-#ifdef NET2_REFCNT_IS_ATOMIC
-	if (net2_refcnt_release(&p->refcnt, p->mtx, 0)) {
-		net2_mutex_lock(p->mtx);
-		net2_promise_unlock(p);
-	}
-#else
 	net2_refcnt_release(&p->refcnt, p->mtx, NET2_REFCNT_LOCK_EXIT);
 	net2_promise_unlock(p);
-#endif
 }
 
 /* Add a reference to promise. */
