@@ -442,8 +442,13 @@ HMAC_SHA2_destroy_fn(struct net2_hash_ctx *ctx)
 static int
 HMAC_SHA2_update_fn(struct net2_hash_ctx *ctx, const void *data, size_t len)
 {
+#if (OPENSSL_VERSION_NUMBER < 0x01000000)
+	/* Prior to openssl 1.0.0, the HMAC_Update and HMAC_Cleanup returned void. */
+	HMAC_Update(&ctx->impl.hmac_ctx, data, len);
+#else
 	if (!HMAC_Update(&ctx->impl.hmac_ctx, data, len))
 		return -1;
+#endif
 	return 0;
 }
 static int
