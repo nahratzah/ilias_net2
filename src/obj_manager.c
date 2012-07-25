@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/obj_manager.h>
 #include <ilias/net2/cp.h>
+#include <stdlib.h>
 #include <assert.h>
 
 
