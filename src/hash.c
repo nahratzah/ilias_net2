@@ -443,7 +443,7 @@ static int
 HMAC_SHA2_update_fn(struct net2_hash_ctx *ctx, const void *data, size_t len)
 {
 #if (OPENSSL_VERSION_NUMBER < 0x01000000)
-	/* Prior to openssl 1.0.0, the HMAC_Update and HMAC_Cleanup returned void. */
+	/* Prior to openssl 1.0.0, the HMAC_{Update,Cleanup,Final} returned void. */
 	HMAC_Update(&ctx->impl.hmac_ctx, data, len);
 #else
 	if (!HMAC_Update(&ctx->impl.hmac_ctx, data, len))
@@ -457,8 +457,13 @@ HMAC_SHA2_final_fn(void *out, struct net2_hash_ctx *ctx)
 	unsigned int		result_len;
 
 	result_len = ctx->fn->hashlen;
+#if (OPENSSL_VERSION_NUMBER < 0x01000000)
+	/* Prior to openssl 1.0.0, the HMAC_{Update,Cleanup,Final} returned void. */
+	HMAC_Final(&ctx->impl.hmac_ctx, out, &result_len);
+#else
 	if (!HMAC_Final(&ctx->impl.hmac_ctx, out, &result_len))
 		return -1;
+#endif
 	if (ctx->fn->hashlen != result_len) {
 		warnx("%s: hash output has length %u, expected %u",
 		    ctx->fn->name,
