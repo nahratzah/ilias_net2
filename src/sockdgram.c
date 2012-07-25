@@ -32,13 +32,19 @@
 #include <WS2tcpip.h>
 #include <io.h>
 #else
-#include <sys/syslimits.h>
 #include <sys/uio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <netinet/in.h>
+
+#if !defined(IOV_MAX)
+#include <unistd.h>
+#define IOV_MAX	(sysconf(_SC_IOV_MAX))
+#endif /* !IOV_MAX */
+
 #endif
 
 #ifdef WIN32	/* Windows compatibility. */
@@ -427,7 +433,7 @@ net2_sockdgram_dnf(net2_socket_t sock)
 
 #ifdef IP_MTU_DISCOVER
 		opt = IP_PMTUDISC_DO;
-		if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER,
+		if (setsockopt(sock, IPPROTO_IP, IP_MTU_DISCOVER,
 		    &opt, sizeof(opt))) {
 			switch (errno) {
 			case EBADF:
@@ -447,6 +453,8 @@ net2_sockdgram_dnf(net2_socket_t sock)
 #endif /* AF_INET */
 #ifdef AF_INET6
 	case AF_INET6:
+
+#ifdef IPV6_DONTFRAG
 		opt = 1;
 		if (setsockopt(sock, IPPROTO_IPV6, IPV6_DONTFRAG,
 		    &opt, sizeof(opt))) {
@@ -464,6 +472,7 @@ net2_sockdgram_dnf(net2_socket_t sock)
 				break;
 			}
 		}
+#endif /* IPV6_DONTFRAG */
 #endif /* AF_INET6 */
 	default:
 		return 0;
