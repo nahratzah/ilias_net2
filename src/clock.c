@@ -21,6 +21,15 @@
 #endif
 
 
+#ifndef TIMESPEC_TO_TIMEVAL
+#define TIMESPEC_TO_TIMEVAL(tv, ts)					\
+	do {								\
+		(tv)->tv_sec = (ts)->tv_sec;				\
+		(tv)->tv_usec = (ts)->tv_nsec / 1000;			\
+	} while (0)
+#endif /* !TIMESPEC_TO_TIMEVAL */
+
+
 /* Export monotonic clock as struct timeval. */
 ILIAS_NET2_EXPORT int
 tv_clock_gettime(clockid_t clock, struct timeval *tv)
