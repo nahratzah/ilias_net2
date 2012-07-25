@@ -19,6 +19,7 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 #ifdef HAS_ARC4RANDOM
 

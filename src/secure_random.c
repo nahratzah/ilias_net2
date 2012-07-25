@@ -105,6 +105,14 @@ win32_secure_random_uniform(uint32_t upper_bound)
 
 #else
 
+#include <ilias/net2/bsd_compat/error.h>
+#include <ilias/net2/bsd_compat/sysexits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+
 /*
  * Use /dev/random.
  */
@@ -142,7 +150,7 @@ devrandom_secure_random_buf(void *ptr, size_t len)
 	/* Close /dev/random. */
 	while (close(fd)) {
 		if (errno != EINTR) {
-			warn(EX_OSERR, "failed to close /dev/random");
+			warn("failed to close /dev/random");
 			break;
 		}
 	}
