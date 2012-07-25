@@ -123,6 +123,7 @@ net2_semaphore_trydown(struct net2_semaphore *s)
 
 #elif defined(HAVE_SEMAPHORE_H)
 #include <semaphore.h>
+#include <assert.h>
 
 struct net2_semaphore {
 	sem_t			 s;
@@ -131,8 +132,6 @@ struct net2_semaphore {
 static __inline int
 net2_semaphore_initval(struct net2_semaphore *s, unsigned int initial)
 {
-	int			 rv;
-
 	if (sem_init(&s->s, 0, initial)) {
 		if (errno == ENOSPC || errno == ENOMEM)
 			return ENOMEM;
