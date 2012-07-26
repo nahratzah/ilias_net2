@@ -19,6 +19,7 @@
 #include <ilias/net2/memory.h>
 #include <openssl/bn.h>
 #include <openssl/dh.h>
+#include <openssl/asn1.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
