@@ -5,9 +5,8 @@
 #error MS Interlocked code requires MSC.
 #endif
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <intrin.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
 
@@ -54,7 +53,7 @@ atomic_compare_exchange64_strong(volatile int64_t *v,
 	assert(sizeof(int64_t) == sizeof(long long));
 	_ReadWriteBarrier();
 	expect = *oldval;
-	*oldval = InterlockedCompareExchange64(v, newval, *oldval);
+	*oldval = _InterlockedCompareExchange64(v, newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
 }
@@ -67,7 +66,7 @@ atomic_compare_exchange32_strong(volatile int32_t *v,
 	assert(sizeof(int32_t) == sizeof(long));
 	_ReadWriteBarrier();
 	expect = *oldval;
-	*oldval = InterlockedCompareExchange((volatile long*)v,
+	*oldval = _InterlockedCompareExchange((volatile long*)v,
 	    newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
@@ -81,7 +80,7 @@ atomic_compare_exchange16_strong(volatile int16_t *v,
 	assert(sizeof(int16_t) == sizeof(short));
 	_ReadWriteBarrier();
 	expect = *oldval;
-	*oldval = InterlockedCompareExchange16((volatile short*)v,
+	*oldval = _InterlockedCompareExchange16((volatile short*)v,
 	    newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
@@ -95,7 +94,7 @@ atomic_compare_exchange8_strong(volatile int8_t *v,
 	assert(sizeof(int8_t) == sizeof(char));
 	_ReadWriteBarrier();
 	expect = *oldval;
-	*oldval = InterlockedCompareExchange8((volatile char*)v,
+	*oldval = _InterlockedCompareExchange8((volatile char*)v,
 	    newval, *oldval);
 	_ReadWriteBarrier();
 	return (*oldval == expect);
@@ -125,7 +124,7 @@ atomic_compare_exchange64_weak(volatile int64_t *v,
 		return 0;
 	}
 
-	return atomic_compare_exchange_strong(v, oldval, newval);
+	return atomic_compare_exchange64_strong(v, oldval, newval);
 }
 static __inline int
 atomic_compare_exchange32_weak(volatile int32_t *v,
@@ -139,7 +138,7 @@ atomic_compare_exchange32_weak(volatile int32_t *v,
 		return 0;
 	}
 
-	return atomic_compare_exchange_strong(v, oldval, newval);
+	return atomic_compare_exchange32_strong(v, oldval, newval);
 }
 static __inline int
 atomic_compare_exchange16_weak(volatile int16_t *v,
@@ -153,10 +152,10 @@ atomic_compare_exchange16_weak(volatile int16_t *v,
 		return 0;
 	}
 
-	return atomic_compare_exchange_strong(v, oldval, newval);
+	return atomic_compare_exchange16_strong(v, oldval, newval);
 }
 static __inline int
-atomic_compare_exchange16_weak(volatile int8_t *v,
+atomic_compare_exchange8_weak(volatile int8_t *v,
     int8_t *oldval, int8_t newval)
 {
 	assert(sizeof(int8_t) == sizeof(char));
@@ -167,7 +166,7 @@ atomic_compare_exchange16_weak(volatile int8_t *v,
 		return 0;
 	}
 
-	return atomic_compare_exchange_strong(v, oldval, newval);
+	return atomic_compare_exchange8_strong(v, oldval, newval);
 }
 #define atomic_compare_exchange_weak(v, oldval, newval)			\
 	select_8_16_32_64(*v,						\
@@ -185,12 +184,16 @@ atomic_compare_exchange16_weak(volatile int8_t *v,
 static __inline int64_t
 atomic_load64(volatile int64_t *v)
 {
+#ifdef _WIN64
 	int64_t rv;
 
 	_ReadWriteBarrier();
 	rv = *v;
 	_ReadWriteBarrier();
 	return rv;
+#else
+	abort();	/* Not atomic mov. */
+#endif
 }
 static __inline int32_t
 atomic_load32(volatile int32_t *v)
@@ -215,7 +218,7 @@ atomic_load16(volatile int16_t *v)
 static __inline int8_t
 atomic_load8(volatile int8_t *v)
 {
-	int16_t rv;
+	int8_t rv;
 
 	_ReadWriteBarrier();
 	rv = *v;
@@ -234,9 +237,13 @@ atomic_load8(volatile int8_t *v)
 static __inline void
 atomic_store64(volatile int64_t *v, int64_t val)
 {
+#ifdef _WIN64
 	_ReadWriteBarrier();
 	*v = val;
 	_ReadWriteBarrier();
+#else
+	abort();	/* Not atomic mov. */
+#endif
 }
 static __inline void
 atomic_store32(volatile int32_t *v, int32_t val)
@@ -271,25 +278,29 @@ atomic_store8(volatile int8_t *v, int8_t val)
 static __inline int64_t
 atomic_fetch_add64(volatile int64_t *v, uint64_t add)
 {
-	return InterlockedExchangeAdd64(v, add);
+#ifdef _WIN64
+	return _InterlockedExchangeAdd64(v, add);
+#else
+	abort();	/* Unsupported. */
+#endif
 }
 static __inline int32_t
 atomic_fetch_add32(volatile int32_t *v, uint32_t add)
 {
 	assert(sizeof(int32_t) == sizeof(long));
-	return InterlockedExchangeAdd((volatile long*)v, add);
+	return _InterlockedExchangeAdd((volatile long*)v, add);
 }
 static __inline int16_t
 atomic_fetch_add16(volatile int16_t *v, uint16_t add)
 {
 	assert(sizeof(int16_t) == sizeof(short));
-	return InterlockedExchangeAdd16((volatile short*)v, add);
+	return _InterlockedExchangeAdd16((volatile short*)v, add);
 }
 static __inline int8_t
 atomic_fetch_add8(volatile int8_t *v, uint8_t add)
 {
 	assert(sizeof(int8_t) == sizeof(char));
-	return InterlockedExchangeAdd8((volatile char*)v, add);
+	return _InterlockedExchangeAdd8((volatile char*)v, add);
 }
 #define atomic_fetch_add(v, val)					\
 	select_8_16_32_64(*v,						\
@@ -303,25 +314,29 @@ atomic_fetch_add8(volatile int8_t *v, uint8_t add)
 static __inline int64_t
 atomic_fetch_sub64(volatile int64_t *v, uint64_t add)
 {
-	return InterlockedExchangeAdd64(v, ~add);
+#ifdef _WIN64
+	return _InterlockedExchangeAdd64(v, ~add);
+#else
+	abort();	/* Unsupported. */
+#endif
 }
 static __inline int32_t
 atomic_fetch_sub32(volatile int32_t *v, uint32_t add)
 {
 	assert(sizeof(int32_t) == sizeof(long));
-	return InterlockedExchangeAdd((volatile long*)v, -(int32_t)add);
+	return _InterlockedExchangeAdd((volatile long*)v, -(int32_t)add);
 }
 static __inline int16_t
 atomic_fetch_sub16(volatile int16_t *v, uint16_t add)
 {
 	assert(sizeof(int16_t) == sizeof(short));
-	return InterlockedExchangeAdd((volatile short*)v, -(int16_t)add);
+	return _InterlockedExchangeAdd16((volatile short*)v, -(int16_t)add);
 }
 static __inline int8_t
 atomic_fetch_sub8(volatile int8_t *v, uint8_t add)
 {
 	assert(sizeof(int8_t) == sizeof(char));
-	return InterlockedExchangeAdd((volatile char*)v, -(int8_t)add);
+	return _InterlockedExchangeAdd8((volatile char*)v, -(int8_t)add);
 }
 #define atomic_fetch_sub(v, val)					\
 	select_8_16_32_64(*v,						\
@@ -335,25 +350,29 @@ atomic_fetch_sub8(volatile int8_t *v, uint8_t add)
 static __inline int64_t
 atomic_fetch_or64(volatile int64_t *v, int64_t f)
 {
-	return InterlockedOr64(v, f);
+#ifdef _WIN64
+	return _InterlockedOr64(v, f);
+#else
+	abort();	/* Unsupported. */
+#endif
 }
 static __inline int32_t
 atomic_fetch_or32(volatile int32_t *v, int32_t f)
 {
 	assert(sizeof(int32_t) == sizeof(long));
-	return InterlockedOr((volatile long*)v, f);
+	return _InterlockedOr((volatile long*)v, f);
 }
 static __inline int16_t
 atomic_fetch_or16(volatile int16_t *v, int16_t f)
 {
 	assert(sizeof(int16_t) == sizeof(short));
-	return InterlockedOr16((volatile short*)v, f);
+	return _InterlockedOr16((volatile short*)v, f);
 }
 static __inline int8_t
 atomic_fetch_or8(volatile int8_t *v, int8_t f)
 {
 	assert(sizeof(int8_t) == sizeof(char));
-	return InterlockedOr8((volatile char*)v, f);
+	return _InterlockedOr8((volatile char*)v, f);
 }
 #define atomic_fetch_or(v, val)						\
 	select_8_16_32_64(*v,						\
@@ -367,25 +386,29 @@ atomic_fetch_or8(volatile int8_t *v, int8_t f)
 static __inline int64_t
 atomic_fetch_and64(volatile int64_t *v, int64_t f)
 {
-	return InterlockedAnd64(v, f);
+#ifdef _WIN64
+	return _InterlockedAnd64(v, f);
+#else
+	abort();	/* Unsupported. */
+#endif
 }
 static __inline int32_t
 atomic_fetch_and32(volatile int32_t *v, int32_t f)
 {
 	assert(sizeof(int32_t) == sizeof(long));
-	return InterlockedAnd((volatile long*)v, f);
+	return _InterlockedAnd((volatile long*)v, f);
 }
 static __inline int16_t
 atomic_fetch_and16(volatile int16_t *v, int16_t f)
 {
 	assert(sizeof(int16_t) == sizeof(short));
-	return InterlockedAnd((volatile short*)v, f);
+	return _InterlockedAnd16((volatile short*)v, f);
 }
 static __inline int8_t
 atomic_fetch_and8(volatile int8_t *v, int8_t f)
 {
 	assert(sizeof(int8_t) == sizeof(char));
-	return InterlockedAnd((volatile char*)v, f);
+	return _InterlockedAnd8((volatile char*)v, f);
 }
 #define atomic_fetch_and(v, val)					\
 	select_8_16_32_64(*v,						\
