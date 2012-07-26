@@ -71,7 +71,7 @@ net2_mutex_alloc()
 
 	if ((m = net2_malloc(sizeof(*m))) == NULL)
 		return NULL;
-	InitializeCriticalSectionAndSpincount(&m->s, 0x400);
+	InitializeCriticalSectionAndSpinCount(&m->s, 0x400);
 	m->locks = 0;
 	m->n2m_magic = M_MAGIC;
 	return m;
