@@ -67,8 +67,15 @@ testconn_1()
 		free(tc);
 		return NULL;
 	}
+	tc->other = NULL;
+	tc->in = NULL;
+	tc->inlen = 0;
+
+	error = net2_workq_want(wq, 1);
+	assert(error == 0);
 	error = net2_connection_init(&tc->base_conn, ctx, wq,
 	    &testconn_fn);
+	net2_workq_unwant(wq);
 	net2_workq_release(wq);
 	if (error != 0) {
 		fprintf(stderr, "Failed to initialize test connection: %s\n", strerror(errno));
@@ -77,9 +84,6 @@ testconn_1()
 		ctx = NULL;
 		return NULL;
 	}
-	tc->other = NULL;
-	tc->in = NULL;
-	tc->inlen = 0;
 	return tc;
 }
 
