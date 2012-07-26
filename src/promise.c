@@ -218,6 +218,8 @@ net2_promise_unlock(struct net2_promise *p)
 	 */
 
 	/* Release result. */
+	if (combi != NULL)
+		net2_promise_event_deinit(&combi->work);
 	if (p->result != NULL && p->free.fn != NULL)
 		(*p->free.fn)(p->result, p->free.arg);
 
@@ -234,7 +236,6 @@ net2_promise_unlock(struct net2_promise *p)
 
 		net2_free(combi->events);
 		net2_free(combi->prom);
-		net2_promise_event_deinit(&combi->work);
 	}
 
 	/* Invoke on_destroy callback. */
