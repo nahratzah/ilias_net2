@@ -1490,7 +1490,7 @@ net2_workq_want(struct net2_workq *wq, int try)
 	case wq_want_memfail:
 		return ENOMEM;
 	default:
-		assert(0);
+		abort();
 	}
 }
 /* Release workq want state. */
