@@ -41,8 +41,19 @@ net2_acceptor_socket_deinit(struct net2_acceptor_socket *self)
 ILIAS_NET2_EXPORT void
 net2_acceptor_socket_destroy(struct net2_acceptor_socket *s)
 {
+	int		 want;
+	struct net2_workq
+			*wq;
+
 	assert(s->fn->destroy != NULL);
+	wq = s->workq;
+	net2_workq_ref(wq);
+	want = net2_workq_want(wq, 0);
+	assert(want == 0 || want == EDEADLK);
 	(*s->fn->destroy)(s);
+	if (want != 0)
+		net2_workq_unwant(wq);
+	net2_workq_release(wq);
 }
 
 /* Attach acceptor. */
