@@ -2,6 +2,7 @@
 #define ILIAS_NET2_BSD_COMPAT_STDATOMIC_H
 
 #include <ilias/net2/config.h>
+#include <ilias/net2/ilias_net2_export.h>
 
 #ifdef HAVE_STDATOMIC_H
 #include <stdatomic.h>

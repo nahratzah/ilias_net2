@@ -1,4 +1,5 @@
 #include <ilias/net2/bsd_compat/atomic.h>
+#include <pthread.h>
 
 /*
  * This implementation uses a posix mutex to emulate atomic operations.
@@ -132,22 +133,22 @@ atomic_load8(volatile int8_t *v)
 	LOCK(v);							\
 	*v = newval;							\
 	UNLOCK(v);
-ILIAS_NET2_LOCAL int64_t
+ILIAS_NET2_LOCAL void
 atomic_store64(volatile int64_t *v, int64_t newval)
 {
 	BODY(v, newval)
 }
-ILIAS_NET2_LOCAL int32_t
+ILIAS_NET2_LOCAL void
 atomic_store32(volatile int32_t *v, int32_t newval)
 {
 	BODY(v, newval)
 }
-ILIAS_NET2_LOCAL int16_t
+ILIAS_NET2_LOCAL void
 atomic_store16(volatile int16_t *v, int16_t newval)
 {
 	BODY(v, newval)
 }
-ILIAS_NET2_LOCAL int8_t
+ILIAS_NET2_LOCAL void
 atomic_store8(volatile int8_t *v, int8_t newval)
 {
 	BODY(v, newval)
@@ -159,27 +160,27 @@ atomic_store8(volatile int8_t *v, int8_t newval)
 	type orig;							\
 									\
 	LOCK(v);							\
-	orig = *rv;							\
+	orig = *v;							\
 	*v += delta;							\
 	UNLOCK(v);							\
 	return orig;
 ILIAS_NET2_LOCAL int64_t
-atomic_fetch_add64(volatile int64_t *v, int64_t delta)
+atomic_fetch_add64(volatile int64_t *v, uint64_t delta)
 {
 	BODY(int64_t, v, delta)
 }
 ILIAS_NET2_LOCAL int32_t
-atomic_fetch_add32(volatile int32_t *v, int32_t delta)
+atomic_fetch_add32(volatile int32_t *v, uint32_t delta)
 {
 	BODY(int32_t, v, delta)
 }
 ILIAS_NET2_LOCAL int16_t
-atomic_fetch_add16(volatile int16_t *v, int16_t delta)
+atomic_fetch_add16(volatile int16_t *v, uint16_t delta)
 {
 	BODY(int16_t, v, delta)
 }
 ILIAS_NET2_LOCAL int8_t
-atomic_fetch_add8(volatile int8_t *v, int8_t delta)
+atomic_fetch_add8(volatile int8_t *v, uint8_t delta)
 {
 	BODY(int8_t, v, delta)
 }
@@ -190,27 +191,27 @@ atomic_fetch_add8(volatile int8_t *v, int8_t delta)
 	type orig;							\
 									\
 	LOCK(v);							\
-	orig = *rv;							\
+	orig = *v;							\
 	*v -= delta;							\
 	UNLOCK(v);							\
 	return orig;
 ILIAS_NET2_LOCAL int64_t
-atomic_fetch_sub64(volatile int64_t *v, int64_t delta)
+atomic_fetch_sub64(volatile int64_t *v, uint64_t delta)
 {
 	BODY(int64_t, v, delta)
 }
 ILIAS_NET2_LOCAL int32_t
-atomic_fetch_sub32(volatile int32_t *v, int32_t delta)
+atomic_fetch_sub32(volatile int32_t *v, uint32_t delta)
 {
 	BODY(int32_t, v, delta)
 }
 ILIAS_NET2_LOCAL int16_t
-atomic_fetch_sub16(volatile int16_t *v, int16_t delta)
+atomic_fetch_sub16(volatile int16_t *v, uint16_t delta)
 {
 	BODY(int16_t, v, delta)
 }
 ILIAS_NET2_LOCAL int8_t
-atomic_fetch_sub8(volatile int8_t *v, int8_t delta)
+atomic_fetch_sub8(volatile int8_t *v, uint8_t delta)
 {
 	BODY(int8_t, v, delta)
 }
@@ -221,7 +222,7 @@ atomic_fetch_sub8(volatile int8_t *v, int8_t delta)
 	type orig;							\
 									\
 	LOCK(v);							\
-	orig = *rv;							\
+	orig = *v;							\
 	*v |= delta;							\
 	UNLOCK(v);							\
 	return orig;
@@ -252,7 +253,7 @@ atomic_fetch_or8(volatile int8_t *v, int8_t delta)
 	type orig;							\
 									\
 	LOCK(v);							\
-	orig = *rv;							\
+	orig = *v;							\
 	*v &= delta;							\
 	UNLOCK(v);							\
 	return orig;

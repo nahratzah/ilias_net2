@@ -1,6 +1,7 @@
 #ifndef ILIAS_NET2_BSD_COMPAT_SPL_ATOMIC_H
 #define ILIAS_NET2_BSD_COMPAT_SPL_ATOMIC_H
 
+#include <sys/types.h>
 #include <stdint.h>
 #include <assert.h>
 
@@ -15,10 +16,8 @@ typedef volatile signed long		atomic_long;
 typedef volatile unsigned long		atomic_ulong;
 typedef volatile signed long long	atomic_llong;
 typedef volatile unsigned long long	atomic_ullong;
-typedef volatile wchar_t		atomic_wchar_t;
 
 typedef volatile size_t			atomic_size_t;
-typedef volatile ptrdiff_t		atomic_ptrdiff_t;
 typedef volatile intptr_t		atomic_intptr_t;
 typedef volatile uintptr_t		atomic_uintptr_t;
 
@@ -66,7 +65,7 @@ int	atomic_compare_exchange32_weak(volatile int32_t*, int32_t*, int32_t);
 ILIAS_NET2_LOCAL
 int	atomic_compare_exchange16_weak(volatile int16_t*, int16_t*, int16_t);
 ILIAS_NET2_LOCAL
-int	atomic_compare_exchange16_weak(volatile int8_t*, int8_t*, int8_t);
+int	atomic_compare_exchange8_weak(volatile int8_t*, int8_t*, int8_t);
 #define atomic_compare_exchange_weak(v, oldval, newval)			\
 	select_8_16_32_64(*v,						\
 	    atomic_compare_exchange8_weak((volatile int8_t*)(v),	\
@@ -173,10 +172,6 @@ ILIAS_NET2_LOCAL
 int16_t	atomic_fetch_and16(volatile int16_t*, int16_t);
 ILIAS_NET2_LOCAL
 int8_t	atomic_fetch_and8(volatile int8_t*, int8_t);
-{
-	assert(sizeof(int8_t) == sizeof(char));
-	return InterlockedAnd((volatile char*)v, f);
-}
 #define atomic_fetch_and(v, val)					\
 	select_8_16_32_64(*v,						\
 	    atomic_fetch_and8((volatile int8_t*)(v), (val)),		\
