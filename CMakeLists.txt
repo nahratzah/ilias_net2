@@ -156,10 +156,14 @@ list (APPEND headers
 	include/ilias/net2/bsd_compat/secure_random.h
 	include/ilias/net2/bsd_compat/minmax.h
 	include/ilias/net2/bsd_compat/endian.h
+	include/ilias/net2/bsd_compat/atomic.h
+	include/ilias/net2/bsd_compat/win32_atomic.h
+	include/ilias/net2/bsd_compat/spl_atomic.h
 	)
 list (APPEND srcs
 	src/error.c
 	src/clock.c
+	src/spl_atomic.c
 	)
 if (NOT HAS_SHA2)
 	list (APPEND headers include/ilias/net2/bsd_compat/sha2.h)

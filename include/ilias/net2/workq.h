@@ -18,6 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
+#include <ilias/net2/bsd_compat/atomic.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -26,13 +27,6 @@
 #include <sys/queue.h>
 #else
 #include <ilias/net2/bsd_compat/queue.h>
-#endif
-
-#ifdef HAVE_STDATOMIC_H
-#include <stdatomic.h>
-#else
-typedef volatile unsigned int	atomic_uint;
-typedef volatile uintptr_t	atomic_uintptr_t;
 #endif
 
 ILIAS_NET2__begin_cdecl
