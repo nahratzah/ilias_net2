@@ -87,3 +87,6 @@
 
 /* Set if semaphore.h exists. */
 #cmakedefine HAVE_SEMAPHORE_H
+
+/* Set if the platform is a big endian architecture. */
+#cmakedefine IS_BIG_ENDIAN
