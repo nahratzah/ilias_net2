@@ -2092,6 +2092,38 @@ net2_sa_rx_get_event(struct net2_sa_rx *sa, int evno)
 	net2_mutex_unlock(sa->recvbuf_mtx);
 }
 
+
+/*
+ * Return the finish promise for tx.
+ * Promise is referenced.
+ */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_sa_tx_get_fin(struct net2_sa_tx *sa)
+{
+	struct net2_promise	*p;
+
+	net2_mutex_lock(sa->sendbuf_mtx);
+	net2_promise_ref(sa->fin);
+	p = sa->fin;
+	net2_mutex_unlock(sa->sendbuf_mtx);
+	return p;
+}
+/*
+ * Return the finish promise for rx.
+ * Promise is referenced.
+ */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_sa_rx_get_fin(struct net2_sa_rx *sa)
+{
+	struct net2_promise	*p;
+
+	net2_mutex_lock(sa->recvbuf_mtx);
+	net2_promise_ref(sa->fin);
+	p = sa->fin;
+	net2_mutex_unlock(sa->recvbuf_mtx);
+	return p;
+}
+
 /* Free buffer result on promise. */
 static void
 buffree2(void *buf, void *unused ILIAS_NET2__unused)

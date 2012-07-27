@@ -131,6 +131,10 @@ int			 net2_sa_rx_set_event(struct net2_sa_rx*, int,
 			    struct net2_workq*, net2_workq_cb, void*, void*);
 ILIAS_NET2_EXPORT
 void			 net2_sa_rx_clear_event(struct net2_sa_rx*, int);
+ILIAS_NET2_EXPORT
+struct net2_promise	*net2_sa_tx_get_fin(struct net2_sa_tx*);
+ILIAS_NET2_EXPORT
+struct net2_promise	*net2_sa_rx_get_fin(struct net2_sa_rx*);
 
 
 ILIAS_NET2__end_cdecl
