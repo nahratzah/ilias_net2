@@ -56,11 +56,6 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 
 	memset(conn, 0, sizeof(*conn));
 
-	if (workq == NULL || functions == NULL) {
-		error = EINVAL;
-		goto fail_0;
-	}
-
 	TAILQ_INIT(&conn->n2c_recvq);
 	conn->n2c_recvqsz = 0;
 

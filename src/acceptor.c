@@ -22,6 +22,9 @@ ILIAS_NET2_EXPORT int
 net2_acceptor_socket_init(struct net2_acceptor_socket *self,
     struct net2_workq *workq, const struct net2_acceptor_socket_fn *fn)
 {
+	if (workq == NULL || fn == NULL)
+		return EINVAL;
+
 	self->fn = fn;
 	self->acceptor = NULL;
 	self->workq = workq;
