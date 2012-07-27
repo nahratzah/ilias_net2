@@ -380,6 +380,14 @@ if (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 endif (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 
 
+list (APPEND EXTRA_LIBS)
+find_library (RT_LIB rt)
+if (RT_LIB)
+	# Linux needs this for clock_gettime.
+	list (APPEND EXTRA_LIBS ${RT_LIB})
+endif (RT_LIB)
+
+
 #
 # Test if we can use sendmsg.
 #
@@ -451,7 +459,7 @@ add_library (ilias_net2 SHARED
 	${headers}
 	${cluster_headers}
 	)
-target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${OPENSSL_LIBRARIES})
+target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXTRA_LIBS})
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
 endif (Threads_FOUND)
