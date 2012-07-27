@@ -16,15 +16,9 @@
 #ifndef ILIAS_NET2_BSD_COMPAT_ENDIAN_H
 #define ILIAS_NET2_BSD_COMPAT_ENDIAN_H
 
-#ifdef WIN32
 
+#include <sys/types.h>
 
-/*
- * While windows apparently also runs powerpc (and arm?) I'm only interested
- * in the code that'll run on i386/amd64.
- *
- * Those are big endian for sure.
- */
 __inline uint64_t
 _byteswap64(uint64_t x)
 {
@@ -57,14 +51,35 @@ _byteswap16(uint16_t x)
 	    (x & 0xff00) >> 8;
 }
 
+#ifndef htobe16
+#ifdef IS_BIG_ENDIAN
+#define htobe16(x)	(x)
+#define betoh16(x)	(x)
+#else
 #define htobe16(x)	_byteswap16((x))
-#define htobe32(x)	_byteswap32((x))
-#define htobe64(x)	_byteswap64((x))
 #define betoh16(x)	_byteswap16((x))
+#endif
+#endif	/* htobe16 */
+
+#ifndef htobe32
+#ifdef IS_BIG_ENDIAN
+#define htobe32(x)	(x)
+#define betoh32(x)	(x)
+#else
+#define htobe32(x)	_byteswap32((x))
 #define betoh32(x)	_byteswap32((x))
+#endif
+#endif	/* htobe32 */
+
+#ifndef htobe64
+#ifdef IS_BIG_ENDIAN
+#define htobe64(x)	(x)
+#define betoh64(x)	(x)
+#else
+#define htobe64(x)	_byteswap64((x))
 #define betoh64(x)	_byteswap64((x))
+#endif
+#endif	/* htobe64 */
 
-
-#endif /* WIN32 */
 
 #endif /* ILIAS_NET2_BSD_COMPAT_ENDIAN_H */

@@ -130,6 +130,7 @@ list (APPEND cluster_srcs
 #
 include (CheckFunctionExists)
 include (CheckIncludeFiles)
+include (TestBigEndian)
 check_function_exists (SHA256Init HAS_SHA2)
 check_function_exists (arc4random HAS_ARC4RANDOM)
 check_function_exists (vasprintf HAS_VASPRINTF)
@@ -149,6 +150,7 @@ check_include_files (sys/tree.h HAVE_SYS_TREE_H)
 check_include_files (getopt.h HAVE_GETOPT_H)
 check_include_files (stdatomic.h HAVE_STDATOMIC_H)
 check_include_files (semaphore.h HAVE_SEMAPHORE_H)
+test_big_endian (IS_BIG_ENDIAN)
 
 list (APPEND headers
 	include/ilias/net2/bsd_compat/error.h
