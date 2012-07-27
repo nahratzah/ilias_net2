@@ -17,7 +17,9 @@
 #define ILIAS_NET2_BSD_COMPAT_ENDIAN_H
 
 
+#include <ilias/net2/config.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 __inline uint64_t
 _byteswap64(uint64_t x)
@@ -51,7 +53,7 @@ _byteswap16(uint16_t x)
 	    (x & 0xff00) >> 8;
 }
 
-#ifndef htobe16
+#if !defined(htobe16) || !defined(betoh16)
 #ifdef IS_BIG_ENDIAN
 #define htobe16(x)	(x)
 #define betoh16(x)	(x)
@@ -61,7 +63,7 @@ _byteswap16(uint16_t x)
 #endif
 #endif	/* htobe16 */
 
-#ifndef htobe32
+#if !defined(htobe32) || !defined(betoh32)
 #ifdef IS_BIG_ENDIAN
 #define htobe32(x)	(x)
 #define betoh32(x)	(x)
@@ -71,7 +73,7 @@ _byteswap16(uint16_t x)
 #endif
 #endif	/* htobe32 */
 
-#ifndef htobe64
+#if !defined(htobe64) || !defined(betoh64)
 #ifdef IS_BIG_ENDIAN
 #define htobe64(x)	(x)
 #define betoh64(x)	(x)
