@@ -17,6 +17,7 @@
 #include "testprotocol.h"
 #include <ilias/net2/init.h>
 #include <ilias/net2/udp_connection.h>
+#include <ilias/net2/workq.h>
 #include <ilias/net2/stream_acceptor.h>
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
@@ -81,44 +82,32 @@ volatile int recv_finished = 0;
 volatile int sa1_recv_finished = 0;
 
 void
-detach_flag(int fd, short what, void *base_ptr)
+detach_flag(void *unused0, void *unused1)
 {
-	struct net2_evbase	*base = base_ptr;
-
 	printf("event: detached\n");
 	detached = 1;
-	event_base_loopbreak(base->evbase);
 }
 void
-finish_flag(int fd, short what, void *base_ptr)
+finish_flag(void *unused0, void *unused1)
 {
-	struct net2_evbase	*base = base_ptr;
-
 	printf("event: finished\n");
 	finished = 1;
-	event_base_loopbreak(base->evbase);
 }
 void
-recv_finish_flag(int fd, short what, void *base_ptr)
+recv_finish_flag(void *unused0, void *unused1)
 {
-	struct net2_evbase	*base = base_ptr;
-
 	printf("event: finish_flag\n");
 	recv_finished = 1;
-	event_base_loopbreak(base->evbase);
 }
 void
-sa1_recv_finish_flag(int fd, short what, void *base_ptr)
+sa1_recv_finish_flag(void *unused0, void *unused1)
 {
-	struct net2_evbase	*base = base_ptr;
-
 	printf("event: sa1_recv_finish_flag\n");
 	sa1_recv_finished = 1;
-	event_base_loopbreak(base->evbase);
 }
 
 void
-mirror_recv_event(int fd, short what, void *nsa_ptr)
+mirror_recv_event(void *nsa_ptr, void *unused)
 {
 	struct net2_stream_acceptor	*nsa = nsa_ptr;
 	struct net2_sa_rx		*rx = net2_stream_acceptor_rx(nsa);
@@ -208,30 +197,16 @@ main()
 {
 	int			 fd[2];
 	struct net2_ctx		*protocol_ctx;
-	struct net2_evbase	*evbase;
+	struct net2_workq_evbase*evbase;
 	struct net2_connection	*c1, *c2;
 	struct net2_stream_acceptor
 				*sa1, *sa2;
 	struct net2_buffer	*sent, *received;
-	int			 thread_running = 0;
+	struct net2_promise_event
+				 sa1_rx_fin, sa1_tx_fin,
+				 sa2_rx_fin, sa2_tx_fin;
 
 	test_start();
-
-	/* Initializing libevent. */
-	event_enable_debug_mode();
-#ifdef WIN32
-	if (evthread_use_windows_threads()) {
-		fprintf(stderr, "unable to set up windows threading "
-		    "in libevent");
-		return -1;
-	}
-#else
-	if (evthread_use_pthreads()) {
-		fprintf(stderr, "unable to set up posix threading "
-		    "in libevent");
-		return -1;
-	}
-#endif
 
 	/* Initialize network. */
 	net2_init();
@@ -245,7 +220,7 @@ main()
 		printf("test_ctx() fail\n");
 		return -1;
 	}
-	if ((evbase = net2_evbase_new()) == NULL) {
+	if ((evbase = net2_workq_evbase_new("udp evbase", 2, 2)) == NULL) {
 		printf("net2_evbase_new() fail\n");
 		return -1;
 	}
@@ -257,7 +232,8 @@ main()
 		printf("net2_conn_p2p_create_fd() fail\n");
 		return -1;
 	}
-	net2_conn_set_stealth(c2);
+	net2_workq_evbase_release(evbase);
+	evbase = NULL;
 
 	/* Create stream. */
 	sa1 = net2_stream_acceptor_new();
@@ -269,62 +245,57 @@ main()
 
 	/* Turn sa2 into an echo service. */
 	{
-		struct event		*mirror_ev, *recv_finish_ev;
+		struct net2_workq	*wq = net2_acceptor_socket_workq(
+					    &c2->n2c_socket);
 		struct net2_sa_rx	*rx = net2_stream_acceptor_rx(sa2);
 		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa2);
+		struct net2_promise	*rx_fin = net2_sa_rx_get_fin(rx);
+		struct net2_promise	*tx_fin = net2_sa_tx_get_fin(tx);
 
-		mirror_ev = event_new(evbase->evbase, -1, 0,
-		    mirror_recv_event, sa2);
-		recv_finish_ev = event_new(evbase->evbase, -1, 0,
-		    recv_finish_flag, evbase);
-		if (mirror_ev == NULL || recv_finish_ev == NULL) {
-			printf("event_new fail\n");
-			return -1;
-		}
-
-		if (net2_sa_rx_set_event(rx, NET2_SARX_ON_RECV,
-		    mirror_ev, NULL) ||
-		    net2_sa_rx_set_event(rx, NET2_SARX_ON_FINISH,
-		    mirror_ev, NULL)) {
+		if (net2_sa_rx_set_event(rx, NET2_SARX_ON_RECV, wq,
+		    &mirror_recv_event, sa2, NULL)) {
 			printf("net2_sa_rx_set_event fail\n");
 			return -1;
 		}
-		if (net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
-		    recv_finish_ev, NULL)) {
-			printf("net2_sa_tx_set_event fail\n");
+		if (net2_promise_event_init(&sa2_rx_fin, rx_fin,
+		    NET2_PROM_ON_FINISH, wq,
+		    &mirror_recv_event, sa2, NULL)) {
+			printf("net2_sa_rx_fin promise event fail\n");
 			return -1;
 		}
+		if (net2_promise_event_init(&sa2_rx_fin, tx_fin,
+		    NET2_PROM_ON_FINISH, wq,
+		    &recv_finish_flag, NULL, NULL)) {
+			printf("net2_sa_tx_fin promise event fail\n");
+			return -1;
+		}
+		net2_promise_release(rx_fin);
+		net2_promise_release(tx_fin);
 	}
 
 	/* Set up the finish and detach events for sa1. */
 	{
-		struct event		*detach, *finish, *sa1_recv_finish;
+		struct net2_workq	*wq = net2_acceptor_socket_workq(
+					    &c1->n2c_socket);
 		struct net2_sa_tx	*tx = net2_stream_acceptor_tx(sa1);
 		struct net2_sa_rx	*rx = net2_stream_acceptor_rx(sa1);
+		struct net2_promise	*rx_fin = net2_sa_rx_get_fin(rx);
+		struct net2_promise	*tx_fin = net2_sa_tx_get_fin(tx);
 
-		detach = event_new(evbase->evbase, -1, 0,
-		    detach_flag, evbase);
-		finish = event_new(evbase->evbase, -1, 0,
-		    finish_flag, evbase);
-		sa1_recv_finish = event_new(evbase->evbase, -1, 0,
-		    sa1_recv_finish_flag, evbase);
-		if (detach == NULL || finish == NULL || sa1_recv_finish == NULL) {
-			printf("event_new fail\n");
+		if (net2_promise_event_init(&sa1_tx_fin, tx_fin,
+		    NET2_PROM_ON_FINISH, wq,
+		    &finish_flag, NULL, NULL)) {
+			printf("net2_sa_tx_fin promise event fail\n");
 			return -1;
 		}
-
-		if (net2_sa_tx_set_event(tx, NET2_SATX_ON_DETACH,
-		    detach, NULL) ||
-		    net2_sa_tx_set_event(tx, NET2_SATX_ON_FINISH,
-		    finish, NULL)) {
-			printf("net2_sa_tx_set_event fail\n");
+		if (net2_promise_event_init(&sa1_rx_fin, rx_fin,
+		    NET2_PROM_ON_FINISH, wq,
+		    &sa1_recv_finish_flag, NULL, NULL)) {
+			printf("net2_sa_rx_fin promise event fail\n");
 			return -1;
 		}
-		if (net2_sa_rx_set_event(rx, NET2_SARX_ON_FINISH,
-		    sa1_recv_finish, NULL)) {
-			printf("net2_sa_rx_set_event fail\n");
-			return -1;
-		}
+		net2_promise_release(rx_fin);
+		net2_promise_release(tx_fin);
 	}
 
 	/* Attach stream to connection. */
@@ -335,15 +306,6 @@ main()
 		printf("net2_acceptor_attach() fail\n");
 		return -1;
 	}
-
-	/*
-	 * Start the evbase.
-	 */
-	if (net2_evbase_threadstart(evbase)) {
-		printf("net2_evbase_threadstart fail\n");
-		return -1;
-	}
-	thread_running = 1;
 
 	/* Send data into sa1. */
 	if ((sent = doodle_buf()) == NULL) {
@@ -358,21 +320,6 @@ main()
 	 * receiver have completed.
 	 */
 	while (!finished || !recv_finished || !sa1_recv_finished) {
-		if (!thread_running) {
-			if (net2_evbase_threadstart(evbase)) {
-				printf("net2_evbase_threadstart fail\n");
-				return -1;
-			}
-			thread_running = 1;
-		}
-
-		/* Wait for event loop to process everything. */
-		if (net2_evbase_threadstop(evbase, NET2_EVBASE_WAITONLY)) {
-			printf("net2_evbase_threadstop fail\n");
-			return -1;
-		}
-		thread_running = 0;
-
 		/* Check why the eventloop ended. */
 		if (finished == 1) {
 			printf("\tprocessing finished\n");
@@ -420,16 +367,16 @@ main()
 	    c2->n2c_stats.tx_bytes, c2->n2c_stats.tx_packets,
 	    c2->n2c_stats.rx_bytes, c2->n2c_stats.rx_packets);
 
+	net2_promise_event_deinit(&sa1_rx_fin);
+	net2_promise_event_deinit(&sa1_tx_fin);
+	net2_promise_event_deinit(&sa2_rx_fin);
+	net2_promise_event_deinit(&sa2_tx_fin);
 	net2_buffer_free(sent);
 	net2_buffer_free(received);
 	net2_connection_destroy(c1);
 	net2_connection_destroy(c2);
 	net2_stream_acceptor_destroy(sa1);
 	net2_stream_acceptor_destroy(sa2);
-
-	/* Allow evbase to run post-destruction events. */
-	event_base_dispatch(evbase->evbase);
-	net2_evbase_release(evbase);
 
 	test_ctx_free(protocol_ctx);
 	net2_cleanup();
