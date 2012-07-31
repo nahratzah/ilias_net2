@@ -1837,3 +1837,88 @@ out:
 
 	return error;
 }
+
+/*
+ * Help out a specific workq.
+ *
+ * Runs up to count jobs from the specified workq.
+ * The workq reference must stay valid during execution.
+ * If the workq has less runnable jobs than requested, the function
+ * will return before running those jobs.
+ *
+ * Returns:
+ * - 0: at least one job was run
+ * - ENOMEM: insufficient memory to run workq
+ * - EAGAIN: workq had no runnable jobs
+ * - EBUSY: the workq is running or want-locked
+ */
+ILIAS_NET2_EXPORT int
+net2_workq_aid(struct net2_workq *wq, int count)
+{
+	struct net2_workq_evbase_worker
+				 wthr;
+	struct net2_workq_job	*j;
+	int			 error;
+	int			 did_something = 0;
+	int			 wqev_locked = 0;
+
+	/* No point in running negative # of jobs. */
+	if (count <= 0)
+		return EINVAL;
+
+	/* Create fake worker structure. */
+	if ((error = net2_spinlock_init(&wthr.spl)) != 0)
+		goto out_0;
+	if ((wthr.worker = net2_thread_self()) == NULL) {
+		error = ENOMEM;
+		goto out_1;
+	}
+	wthr.evbase = wq->wqev;
+	net2_workq_evbase_ref(wthr.evbase);
+
+	/* Lock runq. */
+	net2_spinlock_lock(&wthr.evbase->spl);
+	wqev_locked = 1;
+
+	/* Attempt to run the wq. */
+	if (!workq_run_set(wq, wthr.worker)) {
+		error = EBUSY;
+		goto out_3;
+	}
+
+	/* Take job from the runqueue. */
+	if (atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
+	    memory_order_seq_cst) & WQ_ONQUEUE)
+		TAILQ_REMOVE(&wthr.evbase->runq, wq, wqev_runq);
+	/* Unlock wqev. */
+	net2_spinlock_unlock(&wthr.evbase->spl);
+	wqev_locked = 0;
+
+	/* Run up to COUNT jobs from this wq. */
+	while (count-- > 0 && (j = wq_run_pop(wq, &did_something)) != NULL) {
+		j->fn(j->cb_arg[0], j->cb_arg[1]);
+		wq_run_push(j);
+	}
+
+	/* Succesful completion. */
+	if (!did_something)
+		error = EAGAIN;
+	else
+		error = 0;
+
+out_4:
+	/* Put job back on the runqueue. */
+	assert(!wqev_locked);
+	wqev_run_push(wq, did_something);
+out_3:
+	/* Unlock wqev. */
+	if (wqev_locked)
+		net2_spinlock_unlock(&wthr.evbase->spl);
+out_2:
+	net2_workq_evbase_release(wthr.evbase);
+	net2_thread_free(wthr.worker);
+out_1:
+	net2_spinlock_deinit(&wthr.spl);
+out_0:
+	return error;
+}

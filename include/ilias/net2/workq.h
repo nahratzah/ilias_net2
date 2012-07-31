@@ -134,6 +134,9 @@ ILIAS_NET2_LOCAL
 struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq*);
 
+ILIAS_NET2_EXPORT
+int	 net2_workq_aid(struct net2_workq*, int);
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_WORKQ_H */
