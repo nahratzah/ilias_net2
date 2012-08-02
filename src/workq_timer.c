@@ -64,8 +64,6 @@ wqtimer_on_wqdestroy(struct net2_workq_job *j)
 
 static const struct net2_workq_job_cb timer_wqcb = {
 	NULL,
-	NULL,
-	NULL,
 	wqtimer_on_wqdestroy
 };
 

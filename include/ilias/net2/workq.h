@@ -47,8 +47,6 @@ typedef void (*net2_workq_job_cbfn)(struct net2_workq_job*);
 
 struct net2_workq_job_cb {
 	net2_workq_job_cbfn
-			 on_activate,
-			 on_deactivate,
 			 on_destroy,
 			 on_wqdestroy;
 };

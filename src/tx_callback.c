@@ -71,8 +71,6 @@ static void txcb_entry_fn(void*, void*);
 
 static const struct net2_workq_job_cb txcb_jcb = {
 	NULL,
-	NULL,
-	NULL,
 	&txcb_wqdestroy
 };
 

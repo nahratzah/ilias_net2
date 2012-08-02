@@ -688,8 +688,6 @@ pcb_destroy(struct net2_workq_job *j)
 }
 
 static const struct net2_workq_job_cb promcb_cb = {
-	NULL,
-	NULL,
 	&pcb_destroy,
 	&pcb_destroy
 };
