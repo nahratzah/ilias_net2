@@ -17,6 +17,7 @@
 #include <ilias/net2/cp.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 
 /* Create a new obj manager. */
@@ -61,6 +62,13 @@ net2_objman_rmi(struct net2_objmanager *m, struct net2_objman_group *g,
 	    wq != NULL &&
 	    txptr != NULL);
 	assert(0); /* XXX this code is old. */
+
+	/*
+	 * Should not even return,
+	 * but when assertions are turned off,
+	 * this is probably a good hint something is up.
+	 */
+	return ENOSYS;
 }
 
 /* Release reference to tx ticket. */
