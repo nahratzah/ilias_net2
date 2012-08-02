@@ -52,7 +52,6 @@ main()
 	struct net2_buffer	*msg, *badmsg, *sig, *sig2;
 	uint32_t		 v;
 	int			 error;
-	char			*hex;
 	int			 fail = 0;
 
 	test_start();
