@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <ev.h>
 #include <errno.h>
+#include <string.h>
 
 #ifdef EV_C
 #include EV_C
@@ -690,7 +691,7 @@ fail_0:
 ILIAS_NET2_EXPORT void
 net2_workq_io_destroy(struct net2_workq_io *dg)
 {
-	struct ev_loop		*loop;
+	struct ev_loop		*loop ILIAS_NET2__unused;
 	struct dgram_tx		*dgtx;
 	struct dgram_rx		*dgrx;
 	int			 workq_acquired;
