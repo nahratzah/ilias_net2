@@ -81,6 +81,14 @@
 #define __attribute__(_x)	/* No attributes. */
 #endif
 
+#if defined(__GNUC__) && !defined(__clang__)
+#define __hot__			__attribute__((hot))
+#define __cold__		__attribute__((cold))
+#else
+#define	__hot__			/* Nothing. */
+#define __cold__		/* Nothing. */
+#endif
+
 #ifdef _WIN32
 static void
 thryield()
@@ -557,7 +565,7 @@ workq_deactivate(struct net2_workq *wq)
  * Returns true if the operation succeeded.
  */
 static __inline int
-__attribute__((hot))
+__hot__
 workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 {
 	unsigned int	 f;
@@ -592,7 +600,7 @@ fail:
  * Returns the dying state of the workq.
  */
 static __inline enum workq_dying_state
-__attribute__((hot))
+__hot__
 workq_run_clear(struct net2_workq *wq, int activate)
 {
 	unsigned int	 f;
@@ -787,7 +795,7 @@ workq_want_clear(struct net2_workq *wq)
  * If allow_inactive is set, the job does not need to be active to run.
  */
 static __inline enum job_run_state
-__attribute__((hot))
+__hot__
 job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthread, int runwait, int allow_inactive)
 {
 	unsigned int	 jf, wqf;
@@ -901,7 +909,7 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
  * Returns true if the job is active.
  */
 static __inline int
-__attribute__((hot))
+__hot__
 job_run_clear(struct net2_workq_job *j)
 {
 	int		 active;
@@ -941,7 +949,7 @@ job_run_clear(struct net2_workq_job *j)
  * Returns true if the workq was killed immediately.
  */
 static int
-__attribute__((cold))
+__cold__
 kill_wq(struct net2_workq *wq, int wait, int killme)
 {
 	unsigned int	 wqf;
@@ -1176,7 +1184,7 @@ out:
 
 /* Create a new evbase. */
 ILIAS_NET2_EXPORT struct net2_workq_evbase*
-__attribute__((cold))
+__cold__
 net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 {
 	struct net2_workq_evbase
@@ -1251,7 +1259,7 @@ fail_0:
 }
 /* Acquire an additional reference to the wwqev. */
 ILIAS_NET2_EXPORT void
-__attribute__((cold))
+__cold__
 net2_workq_evbase_ref(struct net2_workq_evbase *wqev)
 {
 	atomic_fetch_add_explicit(&wqev->refcnt, 1, memory_order_acquire);
@@ -1262,7 +1270,7 @@ net2_workq_evbase_ref(struct net2_workq_evbase *wqev)
  * Destroys the wqev if the last reference went away.
  */
 ILIAS_NET2_EXPORT void
-__attribute__((cold))
+__cold__
 net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 {
 	struct ev_loop	*evl;
@@ -1371,7 +1379,7 @@ net2_workq_evbase(struct net2_workq *wq)
 
 /* Initialize a job. */
 ILIAS_NET2_EXPORT int
-__attribute__((hot))
+__hot__
 net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
 	if (fn == NULL || wq == NULL || j == NULL)
@@ -1397,7 +1405,7 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq, net2_workq
 }
 /* Deinit a job. */
 ILIAS_NET2_EXPORT void
-__attribute__((hot))
+__hot__
 net2_workq_deinit_work(struct net2_workq_job *j)
 {
 	if (j->fn == NULL)
@@ -1411,7 +1419,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 }
 /* Activate a job. */
 ILIAS_NET2_EXPORT void
-__attribute__((hot))
+__hot__
 net2_workq_activate(struct net2_workq_job *j, int flags)
 {
 	struct net2_thread
@@ -1441,7 +1449,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 }
 /* Deactivate a job. */
 ILIAS_NET2_EXPORT void
-__attribute__((hot))
+__hot__
 net2_workq_deactivate(struct net2_workq_job *j)
 {
 	if (j->fn == NULL)
@@ -1554,7 +1562,8 @@ evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
 
 /* Interrupt the evloop so that it will re-evaluate its list of events. */
 static void
-evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused, ev_async *ev,
+evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused,
+    ev_async *ev ILIAS_NET2__unused,
     int events ILIAS_NET2__unused)
 {
 	/*
@@ -1565,7 +1574,7 @@ evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused, ev_async *ev,
 
 /* Acquire a queued workq from the wqev. */
 static __inline struct net2_workq*
-__attribute__((hot))
+__hot__
 wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
 {
 	struct net2_workq	*wq;
@@ -1588,7 +1597,7 @@ wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
  * If did_something is set, the workq had some workq queued and is immediately activated.
  */
 static __inline void
-__attribute__((hot))
+__hot__
 wqev_run_push(struct net2_workq *wq, int did_something)
 {
 	if (workq_run_clear(wq, did_something) == wq_killme)
@@ -1597,7 +1606,7 @@ wqev_run_push(struct net2_workq *wq, int did_something)
 
 /* Acquire a job from the workq. */
 static __inline struct net2_workq_job*
-__attribute__((hot))
+__hot__
 wq_run_pop(struct net2_workq *wq, int *did_something)
 {
 	struct net2_workq_job	*j, *j_next, *first, *last;
@@ -1641,7 +1650,7 @@ out:
 
 /* Release a job previously acquire using wq_run_pop. */
 static __inline void
-__attribute__((hot))
+__hot__
 wq_run_push(struct net2_workq_job *j)
 {
 	job_run_clear(j);
@@ -1651,7 +1660,7 @@ wq_run_push(struct net2_workq_job *j)
  * Worker thread implementation.
  */
 static void*
-__attribute__((hot))
+__hot__
 wqev_worker(void *wthr_ptr)
 {
 	struct net2_workq_evbase_worker
@@ -1731,7 +1740,7 @@ die:
 
 /* Create a worker thread for this wqev. */
 static int
-__attribute__((cold))
+__cold__
 create_thread(struct net2_workq_evbase *wqev)
 {
 	struct net2_workq_evbase_worker
@@ -1756,7 +1765,7 @@ create_thread(struct net2_workq_evbase *wqev)
 	return 0;
 }
 static void
-__attribute__((cold))
+__cold__
 destroy_thread(struct net2_workq_evbase *wqev, int count)
 {
 	struct net2_workq_evbase_worker
@@ -1787,7 +1796,7 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 
 /* Modify the thread counts. */
 ILIAS_NET2_EXPORT int
-__attribute__((cold))
+__cold__
 net2_workq_set_thread_count(struct net2_workq_evbase *wqev, int jobthreads, int maxthreads)
 {
 	int	 kill;
