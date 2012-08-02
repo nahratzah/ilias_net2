@@ -632,8 +632,17 @@ cp_header_destroy(struct header *h,
 
 
 ILIAS_NET2_LOCAL const struct header	header_fini = {
+#if defined(__GNUC__) || defined(__clang__)
+	/*
+	 * This way, the compiler won't complain about the rest of the fields
+	 * lacking an explicit initializer.
+	 */
+	.flags = F_LAST_HEADER,
+	.fin_reserved = 0,		/* reserved */
+#else
+	/* Fallback initializer, for compilers that don't implement C11. */
 	F_LAST_HEADER,
 	0,		/* reserved */
+#endif
 	/* Rest is undefined. */
-	0,
 };
