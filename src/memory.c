@@ -37,6 +37,7 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <stdarg.h>
 
 struct malloc_data {
 	RB_ENTRY(malloc_data)	 tree;
@@ -76,6 +77,84 @@ static int				 unused_mem_fd;
 RB_PROTOTYPE_STATIC(mdata_tree, malloc_data, tree, malloc_data_cmp)
 
 #define TEMPLATE		"/tmp/ilias_net2_mem.XXXXXX"
+
+static void
+print_malloc_data(const struct malloc_data *d)
+{
+	const struct malloc_data	*past;
+	char				*alloc_str;
+
+	if (d == NULL) {
+		fprintf(stderr,
+		    "No memory range describes the error point.\n");
+		return;
+	}
+
+	/* Note that we are starting to print memory log. */
+	fprintf(stderr, "Printing memory tracking log...\n");
+
+	/* Find the first place where this range was allocated. */
+	past = d;
+	while (past->realloc_from != NULL)
+		past = past->realloc_from;
+
+	/* Print allocations in chronological order. */
+	for (; past != NULL; past = past->realloc) {
+		alloc_str = (past->realloc_from == NULL ?
+		    "malloc" : "realloc");
+
+		fprintf(stderr, "\t%s(%lu bytes) at %s:%d %s()\t->%p\n",
+		    alloc_str, (unsigned long)past->size,
+		    past->when.file, past->when.line, past->when.func, past->addr);
+		if (past == d)
+			fprintf(stderr, "\t\t*** This was the failing range "
+			    "of memory ***\n");
+		if (past->free) {
+			fprintf(stderr, "\t\tfreed at %s:%d %s()\n",
+			    past->when.file, past->when.line, past->when.func);
+		} else
+			fprintf(stderr, "\t\tnever freed\n");
+	}
+
+	fprintf(stderr, "End of memory tracking log.\n");
+}
+
+/* Print where an error occured. */
+static void
+fatal(const struct malloc_data *d,
+    const char *file, const char *func, int line, const char *fmt, ...)
+{
+	va_list	ap;
+
+	va_start(ap, fmt);
+	fprintf(stderr, "\n\nMemory error at %s:%d %s()\t", file, line, func);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+	print_malloc_data(d);
+
+	abort();
+}
+/* Print where an errno occured. */
+static void
+fatal_errno(const struct malloc_data *d,
+    const char *file, const char *func, int line, const char *fmt, ...)
+{
+	va_list	ap;
+	int	error = errno;
+	char	buf[128];
+
+	strerror_r(error, buf, sizeof(buf));
+
+	va_start(ap, fmt);
+	fprintf(stderr, "\n\nMemory error at %s:%d %s()\t%s\n\t", file, line, func, buf);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+	print_malloc_data(d);
+
+	abort();
+}
 
 /*
  * Allocate memory mutex.
@@ -200,15 +279,12 @@ i_lookup(void *addr, const char *file, const char *func, int line)
 
 	/* Look up description for memory at addr. */
 	d = RB_FIND(mdata_tree, &data, &search);
-	if (d == NULL) {
-		fprintf(stderr, "Attempt to free memory at %p, that was never allocated.", addr);
-		abort();
-	}
+	if (d == NULL)
+		fatal(d, file, func, line, "Attempt to free memory at %p, "
+		    "that was never allocated.", addr);
 	/* Test if the memory is not freed. */
-	if (d->free) {
-		fprintf(stderr, "Duplicate free of %p.", addr);
-		abort();
-	}
+	if (d->free)
+		fatal(d, file, func, line, "Duplicate free of %p.", addr);
 
 	return d;
 }
@@ -228,8 +304,8 @@ i_free(struct malloc_data *d, const char *file, const char *func, int line)
 		if (mmap((char*)d->addr + szpg, page_size, PROT_NONE,
 		    MAP_FILE | MAP_SHARED | MAP_FIXED, unused_mem_fd, 0) ==
 		    MAP_FAILED) {
-			perror("mmap unused mem file into free space");
-			abort();
+			fatal_errno(d, file, func, line,
+			    "mmap unused mem file into free space");
 		}
 	}
 
