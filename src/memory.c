@@ -220,18 +220,34 @@ net2_memory_init()
 ILIAS_NET2_LOCAL void
 net2_memory_fini()
 {
-	struct malloc_data	*d;
+	struct malloc_data	*d, *d_next;
 
+	fprintf(stderr, "ilias_net: use after free memory debugger shutting down\n");
 	close(unused_mem_fd);
 	unused_mem_fd = -1;
 
 	/* Expire left over freed memory. */
-	while ((d = TAILQ_FIRST(&lru)) != NULL) {
-		TAILQ_REMOVE(&lru, d, lru);
-		RB_REMOVE(mdata_tree, &data, d);
+	while ((d = RB_ROOT(&data)) != NULL) {
+		/* Find the last point in allocation. */
+		while (d->realloc != NULL)
+			d = d->realloc;
+		/* Inform memory leak detection. */
+		if (!d->free) {
+			fprintf(stderr, "Memory leak detected!\n");
+			print_malloc_data(d);
+		}
+
+		/* Remove chain from sets. */
+		while (d != NULL) {
+			d_next = d->realloc_from;
+			TAILQ_REMOVE(&lru, d, lru);
+			RB_REMOVE(mdata_tree, &data, d);
+			d = d_next;
+		}
 	}
 
 	pthread_mutex_destroy(&mtx);
+	fprintf(stderr, "ilias_net: use after free memory debugger closed\n");
 }
 
 
