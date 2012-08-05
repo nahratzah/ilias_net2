@@ -31,6 +31,8 @@
 #define secure_random()			arc4random()
 #define secure_random_buf(_ptr, _len)	arc4random_buf(_ptr, _len)
 #define secure_random_uniform(_top)	arc4random_uniform(_top)
+#define secure_random_init()		(0)
+#define secure_random_deinit()		do { /* Nothing */ } while (0)
 
 #elif WIN32
 
@@ -41,6 +43,10 @@
 
 ILIAS_NET2__begin_cdecl
 
+ILIAS_NET2_LOCAL
+int			win32_secure_random_init();
+ILIAS_NET2_LOCAL
+void			win32_secure_random_deinit();
 ILIAS_NET2_LOCAL
 uint32_t		win32_secure_random();
 ILIAS_NET2_LOCAL
@@ -53,6 +59,8 @@ ILIAS_NET2__end_cdecl
 #define secure_random()			win32_secure_random()
 #define secure_random_buf(_ptr, _len)	win32_secure_random_buf((_ptr), (_len))
 #define secure_random_uniform(_top)	win32_secure_random_uniform((_top))
+#define secure_random_init()		win32_secure_random_init()
+#define secure_random_deinit()		win32_secure_random_deinit()
 
 #else
 
@@ -62,6 +70,10 @@ ILIAS_NET2__end_cdecl
 
 ILIAS_NET2__begin_cdecl
 
+ILIAS_NET2_LOCAL
+int			devrandom_secure_random_init();
+ILIAS_NET2_LOCAL
+void			devrandom_secure_random_deinit();
 ILIAS_NET2_LOCAL
 uint32_t		devrandom_secure_random();
 ILIAS_NET2_LOCAL
@@ -74,6 +86,8 @@ ILIAS_NET2__end_cdecl
 #define secure_random()			devrandom_secure_random()
 #define secure_random_buf(_ptr, _len)	devrandom_secure_random_buf((_ptr), (_len))
 #define secure_random_uniform(_top)	devrandom_secure_random_uniform((_top))
+#define secure_random_init()		devrandom_secure_random_init()
+#define secure_random_deinit()		devrandom_secure_random_deinit()
 
 #endif
 

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 1996, David Mazieres <dm@uun.org>
  * Copyright (c) 2008, Damien Miller <djm@openbsd.org>
+ * Copyright (c) 2012, Ariane van der Steldt <ariane@stack.nl>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,6 +34,33 @@
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 
+static BOOLEAN (APIENTRY *pfn)(void*, ULONG);
+static HMODULE hLib;
+
+ILIAS_NET2_LOCAL int
+win32_secure_random_init()
+{
+	hLib = LoadLibrary("ADVAPI32.DLL");
+	if (!hLib) {
+		const int last_error = GetLastError();
+		warn("LoadLibrary ADVAPI32.DLL: error code %d", last_error);
+	}
+	pfn = (BOOLEAN (APIENTRY *)(void*, ULONG))GetProcAddress(hLib, "SystemFunction036");
+	if (!pfn) {
+		const int last_error = GetLastError();
+		FreeLibrary(hLib);
+		warn("GetProcAddress(%s \"%s\") not found: error code %d", "RtlGenRandom", "SystemFunction036", last_error);
+	}
+}
+
+ILIAS_NET2_LOCAL void
+win32_secure_random_deinit()
+{
+	FreeLibrary(hLib);
+	hLib = NULL;
+	pfn = NULL;
+}
+
 ILIAS_NET2_LOCAL uint32_t
 win32_secure_random()
 {
@@ -45,24 +73,8 @@ win32_secure_random()
 ILIAS_NET2_LOCAL void
 win32_secure_random_buf(void *ptr, size_t len)
 {
-	BOOLEAN (APIENTRY *pfn)(void*, ULONG);
-	HMODULE hLib;
-
-	hLib = LoadLibrary("ADVAPI32.DLL");
-	if (!hLib)
-		err(EX_OSERR, "LoadLibrary ADVAPI32.DLL: error code %d", (int32_t)GetLastError());
-	pfn = (BOOLEAN (APIENTRY *)(void*, ULONG))GetProcAddress(hLib, "SystemFunction036");
-	if (!pfn) {
-		const int32_t last_error = GetLastError();
-		FreeLibrary(hLib);
-		err(EX_OSERR, "GetProcAddress(%s \"%s\") not found: error code %d", "RtlGenRandom", "SystemFunction036", last_error);
-	}
-
-	if (!pfn(ptr, len)) {
-		FreeLibrary(hLib);
+	if (!pfn(ptr, len))
 		err(EX_OSERR, "RtlGenRandom");
-	}
-	FreeLibrary(hLib);
 }
 
 ILIAS_NET2_LOCAL uint32_t
@@ -113,6 +125,43 @@ win32_secure_random_uniform(uint32_t upper_bound)
 #include <unistd.h>
 #include <errno.h>
 
+static int fd = -1;
+
+/*
+ * Initialize /dev/random.
+ */
+ILIAS_NET2_LOCAL int
+devrandom_secure_random_init()
+{
+	int	saved_errno;
+
+	/* Open /dev/random. */
+	fd = open("/dev/random", O_RDONLY, 0);
+	if (fd == -1) {
+		saved_errno = errno;
+		warn("failed to open /dev/random");
+		return saved_errno;
+	}
+	return 0;
+}
+
+/*
+ * Close /dev/random.
+ */
+ILIAS_NET2_LOCAL void
+devrandom_secure_random_deinit()
+{
+	/* Close /dev/random. */
+	while (close(fd)) {
+		if (errno != EINTR) {
+			warn("failed to close /dev/random");
+			break;
+		}
+	}
+
+	fd = -1;
+}
+
 /*
  * Use /dev/random.
  */
@@ -128,13 +177,7 @@ devrandom_secure_random()
 ILIAS_NET2_LOCAL void
 devrandom_secure_random_buf(void *ptr, size_t len)
 {
-	int	fd;
 	ssize_t	rd;
-
-	/* Open /dev/random. */
-	fd = open("/dev/random", O_RDONLY, 0);
-	if (fd == -1)
-		err(EX_OSERR, "failed to open /dev/random");
 
 	/* Read from /dev/random. */
 	while (len > 0) {
@@ -145,14 +188,6 @@ devrandom_secure_random_buf(void *ptr, size_t len)
 			err(EX_OSERR, "/dev/random depleted");
 		len -= rd;
 		ptr = (char*)ptr + rd;
-	}
-
-	/* Close /dev/random. */
-	while (close(fd)) {
-		if (errno != EINTR) {
-			warn("failed to close /dev/random");
-			break;
-		}
 	}
 }
 
