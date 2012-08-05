@@ -81,7 +81,9 @@ ILIAS_NET2_LOCAL void
 net2_event_free(struct net2_event *ev)
 {
 	ASSERT_MAGIC(ev);
+#ifndef NDEBUG
 	ev->magic = 0;
+#endif
 	pthread_cond_destroy(&ev->cnd);
 	pthread_mutex_destroy(&ev->mtx);
 	net2_free(ev);
