@@ -37,6 +37,8 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/siginfo.h>
+#include <signal.h>
 #include <stdarg.h>
 
 struct malloc_data {
@@ -73,6 +75,9 @@ static size_t				 lru_size;
 static pthread_mutex_t			 mtx;
 static uintptr_t			 page_size;
 static int				 unused_mem_fd;
+
+static int init_fault();
+static void deinit_fault();
 
 RB_PROTOTYPE_STATIC(mdata_tree, malloc_data, tree, malloc_data_cmp)
 
@@ -209,7 +214,7 @@ net2_memory_init()
 
 	fprintf(stderr, "ilias_net: use after free memory debugger ready\n");
 
-	return 0;
+	return init_fault();
 }
 
 /*
@@ -221,6 +226,8 @@ ILIAS_NET2_LOCAL void
 net2_memory_fini()
 {
 	struct malloc_data	*d, *d_next;
+
+	deinit_fault();
 
 	fprintf(stderr, "ilias_net: use after free memory debugger shutting down\n");
 	close(unused_mem_fd);
@@ -356,6 +363,54 @@ i_realloc(void *addr, size_t sz, const char *file, const char *func, int line)
 	return repl;
 }
 
+/*
+ * Print info about memory involved in a fault.
+ */
+static void
+i_fault(uintptr_t addr, const char *fault_descr)
+{
+	const struct malloc_data	*mem, *best;
+	uintptr_t	best_dst;
+
+	/* Inform user that fault handler has been invoked. */
+	fprintf(stderr, "\n\nMemory error accessing %p: %s\n",
+	    (void*)addr, fault_descr);
+
+	/* Find the memory access describing the fault memory. */
+	best_dst = (uintptr_t)-1;
+	best = NULL;
+	mem = RB_ROOT(&data);
+	while (mem != NULL) {
+		if (addr < (uintptr_t)mem->addr) {
+			if ((uintptr_t)mem->addr - addr < best_dst) {
+				best_dst = (uintptr_t)mem->addr - addr;
+				best = mem;
+			}
+			mem = RB_LEFT(mem, tree);
+		} else if (addr >= (uintptr_t)mem->addr + mem->size) {
+			if (addr - ((uintptr_t)mem->addr + mem->size) < best_dst) {
+				best_dst = addr - ((uintptr_t)mem->addr + mem->size);
+				best = mem;
+			}
+			mem = RB_LEFT(mem, tree);
+		} else
+			break;
+	}
+	if (mem == NULL) {
+		if (best == NULL) {
+			fprintf(stderr, "No memory debug data available.\n");
+			return;
+		}
+
+		fprintf(stderr, "No memory debug data tracks this address, "
+		    "closest match:\n\t%p (%llu bytes away)\n",
+		    best->addr, (unsigned long long)best_dst);
+		mem = best;
+	}
+
+	print_malloc_data(mem);
+}
+
 
 #define LOCK()		pthread_mutex_lock(&mtx)
 #define UNLOCK()	pthread_mutex_unlock(&mtx)
@@ -433,6 +488,81 @@ net2_free_(void *p, const char *file, const char *function, int line)
 	LOCK();
 	i_free(i_lookup(p, file, function, line), file, function, line);
 	UNLOCK();
+}
+
+
+/*
+ * Signal handler for fault.
+ */
+void
+i_fault_handler(int sig ILIAS_NET2__unused, siginfo_t *sip,
+    void *scp ILIAS_NET2__unused)
+{
+	static char	 buf[64];
+	char		*descr;
+	uintptr_t	 addr;
+	int		 saved_errno;
+
+	saved_errno = errno;
+
+	/* Decode error type. */
+	switch (sip->si_code) {
+	case SEGV_MAPERR:
+		descr = "Access to unmapped memory.";
+		break;
+	case SEGV_ACCERR:
+		descr = "Access permission error.";
+		break;
+	default:
+		descr = buf;
+		snprintf(buf, sizeof(buf), "Unrecognized si_code %d",
+		    sip->si_code);
+	}
+
+	/* Decode address. */
+	addr = (uintptr_t)sip->si_addr;
+
+	LOCK();
+
+	/* Print data about error. */
+	i_fault(addr, descr);
+
+	UNLOCK();
+
+	/* Restore errno (may aid in coredump analysis). */
+	errno = saved_errno;
+
+	/* Abort. */
+	abort();
+}
+
+/* Set up fault handler. */
+static int
+init_fault()
+{
+	struct sigaction sa;
+	int	saved_errno;
+
+	bzero(&sa, sizeof(sa));
+	sa.sa_sigaction = &i_fault_handler;
+	sa.sa_mask = 0;
+	sa.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
+	if (sigaction(SIGSEGV, &sa, NULL) == 0)
+		return 0;
+
+	saved_errno = errno;
+	perror("sigaction(SIGSEGV)");
+	return saved_errno;
+}
+/* Clear the fault handler. */
+static void
+deinit_fault()
+{
+	struct sigaction sa;
+
+	bzero(&sa, sizeof(sa));
+	sa.sa_handler = SIG_DFL;
+	sigaction(SIGSEGV, &sa, NULL);
 }
 
 RB_GENERATE_STATIC(mdata_tree, malloc_data, tree, malloc_data_cmp)
