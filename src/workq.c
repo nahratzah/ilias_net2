@@ -579,11 +579,8 @@ workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 	if (f & WQ_RUNNING)
 		return 0;
 	/* Dying or wanted? Clear running state and fail. */
-	if (f & (WQ_DYING | WQ_WANTLOCK)) {
-fail:
-		atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
-		return 0;
-	}
+	if (f & (WQ_DYING | WQ_WANTLOCK))
+		goto fail;
 	if (predict_false(atomic_load_explicit(&wq->want_queued, memory_order_relaxed) != 0))
 		goto fail;
 
@@ -592,6 +589,10 @@ fail:
 		goto fail;
 
 	return 1;
+
+fail:
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+	return 0;
 }
 /*
  * Clear the run state on the workq.
