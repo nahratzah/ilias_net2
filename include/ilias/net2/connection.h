@@ -103,6 +103,12 @@ int	net2_conn_get_pvlist(struct net2_acceptor_socket*,
 ILIAS_NET2_EXPORT
 void	net2_conn_set_stealth(struct net2_connection*);
 
+static __inline void
+net2_connection_close(struct net2_connection *c)
+{
+	net2_acceptor_socket_close(&c->n2c_socket);
+}
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_CONNECTION_H */

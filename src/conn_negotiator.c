@@ -435,7 +435,7 @@ key_xchange_assign(void *kx_promise, void *cn_ptr)
 		/* FALLTHROUGH */
 	case NET2_PROM_FIN_ERROR:
 fail:
-		net2_connection_destroy(CNEG_CONN(cn)); /* Handle failure. */
+		net2_connection_close(CNEG_CONN(cn)); /* Handle failure. */
 		break;
 	}
 }

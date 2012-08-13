@@ -77,6 +77,8 @@ struct net2_acceptor_fn {
 	/* Check if the acceptor has pending transmissions. */
 	int	(*get_transmit)(struct net2_acceptor*, struct net2_buffer**,
 		    struct net2_tx_callback*, int first, size_t maxlen);
+	/* On connection close event. */
+	void	(*on_close)(struct net2_acceptor*);
 };
 
 /*
@@ -90,6 +92,8 @@ struct net2_acceptor_socket {
 				*fn;		/* Implementation functions. */
 	struct net2_acceptor	*acceptor;	/* Current acceptor. */
 	struct net2_workq	*workq;		/* Workq. */
+	int			 state;		/* State bits. */
+#define NET2_ACCSOCK_CLOSED	0x00000001	/* Connection was closed. */
 };
 
 /*
@@ -156,6 +160,9 @@ struct net2_acceptor_socket
 ILIAS_NET2_EXPORT
 struct net2_acceptor
 	*net2_acceptor(struct net2_acceptor_socket*);
+
+ILIAS_NET2_EXPORT
+void	 net2_acceptor_socket_close(struct net2_acceptor_socket*);
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_ACCEPTOR_H */

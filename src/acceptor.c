@@ -28,6 +28,7 @@ net2_acceptor_socket_init(struct net2_acceptor_socket *self,
 	self->fn = fn;
 	self->acceptor = NULL;
 	self->workq = workq;
+	self->state = 0;
 	net2_workq_ref(self->workq);
 	return 0;
 }
@@ -121,6 +122,8 @@ net2_acceptor_socket_get_transmit(struct net2_acceptor_socket *s,
     struct net2_buffer **buf,
     struct net2_tx_callback *cwtx, int first, size_t maxlen)
 {
+	if (s->state & NET2_ACCSOCK_CLOSED)
+		return 0;
 	if (s->fn->get_transmit != NULL)
 		return (*s->fn->get_transmit)(s, buf, cwtx, first, maxlen);
 	else if (s->acceptor != NULL) {
@@ -215,4 +218,20 @@ ILIAS_NET2_EXPORT struct net2_acceptor*
 net2_acceptor(struct net2_acceptor_socket *s)
 {
 	return s->acceptor;
+}
+
+/*
+ * Mark acceptor socket as closed.
+ */
+ILIAS_NET2_EXPORT void
+net2_acceptor_socket_close(struct net2_acceptor_socket *s)
+{
+	if (s->state & NET2_ACCSOCK_CLOSED)
+		return;
+
+	s->state |= NET2_ACCSOCK_CLOSED;
+	if (s->acceptor != NULL) {
+		if (s->acceptor->fn->on_close != NULL)
+			s->acceptor->fn->on_close(s->acceptor);
+	}
 }
