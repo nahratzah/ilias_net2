@@ -35,11 +35,13 @@ static void*
 thread_wrapper(void *argptr)
 {
 	struct net2_thread	*t = argptr;
+#if 0
 	sigset_t		 sigset;
 
 	/* Block all signals to this thread. */
 	sigfillset(&sigset);
 	pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+#endif
 
 	/* Run callback. */
 	return (*t->fn)(t->arg);
