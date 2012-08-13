@@ -289,12 +289,14 @@ new_entry(struct net2_tx_callback *q, struct net2_txcb_entryq *eq,
 	/*
 	 * No failures permitted past this point.
 	 */
+	net2_mutex_lock(e->refcnt_mtx);
 	net2_mutex_lock(q->mtx);
 	TAILQ_INSERT_TAIL(&q->entries, e, q_entry);
 	net2_mutex_unlock(q->mtx);
 	net2_mutex_lock(eq->mtx);
 	TAILQ_INSERT_TAIL(&eq->entries, e, eq_entry);
 	net2_mutex_unlock(eq->mtx);
+	net2_mutex_unlock(e->refcnt_mtx);
 
 	/* Done. */
 	return 0;
