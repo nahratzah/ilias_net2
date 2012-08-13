@@ -116,7 +116,7 @@ print_malloc_data(const struct malloc_data *d)
 			    "of memory ***\n");
 		if (past->free) {
 			fprintf(stderr, "\t\tfreed at %s:%d %s()\n",
-			    past->when.file, past->when.line, past->when.func);
+			    past->when_free.file, past->when_free.line, past->when_free.func);
 		} else
 			fprintf(stderr, "\t\tnever freed\n");
 	}
