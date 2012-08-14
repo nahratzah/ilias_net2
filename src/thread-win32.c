@@ -43,17 +43,16 @@ struct net2_thread {
 	void		*arg;
 };
 
-/* Store threads in thread local storage slot. */
-static DWORD tls_slot;
+__declspec(thread) static struct net2_thread *tls_thread;
 
 static DWORD __stdcall
 thread_wrapper(void *tptr)
 {
 	struct net2_thread *t = tptr;
 
-	TlsSetValue(tls_slot, t);
+	tls_thread = t;
 	t->result = t->fn(t->arg);
-	TlsSetValue(tls_slot, NULL);
+	tls_thread = NULL;
 
 	/* Close the handle ourselves, if the thread is detached. */
 	EnterCriticalSection(&t->s);
@@ -81,6 +80,7 @@ thread_wrapper(void *tptr)
 	return 0;
 }
 
+/* Thread name exception (MSVC debugger listens to this). */
 static const DWORD MS_VC_EXCEPTION=0x406D1388;
 
 #pragma pack(push,8)
@@ -243,7 +243,7 @@ net2_thread_self()
 ILIAS_NET2_LOCAL void
 net2_thread_detach_self()
 {
-	struct net2_thread	*t = TlsGetValue(tls_slot);
+	struct net2_thread	*t = tls_thread;
 
 	assert(t != NULL);
 	EnterCriticalSection(&t->s);
@@ -268,9 +268,6 @@ net2_thread_detach_self()
 ILIAS_NET2_LOCAL int
 net2_thread_init()
 {
-	tls_slot = TlsAlloc();
-	if (tls_slot == TLS_OUT_OF_INDEXES)
-		return ENOMEM;
 	return 0;
 }
 
@@ -278,5 +275,5 @@ net2_thread_init()
 ILIAS_NET2_LOCAL void
 net2_thread_fini()
 {
-	TlsFree(tls_slot);
+	return;
 }
