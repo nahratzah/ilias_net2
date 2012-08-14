@@ -100,9 +100,21 @@ thryield()
 static void
 thryield()
 {
-	const struct timespec	yield = { 0, 1000 };
+	/* Sleep 10 microseconds. */
+	const struct timespec	yield = { 0, 10000 };
 
-	nanosleep(&yield, NULL);
+	if (nanosleep(&yield, NULL)) {
+		switch (errno) {
+		case EFAULT:
+		case EINVAL:
+			abort();
+		case EINTR:
+			break;
+		case ENOSYS:
+			pthread_yield();
+			break;
+		}
+	}
 }
 #else
 static __inline void
