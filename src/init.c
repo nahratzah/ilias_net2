@@ -46,13 +46,13 @@ net2_init()
 
 #ifdef WIN32
 	if ((rv = WSAStartup(MAKEWORD(2, 2), &wsa_data)) != 0) {
-		warnx(EX_OSERR, "WSAStartup fail: %d", rv);
+		warnx("WSAStartup fail: %d", rv);
 		goto fail_3;
 	}
 	major = LOBYTE(wsa_data.wVersion);
 	minor = HIBYTE(wsa_data.wVersion);
 	if (minor != 2 && major != 2) {
-		warnx(EX_OSERR, "Winsock %d.%d is too old, "
+		warnx("Winsock %d.%d is too old, "
 		    "upgrade your windows.", major, minor);
 		rv = EINVAL;
 		goto fail_4;
