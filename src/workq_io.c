@@ -768,9 +768,9 @@ net2_workq_io_activate_rx(struct net2_workq_io *dg)
 	net2_mutex_lock(dg->rx_guard);
 	net2_mutex_lock(dg->fguard);
 	dg->flags |= IO_FLAG_RX;
+	net2_mutex_unlock(dg->fguard);
 	if (!TAILQ_EMPTY(&dg->rx_spare))
 		dgram_rx_activate(dg);
-	net2_mutex_unlock(dg->fguard);
 	net2_mutex_unlock(dg->rx_guard);
 }
 /* Disable listening for read events. */
