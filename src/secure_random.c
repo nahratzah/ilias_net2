@@ -61,7 +61,7 @@ win32_secure_random_deinit()
 	pfn = NULL;
 }
 
-ILIAS_NET2_LOCAL uint32_t
+ILIAS_NET2_EXPORT uint32_t
 win32_secure_random()
 {
 	uint32_t result;
@@ -70,14 +70,14 @@ win32_secure_random()
 	return result;
 }
 
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 win32_secure_random_buf(void *ptr, size_t len)
 {
 	if (!pfn(ptr, len))
 		err(EX_OSERR, "RtlGenRandom");
 }
 
-ILIAS_NET2_LOCAL uint32_t
+ILIAS_NET2_EXPORT uint32_t
 win32_secure_random_uniform(uint32_t upper_bound)
 {
 	/*
@@ -165,7 +165,7 @@ devrandom_secure_random_deinit()
 /*
  * Use /dev/random.
  */
-ILIAS_NET2_LOCAL uint32_t
+ILIAS_NET2_EXPORT uint32_t
 devrandom_secure_random()
 {
 	uint32_t result;
@@ -174,7 +174,7 @@ devrandom_secure_random()
 	return result;
 }
 
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 devrandom_secure_random_buf(void *ptr, size_t len)
 {
 	ssize_t	rd;
@@ -191,7 +191,7 @@ devrandom_secure_random_buf(void *ptr, size_t len)
 	}
 }
 
-ILIAS_NET2_LOCAL uint32_t
+ILIAS_NET2_EXPORT uint32_t
 devrandom_secure_random_uniform(uint32_t upper_bound)
 {
 	/*

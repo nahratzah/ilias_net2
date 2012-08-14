@@ -47,11 +47,11 @@ ILIAS_NET2_LOCAL
 int			win32_secure_random_init();
 ILIAS_NET2_LOCAL
 void			win32_secure_random_deinit();
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 uint32_t		win32_secure_random();
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 void			win32_secure_random_buf(void*, size_t);
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 uint32_t		win32_secure_random_uniform(uint32_t);
 
 ILIAS_NET2__end_cdecl
@@ -74,11 +74,11 @@ ILIAS_NET2_LOCAL
 int			devrandom_secure_random_init();
 ILIAS_NET2_LOCAL
 void			devrandom_secure_random_deinit();
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 uint32_t		devrandom_secure_random();
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 void			devrandom_secure_random_buf(void*, size_t);
-ILIAS_NET2_LOCAL
+ILIAS_NET2_EXPORT
 uint32_t		devrandom_secure_random_uniform(uint32_t);
 
 ILIAS_NET2__end_cdecl
