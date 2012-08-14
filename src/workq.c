@@ -1637,8 +1637,11 @@ net2_workq_get_evloop(struct net2_workq *wq)
 	 * while we were creating one.
 	 */
 	if (atomic_compare_exchange_strong_explicit(&wqev->evloop, &evl,
-	    (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed))
+	    (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed)) {
+		ev_async_start(new, &wqev->ev_wakeup);
+		ev_async_start(new, &wqev->ev_newevent);
 		return new;
+	}
 
 	/*
 	 * Failure to assign.
