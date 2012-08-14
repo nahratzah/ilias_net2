@@ -92,7 +92,6 @@ struct sets_elem {
 
 /* List of to-be-transmitted headers. */
 struct txh {
-	struct net2_workq_job	 dummy;		/* Detect workq destruction. */
 	TAILQ_ENTRY(txh)	 q;		/* Link into queue. */
 	struct header		 header;	/* Header contents. */
 	struct net2_buffer	*buf;		/* Encoded header (lazy). */
