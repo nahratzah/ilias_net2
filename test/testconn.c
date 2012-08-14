@@ -46,7 +46,7 @@ testconn_1()
 	int			 error;
 
 	if (global_evbase == NULL) {
-		if ((global_evbase = net2_workq_evbase_new("testconn", 1, 1)) == NULL) {
+		if ((global_evbase = net2_workq_evbase_new("testconn", 0, 0)) == NULL) {
 			fprintf(stderr, "Failed to init global evbase for test\n");
 			return NULL;
 		}
