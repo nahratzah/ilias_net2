@@ -853,7 +853,7 @@ txh_new()
 	if (net2_txcb_entryq_init(&out->txcbq) != 0)
 		goto fail_2;
 	out->buf = NULL;
-	out->whichq = TXH_WQ_WAIT;
+	out->whichq = TXH_WQ_TX;
 	return out;
 
 
@@ -2225,7 +2225,8 @@ txh_nack(void *s_ptr, void *txh_ptr)
 		break;
 	}
 
-	/* Moved to wait, clear anything that will move from tx to wait. */
+	/* On tx again, cancel timeout/nack events so that only the first
+	 * will take effect. */
 	net2_txcb_entryq_clear(&txh->txcbq,
 	    NET2_TXCB_EQ_TIMEOUT | NET2_TXCB_EQ_NACK);
 }
@@ -2252,6 +2253,11 @@ txh_timeout(void *s_ptr, void *txh_ptr)
 		net2_workq_activate(&s->rts, 0);
 		break;
 	}
+
+	/* On tx again, cancel timeout/nack events so that only the first
+	 * will take effect. */
+	net2_txcb_entryq_clear(&txh->txcbq,
+	    NET2_TXCB_EQ_TIMEOUT | NET2_TXCB_EQ_NACK);
 }
 
 /* Create poetry handshake message. */
