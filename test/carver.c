@@ -101,6 +101,7 @@ transmit(struct net2_carver *carver, struct net2_combiner *combiner,
 		error = net2_carver_get_transmit(carver, &ctx,
 		    wq, buf, &callbacks, packet_sz);
 		net2_workq_unwant(wq);
+		net2_workq_aid(wq, 1);
 
 		if (error != 0) {
 			fprintf(stderr, "carver_get_trnasmit: fatal error "
@@ -137,7 +138,8 @@ skip:
 	net2_encdec_ctx_deinit(&ctx);
 	printf("Done transmitting\n");
 	printf("Waiting for combiner to signal ready...");
-	net2_promise_wait(net2_combiner_prom_ready(combiner));
+	while (!net2_promise_is_finished(net2_combiner_prom_ready(combiner)))
+		net2_workq_aid(wq, 128);
 	printf(" ready\n");
 }
 
@@ -150,7 +152,7 @@ test_run(size_t packet_sz, enum net2_carver_type carver_type)
 	struct net2_workq	*wq;
 	struct net2_workq_evbase*wqev;
 
-	if ((wqev = net2_workq_evbase_new("test_run", 1, 1)) == NULL) {
+	if ((wqev = net2_workq_evbase_new("test_run", 0, 0)) == NULL) {
 		fprintf(stderr, "Failed to init net2_workq_evbase.\n");
 		abort();
 	}
