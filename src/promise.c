@@ -798,12 +798,10 @@ combi_cb(void *c_ptr, void *ev_ptr)
 {
 	struct net2_promise_combi	*c = c_ptr;
 	struct net2_promise_event	*ev = ev_ptr;
-	struct net2_promise		*pp;
 	size_t				 idx;
 
 	idx = (size_t)(ev - c->events);
 	assert(idx < c->nprom);
-	pp = c->prom[idx];
 
 	net2_mutex_lock(c->base.mtx);
 	assert(c->need_fin > 0);
