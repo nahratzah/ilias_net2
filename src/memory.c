@@ -270,7 +270,10 @@ i_malloc(size_t sz, int zero, const char *file, const char *func, int line)
 
 	/* szpg is sz, rounded up to whole pages. */
 	assert(page_size > 0);
-	szpg = (sz + (page_size - 1)) & ~(page_size - 1);
+	if (sz == 0)
+		szpg = page_size;
+	else
+		szpg = (sz + (page_size - 1)) & ~(page_size - 1);
 
 	d->addr = mmap(NULL, szpg, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
 	if (d->addr == MAP_FAILED) {
