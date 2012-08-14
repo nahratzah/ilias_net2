@@ -1,9 +1,3 @@
-Finish refactor of conn_negotiator.
-- attach promise of stage1 to initializer of cneg_key_xchange
-- attach promise of cneg_key_xchange to ready-to-send
-- cneg_key_xchange must transmit hash/enc and xchange algorithm names properly in initbuf
-- cneg_key_xchange keyset must have alg pointer.
-
 Rewrite workq_io.
 - new() must return a pointer to IO.
 - must have start, stop.
@@ -12,8 +6,6 @@ Rewrite workq_io.
 - receive uses input queue.
 - invokes read-ready, write-ready on event types.
 - internal event calls sockdgram code to do actual reading/writing.
-
-Try to embed libev code into library, with static linking and unexposed symbols, so it won't upset linking with libevent.
 
 
 ----------------------------------------------------------------------
