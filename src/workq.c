@@ -251,6 +251,7 @@ struct net2_workq_evbase {
  */
 struct net2_workq_evbase_worker {
 	enum {
+		WQEVW_NIL,			/* Uninitialized. */
 		WQEVW_THREAD,			/* A workq thread. */
 		WQEVW_AID			/* An aid invocation. */
 	}		 kind;
