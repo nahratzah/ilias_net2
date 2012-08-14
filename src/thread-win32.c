@@ -59,6 +59,7 @@ thread_wrapper(void *tptr)
 	switch (t->state) {
 	case ATTACHED:
 		t->state = DYING;
+		LeaveCriticalSection(&t->s);
 		break;
 	case DETACHED:
 		t->state = DEAD;

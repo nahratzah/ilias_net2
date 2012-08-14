@@ -117,12 +117,11 @@ net2_promise_event_wqjob(struct net2_promise_event *ev)
 static __inline void
 net2_promise_event_deinit(struct net2_promise_event *ev)
 {
-	net2_workq_deinit_work(net2_promise_event_wqjob((ev)));
+	net2_workq_deinit_work(net2_promise_event_wqjob(ev));
 	ev->owner = NULL;
 	ev->fn = NULL;
 	ev->evno = -1;
 	ev->arg0 = NULL;
-	net2_workq_init_work_null(&ev->job);
 }
 
 /* Initialize a null event. */

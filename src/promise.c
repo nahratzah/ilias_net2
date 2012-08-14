@@ -179,6 +179,7 @@ net2_promise_unlock(struct net2_promise *p)
 	int				 do_free;
 	struct net2_promise_combi	*combi;
 	size_t				 i;
+	size_t				 nprom;
 
 	/* Set combi, if this is a combi event. */
 	if (p->flags & NET2_PROM_F_COMBI) {
@@ -217,18 +218,19 @@ net2_promise_unlock(struct net2_promise *p)
 	 * Free path.
 	 */
 
-	/* Release result. */
-	if (combi != NULL)
-		net2_promise_event_deinit(&combi->work);
-	if (p->result != NULL && p->free.fn != NULL)
-		(*p->free.fn)(p->result, p->free.arg);
-
 	/* Break the combi chain. */
 	if (combi != NULL) {
-		for (i = 0; i < combi->nprom; i++)
+		nprom = combi->nprom;
+		combi->nprom = 0;
+		/* Prevent combi from being released twice. */
+		net2_refcnt_ref(&combi->base.refcnt, combi->base.mtx, 0);
+
+		net2_promise_event_deinit(&combi->work);
+
+		for (i = 0; i < nprom; i++)
 			net2_promise_event_deinit(&combi->events[i]);
 
-		for (i = 0; i < combi->nprom; i++) {
+		for (i = 0; i < nprom; i++) {
 			net2_refcnt_release(&combi->prom[i]->combi_refcnt,
 			    combi->prom[i]->mtx, NET2_REFCNT_LOCK_EXIT);
 			net2_promise_unlock(combi->prom[i]);
@@ -236,7 +238,15 @@ net2_promise_unlock(struct net2_promise *p)
 
 		net2_free(combi->events);
 		net2_free(combi->prom);
+
+		do_free = net2_refcnt_release(&combi->base.refcnt,
+		    combi->base.mtx, 0);
+		assert(do_free != 0);
 	}
+
+	/* Release result. */
+	if (p->result != NULL && p->free.fn != NULL)
+		(*p->free.fn)(p->result, p->free.arg);
 
 	/* Invoke on_destroy callback. */
 	if (p->on_destroy.fn != NULL)
@@ -845,16 +855,9 @@ combi_cb_invoke(void *c_ptr, void *arg)
 	for (i = 0; i < nprom; i++) {
 		net2_promise_event_deinit(&events[i]);
 
-#ifdef NET2_REFCNT_IS_ATOMIC
-		if (net2_refcnt_release(&prom[i]->refcnt, prom[i]->mtx, 0)) {
-			net2_mutex_lock(prom[i]->mtx);
-			net2_promise_unlock(prom[i]);
-		}
-#else
-		net2_refcnt_release(&prom[i]->refcnt, prom[i]->mtx,
+		net2_refcnt_release(&prom[i]->combi_refcnt, prom[i]->mtx,
 		    NET2_REFCNT_LOCK_EXIT);
 		net2_promise_unlock(prom[i]);
-#endif
 	}
 }
 
@@ -911,7 +914,7 @@ net2_promise_combine(struct net2_workq *wq, net2_promise_ccb fn,
 		    c, &c->events[pdone], 0))
 			goto fail_4;
 
-		/* Combi now has a reference to this mutex. */
+		/* Combi now has a reference to this promise. */
 		net2_refcnt_ref(&c->prom[pdone]->combi_refcnt,
 		    c->prom[pdone]->mtx, 0);
 	}

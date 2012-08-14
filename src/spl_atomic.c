@@ -1,5 +1,4 @@
 #include <ilias/net2/bsd_compat/atomic.h>
-#include <pthread.h>
 
 /*
  * This implementation uses a posix mutex to emulate atomic operations.
@@ -7,6 +6,7 @@
  * switches.
  */
 #if !defined(HAVE_STDATOMIC_H) && !defined(WIN32)
+#include <pthread.h>
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 

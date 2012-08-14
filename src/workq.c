@@ -1496,7 +1496,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 		return;
 
 	if (predict_true(workq_job_wq_clear(j))) {
-		if (j->callbacks->on_destroy)
+		if (j->callbacks && j->callbacks->on_destroy)
 			j->callbacks->on_destroy(j);
 	}
 	j->fn = NULL;

@@ -601,6 +601,7 @@ fail_0:
 		net2_promise_cancel(p_sighash);
 		net2_promise_release(p_sighash);
 	}
+	assert(error != 0);
 	return error;
 }
 
