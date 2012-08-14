@@ -134,7 +134,7 @@ mirror_recv_event(void *nsa_ptr, void *unused)
 }
 
 int
-udp_socketpair(int *fd1, int *fd2, int do_connect)
+udp_socketpair(net2_socket_t *fd1, net2_socket_t *fd2, int do_connect)
 {
 	struct sockaddr_in	sa1, sa2;
 	socklen_t		sa1len, sa2len;
@@ -195,7 +195,7 @@ fail:
 int
 main()
 {
-	int			 fd[2];
+	net2_socket_t		 fd[2];
 	struct net2_ctx		*protocol_ctx;
 	struct net2_workq_evbase*evbase;
 	struct net2_connection	*c1, *c2;
@@ -214,6 +214,14 @@ main()
 	if (udp_socketpair(&fd[0], &fd[1], 1)) {
 		printf("socketpair fail: %d %s\n", errno, strerror(errno));
 		return -1;
+	} else {
+#ifdef WIN32
+		printf("socketpair (udp loopback) { %p, %p }\n",
+		    (void*)fd[0], (void*)fd[1]);
+#else
+		printf("socketpair (udp loopback) { %d, %d }\n",
+		    fd[0], fd[1]);
+#endif
 	}
 
 	if ((protocol_ctx = test_ctx()) == NULL) {
