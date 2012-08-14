@@ -52,7 +52,7 @@ main()
 {
 	test_start();
 	net2_init();
- 
+
 	if (test_conn_create_destroy())
 		return -1;
 
