@@ -208,6 +208,7 @@ static const struct net2_acceptor_fn nsa_fn = {
 	&nsa_attach,
 	&nsa_accept,
 	&nsa_get_transmit
+	/* XXX add onclose handler. */
 };
 
 /* Create a new stream acceptor. */
@@ -1331,6 +1332,7 @@ nsa_detach(struct net2_acceptor_socket *s ILIAS_NET2__unused,
 	struct net2_stream_acceptor	*nsa;
 
 	nsa = (struct net2_stream_acceptor*)sa_ptr;
+	/* XXX fire connection failure (aka mark promises as EIO fail). */
 
 	return;
 }
@@ -1546,7 +1548,8 @@ fail_2:
 fail_1:
 	net2_buffer_free(sa->sendbuf);
 fail_0:
-	return -1;
+	assert(error != 0);
+	return error;
 }
 
 /*
@@ -1889,7 +1892,8 @@ fail_2:
 fail_1:
 	net2_buffer_free(sa->recvbuf);
 fail_0:
-	return -1;
+	assert(error != 0);
+	return error;
 }
 
 /*
