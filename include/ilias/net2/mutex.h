@@ -25,10 +25,15 @@ struct net2_mutex;
 struct net2_condition;
 
 #ifdef BUILDING_ILIAS_NET2
+#if MEMDEBUG
+#define MTX_ARGS	const char *, const char *, int
+#define MTX_ARGS_	, MTX_ARGS
+#endif
+
 ILIAS_NET2_LOCAL
-struct net2_mutex	*net2_mutex_alloc();
+struct net2_mutex	*net2_mutex_alloc(MTX_ARGS);
 ILIAS_NET2_LOCAL
-void			 net2_mutex_free(struct net2_mutex*);
+void			 net2_mutex_free(struct net2_mutex* MTX_ARGS_);
 ILIAS_NET2_LOCAL
 void			 net2_mutex_lock(struct net2_mutex*);
 ILIAS_NET2_LOCAL
@@ -37,9 +42,9 @@ ILIAS_NET2_LOCAL
 void			 net2_mutex_unlock(struct net2_mutex*);
 
 ILIAS_NET2_LOCAL
-struct net2_condition	*net2_cond_alloc();
+struct net2_condition	*net2_cond_alloc(MTX_ARGS);
 ILIAS_NET2_LOCAL
-void			 net2_cond_free(struct net2_condition*);
+void			 net2_cond_free(struct net2_condition* MTX_ARGS_);
 ILIAS_NET2_LOCAL
 void			 net2_cond_signal(struct net2_condition*);
 ILIAS_NET2_LOCAL
@@ -47,6 +52,17 @@ void			 net2_cond_broadcast(struct net2_condition*);
 ILIAS_NET2_LOCAL
 void			 net2_cond_wait(struct net2_condition*,
 			    struct net2_mutex*);
+
+#if MEMDEBUG
+#define net2_mutex_alloc()						\
+	net2_mutex_alloc(__FILE__, __FUNCTION__, __LINE__)
+#define net2_mutex_free(m)						\
+	net2_mutex_free((m), __FILE__, __FUNCTION__, __LINE__)
+#define net2_cond_alloc()						\
+	net2_cond_alloc(__FILE__, __FUNCTION__, __LINE__)
+#define net2_cond_free(c)						\
+	net2_cond_free((c), __FILE__, __FUNCTION__, __LINE__)
+#endif
 #endif /* BUILDING_ILIAS_NET2 */
 
 

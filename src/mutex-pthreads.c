@@ -47,11 +47,28 @@ struct net2_condition {
 #define ASSERT_C_MAGIC(_c)	do {} while (0)
 #endif
 
+#if MEMDEBUG
+#define ARGS		const char *file, const char *func, int line
+#define ARGS_		, ARGS
+#undef net2_malloc
+#undef net2_free
+#define net2_malloc(sz)	net2_malloc_((sz), file, func, line)
+#define net2_free(p)	net2_free_((p), file, func, line)
+
+#undef net2_mutex_alloc
+#undef net2_mutex_free
+#undef net2_cond_alloc
+#undef net2_cond_free
+#else
+#define ARGS	/* nothing */
+#define ARGS_	/* nothing */
+#endif
+
 /*
  * Allocate a mutex.
  */
 ILIAS_NET2_LOCAL struct net2_mutex*
-net2_mutex_alloc()
+net2_mutex_alloc(ARGS)
 {
 	struct net2_mutex	*m;
 	int			 rv;
@@ -73,7 +90,7 @@ net2_mutex_alloc()
  * Free a mutex.
  */
 ILIAS_NET2_LOCAL void
-net2_mutex_free(struct net2_mutex *m)
+net2_mutex_free(struct net2_mutex *m ARGS_)
 {
 	int rv;
 
@@ -170,7 +187,7 @@ net2_mutex_unlock(struct net2_mutex *m)
  * Allocate a condition variable.
  */
 ILIAS_NET2_LOCAL struct net2_condition*
-net2_cond_alloc()
+net2_cond_alloc(ARGS)
 {
 	struct net2_condition	*c;
 	int			 rv;
@@ -193,7 +210,7 @@ net2_cond_alloc()
  * Free a condition variable.
  */
 ILIAS_NET2_LOCAL void
-net2_cond_free(struct net2_condition *c)
+net2_cond_free(struct net2_condition *c ARGS_)
 {
 	int rv;
 
