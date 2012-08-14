@@ -529,6 +529,11 @@ workq_job_wq_clear(struct net2_workq_job *j)
 	/* Clear workq on job. */
 	j->wq = NULL;
 
+	/* Remove job from memberq. */
+	net2_spinlock_lock(&wq->spl);
+	TAILQ_REMOVE(&wq->members, j, members);
+	net2_spinlock_unlock(&wq->spl);
+
 	/*
 	 * If the job is running, wait until it stops unless this
 	 * would result in deadlock.
@@ -540,8 +545,11 @@ workq_job_wq_clear(struct net2_workq_job *j)
 		goto out;
 
 	/* Check if we are the ones holding the lock. */
-	if (workq_self(wq))
+	if (workq_self(wq)) {
+		assert(j->death != NULL);
+		*j->death = 1;
 		goto out;
+	}
 
 	/* Spinwait for the job to exit the running state. */
 	while (atomic_load_explicit(&j->flags, memory_order_consume) &
@@ -1469,6 +1477,7 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	j->wq = wq;
 	atomic_init(&j->runwait, 0);
 	j->callbacks = NULL;
+	j->death = NULL;
 
 	/* Add new job to workq member set. */
 	net2_spinlock_lock(&wq->spl);
@@ -1499,6 +1508,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 {
 	struct net2_thread
 			*thr;
+	int		 death;
 
 	if (predict_false(j->fn == NULL))
 		return;
@@ -1515,10 +1525,15 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 			}
 
 			/* Invoke the job. */
+			death = 0;
+			j->death = &death;
 			j->fn(j->cb_arg[0], j->cb_arg[1]);
 
 			/* Release job and thread. */
-			job_run_clear(j);
+			if (!death) {
+				j->death = NULL;
+				job_run_clear(j);
+			}
 			net2_thread_free(thr);
 			return;
 		}
@@ -1760,6 +1775,7 @@ wqev_worker(void *wthr_ptr)
 	int			 did_something;
 	int			 count;
 	const int		 COUNT = 8;
+	int			 death;
 
 	/* XXX put wthr into ThreadLocalStorage. */
 	wthr = wthr_ptr;
@@ -1795,8 +1811,13 @@ wqev_worker(void *wthr_ptr)
 			count = COUNT;
 			while (count-- > 0 &&
 			    (j = wq_run_pop(wq, &did_something)) != NULL) {
+				death = 0;
+				j->death = &death;
 				j->fn(j->cb_arg[0], j->cb_arg[1]);
-				wq_run_push(j);
+				if (!death) {
+					j->death = NULL;
+					wq_run_push(j);
+				}
 			}
 
 			/* Release the workq exec state. */
@@ -1967,6 +1988,7 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	int			 error;
 	int			 did_something = 0;
 	int			 wqev_locked = 0;
+	int			 death;
 
 	/* No point in running negative # of jobs. */
 	if (count <= 0)
@@ -2002,8 +2024,13 @@ net2_workq_aid(struct net2_workq *wq, int count)
 
 	/* Run up to COUNT jobs from this wq. */
 	while (count-- > 0 && (j = wq_run_pop(wq, &did_something)) != NULL) {
+		death = 0;
+		j->death = &death;
 		j->fn(j->cb_arg[0], j->cb_arg[1]);
-		wq_run_push(j);
+		if (!death) {
+			j->death = NULL;
+			wq_run_push(j);
+		}
 	}
 
 	/* Succesful completion. */

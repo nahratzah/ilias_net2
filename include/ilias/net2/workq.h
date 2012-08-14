@@ -69,6 +69,7 @@ struct net2_workq_job {
 
 	const struct net2_workq_job_cb
 			*callbacks;
+	int		*death;			/* Death marker. */
 };
 
 ILIAS_NET2_EXPORT
