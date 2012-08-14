@@ -227,6 +227,7 @@ net2_memory_fini()
 {
 	struct malloc_data	*d, *d_next;
 
+	pthread_mutex_lock(&mtx);
 	deinit_fault();
 
 	fprintf(stderr, "ilias_net: use after free memory debugger shutting down\n");
@@ -247,11 +248,13 @@ net2_memory_fini()
 		/* Remove chain from sets. */
 		while (d != NULL) {
 			d_next = d->realloc_from;
-			TAILQ_REMOVE(&lru, d, lru);
+			if (d->free)
+				TAILQ_REMOVE(&lru, d, lru);
 			RB_REMOVE(mdata_tree, &data, d);
 			d = d_next;
 		}
 	}
+	pthread_mutex_unlock(&mtx);
 
 	pthread_mutex_destroy(&mtx);
 	fprintf(stderr, "ilias_net: use after free memory debugger closed\n");
