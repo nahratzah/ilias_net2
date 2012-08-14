@@ -286,6 +286,8 @@ i_malloc(size_t sz, int zero, const char *file, const char *func, int line)
 	memset(d->addr, 0x17, szpg);
 	if (zero)
 		memset(d->addr, 0, sz);
+	if (sz == 0)
+		mprotect(d->addr, page_size, PROT_NONE);
 
 	d->when.file = file;
 	d->when.func = func;
@@ -355,7 +357,8 @@ i_realloc(void *addr, size_t sz, const char *file, const char *func, int line)
 		return NULL;
 
 	/* Copy data. */
-	memcpy(repl->addr, d->addr, d->size);
+	if (d->size > 0)
+		memcpy(repl->addr, d->addr, d->size);
 
 	/* Mark old memory as free. */
 	i_free(d, file, func, line);
