@@ -99,6 +99,8 @@ entry_release(struct net2_txcb_entry *e)
 	if (do_free) {
 		assert(e->active == Q_TIMEOUT);
 		net2_workq_deinit_work(&e->callback);
+		net2_mutex_free(e->change_mtx);
+		net2_mutex_free(e->refcnt_mtx);
 		net2_free(e);
 	}
 }
