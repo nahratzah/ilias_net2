@@ -226,11 +226,15 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 		goto fail_3;
 
 	/* Set up libevent network-receive event. */
-	c->np2p_ev = NULL;
+	if ((c->np2p_ev = net2_workq_io_new(wq, sock, &net2_conn_p2p_recv,
+	    &net2_conn_p2p_send, c)) == NULL)
+		goto fail_3;
 	net2_workq_io_activate_rx(c->np2p_ev);
 
 	return &c->np2p_conn;
 
+fail_4:
+	net2_workq_io_destroy(c->np2p_ev);
 fail_3:
 	net2_connection_deinit(&c->np2p_conn);
 fail_2:
