@@ -33,6 +33,7 @@
 #include <windows.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
+#include <errno.h>
 
 static BOOLEAN (APIENTRY *pfn)(void*, ULONG);
 static HMODULE hLib;
@@ -44,13 +45,16 @@ win32_secure_random_init()
 	if (!hLib) {
 		const int last_error = GetLastError();
 		warn("LoadLibrary ADVAPI32.DLL: error code %d", last_error);
+		return EINVAL;
 	}
 	pfn = (BOOLEAN (APIENTRY *)(void*, ULONG))GetProcAddress(hLib, "SystemFunction036");
 	if (!pfn) {
 		const int last_error = GetLastError();
 		FreeLibrary(hLib);
 		warn("GetProcAddress(%s \"%s\") not found: error code %d", "RtlGenRandom", "SystemFunction036", last_error);
+		return EINVAL;
 	}
+	return 0;
 }
 
 ILIAS_NET2_LOCAL void
