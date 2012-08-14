@@ -238,6 +238,10 @@ struct net2_workq_evbase {
  * A worker thread.
  */
 struct net2_workq_evbase_worker {
+	enum {
+		WQEVW_THREAD,			/* A workq thread. */
+		WQEVW_AID			/* An aid invocation. */
+	}		 kind;
 	TAILQ_ENTRY(net2_workq_evbase_worker)
 			 tq;			/* Link into threads. */
 	struct net2_thread
@@ -1867,6 +1871,7 @@ create_thread(struct net2_workq_evbase *wqev)
 
 	if ((wthr = net2_malloc(sizeof(*wthr))) == NULL)
 		return ENOMEM;
+	wthr->kind = WQEVW_THREAD;
 	wthr->evbase = wqev;
 	net2_spinlock_init(&wthr->spl);
 	net2_spinlock_lock(&wthr->spl);
@@ -1905,6 +1910,7 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 
 	/* Collect all dead threads. */
 	while ((wthr = TAILQ_FIRST(&wqev->dead_workers)) != NULL) {
+		assert(wthr->kind == WQEVW_THREAD);
 		TAILQ_REMOVE(&wqev->dead_workers, wthr, tq);
 		net2_thread_join(wthr->worker, NULL);
 		net2_thread_free(wthr->worker);
@@ -2004,6 +2010,7 @@ net2_workq_aid(struct net2_workq *wq, int count)
 		error = ENOMEM;
 		goto out_1;
 	}
+	wthr.kind = WQEVW_AID;
 	wthr.evbase = wq->wqev;
 	net2_workq_evbase_ref(wthr.evbase);
 
