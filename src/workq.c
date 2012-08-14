@@ -150,7 +150,8 @@ enum workq_want_state {
  * - the job is active (job_run_inactive),
  * - the job has a workq (job_run_nowq),
  * - the job workq is not currently running or wantlocked (job_run_wqbusy).
- * - no threads are waiting for the job to cease the running state (job_run_wait).
+ * - no threads are waiting for the job to cease the running state
+ *   (job_run_wait).
  */
 enum job_run_state {
 	job_run_succes,
@@ -265,7 +266,8 @@ workq_ref(struct net2_workq *wq)
 static __inline int
 workq_release(struct net2_workq *wq)
 {
-	return (atomic_fetch_sub_explicit(&wq->refcnt, 1, memory_order_release) == 1);
+	return (atomic_fetch_sub_explicit(&wq->refcnt, 1,
+	    memory_order_release) == 1);
 }
 /*
  * Put the workq on the runq.
@@ -282,11 +284,14 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 
 	wqev = wq->wqev;
 	net2_spinlock_lock(&wqev->spl);
-	if (!((fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume)) & WQ_ONQUEUE))
+	fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
+	    memory_order_consume);
+	if (!(fl & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
 
 	if (clear_run) {
-		fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+		fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+		    memory_order_release);
 		assert(fl & WQ_RUNNING);
 		fl &= ~WQ_RUNNING;
 	}
@@ -312,11 +317,13 @@ workq_offqueue(struct net2_workq *wq)
 
 	wqev = wq->wqev;
 	rv = 0;
-	if (!(atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_ONQUEUE))
+	if (!(atomic_load_explicit(&wq->flags, memory_order_consume) &
+	    WQ_ONQUEUE))
 		return 0;
 
 	net2_spinlock_lock(&wqev->spl);
-	if (atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE, memory_order_consume) & WQ_ONQUEUE) {
+	if (atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
+	    memory_order_consume) & WQ_ONQUEUE) {
 		TAILQ_REMOVE(&wqev->runq, wq, wqev_runq);
 		rv = 1;
 	}
@@ -332,11 +339,14 @@ workq_self(struct net2_workq *wq)
 	int			 selflocked;
 	struct net2_thread	*thr;
 
-	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK, memory_order_acquire) & WQ_THRLOCK)
+	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK,
+	    memory_order_acquire) & WQ_THRLOCK)
 		SPINWAIT();
-	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread, memory_order_relaxed));
+	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread,
+	    memory_order_relaxed));
 	selflocked = (thr != NULL && net2_thread_is_self(thr));
-	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK, memory_order_release);
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK,
+	    memory_order_release);
 	return selflocked;
 }
 /* Clear the current thread ID. */
@@ -345,11 +355,14 @@ workq_self_clear(struct net2_workq *wq)
 {
 	struct net2_thread	*thr;
 
-	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK, memory_order_acquire) & WQ_THRLOCK)
+	while (atomic_fetch_or_explicit(&wq->flags, WQ_THRLOCK,
+	    memory_order_acquire) & WQ_THRLOCK)
 		SPINWAIT();
-	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread, memory_order_relaxed));
+	thr = (struct net2_thread*)(atomic_load_explicit(&wq->thread,
+	    memory_order_relaxed));
 	atomic_store_explicit(&wq->thread, 0, memory_order_release);
-	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK, memory_order_release);
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_THRLOCK,
+	    memory_order_release);
 
 	return thr;
 }
@@ -371,7 +384,8 @@ workq_self_set(struct net2_workq *wq, struct net2_thread *curthread)
 	 * care if another thread reads 0 or curthread, since both indicate
 	 * to that thread it isn't its thread executing on the workq.
 	 */
-	succes = atomic_compare_exchange_strong_explicit(&wq->thread, &t, (uintptr_t)curthread, memory_order_acquire, memory_order_relaxed);
+	succes = atomic_compare_exchange_strong_explicit(&wq->thread, &t,
+	    (uintptr_t)curthread, memory_order_acquire, memory_order_relaxed);
 	return succes;
 }
 /*
@@ -386,14 +400,18 @@ job_deref_lock(struct net2_workq_job *j)
 	struct net2_workq	*wq;
 
 	/* Spin acquire lock. */
-	while (atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acquire) & JOB_DEREFING)
+	while (atomic_fetch_or_explicit(&j->flags, JOB_DEREFING,
+	    memory_order_acquire) & JOB_DEREFING)
 		SPINWAIT();
 
 	wq = j->wq;
-	if (wq != NULL && atomic_load_explicit(&wq->refcnt, memory_order_acquire) == 0)
+	if (wq != NULL && atomic_load_explicit(&wq->refcnt,
+	    memory_order_acquire) == 0)
 		wq = NULL;
-	if (wq == NULL)
-		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	if (wq == NULL) {
+		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING,
+		    memory_order_release);
+	}
 	return wq;
 }
 /*
@@ -405,7 +423,8 @@ job_deref_unlock(struct net2_workq_job *j)
 {
 	unsigned int	 f;
 
-	f = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	f = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING,
+	    memory_order_release);
 	assert(f & JOB_DEREFING);
 	return (f & ~JOB_DEREFING);
 }
@@ -431,7 +450,8 @@ job_onqueue(struct net2_workq_job *j)
 		return;
 
 	net2_spinlock_lock(&wq->spl);
-	if (!(atomic_fetch_or_explicit(&j->flags, JOB_ONQUEUE, memory_order_acquire) & JOB_ONQUEUE)) {
+	if (!(atomic_fetch_or_explicit(&j->flags, JOB_ONQUEUE,
+	    memory_order_acquire) & JOB_ONQUEUE)) {
 		activate_wq = TAILQ_EMPTY(&wq->runqueue);
 		TAILQ_INSERT_TAIL(&wq->runqueue, j, runqueue);
 	}
@@ -513,8 +533,8 @@ workq_job_wq_clear(struct net2_workq_job *j)
 	 * If the job is running, wait until it stops unless this
 	 * would result in deadlock.
 	 *
-	 * Note that we have to refetch the flags, since the code above may have
-	 * slept (by spinning).
+	 * Note that we have to refetch the flags, since the code above may
+	 * have slept (by spinning).
 	 */
 	if (!(jf & JOB_RUNNING))
 		goto out;
@@ -524,7 +544,8 @@ workq_job_wq_clear(struct net2_workq_job *j)
 		goto out;
 
 	/* Spinwait for the job to exit the running state. */
-	while (atomic_load_explicit(&j->flags, memory_order_consume) & JOB_RUNNING)
+	while (atomic_load_explicit(&j->flags, memory_order_consume) &
+	    JOB_RUNNING)
 		thryield();
 
 out:
@@ -573,7 +594,8 @@ workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 	assert(curthread != NULL);
 
 	/* Set running flag. */
-	f = atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING, memory_order_acquire);
+	f = atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING,
+	    memory_order_acquire);
 
 	/* Already running?  Fail. */
 	if (f & WQ_RUNNING)
@@ -581,7 +603,8 @@ workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 	/* Dying or wanted? Clear running state and fail. */
 	if (f & (WQ_DYING | WQ_WANTLOCK))
 		goto fail;
-	if (predict_false(atomic_load_explicit(&wq->want_queued, memory_order_relaxed) != 0))
+	if (predict_false(atomic_load_explicit(&wq->want_queued,
+	    memory_order_relaxed) != 0))
 		goto fail;
 
 	/* Store current thread. */
@@ -591,7 +614,8 @@ workq_run_set(struct net2_workq *wq, struct net2_thread *curthread)
 	return 1;
 
 fail:
-	atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+	atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+	    memory_order_release);
 	return 0;
 }
 /*
@@ -615,7 +639,8 @@ workq_run_clear(struct net2_workq *wq, int activate)
 	if (activate)
 		f = workq_onqueue(wq, 1);
 	else {
-		f = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+		f = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+		    memory_order_release);
 		assert(f & WQ_RUNNING);
 	}
 
@@ -644,12 +669,14 @@ workq_want_set(struct net2_workq *wq, int try)
 	f = atomic_load_explicit(&wq->flags, memory_order_acquire);
 	if (f & (WQ_RUNNING | WQ_WANTLOCK)) {
 		/*
-		 * Check if we are the thread currently holding the want/run lock.
+		 * Check if we are the thread
+		 * currently holding the want/run lock.
 		 */
 		if (workq_self(wq)) {
 			if (f & WQ_RUNNING)
 				return wq_want_running;
-			atomic_fetch_add_explicit(&wq->want_refcnt, 1, memory_order_acquire);
+			atomic_fetch_add_explicit(&wq->want_refcnt, 1,
+			    memory_order_acquire);
 			return wq_want_succes;
 		}
 		if (try)
@@ -748,7 +775,8 @@ workq_want_clear(struct net2_workq *wq)
 			*thr;
 
 	assert(workq_self(wq));
-	if (atomic_fetch_sub_explicit(&wq->want_refcnt, 1, memory_order_release) == 1) {
+	if (atomic_fetch_sub_explicit(&wq->want_refcnt, 1,
+	    memory_order_release) == 1) {
 		/*
 		 * Last reference went away.
 		 * Clear parameters.
@@ -756,11 +784,13 @@ workq_want_clear(struct net2_workq *wq)
 		thr = workq_self_clear(wq);
 
 		net2_mutex_unlock(wq->want_mtx);
-		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK, memory_order_release);
-		if (atomic_fetch_sub_explicit(&wq->want_queued, 1, memory_order_release) == 1) {
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK,
+		    memory_order_release);
+		if (atomic_fetch_sub_explicit(&wq->want_queued, 1,
+		    memory_order_release) == 1) {
 			/*
-			 * No other thread wants this workq, check if it needs to be
-			 * activated.
+			 * No other thread wants this workq,
+			 * check if it needs to be activated.
 			 */
 			do_activate = 1;
 			if (net2_spinlock_trylock(&wq->spl)) {
@@ -780,24 +810,29 @@ workq_want_clear(struct net2_workq *wq)
  * Change a job to the running state.
  *
  * If update_wq is set, the workq will also be marked running.
- * If update_wq is clear, it is assumed the caller will verify if the workq is reachable and prevent it from running in parallel.
+ * If update_wq is clear, it is assumed the caller will verify if the workq is
+ * reachable and prevent it from running in parallel.
  * If the job is not active, the operation will fail.
  *
  * Return:
  * - job_run_succes: the job is succesfully marked running.
  * - job_run_twice: the job is already running.
  * - job_run_inactive: the job is not active.
- * - job_run_wait: at least one thread is waiting for this job to cease running and runwait was not set.
+ * - job_run_wait: at least one thread is waiting for this job to cease running
+ *   and runwait was not set.
  * - job_run_nowq: job has lost its workq (only if updatewq was specified).
- * - job_run_wqbusy: workq is currently running or wanted (only if updatewq was specified).
+ * - job_run_wqbusy: workq is currently running or wanted (only if updatewq was
+ *   specified).
  *
- * If job_run_succes is returned, the job will be deactivated unless it is marked persistent.
+ * If job_run_succes is returned, the job will be deactivated
+ * unless it is marked persistent.
  *
  * If allow_inactive is set, the job does not need to be active to run.
  */
 static __inline enum job_run_state
 __hot__
-job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthread, int runwait, int allow_inactive)
+job_run_set(struct net2_workq_job *j, int update_wq,
+    struct net2_thread *curthread, int runwait, int allow_inactive)
 {
 	unsigned int	 jf, wqf;
 	struct net2_workq
@@ -806,8 +841,8 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 	assert(!update_wq || curthread != NULL);
 
 	/*
-	 * Some threads may be processing the end of the previous time this job ran.
-	 * Wait until they notice it isn't running.
+	 * Some threads may be processing the end of the previous time this
+	 * job ran.  Wait until they notice it isn't running.
 	 *
 	 * While those threads are waiting, we cannot modify the flag bits.
 	 */
@@ -823,11 +858,13 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 	}
 
 	/* Attempt to mark job as running. */
-	jf = atomic_fetch_or_explicit(&j->flags, JOB_RUNNING, memory_order_acquire);
+	jf = atomic_fetch_or_explicit(&j->flags, JOB_RUNNING,
+	    memory_order_acquire);
 	if (jf & JOB_RUNNING)
 		return job_run_twice;
 	if (!(jf & JOB_ACTIVE) && !allow_inactive) {
-		atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+		atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING,
+		    memory_order_release);
 		return job_run_inactive;
 	}
 
@@ -835,14 +872,16 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 		/* Spin acquire workq. */
 		if ((wq = job_deref_lock(j)) == NULL) {
 			/* Undo job flag change. */
-			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING,
+			    memory_order_release);
 			return job_run_nowq;
 		}
 
 		/*
 		 * Mark workq as running.
 		 *
-		 * Note that this cannot be done in a loop, since the wq flags also maintains onqueue state etc.
+		 * Note that this cannot be done in a loop,
+		 * since the wq flags also maintains onqueue state etc.
 		 */
 		wqf = atomic_load_explicit(&wq->flags, memory_order_consume);
 		for (;;) {
@@ -855,7 +894,9 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 				return ((wqf & (WQ_RUNNING | WQ_WANTLOCK)) ?
 				    job_run_wqbusy : job_run_nowq);
 			}
-			if (atomic_compare_exchange_weak_explicit(&wq->flags, &wqf, wqf | WQ_RUNNING, memory_order_acquire, memory_order_consume))
+			if (atomic_compare_exchange_weak_explicit(&wq->flags,
+			    &wqf, wqf | WQ_RUNNING,
+			    memory_order_acquire, memory_order_consume))
 				break;	/* GUARD */
 			SPINWAIT();
 		}
@@ -871,32 +912,42 @@ job_run_set(struct net2_workq_job *j, int update_wq, struct net2_thread *curthre
 		 * Despite the earlier test for this in job_deref_lock, the
 		 * state can change between then and now.
 		 */
-		if (predict_false(atomic_load_explicit(&wq->refcnt, memory_order_consume) == 0)) {
+		if (predict_false(atomic_load_explicit(&wq->refcnt,
+		    memory_order_consume) == 0)) {
 			/* Undo update to running flag. */
-			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+			    memory_order_release);
 			/* Undo job flag change. */
 			job_deref_unlock(j);
-			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING,
+			    memory_order_release);
 			return job_run_nowq;
 		}
-		if (predict_false(atomic_load_explicit(&wq->want_refcnt, memory_order_consume) != 0)) {
+		if (predict_false(atomic_load_explicit(&wq->want_refcnt,
+		    memory_order_consume) != 0)) {
 			/* Undo update to running flag. */
-			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_release);
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+			    memory_order_release);
 			/* Undo job flag change. */
 			job_deref_unlock(j);
-			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING,
+			    memory_order_release);
 			return job_run_wqbusy;
 		}
 
 		/* Release lock on workq. */
 		job_deref_unlock(j);
 
-		/* We acquired the workq running state, fill in the thread pointer. */
+		/* We acquired the workq running state,
+		 * fill in the thread pointer. */
 		workq_self_set(wq, curthread);
 	}
 
-	if (!(jf & NET2_WORKQ_PERSIST))
-		atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE, memory_order_consume);
+	/* If this job is not persistent, clear the active bit. */
+	if (!(jf & NET2_WORKQ_PERSIST)) {
+		atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE,
+		    memory_order_consume);
+	}
 
 	/*
 	 * job is now marked running.
@@ -922,7 +973,8 @@ job_run_clear(struct net2_workq_job *j)
 	 * Mark as not running.
 	 * If the job is active but not onqueue, update the workq.
 	 */
-	jfl = atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING, memory_order_release);
+	jfl = atomic_fetch_and_explicit(&j->flags, ~JOB_RUNNING,
+	    memory_order_release);
 	active = (jfl & JOB_ACTIVE);
 	if (!active || (jfl & JOB_ONQUEUE))
 		return active;
@@ -941,11 +993,14 @@ job_run_clear(struct net2_workq_job *j)
  * Kill the workq.
  *
  * Workq must have a refcnt of zero.
- * If wait is set, the operation will not complete until the workq has ceased to be running.
- * The operation may complete with running jobs, if the current thread is executing this job.
+ * If wait is set, the operation will not complete until the workq
+ * has ceased to be running.
+ * The operation may complete with running jobs, if the current thread
+ * is executing this job.
  *
  * If killme is set, the operation is invoked due to the killme flag being set.
- * In this case, the DYING flag must already be present, so the duplicate assignment is ignored.
+ * In this case, the DYING flag must already be present,
+ * so the duplicate assignment is ignored.
  *
  * Returns true if the workq was killed immediately.
  */
@@ -962,7 +1017,8 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 	assert(atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0);
 
 	/* Mark workq as dying. */
-	wqf = atomic_fetch_or_explicit(&wq->flags, WQ_DYING, memory_order_acquire);
+	wqf = atomic_fetch_or_explicit(&wq->flags, WQ_DYING,
+	    memory_order_acquire);
 	assert(killme || !(wqf & WQ_DYING));
 	wqf |= WQ_DYING;
 
@@ -983,22 +1039,27 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 		 * the running state and modifying the thread.
 		 */
 		if (workq_self(wq)) {
-			atomic_fetch_or_explicit(&wq->flags, WQ_KILLME, memory_order_acq_rel);
+			atomic_fetch_or_explicit(&wq->flags, WQ_KILLME,
+			    memory_order_acq_rel);
 			return 0;
 		}
 
 		/*
 		 * If wait is set, wait for the running job to complete.
-		 * Otherwise, put the requirement to clean up on the running thread.
+		 * Otherwise, put the requirement to clean up
+		 * on the running thread.
 		 */
 		if (wait) {
-			while (atomic_load_explicit(&wq->flags, memory_order_consume) & WQ_RUNNING);
+			while (atomic_load_explicit(&wq->flags,
+			    memory_order_consume) & WQ_RUNNING);
 				thryield();
 		} else {
-			if (atomic_fetch_or_explicit(&wq->flags, WQ_KILLME, memory_order_acq_rel) & WQ_RUNNING)
+			if (atomic_fetch_or_explicit(&wq->flags, WQ_KILLME,
+			    memory_order_acq_rel) & WQ_RUNNING)
 				return 0;
 			/* Running state was disengaged. */
-			wqf = atomic_fetch_and_explicit(&wq->flags, ~WQ_KILLME, memory_order_relaxed);
+			wqf = atomic_fetch_and_explicit(&wq->flags, ~WQ_KILLME,
+			    memory_order_relaxed);
 			assert(wqf & WQ_KILLME);
 			wqf &= ~WQ_KILLME;
 		}
@@ -1023,7 +1084,8 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 		 */
 		spin = SPIN;
 		for (spin = SPIN; spin > 0; spin--) {
-			jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acquire);
+			jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING,
+			    memory_order_acquire);
 			if (!(jf & JOB_DEREFING))
 				break;	/* GUARD */
 			SPINWAIT();
@@ -1054,12 +1116,14 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 		TAILQ_REMOVE(&wq->members, j, members);
 
 		/* Release dereference lock. */
-		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+		atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING,
+		    memory_order_release);
 
 		/*
 		 * If the job had a callback set, invoke it now.
 		 *
-		 * XXX job_internal should be squashed so the callbacks are dereferenced easier.
+		 * XXX job_internal should be squashed so the callbacks
+		 * are dereferenced easier.
 		 */
 		if (j->callbacks != NULL &&
 		    j->callbacks->on_wqdestroy != NULL) {
@@ -1072,7 +1136,8 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 	net2_spinlock_unlock(&wq->spl);
 
 	/*
-	 * No jobs point at this workq, it has no references, nor is it running.
+	 * No jobs point at this workq, it has no references,
+	 * nor is it running.
 	 * It can now safely be destroyed.
 	 */
 	net2_workq_evbase_release(wq->wqev);
@@ -1092,7 +1157,8 @@ static __inline int
 job_active_set(struct net2_workq_job *j)
 {
 	/* Mark the job as active. */
-	if (atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE, memory_order_acq_rel) & JOB_ACTIVE)
+	if (atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE,
+	    memory_order_acq_rel) & JOB_ACTIVE)
 		return 0;	/* Already active. */
 
 	/* Acquire workq. */
@@ -1128,7 +1194,8 @@ job_active_clear(struct net2_workq_job *j, int wait)
 	struct net2_workq
 			*wq;
 
-	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE, memory_order_acq_rel);
+	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_ACTIVE,
+	    memory_order_acq_rel);
 	if (!wait || !(jf & JOB_RUNNING))
 		return;
 
@@ -1141,7 +1208,8 @@ job_active_clear(struct net2_workq_job *j, int wait)
 	 * without us allowing it.
 	 */
 	for (;;) {
-		jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING, memory_order_acq_rel);
+		jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING,
+		    memory_order_acq_rel);
 		if (!(jf & JOB_DEREFING))
 			break;	/* GUARD */
 		SPINWAIT();
@@ -1170,7 +1238,8 @@ job_active_clear(struct net2_workq_job *j, int wait)
 
 	/* Release the workq but wait for the job to cease running. */
 	atomic_fetch_add_explicit(&j->runwait, 1, memory_order_acquire);
-	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	jf = atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING,
+	    memory_order_release);
 	while (jf & JOB_RUNNING) {
 		thryield();
 		jf = atomic_load_explicit(&j->flags, memory_order_consume);
@@ -1179,7 +1248,8 @@ job_active_clear(struct net2_workq_job *j, int wait)
 	return;
 
 out:
-	atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING, memory_order_release);
+	atomic_fetch_and_explicit(&j->flags, ~JOB_DEREFING,
+	    memory_order_release);
 	return;
 }
 
@@ -1278,13 +1348,15 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 
 	if (predict_false(wqev == NULL))
 		return;
-	if (predict_true(atomic_fetch_sub_explicit(&wqev->refcnt, 1, memory_order_release) != 1))
+	if (predict_true(atomic_fetch_sub_explicit(&wqev->refcnt, 1,
+	    memory_order_release) != 1))
 		return;
 
 	/* Kill all worker threads. */
 	net2_workq_set_thread_count(wqev, 0, 0);
 
-	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop, memory_order_relaxed));
+	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop,
+	    memory_order_relaxed));
 	if (evl != NULL)
 		ev_loop_destroy(evl);
 
@@ -1305,7 +1377,8 @@ net2_workq_evbase_evloop_changed(struct net2_workq_evbase *wqev)
 {
 	struct ev_loop	*evl;
 
-	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop, memory_order_relaxed));
+	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop,
+	    memory_order_relaxed));
 	if (evl != NULL)
 		ev_async_send(evl, &wqev->ev_wakeup);
 }
@@ -1381,7 +1454,8 @@ net2_workq_evbase(struct net2_workq *wq)
 /* Initialize a job. */
 ILIAS_NET2_EXPORT int
 __hot__
-net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1, int flags)
+net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
+    net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
 	if (fn == NULL || wq == NULL || j == NULL)
 		return EINVAL;
@@ -1431,10 +1505,14 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 
 	if (flags & NET2_WQ_ACT_IMMED) {
 		thr = net2_thread_self();
-		if (thr != NULL && job_run_set(j, 1, thr, 0, 1) == job_run_succes) {
+		if (thr != NULL &&
+		    job_run_set(j, 1, thr, 0, 1) == job_run_succes) {
 			/* Mark the job as active if it is a persistent job. */
-			if (atomic_load_explicit(&j->flags, memory_order_consume) & NET2_WORKQ_PERSIST)
-				atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE, memory_order_seq_cst);
+			if (atomic_load_explicit(&j->flags,
+			    memory_order_consume) & NET2_WORKQ_PERSIST) {
+				atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE,
+				    memory_order_seq_cst);
+			}
 
 			/* Invoke the job. */
 			j->fn(j->cb_arg[0], j->cb_arg[1]);
@@ -1540,9 +1618,11 @@ net2_workq_get_evloop(struct net2_workq *wq)
 
 	/*
 	 * Assign the new evloop.
-	 * Failure indicates another thread assigned an ev_loop while we were creating one.
+	 * Failure indicates another thread assigned an ev_loop
+	 * while we were creating one.
 	 */
-	if (atomic_compare_exchange_strong_explicit(&wqev->evloop, &evl, (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed))
+	if (atomic_compare_exchange_strong_explicit(&wqev->evloop, &evl,
+	    (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed))
 		return new;
 
 	/*
@@ -1583,8 +1663,10 @@ wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
 	/* Acquire a workq and mark it running. */
 	TAILQ_FOREACH(wq, &wqev->runq, wqev_runq) {
 		if (workq_run_set(wq, curthread)) {
-			assert(atomic_load_explicit(&wq->flags, memory_order_relaxed) & WQ_ONQUEUE);
-			atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE, memory_order_seq_cst);
+			assert(atomic_load_explicit(&wq->flags,
+			    memory_order_relaxed) & WQ_ONQUEUE);
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
+			    memory_order_seq_cst);
 			TAILQ_REMOVE(&wqev->runq, wq, wqev_runq);
 			return wq;
 		}
@@ -1595,7 +1677,8 @@ wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
 /*
  * Release a workq previously acquired using wqev_run_pop.
  *
- * If did_something is set, the workq had some workq queued and is immediately activated.
+ * If did_something is set, the workq had some workq queued and
+ * is immediately activated.
  */
 static __inline void
 __hot__
@@ -1625,7 +1708,8 @@ wq_run_pop(struct net2_workq *wq, int *did_something)
 			TAILQ_INSERT_TAIL(&wq->runqueue, j, runqueue);
 			goto out;	/* Loop break. */
 		case job_run_inactive:
-			atomic_fetch_and_explicit(&j->flags, ~JOB_ONQUEUE, memory_order_seq_cst);
+			atomic_fetch_and_explicit(&j->flags, ~JOB_ONQUEUE,
+			    memory_order_seq_cst);
 			TAILQ_REMOVE(&wq->runqueue, j, runqueue);
 			break;
 		case job_run_wait:
@@ -1639,7 +1723,10 @@ wq_run_pop(struct net2_workq *wq, int *did_something)
 			break;
 		case job_run_nowq:
 		case job_run_wqbusy:
-			/* Shouldn't happen: the workq must be in the running state. */
+			/*
+			 * Shouldn't happen:
+			 * the workq must be in the running state.
+			 */
 			abort();
 			break;
 		}
@@ -1724,7 +1811,9 @@ wqev_worker(void *wthr_ptr)
 		}
 
 		/* Go to sleep. */
-		net2_semaphore_up(&wqev->thr_idle, 1);	/* Must be done while holding the spinlock! */
+		net2_semaphore_up(&wqev->thr_idle, 1);	/* Must be done while
+							 * holding the
+							 * spinlock! */
 		net2_spinlock_unlock(&wqev->spl);
 	}
 
@@ -1746,13 +1835,18 @@ create_thread(struct net2_workq_evbase *wqev)
 {
 	struct net2_workq_evbase_worker
 				*wthr;
+	const char		*wname;
+
+	wname = (wqev->wq_worker_name == NULL ?
+	    "workq worker" :
+	    wqev->wq_worker_name);
 
 	if ((wthr = net2_malloc(sizeof(*wthr))) == NULL)
 		return ENOMEM;
 	wthr->evbase = wqev;
 	net2_spinlock_init(&wthr->spl);
 	net2_spinlock_lock(&wthr->spl);
-	wthr->worker = net2_thread_new(&wqev_worker, wthr, (wqev->wq_worker_name == NULL ? "workq worker" : wqev->wq_worker_name));
+	wthr->worker = net2_thread_new(&wqev_worker, wthr, wname);
 	net2_spinlock_unlock(&wthr->spl);
 	if (wthr->worker == NULL) {
 		net2_spinlock_unlock(&wqev->spl_workers);
@@ -1798,7 +1892,8 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 /* Modify the thread counts. */
 ILIAS_NET2_EXPORT int
 __cold__
-net2_workq_set_thread_count(struct net2_workq_evbase *wqev, int jobthreads, int maxthreads)
+net2_workq_set_thread_count(struct net2_workq_evbase *wqev,
+    int jobthreads, int maxthreads)
 {
 	int	 kill;
 	int	 error;
@@ -1822,7 +1917,8 @@ net2_workq_set_thread_count(struct net2_workq_evbase *wqev, int jobthreads, int 
 	/* Change the number of job threads. */
 	if (jobthreads > wqev->jobthreads) {
 		/* Increment activity. */
-		net2_semaphore_up(&wqev->thr_active, jobthreads - wqev->jobthreads);
+		net2_semaphore_up(&wqev->thr_active,
+		    jobthreads - wqev->jobthreads);
 		wqev->jobthreads = jobthreads;
 	} else {
 		/* Descrement activity. */
