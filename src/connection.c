@@ -57,6 +57,7 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 	memset(conn, 0, sizeof(*conn));
 
 	TAILQ_INIT(&conn->n2c_recvq);
+	TAILQ_INIT(&conn->n2c_sendq);
 	conn->n2c_recvqsz = 0;
 
 	conn->n2c_stealth_bytes = 0;
@@ -74,22 +75,28 @@ net2_connection_init(struct net2_connection *conn, struct net2_ctx *ctx,
 		error = ENOMEM;
 		goto fail_3;
 	}
-	if ((error = net2_connwindow_init(&conn->n2c_window, conn)) != 0)
+	if ((conn->n2c_sendmtx = net2_mutex_alloc()) == NULL) {
+		error = ENOMEM;
 		goto fail_4;
-	if ((error = net2_connstats_init(&conn->n2c_stats, conn)) != 0)
+	}
+	if ((error = net2_connwindow_init(&conn->n2c_window, conn)) != 0)
 		goto fail_5;
-	if ((error = net2_ck_init(&conn->n2c_keys, workq, conn)) != 0)
+	if ((error = net2_connstats_init(&conn->n2c_stats, conn)) != 0)
 		goto fail_6;
+	if ((error = net2_ck_init(&conn->n2c_keys, workq, conn)) != 0)
+		goto fail_7;
 
 	return 0;
 
 
-fail_7:
+fail_8:
 	net2_ck_deinit(&conn->n2c_keys);
-fail_6:
+fail_7:
 	net2_connstats_deinit(&conn->n2c_stats);
-fail_5:
+fail_6:
 	net2_connwindow_deinit(&conn->n2c_window);
+fail_5:
+	net2_mutex_free(conn->n2c_sendmtx);
 fail_4:
 	net2_mutex_free(conn->n2c_recvmtx);
 fail_3:
@@ -256,9 +263,8 @@ release:
  * Otherwise, *bptr will be NULL iff there is no data to send.
  * *bptr will have at most maxlen bytes in it.
  */
-ILIAS_NET2_EXPORT int
-net2_conn_gather_tx(struct net2_connection *c,
-    struct net2_buffer **bptr, size_t maxlen)
+static int
+gather(struct net2_connection *c, struct net2_buffer **bptr, size_t maxlen)
 {
 	struct packet_header		 ph;
 	size_t				 avail;
@@ -492,6 +498,113 @@ fail_0:
 		*bptr = NULL;
 	}
 	return rv;
+}
+
+struct net2_conn_txgather {
+	TAILQ_ENTRY(net2_conn_txgather)
+				 queue;
+	size_t			 maxlen;
+	struct net2_promise	*prom;
+	struct net2_promise_event
+				 prom_ev;
+};
+
+/* Free buffer on promise. */
+static void
+buffree2(void *buf, void * unused ILIAS_NET2__unused)
+{
+	net2_free((struct net2_buffer*)buf);
+}
+/* Destroy gather data. */
+static void
+txgather_destroy(void *c_ptr, void *gd_ptr)
+{
+	struct net2_connection		*c = c_ptr;
+	struct net2_conn_txgather	*gd = gd_ptr;
+
+	/*
+	 * Don't destroy prom: its destruction is the reason the destructor
+	 * got called.
+	 */
+	net2_promise_event_deinit(&gd->prom_ev);
+
+	/* Remove from connection. */
+	net2_mutex_lock(c->n2c_sendmtx);
+	TAILQ_REMOVE(&c->n2c_sendq, gd, queue);
+	net2_mutex_unlock(c->n2c_sendmtx);
+
+	net2_free(gd);
+}
+/* Invoke connection data gathering. */
+static void
+txgather_invoke(void *c_ptr, void *gd_ptr)
+{
+	struct net2_connection		*c = c_ptr;
+	struct net2_conn_txgather	*gd = gd_ptr;
+	struct net2_buffer		*buf = NULL;
+	int				 error;
+
+	/* Don't do any work if the promise was canceled. */
+	if (net2_promise_is_cancelreq(gd->prom)) {
+		net2_promise_set_cancel(gd->prom, 0);
+		return;
+	}
+
+	/* Invoke actual gathering of data. */
+	if ((error = gather(c, &buf, gd->maxlen)) != 0) {
+		net2_promise_set_error(gd->prom, error, 0);
+		return;
+	} else if (buf == NULL) {
+		/* If there is no data, pretend we were canceled. */
+		net2_promise_set_cancel(gd->prom, 0);
+		return;
+	}
+
+	/* Assign buffer as output. */
+	if (net2_promise_set_finok(gd->prom, buf, buffree2, NULL, 0)) {
+		net2_buffer_free(buf);
+		net2_promise_set_error(gd->prom, EIO, 0);
+	}
+
+	/*
+	 * Destroy gd.
+	 */
+
+	/* Cancel promise bound destruction. */
+	net2_promise_destroy_cb(gd->prom, NULL, NULL, NULL);
+	/* Remove gd from connection. */
+	net2_mutex_lock(c->n2c_sendmtx);
+	TAILQ_REMOVE(&c->n2c_sendq, gd, queue);
+	net2_mutex_unlock(c->n2c_sendmtx);
+	/* Destroy event callback (aka this function). */
+	net2_promise_event_deinit(&gd->prom_ev);
+	net2_free(gd);
+}
+
+/*
+ * Yield a promise that will generate the to-be-transmitted datagram.
+ */
+ILIAS_NET2_EXPORT struct net2_promise*
+net2_conn_gather_tx(struct net2_connection *c, size_t maxlen)
+{
+	struct net2_conn_txgather	*gd;
+
+	if ((gd = net2_malloc(sizeof(*gd))) == NULL)
+		return NULL;
+
+	gd->prom = net2_promise_new();
+	gd->maxlen = maxlen;
+	net2_promise_event_init(&gd->prom_ev, gd->prom, NET2_PROM_ON_RUN,
+	    net2_acceptor_socket_workq(&c->n2c_socket),
+	    &txgather_invoke, c, gd);
+	net2_promise_destroy_cb(gd->prom, &txgather_destroy, c, gd);
+
+	/* Attach to connection. */
+	net2_mutex_lock(c->n2c_sendmtx);
+	TAILQ_INSERT_TAIL(&c->n2c_sendq, gd, queue);
+	net2_mutex_unlock(c->n2c_sendmtx);
+
+	return gd->prom;
 }
 
 /*

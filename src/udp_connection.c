@@ -69,6 +69,10 @@ ILIAS_NET2_LOCAL
 void	 net2_udpsock_conn_wantsend(struct net2_udpsocket*,
 	    struct net2_conn_p2p*);
 
+static struct net2_promise
+	*net2_udpsocket_gather(struct net2_connection*,
+	    size_t, struct sockaddr*, socklen_t);
+
 
 static const struct net2_acceptor_socket_fn udp_conn_fn = {
 	0,
@@ -441,57 +445,8 @@ ILIAS_NET2_LOCAL struct net2_promise*
 net2_conn_p2p_send(void *cptr, size_t maxsz)
 {
 	struct net2_conn_p2p	*c = cptr;
-	struct net2_buffer	*buf;
-	size_t			 wire_sz;
-	struct net2_dgram_tx_promdata
-				*pd;
-	struct net2_promise	*p;
 
-	wire_sz = c->np2p_conn.n2c_stats.wire_sz;
-	if (secure_random_uniform(16) == 0) {
-		if (c->np2p_conn.n2c_stats.over_sz == 0)
-			wire_sz *= 2;
-		else {
-			/*
-			 * Take the average between largest ack and
-			 * smallest nack.
-			 */
-			wire_sz += c->np2p_conn.n2c_stats.over_sz;
-			wire_sz /= 2;
-		}
-	}
-
-	wire_sz = MIN(wire_sz, maxsz);
-
-	buf = NULL;
-	if (net2_conn_gather_tx(&c->np2p_conn, &buf, wire_sz)) {
-		/* TODO: kill connection */
-		return NULL;
-	}
-	if (buf == NULL)
-		return NULL;
-
-	if ((pd = net2_malloc(sizeof(*pd))) == NULL) {
-		net2_buffer_free(buf);
-		return NULL;
-	}
-	pd->data = buf;
-	buf = NULL;
-	pd->addrlen = 0;
-	pd->tx_done = NULL;
-
-	if ((p = net2_promise_new()) == NULL) {
-		net2_workq_io_tx_pdata_free(pd, NULL);
-		return NULL;
-	}
-	if (net2_promise_set_finok(p, pd, &net2_workq_io_tx_pdata_free,
-	    NULL, 0) != 0) {
-		net2_promise_release(p);
-		net2_workq_io_tx_pdata_free(pd, NULL);
-		return NULL;
-	}
-
-	return p;
+	return net2_udpsocket_gather(&c->np2p_conn, maxsz, NULL, 0);
 }
 
 /*
@@ -524,77 +479,147 @@ net2_udpsocket_recv(void *udps_ptr, struct net2_dgram_rx *rx)
 	}
 }
 
+static void
+udpsocket_txgather_2_pd(struct net2_promise *out, struct net2_promise **in,
+    size_t n, void *pd_ptr)
+{
+	int			 fin;
+	uint32_t		 err;
+	struct net2_buffer	*buf;
+	struct net2_dgram_tx_promdata
+				*pd = pd_ptr;
+
+	assert(n == 1);
+
+	fin = net2_promise_get_result(in[0], (void**)&buf, &err);
+
+	switch (fin) {
+	case NET2_PROM_FIN_OK:
+		if (buf != NULL)
+			break;
+		/* FALLTHROUGH */
+	case NET2_PROM_FIN_CANCEL:
+		net2_promise_set_cancel(out, 0);
+		return;
+	case NET2_PROM_FIN_UNFINISHED:
+		abort();
+	case NET2_PROM_FIN_UNREF:
+	case NET2_PROM_FIN_FAIL:
+	default:
+		err = EIO;
+	case NET2_PROM_FIN_ERROR:
+		net2_promise_set_error(out, err, 0);
+		return;
+	}
+
+	assert(buf != NULL);
+
+	/* Take ownership of buffer. */
+	net2_promise_dontfree(in[0]);
+	/*
+	 * Take full ownership of pd (since we want to move it from an
+	 * input parameter to the result value.
+	 */
+	net2_promise_destroy_cb(out, NULL, NULL, NULL);
+
+	/* Assign buffer. */
+	pd->data = buf;
+	/* Assign result. */
+	if (net2_promise_set_finok(out, pd, &net2_workq_io_tx_pdata_free, NULL, 0)) {
+		net2_workq_io_tx_pdata_free(pd, NULL);
+		net2_promise_set_error(out, EIO, 0);
+	}
+}
+
+static struct net2_promise*
+net2_udpsocket_gather(struct net2_connection *c, size_t maxsz,
+    struct sockaddr *remote, socklen_t remotelen)
+{
+	struct net2_dgram_tx_promdata
+				*pd;
+	size_t			 wire_sz;
+	struct net2_promise	*p, *conn_prom;
+
+	/* Figure out what wire size to use. */
+	wire_sz = c->n2c_stats.wire_sz;
+	if (secure_random_uniform(16) == 0) {
+		if (c->n2c_stats.over_sz == 0)
+			wire_sz *= 2;
+		else {
+			wire_sz += c->n2c_stats.over_sz;
+			wire_sz /= 2;
+		}
+	}
+	wire_sz = MIN(wire_sz, maxsz);
+
+	/* Acquire promise from connection. */
+	if ((conn_prom = net2_conn_gather_tx(c, wire_sz)) == NULL)
+		return NULL;
+
+	/* Allocate pd. */
+	if ((pd = net2_malloc(sizeof(*pd))) == NULL)
+		goto fail_0;
+
+	assert(remotelen <= sizeof(pd->addr));
+	memcpy(&pd->addr, remote, remotelen);
+	pd->addrlen = remotelen;
+	pd->data = NULL;
+	pd->tx_done = NULL;
+
+	/* Create a promise that will transform the packet data
+	 * into a pd struct. */
+	p = net2_promise_combine(
+	    net2_acceptor_socket_workq(&c->n2c_socket),
+	    &udpsocket_txgather_2_pd, pd, &conn_prom, 1);
+	if (p == NULL)
+		goto fail_1;
+	net2_promise_destroy_cb(p, &net2_workq_io_tx_pdata_free, pd, NULL);
+
+	/* Release conn_prom. */
+	net2_promise_release(conn_prom);
+
+	return p;
+
+
+fail_2:
+	net2_promise_cancel(p);
+	net2_promise_release(p);
+fail_1:
+	net2_free(pd);
+fail_0:
+	net2_promise_cancel(conn_prom);
+	net2_promise_release(conn_prom);
+	return NULL;
+}
+
 ILIAS_NET2_LOCAL struct net2_promise*
 net2_udpsocket_send(void *udps_ptr, size_t maxsz)
 {
 	struct net2_udpsocket	*udps = udps_ptr;
 	struct net2_conn_p2p	*c;
-	size_t			 wire_sz;
-	struct net2_buffer	*buf;
-	struct net2_dgram_tx_promdata
-				*pd;
-	struct net2_promise	*p;
-
-	if ((pd = net2_malloc(sizeof(*pd))) == NULL)
-		return NULL;	/* TODO: figure out a way to return ENOMEM. */
+	struct net2_promise	*conn_prom;
 
 	/* Find something to transmit. */
 	while ((c = TAILQ_FIRST(&udps->wantwrite)) != NULL) {
 		TAILQ_REMOVE(&udps->wantwrite, c, np2p_wantwriteq);
-		wire_sz = c->np2p_conn.n2c_stats.wire_sz;
 
-		/* Attempt packet growth. */
-		if (secure_random_uniform(16) == 0) {
-			if (c->np2p_conn.n2c_stats.over_sz == 0)
-				wire_sz *= 2;
-			else {
-				/*
-				 * Take the average between largest ack and
-				 * smallest nack.
-				 */
-				wire_sz += c->np2p_conn.n2c_stats.over_sz;
-				wire_sz /= 2;
-			}
-		}
-		wire_sz = MIN(wire_sz, maxsz);
-
-		buf = NULL;
-		if (net2_conn_gather_tx(&c->np2p_conn, &buf, wire_sz)) {
-			/* TODO: kill connection */
-			continue;
-		}
-		if (buf != NULL) {
+		conn_prom = net2_udpsocket_gather(&c->np2p_conn, maxsz,
+		    c->np2p_remote, c->np2p_remotelen);
+		if (conn_prom != NULL) {
 			/* Found something to transmit. */
-			break;
+
+			/* Put c back on the sendq,
+			 * if it hasn't done so itself. */
+			if (c != NULL && !(c->np2p_flags & NP2P_F_SENDQ)) {
+				c->np2p_flags |= NP2P_F_SENDQ;
+				TAILQ_INSERT_TAIL(&udps->wantwrite, c,
+				    np2p_wantwriteq);
+			}
+
+			return conn_prom;
 		}
 	}
-	/* Nothing to transmit. */
-	if (c == NULL) {
-		net2_free(pd);
-		return NULL;
-	}
-
-	assert(c->np2p_remotelen <= sizeof(pd->addrlen));
-	memcpy(&pd->addr, c->np2p_remote, c->np2p_remotelen);
-	pd->addrlen = c->np2p_remotelen;
-	pd->data = buf;
-	buf = NULL;
-	pd->tx_done = NULL;
-
-	/* Put c back on the sendq, if it hasn't done so itself. */
-	if (c != NULL && !(c->np2p_flags & NP2P_F_SENDQ)) {
-		c->np2p_flags |= NP2P_F_SENDQ;
-		TAILQ_INSERT_TAIL(&udps->wantwrite, c, np2p_wantwriteq);
-	}
-
-	p = net2_promise_new();
-	if (net2_promise_set_finok(p, pd, &net2_workq_io_tx_pdata_free,
-	    NULL, 0) != 0) {
-		net2_promise_release(p);
-		net2_workq_io_tx_pdata_free(pd, NULL);
-		return NULL;
-	}
-	return p;
+	return NULL;
 }
 
 /* Unlock socket and remove it if it has no references. */

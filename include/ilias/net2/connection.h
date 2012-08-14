@@ -62,9 +62,12 @@ struct net2_connection {
 	struct net2_conn_negotiator
 				 n2c_negotiator; /* Protocol negotiator. */
 
-	struct net2_mutex	*n2c_recvmtx;	/* Protect recvq. */
+	struct net2_mutex	*n2c_recvmtx,	/* Protect recvq. */
+				*n2c_sendmtx;	/* Protect sendq. */
 	TAILQ_HEAD(, net2_conn_receive)
 				 n2c_recvq;	/* List of received data. */
+	TAILQ_HEAD(, net2_conn_txgather)
+				 n2c_sendq;	/* List of outstanding tx. */
 	size_t			 n2c_recvqsz;	/* Size of n2c_recvq. */
 	struct net2_workq_job	 n2c_recv_ev;	/* Handle received data. */
 
@@ -83,25 +86,25 @@ struct net2_connection {
 
 
 ILIAS_NET2_EXPORT
-int	net2_connection_init(struct net2_connection*,
+int	 net2_connection_init(struct net2_connection*,
 	    struct net2_ctx*, struct net2_workq*,
 	    const struct net2_acceptor_socket_fn*);
 ILIAS_NET2_EXPORT
-void	net2_connection_deinit(struct net2_connection*);
+void	 net2_connection_deinit(struct net2_connection*);
 ILIAS_NET2_EXPORT
-void	net2_connection_destroy(struct net2_connection*);
+void	 net2_connection_destroy(struct net2_connection*);
 ILIAS_NET2_EXPORT
-void	net2_connection_recv(struct net2_connection*,
+void	 net2_connection_recv(struct net2_connection*,
 	    struct net2_conn_receive*);
 
 ILIAS_NET2_EXPORT
-int	net2_conn_gather_tx(struct net2_connection*,
-	    struct net2_buffer**, size_t);
+struct net2_promise
+	*net2_conn_gather_tx(struct net2_connection*, size_t);
 ILIAS_NET2_EXPORT
-int	net2_conn_get_pvlist(struct net2_acceptor_socket*,
+int	 net2_conn_get_pvlist(struct net2_acceptor_socket*,
 	    struct net2_pvlist*);
 ILIAS_NET2_EXPORT
-void	net2_conn_set_stealth(struct net2_connection*);
+void	 net2_conn_set_stealth(struct net2_connection*);
 
 static __inline void
 net2_connection_close(struct net2_connection *c)
