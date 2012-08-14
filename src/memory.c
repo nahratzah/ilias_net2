@@ -440,9 +440,15 @@ net2_realloc_(void *p, size_t s, const char *file, const char *function, int lin
 	struct malloc_data	*d;
 
 	LOCK();
-	if (p == NULL)
-		d = i_malloc(s, 0, file, function, line);
-	else
+	if (p == NULL) {
+		if (s == 0)
+			d = NULL;
+		else
+			d = i_malloc(s, 0, file, function, line);
+	} else if (s == 0) {
+		i_free(i_lookup(p, file, function, line), file, function, line);
+		d = NULL;
+	} else
 		d = i_realloc(p, s, file, function, line);
 	p = (d == NULL ? NULL : d->addr);
 	UNLOCK();
