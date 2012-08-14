@@ -148,7 +148,11 @@ udp_socketpair(net2_socket_t *fd1, net2_socket_t *fd2, int do_connect)
 	*fd1 = socket(AF_INET, SOCK_DGRAM, 0);
 	*fd2 = socket(AF_INET, SOCK_DGRAM, 0);
 	if (*fd1 == -1 || *fd2 == -1) {
+#ifdef WIN32
+		fprintf(stderr, "socket wsa error %d\n", WSAGetLastError());
+#else
 		perror("socket");
+#endif
 		goto fail;
 	}
 
