@@ -4,6 +4,13 @@ include (CTest)
 
 
 #
+# Linux requires all kinds of feature macros to be defined.
+# Whatever happened to sane defaults?
+#
+add_definitions (-D_REENTRANT -D_GNU_SOURCE)
+
+
+#
 # Special options.
 #
 option (USE_EMBEDDED_EV "Use embedded libev library instead of system library." ON)
