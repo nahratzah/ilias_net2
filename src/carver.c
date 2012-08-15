@@ -234,7 +234,7 @@ net2_carver_deinit(struct net2_carver *c)
 			TAILQ_INSERT_HEAD(&x, child, txq);
 
 		/* Destroy r. */
-		net2_txcb_entryq_clear(&r->txcbeq, NET2_TXCB_EQ_ALL);
+		net2_txcb_entryq_deinit(&r->txcbeq);
 		net2_buffer_free(r->data);
 		net2_free(r);
 	}
@@ -244,7 +244,7 @@ net2_carver_deinit(struct net2_carver *c)
 	else
 		net2_promise_release(c->ready);
 
-	net2_txcb_entryq_clear(&c->size_txq, NET2_TXCB_EQ_ALL);
+	net2_txcb_entryq_deinit(&c->size_txq);
 }
 
 /* Initialize combiner. */
@@ -994,7 +994,6 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 	    net2_carver_is_done(c))
 		net2_promise_set_finok(c->ready, NULL, NULL, NULL, 0);
 
-	net2_txcb_entryq_clear(&r->txcbeq, NET2_TXCB_EQ_ALL);
 	net2_txcb_entryq_deinit(&r->txcbeq);
 	net2_buffer_free(r->data);
 	net2_free(r);
