@@ -1621,6 +1621,8 @@ net2_workq_get(struct net2_workq_job *j)
 ILIAS_NET2_EXPORT int
 net2_workq_want(struct net2_workq *wq, int try)
 {
+	assert(wq != NULL);
+
 	switch (workq_want_set(wq, try)) {
 	case wq_want_succes:
 		return 0;
@@ -1638,6 +1640,8 @@ net2_workq_want(struct net2_workq *wq, int try)
 ILIAS_NET2_EXPORT void
 net2_workq_unwant(struct net2_workq *wq)
 {
+	assert(wq != NULL);
+
 	if (workq_want_clear(wq))
 		workq_activate(wq);
 }
