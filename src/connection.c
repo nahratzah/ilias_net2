@@ -588,15 +588,21 @@ ILIAS_NET2_EXPORT struct net2_promise*
 net2_conn_gather_tx(struct net2_connection *c, size_t maxlen)
 {
 	struct net2_conn_txgather	*gd;
+	int				 error;
 
 	if ((gd = net2_malloc(sizeof(*gd))) == NULL)
 		return NULL;
 
 	gd->prom = net2_promise_new();
 	gd->maxlen = maxlen;
-	net2_promise_event_init(&gd->prom_ev, gd->prom, NET2_PROM_ON_RUN,
-	    net2_acceptor_socket_workq(&c->n2c_socket),
-	    &txgather_invoke, c, gd);
+	if ((error = net2_promise_event_init(&gd->prom_ev, gd->prom,
+	    NET2_PROM_ON_RUN, net2_acceptor_socket_workq(&c->n2c_socket),
+	    &txgather_invoke, c, gd)) != 0) {
+		net2_promise_cancel(gd->prom);
+		net2_promise_release(gd->prom);
+		net2_free(gd);
+		return NULL;
+	}
 	net2_promise_destroy_cb(gd->prom, &txgather_destroy, c, gd);
 
 	/* Attach to connection. */
