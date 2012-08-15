@@ -462,7 +462,7 @@ pver_assign(void *pver_promise, void *cn_ptr)
 		/* FALLTHROUGH */
 	case NET2_PROM_FIN_ERROR:
 pass_error:
-		assert(0); /* XXX handle failure. */
+		net2_connection_close(CNEG_CONN(cn));
 		break;
 	}
 }
