@@ -1008,11 +1008,14 @@ net2_connwindow_update(struct net2_connwindow *w, struct packet_header *ph,
 		}
 	}
 
+	if ((rx = get_recv(w, ph->seq, ph->flags & PH_STALLED)) == NULL) {
+		rv = ENOMEM;
+		goto fail_0;
+	}
 	/*
 	 * Stalled packets only get every window up to them added, but not
 	 * themselves: stalled packets are not real packets in this sense.
 	 */
-	rx = get_recv(w, ph->seq, ph->flags & PH_STALLED);
 	if (!(ph->flags & PH_STALLED)) {
 		/*
 		 * Mark packet as received ok and add it

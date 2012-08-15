@@ -94,8 +94,6 @@ static int	 combiner_msg_to_range(struct net2_combiner*,
 		    struct net2_buffer*);
 static int	 combiner_setup_msg(struct net2_combiner*,
 		    struct net2_encdec_ctx*, struct net2_buffer*);
-static int	 combiner_msg_combine(struct net2_combiner*,
-		    struct net2_carver_range*);
 static void	 combiner_result_free(void*, void*);
 
 static enum net2_carver_type
@@ -465,6 +463,167 @@ fire_rts(struct net2_carver *c)
 }
 
 
+/* Read back carver range message into r. */
+static int
+combiner_msg_to_range(struct net2_combiner *c, struct net2_carver_range *r,
+    struct net2_encdec_ctx *ctx, struct net2_buffer *in)
+{
+	union {
+		struct carver_msg_16
+				 msg16;
+		struct carver_msg_32
+				 msg32;
+	}			 msg;
+	void			*msg_ptr;
+	const struct command_param
+				*cp;
+	struct net2_buffer	*data = NULL;
+	size_t			 offset;
+	int			 error;
+	size_t			 max;
+
+	/* Decide on which decoder to use. */
+	switch (c->flags & NET2_CARVER_F_BITS) {
+	default:
+		return EINVAL;
+	case NET2_CARVER_F_16BIT:
+		cp = &cp_carver_msg_16;
+		msg_ptr = &msg.msg16;
+		max = 0xffffU;
+		break;
+	case NET2_CARVER_F_32BIT:
+		cp = &cp_carver_msg_32;
+		msg_ptr = &msg.msg32;
+		max = 0xffffffffU;
+		break;
+	}
+
+	/* Decode message. */
+	if ((error = net2_cp_init(cp, msg_ptr, NULL)) != 0)
+		return error;
+	if ((error = net2_cp_decode(ctx, cp, msg_ptr, in, NULL)) != 0)
+		goto out;
+
+	/* Extract data from decoded message. */
+	switch (c->flags & NET2_CARVER_F_BITS) {
+	case NET2_CARVER_F_16BIT:
+		data = msg.msg16.payload;
+		msg.msg32.payload = NULL;	/* Claim ownership. */
+		offset = msg.msg16.offset;
+		break;
+	case NET2_CARVER_F_32BIT:
+		data = msg.msg32.payload;
+		msg.msg32.payload = NULL;	/* Claim ownership. */
+		offset = msg.msg32.offset;
+		break;
+	}
+	assert(data != NULL);
+
+	r->offset = offset;
+	r->data = data;
+	error = 0;
+
+	/*
+	 * Use expected size instead of max, if expected size data has
+	 * been received.
+	 */
+	if (c->flags & NET2_CARVER_F_KNOWN_SZ)
+		max = c->expected_size;
+
+	/* Validation: may not overflow. */
+	if (r->offset + net2_buffer_length(data) < r->offset) {
+		net2_buffer_free(data);
+		return EINVAL;
+	}
+	/* Validation: must fit within 16/32 bit. */
+	if (r->offset + net2_buffer_length(data) - 1 > max) {
+		net2_buffer_free(data);
+		return EINVAL;
+	}
+
+out:
+	net2_cp_destroy(cp, msg_ptr, NULL);
+	return error;
+}
+
+/*
+ * Place message into combiner.
+ * Will take full ownership of r (possibly freeing it).
+ */
+static __inline int
+combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
+{
+	struct net2_carver_range search, *next, *prev;
+	size_t			 prev_end;
+	size_t			 r_end;
+
+	r_end = r->offset + net2_buffer_length(r->data);
+	search.offset = r->offset + 1;
+	next = RB_NFIND(net2_carver_ranges, &c->ranges, &search);
+	if (next == NULL)
+		prev = RB_MAX(net2_carver_ranges, &c->ranges);
+	else
+		prev = RB_PREV(net2_carver_ranges, &c->ranges, next);
+
+	assert(prev == NULL || prev->offset <= r->offset);
+	assert(next == NULL || next->offset > r->offset);
+
+	/* Break intersection with prev. */
+	if (prev != NULL) {
+		prev_end = prev->offset + net2_buffer_length(prev->data);
+		if (prev_end >= r->offset) {
+			net2_buffer_drain(r->data, prev_end - r->offset);
+			r->offset = prev_end;
+		} else
+			prev = NULL;
+	}
+
+	/* Merge next into r. */
+	while (next != NULL && next->offset <= r_end) {
+		/* Prepare for next step in this loop. */
+		struct net2_carver_range
+				*next_next;
+		next_next = RB_NEXT(net2_carver_ranges, &c->ranges, next);
+
+		/* Remove next, since we'll ditch it in favour of r. */
+		RB_REMOVE(net2_carver_ranges, &c->ranges, next);
+
+		/* Merge non-intersecting part of next into r. */
+		if (net2_buffer_length(next->data) > r_end - next->offset) {
+			net2_buffer_drain(next->data, r_end - next->offset);
+			next->offset = r_end;
+			if (net2_buffer_append(r->data, next->data)) {
+				/* TODO: prevent modification until succes. */
+				RB_INSERT(net2_carver_ranges, &c->ranges,
+				    next);
+				return ENOMEM;
+			}
+			r_end += net2_buffer_length(next->data);
+		}
+
+		/* Release next. */
+		net2_buffer_free(next->data);
+		net2_free(next);
+
+		/* Keep going by eating the next entry as well. */
+		next = next_next;
+	}
+
+	/* Update combiner ranges. */
+	if (prev == NULL) {
+		/* r does not connect with any previous range. */
+		RB_INSERT(net2_carver_ranges, &c->ranges, r);
+	} else {
+		/* r merges with prev. */
+		if (net2_buffer_append(prev->data, r->data))
+			return ENOMEM;
+		net2_buffer_free(r->data);
+		net2_free(r);
+	}
+
+	return 0;
+}
+
 /* Accept a message for the combiner. */
 ILIAS_NET2_EXPORT int
 net2_combiner_accept(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
@@ -693,89 +852,6 @@ fail_0:
 	return error;
 }
 
-/* Read back carver range message into r. */
-static int
-combiner_msg_to_range(struct net2_combiner *c, struct net2_carver_range *r,
-    struct net2_encdec_ctx *ctx, struct net2_buffer *in)
-{
-	union {
-		struct carver_msg_16
-				 msg16;
-		struct carver_msg_32
-				 msg32;
-	}			 msg;
-	void			*msg_ptr;
-	const struct command_param
-				*cp;
-	struct net2_buffer	*data = NULL;
-	size_t			 offset;
-	int			 error;
-	size_t			 max;
-
-	/* Decide on which decoder to use. */
-	switch (c->flags & NET2_CARVER_F_BITS) {
-	default:
-		return EINVAL;
-	case NET2_CARVER_F_16BIT:
-		cp = &cp_carver_msg_16;
-		msg_ptr = &msg.msg16;
-		max = 0xffffU;
-		break;
-	case NET2_CARVER_F_32BIT:
-		cp = &cp_carver_msg_32;
-		msg_ptr = &msg.msg32;
-		max = 0xffffffffU;
-		break;
-	}
-
-	/* Decode message. */
-	if ((error = net2_cp_init(cp, msg_ptr, NULL)) != 0)
-		return error;
-	if ((error = net2_cp_decode(ctx, cp, msg_ptr, in, NULL)) != 0)
-		goto out;
-
-	/* Extract data from decoded message. */
-	switch (c->flags & NET2_CARVER_F_BITS) {
-	case NET2_CARVER_F_16BIT:
-		data = msg.msg16.payload;
-		msg.msg32.payload = NULL;	/* Claim ownership. */
-		offset = msg.msg16.offset;
-		break;
-	case NET2_CARVER_F_32BIT:
-		data = msg.msg32.payload;
-		msg.msg32.payload = NULL;	/* Claim ownership. */
-		offset = msg.msg32.offset;
-		break;
-	}
-	assert(data != NULL);
-
-	r->offset = offset;
-	r->data = data;
-	error = 0;
-
-	/*
-	 * Use expected size instead of max, if expected size data has
-	 * been received.
-	 */
-	if (c->flags & NET2_CARVER_F_KNOWN_SZ)
-		max = c->expected_size;
-
-	/* Validation: may not overflow. */
-	if (r->offset + net2_buffer_length(data) < r->offset) {
-		net2_buffer_free(data);
-		return EINVAL;
-	}
-	/* Validation: must fit within 16/32 bit. */
-	if (r->offset + net2_buffer_length(data) - 1 > max) {
-		net2_buffer_free(data);
-		return EINVAL;
-	}
-
-out:
-	net2_cp_destroy(cp, msg_ptr, NULL);
-	return error;
-}
-
 /* Decode carver setup message. */
 static int
 combiner_setup_msg(struct net2_combiner *c, struct net2_encdec_ctx *ctx,
@@ -864,84 +940,6 @@ out:
 	return error;
 }
 
-/*
- * Place message into combiner.
- * Will take full ownership of r (possibly freeing it).
- */
-static int
-combiner_msg_combine(struct net2_combiner *c, struct net2_carver_range *r)
-{
-	struct net2_carver_range search, *next, *prev;
-	size_t			 prev_end;
-	size_t			 r_end;
-
-	r_end = r->offset + net2_buffer_length(r->data);
-	search.offset = r->offset + 1;
-	next = RB_NFIND(net2_carver_ranges, &c->ranges, &search);
-	if (next == NULL)
-		prev = RB_MAX(net2_carver_ranges, &c->ranges);
-	else
-		prev = RB_PREV(net2_carver_ranges, &c->ranges, next);
-
-	assert(prev == NULL || prev->offset <= r->offset);
-	assert(next == NULL || next->offset > r->offset);
-
-	/* Break intersection with prev. */
-	if (prev != NULL) {
-		prev_end = prev->offset + net2_buffer_length(prev->data);
-		if (prev_end >= r->offset) {
-			net2_buffer_drain(r->data, prev_end - r->offset);
-			r->offset = prev_end;
-		} else
-			prev = NULL;
-	}
-
-	/* Merge next into r. */
-	while (next != NULL && next->offset <= r_end) {
-		/* Prepare for next step in this loop. */
-		struct net2_carver_range
-				*next_next;
-		next_next = RB_NEXT(net2_carver_ranges, &c->ranges, next);
-
-		/* Remove next, since we'll ditch it in favour of r. */
-		RB_REMOVE(net2_carver_ranges, &c->ranges, next);
-
-		/* Merge non-intersecting part of next into r. */
-		if (net2_buffer_length(next->data) > r_end - next->offset) {
-			net2_buffer_drain(next->data, r_end - next->offset);
-			next->offset = r_end;
-			if (net2_buffer_append(r->data, next->data)) {
-				/* TODO: prevent modification until succes. */
-				RB_INSERT(net2_carver_ranges, &c->ranges,
-				    next);
-				return ENOMEM;
-			}
-			r_end += net2_buffer_length(next->data);
-		}
-
-		/* Release next. */
-		net2_buffer_free(next->data);
-		net2_free(next);
-
-		/* Keep going by eating the next entry as well. */
-		next = next_next;
-	}
-
-	/* Update combiner ranges. */
-	if (prev == NULL) {
-		/* r does not connect with any previous range. */
-		RB_INSERT(net2_carver_ranges, &c->ranges, r);
-	} else {
-		/* r merges with prev. */
-		if (net2_buffer_append(prev->data, r->data))
-			return ENOMEM;
-		net2_buffer_free(r->data);
-		net2_free(r);
-	}
-
-	return 0;
-}
-
 /* Combiner promise data release function. */
 static void
 combiner_result_free(void *bufptr, void *unused ILIAS_NET2__unused )
@@ -984,7 +982,9 @@ carver_txcb_ack(void *c_ptr, void *r_ptr)
 	struct net2_carver_range*r = r_ptr;
 	struct net2_carver	*c = c_ptr;
 
+	assert(c != NULL && r != NULL);
 	assert(RB_FIND(net2_carver_ranges, &c->ranges, r) == r);
+
 	RB_REMOVE(net2_carver_ranges, &c->ranges, r);
 	if (r->flags & RANGE_ON_TXQ) {
 		r->flags &= ~RANGE_ON_TXQ;

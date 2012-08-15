@@ -1102,7 +1102,6 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 			wqf = atomic_fetch_and_explicit(&wq->flags, ~WQ_KILLME,
 			    memory_order_relaxed);
 			assert(wqf & WQ_KILLME);
-			wqf &= ~WQ_KILLME;
 		}
 	}
 
@@ -1123,7 +1122,6 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 		 * attempts at referencing the workq, allow a short duration
 		 * spin.
 		 */
-		spin = SPIN;
 		for (spin = SPIN; spin > 0; spin--) {
 			jf = atomic_fetch_or_explicit(&j->flags, JOB_DEREFING,
 			    memory_order_acquire);

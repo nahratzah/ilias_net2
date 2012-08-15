@@ -180,6 +180,8 @@ test_encdec(int alg)
 
 	net2_buffer_free(encrypted);
 	net2_buffer_free(decrypted);
+	free(key);
+	free(iv);
 	return 0;
 }
 

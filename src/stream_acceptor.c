@@ -824,6 +824,7 @@ sa_merge(struct net2_sa_tx *sa, struct range_tree *tree,
 		/* Remove remaining entries. */
 		while (next != prev) {
 			r = next;
+			assert(r != NULL);
 			next = RB_PREV(range_tree, tree, next);
 			RB_REMOVE(range_tree, tree, r);
 			sa_range_free(r);
@@ -833,6 +834,7 @@ sa_merge(struct net2_sa_tx *sa, struct range_tree *tree,
 		if ((r = sa_range_new(sa, start, end)) == NULL)
 			return -1;		/* Only failure case. */
 		RB_INSERT(range_tree, tree, r);
+		r = NULL;
 	}
 
 	return 0;

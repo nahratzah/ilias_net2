@@ -188,9 +188,13 @@ net2_signset_all_fingerprints(struct net2_signset *s,
 	if (s == NULL || listptr == NULL || countptr == NULL)
 		return EINVAL;
 
-	if (s->size == 0)
+	if (s->size == 0) {
+		/* Empty list. */
 		list = NULL;
-	else if ((list = net2_calloc(s->size, sizeof(*list))) == NULL)
+		count = 0;
+		goto out;
+	}
+	if ((list = net2_calloc(s->size, sizeof(*list))) == NULL)
 		return ENOMEM;
 
 	count = 0;
@@ -202,6 +206,7 @@ net2_signset_all_fingerprints(struct net2_signset *s,
 		count++;
 	}
 
+out:
 	*listptr = list;
 	*countptr = count;
 	return 0;

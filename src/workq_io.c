@@ -763,11 +763,8 @@ net2_workq_io_destroy(struct net2_workq_io *dg)
 ILIAS_NET2_EXPORT void
 net2_workq_io_activate_rx(struct net2_workq_io *dg)
 {
-	struct ev_loop		*loop;
-
 	if (dg->rx_cb == NULL)
 		return;
-	loop = net2_workq_get_evloop(dg->wq);
 
 	net2_mutex_lock(dg->rx_guard);
 	net2_mutex_lock(dg->fguard);
@@ -781,10 +778,6 @@ net2_workq_io_activate_rx(struct net2_workq_io *dg)
 ILIAS_NET2_EXPORT void
 net2_workq_io_deactivate_rx(struct net2_workq_io *dg)
 {
-	struct ev_loop		*loop;
-
-	loop = net2_workq_get_evloop(dg->wq);
-
 	net2_mutex_lock(dg->rx_guard);
 	net2_mutex_lock(dg->fguard);
 	dg->flags &= ~IO_FLAG_RX;

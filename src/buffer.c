@@ -385,6 +385,7 @@ segment_getptr(struct net2_buffer_segment *s)
 	uint8_t				*p;
 	struct reference		*r;
 
+	assert(s != NULL && s->data != NULL);
 	if (s->data->flags & BUF_REFERENCE) {
 		r = get_reference(s->data);
 		p = r->data;
@@ -787,7 +788,7 @@ net2_buffer_pullup(struct net2_buffer *b, size_t len)
 	 * in the above loop.
 	 */
 	ASSERTBUFFER(b);
-	return (fail ? NULL : segment_getptr(&list[0]));
+	return (fail ? NULL : segment_getptr(&b->list[0]));
 }
 
 /*

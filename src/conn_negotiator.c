@@ -736,6 +736,8 @@ net2_cneg_accept(struct net2_conn_negotiator *cn, struct packet_header *ph,
 			    &ectx, buf);
 			net2_encdec_ctx_deinit(&ectx);
 		}
+		if (error != 0)
+			goto fail;
 	}
 
 	cn->recv_no_send = 1;

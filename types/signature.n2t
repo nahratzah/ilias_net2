@@ -152,8 +152,10 @@ net2_signature_validate(struct net2_signature *s,
 
 
 	/* Skip obvious non-match: wrong algorithm. */
-	if (strcmp(net2_signctx_name(signature), s->sign_alg) != 0)
+	if (strcmp(net2_signctx_name(signature), s->sign_alg) != 0) {
 		error = EINVAL;
+		goto fail_0;
+	}
 
 	/* Correct algorithm, test. */
 	if (net2_signctx_validate(signature, s->data, hash))
