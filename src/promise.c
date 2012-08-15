@@ -220,13 +220,13 @@ net2_promise_unlock(struct net2_promise *p)
 
 	/* Break the combi chain. */
 	if (combi != NULL) {
-		nprom = combi->nprom;
-		combi->nprom = 0;
 		/* Prevent combi from being released twice. */
 		net2_refcnt_ref(&combi->base.refcnt, combi->base.mtx, 0);
 
 		net2_promise_event_deinit(&combi->work);
 
+		nprom = combi->nprom;
+		combi->nprom = 0;
 		for (i = 0; i < nprom; i++)
 			net2_promise_event_deinit(&combi->events[i]);
 
