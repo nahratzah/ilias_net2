@@ -167,8 +167,8 @@ workq_busy_destroy()
 	net2_workq_evbase_release(wqev);
 
 	for (i = 0; i < COUNT; i++) {
-		net2_workq_init_work(&j[i], wq[i], &workq_want_job, NULL, NULL,
-		    NET2_WORKQ_PERSIST);
+		net2_workq_init_work(&j[i], wq[i], &workq_busy_destroy_job,
+		    NULL, NULL, NET2_WORKQ_PERSIST);
 	}
 	for (i = 0; i < COUNT; i++)
 		net2_workq_activate(&j[i], 0);
