@@ -192,7 +192,7 @@ net2_cond_alloc(ARGS)
 	struct net2_condition	*c;
 	int			 rv;
 
-	if ((c = net2_malloc(sizeof(c))) == NULL)
+	if ((c = net2_malloc(sizeof(*c))) == NULL)
 		return NULL;
 
 	if ((rv = pthread_cond_init(&c->n2c_impl, NULL)) != 0) {
