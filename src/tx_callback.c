@@ -342,7 +342,7 @@ txcb_entry_fn(void *e_ptr, void *arg1)
 	int			 active;
 
 	assert(e != NULL);
-	assert(e->active > 0 && e->active < Q__SIZE);
+	assert(e->active >= 0 && e->active < Q__SIZE);
 
 	net2_mutex_lock(e->change_mtx);
 	active = e->active;
