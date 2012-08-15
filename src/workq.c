@@ -33,6 +33,14 @@
 #include EV_C
 #endif
 
+#ifndef WIN32
+#include <pthread.h>
+#ifdef __linux__
+#include <sched.h>
+#define pthread_yield()		sched_yield()
+#endif
+#endif
+
 /*
  * net2_workq, net2_workq_evbase, net2_workq_job implementation.
  *
@@ -97,7 +105,6 @@ thryield()
 		Sleep(1);	/* Sleep one millisecond. */
 }
 #elif defined(HAS_NANOSLEEP)
-#include <pthread.h>
 static void
 thryield()
 {
@@ -118,7 +125,6 @@ thryield()
 	}
 }
 #else
-#include <pthread.h>
 static __inline void
 thryield()
 {
