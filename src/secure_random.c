@@ -139,11 +139,13 @@ devrandom_secure_random_init()
 {
 	int	saved_errno;
 
-	/* Open /dev/random. */
-	fd = open("/dev/random", O_RDONLY, 0);
+	/* Open /dev/urandom if it exists, otherwise open /dev/random. */
+	fd = open("/dev/urandom", O_RDONLY, 0);
+	if (fd == -1)
+		fd = open("/dev/random", O_RDONLY, 0);
 	if (fd == -1) {
 		saved_errno = errno;
-		warn("failed to open /dev/random");
+		warn("failed to open random device");
 		return saved_errno;
 	}
 	return 0;
@@ -158,7 +160,7 @@ devrandom_secure_random_deinit()
 	/* Close /dev/random. */
 	while (close(fd)) {
 		if (errno != EINTR) {
-			warn("failed to close /dev/random");
+			warn("failed to close random device");
 			break;
 		}
 	}
