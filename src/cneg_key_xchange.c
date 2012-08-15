@@ -1639,6 +1639,14 @@ fail_0:
 ILIAS_NET2_LOCAL void
 net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 {
+	struct net2_workq	*wq = ke->initial.wq;
+	int			 want;
+
+	/* Block workq from running jobs on our behalf
+	 * during deinitialization. */
+	want = net2_workq_want(wq, 0);
+	assert(want == 0 || want == EDEADLK);
+
 	net2_promise_cancel(ke->complete);
 	net2_promise_cancel(ke->keys);
 	net2_promise_release(ke->complete);
@@ -1653,7 +1661,6 @@ net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 	/*
 	 * Clean up initial arguments.
 	 */
-	net2_workq_release(ke->initial.wq);
 	net2_encdec_ctx_deinit(&ke->initial.ectx);
 
 	while (ke->initial.num_outsigs-- > 0)
@@ -1667,6 +1674,11 @@ net2_cneg_key_xchange_free(struct net2_cneg_key_xchange *ke)
 		net2_free(ke->initial.insigs);
 
 	net2_free(ke);
+
+	/* Unwant and release the workq. */
+	if (want == 0)
+		net2_workq_unwant(wq);
+	net2_workq_release(wq);
 }
 
 
