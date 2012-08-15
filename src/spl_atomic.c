@@ -16,7 +16,7 @@ static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
  * if need be.
  */
 #define LOCK(v)		pthread_mutex_lock(&mtx)
-#define UNLOCK(v)	pthread_mutex_lock(&mtx)
+#define UNLOCK(v)	pthread_mutex_unlock(&mtx)
 
 #define BODY(v, oldval, newval)						\
 	int	success;						\
