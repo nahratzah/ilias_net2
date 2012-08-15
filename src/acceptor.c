@@ -55,7 +55,7 @@ net2_acceptor_socket_destroy(struct net2_acceptor_socket *s)
 	want = net2_workq_want(wq, 0);
 	assert(want == 0 || want == EDEADLK);
 	(*s->fn->destroy)(s);
-	if (want != 0)
+	if (want == 0)
 		net2_workq_unwant(wq);
 	net2_workq_release(wq);
 }
