@@ -44,34 +44,25 @@
 
 struct net2_conn_p2p;
 
-ILIAS_NET2_LOCAL
-void	 net2_conn_p2p_destroy(struct net2_acceptor_socket*);
-ILIAS_NET2_LOCAL
-void	 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket*);
+static void	 net2_conn_p2p_destroy(struct net2_acceptor_socket*);
+static void	 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket*);
 
-ILIAS_NET2_LOCAL
-void	 net2_conn_p2p_recv(void*, struct net2_dgram_rx*);
-ILIAS_NET2_LOCAL
-struct net2_promise
-	*net2_conn_p2p_send(void*, size_t);
-ILIAS_NET2_LOCAL
-void	 net2_udpsocket_recv(void*, struct net2_dgram_rx*);
-ILIAS_NET2_LOCAL
-struct net2_promise
-	*net2_udpsocket_send(void*, size_t);
+static void	 net2_conn_p2p_recv(void*, struct net2_dgram_rx*);
+static struct net2_promise
+		*net2_conn_p2p_send(void*, size_t);
+static void	 net2_udpsocket_recv(void*, struct net2_dgram_rx*);
+static struct net2_promise
+		*net2_udpsocket_send(void*, size_t);
 
-ILIAS_NET2_LOCAL
-void	 net2_udpsock_unlock(struct net2_udpsocket*);
-ILIAS_NET2_LOCAL
-void	 net2_udpsock_conn_unlink(struct net2_udpsocket*,
-	    struct net2_conn_p2p*);
-ILIAS_NET2_LOCAL
-void	 net2_udpsock_conn_wantsend(struct net2_udpsocket*,
-	    struct net2_conn_p2p*);
+static void	 net2_udpsock_unlock(struct net2_udpsocket*);
+static void	 net2_udpsock_conn_unlink(struct net2_udpsocket*,
+		    struct net2_conn_p2p*);
+static void	 net2_udpsock_conn_wantsend(struct net2_udpsocket*,
+		    struct net2_conn_p2p*);
 
 static struct net2_promise
-	*net2_udpsocket_gather(struct net2_connection*,
-	    size_t, struct sockaddr*, socklen_t);
+		*net2_udpsocket_gather(struct net2_connection*,
+		    size_t, struct sockaddr*, socklen_t);
 
 
 static const struct net2_acceptor_socket_fn udp_conn_fn = {
@@ -125,7 +116,7 @@ struct net2_udpsocket {
  *
  * Only implemented for AF_INET and AF_INET6.
  */
-ILIAS_NET2_LOCAL int
+static int
 np2p_remote_cmp(struct net2_conn_p2p *c1, struct net2_conn_p2p *c2)
 {
 	int			 f1, f2;
@@ -385,7 +376,7 @@ net2_conn_p2p_socket_release(struct net2_udpsocket *sock)
 	net2_udpsock_unlock(sock);
 }
 
-ILIAS_NET2_LOCAL void
+static void
 net2_conn_p2p_destroy(struct net2_acceptor_socket *cptr)
 {
 	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
@@ -411,7 +402,7 @@ net2_conn_p2p_destroy(struct net2_acceptor_socket *cptr)
 /*
  * Mark connection as ready-to-send.
  */
-ILIAS_NET2_LOCAL void
+static void
 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket *cptr)
 {
 	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
@@ -426,7 +417,7 @@ net2_conn_p2p_ready_to_send(struct net2_acceptor_socket *cptr)
  * P2P connection specific implementation of receive.
  * Only to be used on connected datagram sockets.
  */
-ILIAS_NET2_LOCAL void
+static void
 net2_conn_p2p_recv(void *cptr, struct net2_dgram_rx *rx)
 {
 	struct net2_conn_p2p	*c = cptr;
@@ -441,7 +432,7 @@ net2_conn_p2p_recv(void *cptr, struct net2_dgram_rx *rx)
 	net2_connection_recv(&c->np2p_conn, r);
 }
 
-ILIAS_NET2_LOCAL struct net2_promise*
+static struct net2_promise*
 net2_conn_p2p_send(void *cptr, size_t maxsz)
 {
 	struct net2_conn_p2p	*c = cptr;
@@ -452,7 +443,7 @@ net2_conn_p2p_send(void *cptr, size_t maxsz)
 /*
  * UDP specific implementation of receive.
  */
-ILIAS_NET2_LOCAL void
+static void
 net2_udpsocket_recv(void *udps_ptr, struct net2_dgram_rx *rx)
 {
 	struct net2_udpsocket	*udps = udps_ptr;
@@ -592,7 +583,7 @@ fail_0:
 	return NULL;
 }
 
-ILIAS_NET2_LOCAL struct net2_promise*
+static struct net2_promise*
 net2_udpsocket_send(void *udps_ptr, size_t maxsz)
 {
 	struct net2_udpsocket	*udps = udps_ptr;
@@ -623,7 +614,7 @@ net2_udpsocket_send(void *udps_ptr, size_t maxsz)
 }
 
 /* Unlock socket and remove it if it has no references. */
-ILIAS_NET2_LOCAL void
+static void
 net2_udpsock_unlock(struct net2_udpsocket *sock)
 {
 	int		do_rm;
@@ -646,7 +637,7 @@ net2_udpsock_unlock(struct net2_udpsocket *sock)
 }
 
 /* Remove a connection from a udp socket. */
-ILIAS_NET2_LOCAL void
+static void
 net2_udpsock_conn_unlink(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
 {
 	net2_mutex_lock(sock->guard);
@@ -655,7 +646,7 @@ net2_udpsock_conn_unlink(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
 	net2_udpsock_unlock(sock);
 }
 
-ILIAS_NET2_LOCAL void
+static void
 net2_udpsock_conn_wantsend(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
 {
 	if (c->np2p_flags & NP2P_F_SENDQ)
