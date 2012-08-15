@@ -28,6 +28,9 @@ struct net2_condition;
 #if MEMDEBUG
 #define MTX_ARGS	const char *, const char *, int
 #define MTX_ARGS_	, MTX_ARGS
+#else
+#define MTX_ARGS	/* nothing */
+#define MTX_ARGS_	/* nothing */
 #endif
 
 ILIAS_NET2_LOCAL
