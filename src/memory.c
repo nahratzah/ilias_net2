@@ -559,7 +559,7 @@ init_fault()
 
 	bzero(&sa, sizeof(sa));
 	sa.sa_sigaction = &i_fault_handler;
-	sa.sa_mask = 0;
+	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
 	if (sigaction(SIGSEGV, &sa, NULL) == 0)
 		return 0;
