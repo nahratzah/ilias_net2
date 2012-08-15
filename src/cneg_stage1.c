@@ -595,6 +595,10 @@ sets_elem_errfin(struct sets *s, uint32_t idx, int err)
 	struct sets_elem	*se;
 	int			 error;
 
+	if ((idx & F_TYPEMASK) != idx || !(idx & F_SET_ELEMENT))
+		return EINVAL;
+	idx &= ~F_SET_ELEMENT;
+
 	assert(err > 0);
 	assert(idx < s->len);
 	se = &s->rcv[idx];
@@ -616,6 +620,10 @@ sets_elem_testfin(struct sets *s, uint32_t idx)
 {
 	struct sets_elem	*se;
 	int			 error;
+
+	if ((idx & F_TYPEMASK) != idx || !(idx & F_SET_ELEMENT))
+		return EINVAL;
+	idx &= ~F_SET_ELEMENT;
 
 	assert(idx < s->len);
 	se = &s->rcv[idx];
