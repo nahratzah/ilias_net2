@@ -37,7 +37,6 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/mman.h>
-#include <sys/siginfo.h>
 #include <signal.h>
 #include <stdarg.h>
 
