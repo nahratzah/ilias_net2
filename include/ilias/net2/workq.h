@@ -129,6 +129,13 @@ net2_workq_init_work_null(struct net2_workq_job *j)
 	j->fn = NULL;
 }
 
+/* Test if a workq job is a null job. */
+static __inline int
+net2_workq_work_is_null(struct net2_workq_job *j)
+{
+	return j->fn == NULL;
+}
+
 ILIAS_NET2_LOCAL
 struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq*);
