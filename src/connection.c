@@ -132,6 +132,7 @@ net2_connection_deinit(struct net2_connection *conn)
 
 	net2_acceptor_socket_deinit(&conn->n2c_socket);
 	net2_mutex_free(conn->n2c_recvmtx);
+	net2_mutex_free(conn->n2c_sendmtx);
 }
 
 /*
