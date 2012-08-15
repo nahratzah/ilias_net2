@@ -815,7 +815,7 @@ net2_workq_io_tx_pdata_free(void *pd_ptr, void * ILIAS_NET2__unused unused)
 				*pd = pd_ptr;
 
 	if (pd->data != NULL)
-		net2_free(pd->data);
+		net2_buffer_free(pd->data);
 	if (pd->tx_done != NULL) {
 		net2_promise_set_cancel(pd->tx_done, 0);
 		net2_promise_release(pd->tx_done);
