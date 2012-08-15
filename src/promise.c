@@ -321,7 +321,7 @@ prom_on_run(struct net2_promise *p)
 		assert(&c->base == p);
 
 		if (c->need_fin > 0)
-			return;
+			goto skip_pcb;
 	}
 
 	if ((pcb = TAILQ_FIRST(&p->event[NET2_PROM_ON_RUN])) != NULL) {
@@ -330,6 +330,7 @@ prom_on_run(struct net2_promise *p)
 		p->flags |= (NET2_PROM_F_RUN_FIRED | NET2_PROM_F_RUNNING);
 	}
 
+skip_pcb:
 	/*
 	 * Recurse into referenced promises of combi promise.
 	 */
