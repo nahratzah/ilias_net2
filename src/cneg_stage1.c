@@ -1043,6 +1043,7 @@ fail_5:
 	/* Destroy the single values. */
 	while (s->sv_len-- > 0)
 		val_deinit(&s->sv[s->sv_len]);
+	net2_free(s->sv);
 fail_4:
 	net2_promise_release(s->tx_complete);
 fail_3:
@@ -1090,6 +1091,7 @@ cneg_stage1_free(struct net2_cneg_stage1 *s)
 	/* Destroy the single values. */
 	while (s->sv_len-- > 0)
 		val_deinit(&s->sv[s->sv_len]);
+	net2_free(s->sv);
 	/* Clear the single-values received bits. */
 	net2_bitset_deinit(&s->received);
 
