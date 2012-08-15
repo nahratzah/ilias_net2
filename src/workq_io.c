@@ -651,7 +651,7 @@ net2_workq_io_new(struct net2_workq *wq, net2_socket_t socket,
 	ev_io_init(&dg->rx_watcher, &rx_evcb, socket, EV_READ);
 	ev_io_init(&dg->tx_watcher, &tx_evcb, socket, EV_WRITE);
 	dg->wq = wq;
-	net2_workq_ref(wq);
+	net2_workq_ref(wq);	/* fail_5 handles error. */
 
 	/* Add tx, rx. */
 	if (tx_new(dg, MAX_TX) != 0 || rx_new(dg, MAX_RX) != 0)
@@ -673,6 +673,8 @@ fail_7:
 fail_6:
 	net2_workq_deinit_work(&dg->ask_for_tx);
 fail_5:
+	/* Release workq. */
+	net2_workq_release(wq);
 	/* Clean up any succesful dgrx's. */
 	while ((dgrx = TAILQ_FIRST(&dg->rx_spare)) != NULL) {
 		TAILQ_REMOVE(&dg->rx_spare, dgrx, q);
