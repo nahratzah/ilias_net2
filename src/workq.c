@@ -1524,7 +1524,6 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	TAILQ_INSERT_TAIL(&wq->members, j, members);
 	net2_spinlock_unlock(&wq->spl);
 
-	workq_ref(wq);
 	return 0;
 }
 /* Deinit a job. */
