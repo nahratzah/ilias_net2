@@ -7,6 +7,7 @@
  */
 #if !defined(HAVE_STDATOMIC_H) && !defined(WIN32)
 #include <pthread.h>
+#include <assert.h>
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -20,6 +21,9 @@ static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
 #define BODY(v, oldval, newval)						\
 	int	success;						\
+									\
+	assert(v != NULL);						\
+	assert(oldval != NULL);						\
 									\
 	LOCK(v);							\
 	success = (*v == *oldval);					\
@@ -58,6 +62,9 @@ atomic_compare_exchange8_strong(volatile int8_t *v,
 
 #define BODY(v, oldval, newval)						\
 	int success;							\
+									\
+	assert(v != NULL);						\
+	assert(oldval != NULL);						\
 									\
 	if (*v != *oldval) {						\
 		*oldval = *v;						\
@@ -102,6 +109,8 @@ atomic_compare_exchange8_weak(volatile int8_t *v,
 #define BODY(type, v)							\
 	type rv;							\
 									\
+	assert(v != NULL);						\
+									\
 	LOCK(v);							\
 	rv = *v;							\
 	UNLOCK(v);							\
@@ -130,6 +139,8 @@ atomic_load8(volatile int8_t *v)
 
 
 #define BODY(v, newval)							\
+	assert(v != NULL);						\
+									\
 	LOCK(v);							\
 	*v = newval;							\
 	UNLOCK(v);
@@ -158,6 +169,8 @@ atomic_store8(volatile int8_t *v, int8_t newval)
 
 #define BODY(type, v, delta)						\
 	type orig;							\
+									\
+	assert(v != NULL);						\
 									\
 	LOCK(v);							\
 	orig = *v;							\
@@ -190,6 +203,8 @@ atomic_fetch_add8(volatile int8_t *v, uint8_t delta)
 #define BODY(type, v, delta)						\
 	type orig;							\
 									\
+	assert(v != NULL);						\
+									\
 	LOCK(v);							\
 	orig = *v;							\
 	*v -= delta;							\
@@ -221,6 +236,8 @@ atomic_fetch_sub8(volatile int8_t *v, uint8_t delta)
 #define BODY(type, v, delta)						\
 	type orig;							\
 									\
+	assert(v != NULL);						\
+									\
 	LOCK(v);							\
 	orig = *v;							\
 	*v |= delta;							\
@@ -251,6 +268,8 @@ atomic_fetch_or8(volatile int8_t *v, int8_t delta)
 
 #define BODY(type, v, delta)						\
 	type orig;							\
+									\
+	assert(v != NULL);						\
 									\
 	LOCK(v);							\
 	orig = *v;							\
