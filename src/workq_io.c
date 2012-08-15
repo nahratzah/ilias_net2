@@ -563,7 +563,6 @@ tx_ask(void *dg_ptr, void * ILIAS_NET2__unused unused)
 
 	/* Acquire promise for more tx data. */
 	if ((dgtx->tx_promdata = dgram_get_tx_promise(dg)) == NULL) {
-no_new_tx:
 		net2_mutex_lock(dg->tx_guard);
 		net2_workq_deactivate(&dg->ask_for_tx);
 		TAILQ_INSERT_TAIL(&dg->tx_spare, dgtx, q);
@@ -589,7 +588,9 @@ no_new_tx:
 		TAILQ_INSERT_TAIL(&dg->tx_spare, dgtx, q);
 		net2_mutex_unlock(dg->tx_guard);
 
+#if 0
 		net2_workq_activate(&dg->ask_for_tx, 0);
+#endif
 		return;
 	}
 
@@ -597,6 +598,8 @@ no_new_tx:
 	 * Put dgtx on queue of outstanding requests.
 	 */
 	net2_mutex_lock(dg->tx_guard);
+	if (TAILQ_EMPTY(&dg->tx_queue))
+		dgram_tx_activate(dg);
 	TAILQ_INSERT_TAIL(&dg->tx_queue, dgtx, q);
 	net2_mutex_unlock(dg->tx_guard);
 
