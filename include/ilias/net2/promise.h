@@ -118,28 +118,20 @@ static __inline void
 net2_promise_event_deinit(struct net2_promise_event *ev)
 {
 	net2_workq_deinit_work(net2_promise_event_wqjob(ev));
-	ev->owner = NULL;
-	ev->fn = NULL;
-	ev->evno = -1;
-	ev->arg0 = NULL;
 }
 
 /* Initialize a null event. */
 static __inline void
 net2_promise_event_init_null(struct net2_promise_event *ev)
 {
-	ev->owner = NULL;
-	ev->fn = NULL;
-	ev->evno = -1;
-	ev->arg0 = NULL;
-	net2_workq_init_work_null(&ev->job);
+	net2_workq_init_work_null(net2_promise_event_wqjob(ev));
 }
 
 /* Test if the event is a null event. */
 static __inline int
 net2_promise_event_is_null(struct net2_promise_event *ev)
 {
-	return ev->owner == NULL;
+	return net2_workq_work_is_null(net2_promise_event_wqjob(ev));
 }
 
 
