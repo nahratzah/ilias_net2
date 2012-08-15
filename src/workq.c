@@ -244,6 +244,11 @@ struct net2_workq_evbase {
 						 * threads. */
 			 dead_workers;		/* All dead worker
 						 * threads. */
+
+	atomic_int	 evl_running;		/* True if a thread is running
+						 * evloop. */
+#define EVL_NOWAIT	1			/* Running in no-wait mode. */
+#define EVL_WAIT	2			/* Running in wait more. */
 };
 
 /*
@@ -267,6 +272,7 @@ struct net2_workq_evbase_worker {
 
 static void	evloop_wakeup(struct ev_loop*, ev_async*, int);
 static void	evloop_new_event(struct ev_loop*, ev_async*, int);
+static void	run_evl(struct net2_workq_evbase*, int);
 
 
 /* Only called with non-zero reference count. */
@@ -316,6 +322,16 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	/* Activate worker. */
 	if (net2_semaphore_trydown(&wqev->thr_idle))
 		net2_semaphore_up(&wqev->thr_active, 1);
+	/* XXX smart code here */
+	if (atomic_load_explicit(&wqev->evl_running, memory_order_relaxed) ==
+	    EVL_WAIT) {
+		struct ev_loop	*evl;
+
+		evl = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
+		    memory_order_relaxed);
+		assert(evl != NULL);
+		ev_async_send(evl, &wqev->ev_wakeup);
+	}
 
 	net2_spinlock_unlock(&wqev->spl);
 	return fl;
@@ -1320,6 +1336,7 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 		goto fail_8;
 	TAILQ_INIT(&wqev->workers);
 	TAILQ_INIT(&wqev->dead_workers);
+	atomic_init(&wqev->evl_running, 0);
 
 	if (net2_workq_set_thread_count(wqev, jobthreads, maxthreads)) {
 		net2_workq_set_thread_count(wqev, 0, 0);
@@ -1405,7 +1422,7 @@ net2_workq_evbase_evloop_changed(struct net2_workq_evbase *wqev)
 	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop,
 	    memory_order_relaxed));
 	if (evl != NULL)
-		ev_async_send(evl, &wqev->ev_wakeup);
+		ev_async_send(evl, &wqev->ev_newevent);
 }
 
 /* Create a new workq. */
@@ -1673,6 +1690,7 @@ static void
 evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
     int events ILIAS_NET2__unused)
 {
+	fprintf(stderr, "\tevloop wakeup\n");
 	ev_break(loop, EVBREAK_ALL);
 }
 
@@ -1686,6 +1704,7 @@ evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused,
 	 * Do nothing: desired behaviour is a side effect from invoking this
 	 * function.
 	 */
+	fprintf(stderr, "\tevloop new event\n");
 }
 
 /* Acquire a queued workq from the wqev. */
@@ -1818,7 +1837,12 @@ wqev_worker(void *wthr_ptr)
 	 */
 	for (;;) {
 		did_something = 0;
-		net2_semaphore_down(&wqev->thr_active);
+		if (!net2_semaphore_trydown(&wqev->thr_active)) {
+			run_evl(wqev, 0);
+			net2_semaphore_down(&wqev->thr_active);
+		} else
+			run_evl(wqev, 1);
+
 		if (net2_semaphore_trydown(&wqev->thr_die))
 			break;	/* GUARD */
 
@@ -2027,6 +2051,9 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	wthr.evbase = wq->wqev;
 	net2_workq_evbase_ref(wthr.evbase);
 
+	/* Run event loop once. */
+	run_evl(wthr.evbase, 1);
+
 	/* Lock runq. */
 	net2_spinlock_lock(&wthr.evbase->spl);
 	wqev_locked = 1;
@@ -2077,4 +2104,35 @@ out_1:
 	net2_spinlock_deinit(&wthr.spl);
 out_0:
 	return error;
+}
+
+/* Run the event loop, if there is one. */
+static void
+run_evl(struct net2_workq_evbase *wqev, int nowait)
+{
+	struct ev_loop	*evloop;
+	int		 zero;
+
+	/* No need to run evloop if there isn't one. */
+	evloop = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
+	    memory_order_relaxed);
+	if (evloop == NULL)
+		return;
+
+	/* Try to be the only one running the evloop. */
+	zero = 0;
+	if (!atomic_compare_exchange_strong_explicit(&wqev->evl_running, &zero,
+	    (nowait ? EVL_NOWAIT : EVL_WAIT),
+	    memory_order_acquire, memory_order_relaxed))
+		return;
+
+	fprintf(stderr, "EVL RUN: %s\n", (nowait ? "nowait" : "wait"));
+
+	/* Run the event loop. */
+	ev_run(evloop, (nowait ? EVRUN_NOWAIT : 0));
+
+	fprintf(stderr, "\tdone\n");
+
+	/* Clear the flag. */
+	atomic_store_explicit(&wqev->evl_running, 0, memory_order_release);
 }
