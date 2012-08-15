@@ -346,6 +346,7 @@ tx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
 				*result;
 	int			 fin;
 	int			 send_err;
+	struct sockaddr		*sa;
 
 	/* Acquire spare rx event. */
 	net2_mutex_lock(dg->tx_guard);
@@ -366,20 +367,20 @@ tx_evcb(struct ev_loop * ILIAS_NET2__unused loop, struct ev_io *ev,
 	assert(result != NULL);
 
 	/* Put buffer on the wire. */
+	sa = (result->addrlen > 0 ? (struct sockaddr*)&result->addr : NULL);
 	send_err = net2_sockdgram_send(dg->socket, result->data,
-	    (struct sockaddr*)&result->addr, result->addrlen);
+	    sa, result->addrlen);
 	if (result->tx_done != NULL) {
 		assert(net2_promise_is_running(result->tx_done));
 		if (send_err == 0) {
 			net2_promise_set_finok(result->tx_done, NULL,
-			    NULL, NULL, 1);
-		} else
-			net2_promise_set_error(result->tx_done, send_err, 1);
+			    NULL, NULL, NET2_PROMFLAG_RELEASE);
+		} else {
+			net2_promise_set_error(result->tx_done, send_err,
+			    NET2_PROMFLAG_RELEASE);
+		}
 		result->tx_done = NULL;
 	}
-
-	/* Free buffer. */
-	net2_buffer_free(result->data);
 
 	/*
 	 * Put this tx back on tx_spare.
@@ -422,8 +423,7 @@ ready_to_send:
 		 * care about succes or failure now.
 		 * In other words: it's an optimization to do it here.
 		 */
-		net2_buffer_pullup(result->data,
-		    net2_buffer_length(result->data));
+		net2_buffer_pullup(result->data, (size_t)-1);
 #endif
 
 		/* Mark conclusion as progressing. */
@@ -566,18 +566,11 @@ tx_ask(void *dg_ptr, void * ILIAS_NET2__unused unused)
 no_new_tx:
 		net2_mutex_lock(dg->tx_guard);
 		net2_workq_deactivate(&dg->ask_for_tx);
+		TAILQ_INSERT_TAIL(&dg->tx_spare, dgtx, q);
 		net2_mutex_unlock(dg->tx_guard);
 		return;
 	}
-	/* If the promise is already completed, skip the queued phase. */
-	if (net2_promise_is_finished(dgtx->tx_promdata) == NET2_PROM_FIN_OK) {
-		net2_mutex_lock(dg->tx_guard);
-		if (TAILQ_EMPTY(&dg->tx_rts))
-			dgram_tx_activate(dg);
-		TAILQ_INSERT_TAIL(&dg->tx_rts, dgtx, q);
-		net2_mutex_unlock(dg->tx_guard);
-		return;
-	}
+
 	/* Attach promise completion event and add dgtx to tx_queue. */
 	if ((net2_promise_event_init(&dgtx->tx_promdata_ready,
 	    dgtx->tx_promdata, NET2_PROM_ON_FINISH, dg->wq,
@@ -592,10 +585,20 @@ no_new_tx:
 		net2_promise_release(dgtx->tx_promdata);
 		dgtx->tx_promdata = NULL;
 
-		net2_workq_activate(&dg->ask_for_tx, 0);
+		net2_mutex_lock(dg->tx_guard);
+		TAILQ_INSERT_TAIL(&dg->tx_spare, dgtx, q);
+		net2_mutex_unlock(dg->tx_guard);
 
-		goto no_new_tx;
+		net2_workq_activate(&dg->ask_for_tx, 0);
+		return;
 	}
+
+	/*
+	 * Put dgtx on queue of outstanding requests.
+	 */
+	net2_mutex_lock(dg->tx_guard);
+	TAILQ_INSERT_TAIL(&dg->tx_queue, dgtx, q);
+	net2_mutex_unlock(dg->tx_guard);
 
 	return;
 }
@@ -651,7 +654,8 @@ net2_workq_io_new(struct net2_workq *wq, net2_socket_t socket,
 	if (tx_new(dg, MAX_TX) != 0 || rx_new(dg, MAX_RX) != 0)
 		goto fail_5;
 	/* Initialize ask-for-tx event. */
-	if (net2_workq_init_work(&dg->ask_for_tx, wq, &tx_ask, dg, NULL, NET2_WORKQ_PERSIST) != 0)
+	if (net2_workq_init_work(&dg->ask_for_tx, wq, &tx_ask, dg, NULL,
+	    NET2_WORKQ_PERSIST) != 0)
 		goto fail_5;
 
 	/* Flag mutex. */
