@@ -437,6 +437,7 @@ net2_conn_p2p_send(void *cptr, size_t maxsz)
 {
 	struct net2_conn_p2p	*c = cptr;
 
+	net2_workq_io_deactivate_tx(c->np2p_ev);
 	return net2_udpsocket_gather(&c->np2p_conn, maxsz, NULL, 0);
 }
 
@@ -593,20 +594,12 @@ net2_udpsocket_send(void *udps_ptr, size_t maxsz)
 	/* Find something to transmit. */
 	while ((c = TAILQ_FIRST(&udps->wantwrite)) != NULL) {
 		TAILQ_REMOVE(&udps->wantwrite, c, np2p_wantwriteq);
+		c->np2p_flags &= ~NP2P_F_SENDQ;
 
 		conn_prom = net2_udpsocket_gather(&c->np2p_conn, maxsz,
 		    c->np2p_remote, c->np2p_remotelen);
 		if (conn_prom != NULL) {
 			/* Found something to transmit. */
-
-			/* Put c back on the sendq,
-			 * if it hasn't done so itself. */
-			if (c != NULL && !(c->np2p_flags & NP2P_F_SENDQ)) {
-				c->np2p_flags |= NP2P_F_SENDQ;
-				TAILQ_INSERT_TAIL(&udps->wantwrite, c,
-				    np2p_wantwriteq);
-			}
-
 			return conn_prom;
 		}
 	}

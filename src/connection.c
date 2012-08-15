@@ -547,7 +547,7 @@ txgather_invoke(void *c_ptr, void *gd_ptr)
 	/* Don't do any work if the promise was canceled. */
 	if (net2_promise_is_cancelreq(gd->prom)) {
 		net2_promise_set_cancel(gd->prom, 0);
-		return;
+		goto out;
 	}
 
 	/* Invoke actual gathering of data. */
@@ -557,19 +557,25 @@ txgather_invoke(void *c_ptr, void *gd_ptr)
 	} else if (buf == NULL) {
 		/* If there is no data, pretend we were canceled. */
 		net2_promise_set_cancel(gd->prom, 0);
-		return;
+		goto out;
 	}
 
 	/* Assign buffer as output. */
 	if (net2_promise_set_finok(gd->prom, buf, buffree2, NULL, 0)) {
 		net2_buffer_free(buf);
 		net2_promise_set_error(gd->prom, EIO, 0);
+		goto out;
 	}
+
+	/* We succesfully acquired a packet,
+	 * invoke wantsend to get asked again. */
+	net2_acceptor_socket_ready_to_send(&c->n2c_socket);
 
 	/*
 	 * Destroy gd.
 	 */
 
+out:
 	/* Cancel promise bound destruction. */
 	net2_promise_destroy_cb(gd->prom, NULL, NULL, NULL);
 	/* Remove gd from connection. */
