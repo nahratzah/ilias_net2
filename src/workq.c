@@ -1529,11 +1529,11 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	if (j->fn == NULL)
 		return;
 
+	j->fn = NULL;
 	if (predict_true(workq_job_wq_clear(j))) {
 		if (j->callbacks && j->callbacks->on_destroy)
 			j->callbacks->on_destroy(j);
 	}
-	j->fn = NULL;
 }
 /* Activate a job. */
 ILIAS_NET2_EXPORT void
