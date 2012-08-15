@@ -97,6 +97,7 @@ thryield()
 		Sleep(1);	/* Sleep one millisecond. */
 }
 #elif defined(HAS_NANOSLEEP)
+#include <pthread.h>
 static void
 thryield()
 {
