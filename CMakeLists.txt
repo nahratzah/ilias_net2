@@ -365,6 +365,7 @@ if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
 	list (APPEND srcs src/thread-pthreads.c)
 	list (APPEND srcs src/event-pthreads.c)
 
+	add_definitions(-pthread)
 	include (CheckIncludeFiles)
 	include (CheckFunctionExists)
 	set (CMAKE_EXTRA_INCLUDE_FILES "pthread.h")
