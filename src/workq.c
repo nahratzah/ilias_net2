@@ -117,6 +117,7 @@ thryield()
 	}
 }
 #else
+#include <pthread.h>
 static __inline void
 thryield()
 {
