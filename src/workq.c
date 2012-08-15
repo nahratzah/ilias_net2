@@ -1690,7 +1690,6 @@ static void
 evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
     int events ILIAS_NET2__unused)
 {
-	fprintf(stderr, "\tevloop wakeup\n");
 	ev_break(loop, EVBREAK_ALL);
 }
 
@@ -1704,7 +1703,6 @@ evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused,
 	 * Do nothing: desired behaviour is a side effect from invoking this
 	 * function.
 	 */
-	fprintf(stderr, "\tevloop new event\n");
 }
 
 /* Acquire a queued workq from the wqev. */
@@ -2126,12 +2124,8 @@ run_evl(struct net2_workq_evbase *wqev, int nowait)
 	    memory_order_acquire, memory_order_relaxed))
 		return;
 
-	fprintf(stderr, "EVL RUN: %s\n", (nowait ? "nowait" : "wait"));
-
 	/* Run the event loop. */
 	ev_run(evloop, (nowait ? EVRUN_NOWAIT : 0));
-
-	fprintf(stderr, "\tdone\n");
 
 	/* Clear the flag. */
 	atomic_store_explicit(&wqev->evl_running, 0, memory_order_release);
