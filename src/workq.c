@@ -284,15 +284,9 @@ static void	run_evl(struct net2_workq_evbase*, int);
 static void	activate_worker(struct net2_workq_evbase*);
 
 
-static void
-__hot__
-activate_worker(struct net2_workq_evbase *wqev)
+static __inline void
+evl_wakeup(struct net2_workq_evbase *wqev)
 {
-	/* Attempt to convert an idle thread to an active thread. */
-	if (net2_semaphore_trydown(&wqev->thr_idle))
-		net2_semaphore_up(&wqev->thr_active, 1);
-
-	/* XXX smart code here */
 	if (atomic_load_explicit(&wqev->evl_running, memory_order_relaxed) ==
 	    EVL_WAIT) {
 		struct ev_loop	*evl;
@@ -302,6 +296,17 @@ activate_worker(struct net2_workq_evbase *wqev)
 		assert(evl != NULL);
 		ev_async_send(evl, &wqev->ev_wakeup);
 	}
+}
+static void
+__hot__
+activate_worker(struct net2_workq_evbase *wqev)
+{
+	/* Attempt to convert an idle thread to an active thread. */
+	if (net2_semaphore_trydown(&wqev->thr_idle))
+		net2_semaphore_up(&wqev->thr_active, 1);
+
+	/* XXX smart code here */
+	evl_wakeup(wqev);
 }
 
 /* Only called with non-zero reference count. */
@@ -1909,13 +1914,15 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 				*wthr;
 	int			 i;
 
-	if (count <= 0)
-		return;
+	assert(count > 0 && count <= wqev->maxthreads);
 
 	/* Mark count threads as having to die. */
 	net2_semaphore_up(&wqev->thr_die, count);
 	/* Make the same number of threads active. */
 	net2_semaphore_up(&wqev->thr_active, count);
+
+	if (wqev->maxthreads == count)
+		evl_wakeup(wqev);
 
 	/* Wait for all dying threads to finish. */
 	for (i = 0; i < count; i++)
