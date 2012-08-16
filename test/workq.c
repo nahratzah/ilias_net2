@@ -138,6 +138,7 @@ workq_persist()
 	fprintf(stderr, "\t");
 	while (net2_workq_aid(wq, 1) == 0);
 	fprintf(stderr, "done\n");
+	net2_workq_release(wq);
 
 	if (count == COUNT)
 		return 0;
