@@ -23,7 +23,7 @@
 ILIAS_NET2__begin_cdecl
 
 
-#if 0//def _WIN32
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
