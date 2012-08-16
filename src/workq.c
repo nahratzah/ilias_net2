@@ -317,7 +317,11 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	net2_spinlock_lock(&wqev->spl);
 	fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	    memory_order_consume);
-	if (!(fl & WQ_ONQUEUE))
+	if (fl & WQ_DYING) {
+		assert(fl & WQ_RUNNING);
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
+		    memory_order_acq_rel);
+	} else if (!(fl & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
 
 	if (clear_run) {
