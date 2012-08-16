@@ -281,7 +281,28 @@ struct net2_workq_evbase_worker {
 static void	evloop_wakeup(struct ev_loop*, ev_async*, int);
 static void	evloop_new_event(struct ev_loop*, ev_async*, int);
 static void	run_evl(struct net2_workq_evbase*, int);
+static void	activate_worker(struct net2_workq_evbase*);
 
+
+static void
+__hot__
+activate_worker(struct net2_workq_evbase *wqev)
+{
+	/* Attempt to convert an idle thread to an active thread. */
+	if (net2_semaphore_trydown(&wqev->thr_idle))
+		net2_semaphore_up(&wqev->thr_active, 1);
+
+	/* XXX smart code here */
+	if (atomic_load_explicit(&wqev->evl_running, memory_order_relaxed) ==
+	    EVL_WAIT) {
+		struct ev_loop	*evl;
+
+		evl = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
+		    memory_order_relaxed);
+		assert(evl != NULL);
+		ev_async_send(evl, &wqev->ev_wakeup);
+	}
+}
 
 /* Only called with non-zero reference count. */
 static __inline void
@@ -312,15 +333,17 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	struct net2_workq_evbase
 			*wqev;
 	unsigned int	 fl;
+	int		 do_activate_worker = 1;
 
 	wqev = wq->wqev;
 	net2_spinlock_lock(&wqev->spl);
 	fl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	    memory_order_consume);
-	if (fl & WQ_DYING) {
+	if (predict_false(fl & WQ_DYING)) {
 		assert(fl & WQ_RUNNING);
 		atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
 		    memory_order_acq_rel);
+		do_activate_worker = 0;
 	} else if (!(fl & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
 
@@ -332,18 +355,8 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	}
 
 	/* Activate worker. */
-	if (net2_semaphore_trydown(&wqev->thr_idle))
-		net2_semaphore_up(&wqev->thr_active, 1);
-	/* XXX smart code here */
-	if (atomic_load_explicit(&wqev->evl_running, memory_order_relaxed) ==
-	    EVL_WAIT) {
-		struct ev_loop	*evl;
-
-		evl = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
-		    memory_order_relaxed);
-		assert(evl != NULL);
-		ev_async_send(evl, &wqev->ev_wakeup);
-	}
+	if (predict_true(do_activate_worker))
+		activate_worker(wqev);
 
 	net2_spinlock_unlock(&wqev->spl);
 	return fl;
