@@ -52,6 +52,7 @@ struct malloc_data {
 	}			 when,
 				 when_free;
 
+	void			*pg_addr;
 	void			*addr;
 	size_t			 size,
 				 szpg;
@@ -81,6 +82,7 @@ static void deinit_fault();
 RB_PROTOTYPE_STATIC(mdata_tree, malloc_data, tree, malloc_data_cmp)
 
 #define TEMPLATE		"/tmp/ilias_net2_mem.XXXXXX"
+#define ALIGN			((uintptr_t)sizeof(void*))
 
 static void
 print_malloc_data(const struct malloc_data *d)
@@ -277,19 +279,25 @@ i_malloc(size_t sz, int zero, const char *file, const char *func, int line)
 	else
 		szpg = (sz + (page_size - 1)) & ~(page_size - 1);
 
-	d->addr = mmap(NULL, szpg, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
-	if (d->addr == MAP_FAILED) {
+	d->pg_addr = mmap(NULL, szpg, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
+	if (d->pg_addr == MAP_FAILED) {
 		free(d);
 		return NULL;
 	}
+
+	if (sz == 0)
+		d->addr = d->pg_addr;
+	else
+		d->addr = (void*)(((uintptr_t)d->pg_addr + szpg - sz) &
+		    ~(ALIGN - 1));
 	d->size = sz;
 	d->szpg = szpg;
 
-	memset(d->addr, 0x17, szpg);
-	if (zero)
+	memset(d->pg_addr, 0x17, szpg);
+	if (zero && sz > 0)
 		memset(d->addr, 0, sz);
 	if (sz == 0)
-		mprotect(d->addr, page_size, PROT_NONE);
+		mprotect(d->pg_addr, page_size, PROT_NONE);
 
 	d->when.file = file;
 	d->when.func = func;
@@ -331,7 +339,7 @@ i_free(struct malloc_data *d, const char *file, const char *func, int line)
 	 * described by the original allocation.
 	 */
 	for (szpg = 0; szpg < d->szpg; szpg += page_size) {
-		if (mmap((char*)d->addr + szpg, page_size, PROT_NONE,
+		if (mmap((char*)d->pg_addr + szpg, page_size, PROT_NONE,
 		    MAP_FILE | MAP_SHARED | MAP_FIXED, unused_mem_fd, 0) ==
 		    MAP_FAILED) {
 			fatal_errno(d, file, func, line,
@@ -359,8 +367,10 @@ i_realloc(void *addr, size_t sz, const char *file, const char *func, int line)
 		return NULL;
 
 	/* Copy data. */
-	if (d->size > 0)
-		memcpy(repl->addr, d->addr, d->size);
+	if (d->size > 0) {
+		memcpy(repl->addr, d->addr,
+		    (d->size < repl->size ? d->size : repl->size));
+	}
 
 	/* Mark old memory as free. */
 	i_free(d, file, func, line);
