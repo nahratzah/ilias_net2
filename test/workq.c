@@ -149,6 +149,38 @@ workq_persist()
 
 
 void
+job_destroy_workq_job(void *wq_ptr, void *done_ptr)
+{
+	struct net2_workq	*wq = wq_ptr;
+	int			*done = done_ptr;
+
+	*done = 1;
+	net2_workq_release(wq);
+}
+int
+job_destroy_workq()
+{
+	struct net2_workq_evbase*wqev;
+	struct net2_workq	*wq;
+	struct net2_workq_job	 j;
+	int			 done = 0;
+
+	wqev = net2_workq_evbase_new(__FUNCTION__, 0, 0);
+	wq = net2_workq_new(wqev);
+	net2_workq_evbase_release(wqev);
+
+	net2_workq_init_work(&j, wq, &job_destroy_workq_job, wq, &done, 0);
+	net2_workq_activate(&j, 1);
+	net2_workq_deinit_work(&j);
+
+	if (!done)
+		return -1;
+
+	return 0;
+}
+
+
+void
 workq_busy_destroy_job()
 {
 	return;
@@ -213,6 +245,7 @@ main()
 	TEST(workq_evbase_create_destroy);
 	TEST(workq_want);
 	TEST(workq_persist);
+	TEST(job_destroy_workq);
 	TEST(workq_busy_destroy);
 
 	net2_cleanup();
