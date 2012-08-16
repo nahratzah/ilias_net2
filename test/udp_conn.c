@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include <errno.h>
 #ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <WinSock2.h>
 #include <io.h>
 #include <ws2tcpip.h>
@@ -232,7 +234,7 @@ main()
 		printf("test_ctx() fail\n");
 		return -1;
 	}
-	if ((evbase = net2_workq_evbase_new("udp evbase", 2, 2)) == NULL) {
+	if ((evbase = net2_workq_evbase_new("udp evbase", 4, 4)) == NULL) {
 		printf("net2_evbase_new() fail\n");
 		return -1;
 	}
@@ -351,6 +353,12 @@ main()
 			printf("\tsa1 receiver finished\n");
 			sa1_recv_finished = 2;	/* Only print once. */
 		}
+
+#ifdef WIN32
+		Sleep(1000);
+#else
+		sleep(1);
+#endif
 	}
 
 	/* TODO: read data from sa1 */
@@ -370,14 +378,18 @@ main()
 	printf("%2s: Sent:     %16llu bytes in %12llu packets\n"
 	    "    Received: %16llu bytes in %12llu packets\n",
 	    "C1",
-	    c1->n2c_stats.tx_bytes, c1->n2c_stats.tx_packets,
-	    c1->n2c_stats.rx_bytes, c1->n2c_stats.rx_packets);
+	    (unsigned long long)c1->n2c_stats.tx_bytes,
+	    (unsigned long long)c1->n2c_stats.tx_packets,
+	    (unsigned long long)c1->n2c_stats.rx_bytes,
+	    (unsigned long long)c1->n2c_stats.rx_packets);
 	/* Dump C2 stats. */
 	printf("%2s: Sent:     %16llu bytes in %12llu packets\n"
 	    "    Received: %16llu bytes in %12llu packets\n",
 	    "C2",
-	    c2->n2c_stats.tx_bytes, c2->n2c_stats.tx_packets,
-	    c2->n2c_stats.rx_bytes, c2->n2c_stats.rx_packets);
+	    (unsigned long long)c2->n2c_stats.tx_bytes,
+	    (unsigned long long)c2->n2c_stats.tx_packets,
+	    (unsigned long long)c2->n2c_stats.rx_bytes,
+	    (unsigned long long)c2->n2c_stats.rx_packets);
 
 	net2_promise_event_deinit(&sa1_rx_fin);
 	net2_promise_event_deinit(&sa1_tx_fin);
