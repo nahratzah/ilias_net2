@@ -239,9 +239,9 @@ net2_cond_wait(struct net2_condition *c, struct net2_mutex *m)
 
 	/* Unlock m. */
 	locks = m->locks;
+	m->locks = 0;
 	for (i = 0; i < locks; i++)
 		LeaveCriticalSection(&m->s);
-	m->locks = 0;
 
 	TAILQ_INSERT_TAIL(&c->wq, &self, entry);
 	LeaveCriticalSection(&c->s);
