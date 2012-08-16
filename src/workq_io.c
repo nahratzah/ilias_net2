@@ -129,13 +129,16 @@ static struct net2_promise*
 dgram_get_tx_promise(struct net2_workq_io *dg)
 {
 	struct net2_promise	*p;
+	int			 do_io;
 
 	net2_mutex_lock(dg->fguard);
-	if ((dg->flags & (IO_FLAG_TX | IO_FLAG_DYING)) == IO_FLAG_TX)
+	do_io = ((dg->flags & (IO_FLAG_TX | IO_FLAG_DYING)) == IO_FLAG_TX);
+	net2_mutex_unlock(dg->fguard);
+
+	if (do_io)
 		p = (*dg->tx_cb)(dg->cb_arg, NET2_WORKQ_IO_MAXLEN);
 	else
 		p = NULL;
-	net2_mutex_unlock(dg->fguard);
 
 	return p;
 }
