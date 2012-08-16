@@ -170,7 +170,7 @@ job_destroy_workq()
 	net2_workq_evbase_release(wqev);
 
 	net2_workq_init_work(&j, wq, &job_destroy_workq_job, wq, &done, 0);
-	net2_workq_activate(&j, 1);
+	net2_workq_activate(&j, NET2_WQ_ACT_IMMED);
 	net2_workq_deinit_work(&j);
 
 	if (!done)
