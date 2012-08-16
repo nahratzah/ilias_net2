@@ -1554,56 +1554,6 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 			j->callbacks->on_destroy(j);
 	}
 }
-/* Activate a job. */
-ILIAS_NET2_EXPORT void
-__hot__
-net2_workq_activate(struct net2_workq_job *j, int flags)
-{
-	struct net2_thread
-			*thr;
-	int		 death;
-
-	if (predict_false(j->fn == NULL))
-		return;
-
-	if (flags & NET2_WQ_ACT_IMMED) {
-		thr = net2_thread_self();
-		if (thr != NULL &&
-		    job_run_set(j, 1, thr, 0, 1) == job_run_succes) {
-			/* Mark the job as active if it is a persistent job. */
-			if (atomic_load_explicit(&j->flags,
-			    memory_order_consume) & NET2_WORKQ_PERSIST) {
-				atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE,
-				    memory_order_seq_cst);
-			}
-
-			/* Invoke the job. */
-			death = 0;
-			j->death = &death;
-			j->fn(j->cb_arg[0], j->cb_arg[1]);
-
-			/* Release job and thread. */
-			if (!death) {
-				j->death = NULL;
-				job_run_clear(j);
-			}
-			net2_thread_free(thr);
-			return;
-		}
-	}
-
-	job_active_set(j);
-}
-/* Deactivate a job. */
-ILIAS_NET2_EXPORT void
-__hot__
-net2_workq_deactivate(struct net2_workq_job *j)
-{
-	if (j->fn == NULL)
-		return;
-
-	job_active_clear(j, 1);
-}
 
 /*
  * Returns the workq that runs the specified job.
@@ -1879,10 +1829,15 @@ wqev_worker(void *wthr_ptr)
 				death = 0;
 				j->death = &death;
 				j->fn(j->cb_arg[0], j->cb_arg[1]);
-				if (!death) {
+				if (predict_true(!death)) {
 					j->death = NULL;
 					wq_run_push(j);
 				}
+
+				if (predict_false(atomic_load_explicit(
+				    &wq->flags,
+				    memory_order_relaxed) & WQ_DYING))
+					break;
 			}
 
 			/* Release the workq exec state. */
@@ -2102,6 +2057,10 @@ net2_workq_aid(struct net2_workq *wq, int count)
 			j->death = NULL;
 			wq_run_push(j);
 		}
+
+		if (predict_false(atomic_load_explicit(&wq->flags,
+		    memory_order_relaxed) & WQ_DYING))
+			break;
 	}
 
 	/* Succesful completion. */
@@ -2125,6 +2084,73 @@ out_1:
 	net2_spinlock_deinit(&wthr.spl);
 out_0:
 	return error;
+}
+
+/* Activate a job. */
+ILIAS_NET2_EXPORT void
+__hot__
+net2_workq_activate(struct net2_workq_job *j, int flags)
+{
+	struct net2_thread
+			*thr;
+	int		 death;
+	struct net2_workq
+			*wq;
+
+	if (predict_false(j->fn == NULL))
+		return;
+
+	if (flags & NET2_WQ_ACT_IMMED) {
+		thr = net2_thread_self();
+		if (thr != NULL &&
+		    job_run_set(j, 1, thr, 0, 1) == job_run_succes) {
+			/* Mark the job as active if it is a persistent job. */
+			if (atomic_load_explicit(&j->flags,
+			    memory_order_consume) & NET2_WORKQ_PERSIST) {
+				atomic_fetch_or_explicit(&j->flags, JOB_ACTIVE,
+				    memory_order_relaxed);
+			}
+
+			/*
+			 * Save wq for this job, note that wq will remain
+			 * in existence until it has stopped running.
+			 * Furthermore, the job may clear its own wq,
+			 * so this is the latest we can read it.
+			 */
+			wq = j->wq;
+			assert(wq != NULL);
+			assert(atomic_load_explicit(&wq->flags,
+			    memory_order_relaxed) & WQ_RUNNING);
+
+			/* Invoke the job. */
+			death = 0;
+			j->death = &death;
+			j->fn(j->cb_arg[0], j->cb_arg[1]);
+
+			/* Release job. */
+			if (!death) {
+				j->death = NULL;
+				job_run_clear(j);
+			}
+			/* Release workq. */
+			wqev_run_push(wq, 1);
+			/* Release thread. */
+			net2_thread_free(thr);
+			return;
+		}
+	}
+
+	job_active_set(j);
+}
+/* Deactivate a job. */
+ILIAS_NET2_EXPORT void
+__hot__
+net2_workq_deactivate(struct net2_workq_job *j)
+{
+	if (j->fn == NULL)
+		return;
+
+	job_active_clear(j, 1);
 }
 
 /* Run the event loop, if there is one. */
