@@ -1168,9 +1168,6 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 
 		/*
 		 * If the job had a callback set, invoke it now.
-		 *
-		 * XXX job_internal should be squashed so the callbacks
-		 * are dereferenced easier.
 		 */
 		if (j->callbacks != NULL &&
 		    j->callbacks->on_wqdestroy != NULL) {
@@ -1487,7 +1484,7 @@ net2_workq_release(struct net2_workq *wq)
 	if (predict_false(wq == NULL))
 		return;
 	if (predict_false(workq_release(wq)))
-		kill_wq(wq, 0, 0);
+		kill_wq(wq, 1, 0);
 }
 /*
  * Return the workq_evbase that this workq runs on.
