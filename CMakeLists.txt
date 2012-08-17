@@ -67,7 +67,6 @@ list (APPEND headers
 	include/ilias/net2/encdec_ctx.h
 	include/ilias/net2/enc.h
 	include/ilias/net2/hash.h
-	include/ilias/net2/init.h
 	include/ilias/net2/memory.h
 	include/ilias/net2/mutex.h
 	include/ilias/net2/obj_manager.h
