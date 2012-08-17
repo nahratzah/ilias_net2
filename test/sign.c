@@ -15,7 +15,6 @@
  */
 #include "test.h"
 #include <ilias/net2/buffer.h>
-#include <ilias/net2/init.h>
 #include <ilias/net2/sign.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
@@ -61,8 +60,6 @@ main()
 	SSL_load_error_strings();
 	ERR_load_crypto_strings();
 	OpenSSL_add_all_algorithms();
-
-	net2_init();
 
 	/* Load keys. */
 	fprintf(stderr, "Loading private key...\n");
@@ -189,7 +186,6 @@ main()
 	net2_signctx_free(priv);
 	net2_signctx_free(pub);
 
-	net2_cleanup();
 skip_pubkey:
 
 	test_fini();

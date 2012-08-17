@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/enc.h>
 #include <ilias/net2/buffer.h>
 #include <stdlib.h>
@@ -192,7 +191,6 @@ main()
 	const char	*name;
 
 	test_start();
-	net2_init();
 
 	printf("test 1: check that the nil encryption has ID 0\n");
 	if (test_nil_at_zero())
@@ -219,7 +217,6 @@ main()
 		test_encdec(i);
 	}
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;

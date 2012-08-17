@@ -15,7 +15,6 @@
  */
 #include "test.h"
 #include <ilias/net2/xchange.h>
-#include <ilias/net2/init.h>
 #include <ilias/net2/buffer.h>
 #include <sys/types.h>
 #include <stdio.h>
@@ -132,14 +131,12 @@ main()
 	int i;
 
 	test_start();
-	net2_init();
 
 	for (i = 0; i < net2_xchangemax; i++) {
 		if (test(i))
 			return -1;
 	}
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;

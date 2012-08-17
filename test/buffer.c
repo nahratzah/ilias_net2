@@ -15,7 +15,6 @@
  */
 #include "test.h"
 #include <ilias/net2/buffer.h>
-#include <ilias/net2/init.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -577,7 +576,6 @@ int
 main()
 {
 	test_start();
-	net2_init();
 
 	printf("test 1: buffer new, free\n");
 	if (test_new_free())
@@ -610,9 +608,6 @@ main()
 	printf("test 8: truncate\n");
 	if (test_truncate())
 		return -1;
-
-	if (fail == 0)
-		net2_cleanup();
 
 	test_fini();
 	return fail;

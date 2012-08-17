@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <ilias/net2/init.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/thread.h>
 #include <ilias/net2/bsd_compat/error.h>
@@ -28,7 +27,19 @@
 
 #include "handshake.h"
 
-ILIAS_NET2_EXPORT int
+#if defined(__GNUC__) || defined(__clang__)
+#define constructor	__attribute__((constructor))
+#define destructor	__attribute__((destructor))
+#elif defined(WIN32)
+#define constructor	/* Using dllmain instead. */
+#define destructor	/* Using dllmain instead. */
+#else
+#error Need some way to define constructor/destructor.
+#endif
+
+
+static int
+constructor
 net2_init()
 {
 #ifdef WIN32
@@ -78,7 +89,8 @@ fail_0:
 	return rv;
 }
 
-ILIAS_NET2_EXPORT void
+static void
+destructor
 net2_cleanup()
 {
 #ifdef WIN32
@@ -88,3 +100,25 @@ net2_cleanup()
 	net2_thread_fini();
 	net2_memory_fini();
 }
+
+#ifdef WIN32
+/* XXX fix linker to call this? */
+static BOOL
+WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID reserved)
+{
+	static int init = 0;
+
+	switch (fdwReason) {
+	case DLL_PROCESS_ATTACH:
+		if (net2_init() != 0)
+			return FALSE;
+		init = 1;
+		break;
+	case DLL_PROCESS_DETACH:
+		if (init)
+			net2_cleanup();
+		break;
+	}
+	return TRUE;
+}
+#endif /* WIN32 */

@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/ctypes.h>
 #include <ilias/net2/cp.h>
 #include <stdio.h>
@@ -211,7 +210,6 @@ main()
 	};
 
 	test_start();
-	net2_init();
 
 	printf("test  1: unsigned int8\n");
 	test_cp(&u8,  &u8_out,  sizeof(u8),  &cp_uint8);
@@ -237,7 +235,6 @@ main()
 	printf("test 10: NULL-terminated string list\n");
 	test_stringlist_cp(&sl[0], sl_out, &cp_null_stringlist);
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;

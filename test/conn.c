@@ -15,7 +15,6 @@
  */
 #include "testconn.h"
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/buffer.h>
 #include <stdio.h>
@@ -51,14 +50,12 @@ int
 main()
 {
 	test_start();
-	net2_init();
 
 	if (test_conn_create_destroy())
 		return -1;
 
 	testconn_cleanup();
 
-	net2_cleanup();
 	test_fini();
 	return fail;
 }

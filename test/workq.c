@@ -1,5 +1,4 @@
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/workq.h>
 #include <stdio.h>
 #include <string.h>
@@ -240,7 +239,6 @@ main()
 	int	test = 0, fail = 0;
 
 	test_start();
-	net2_init();
 
 	TEST(workq_evbase_create_destroy);
 	TEST(workq_want);
@@ -248,7 +246,6 @@ main()
 	TEST(job_destroy_workq);
 	TEST(workq_busy_destroy);
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;

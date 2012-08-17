@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/hash.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -110,7 +109,6 @@ main()
 	int		 alg;
 
 	test_start();
-	net2_init();
 
 	printf("test 1: nil checksum name\n");
 	alg = net2_hash_findname("nil");
@@ -148,7 +146,6 @@ main()
 	    father_sha512, sizeof(father_sha512)))
 		return -1;
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;

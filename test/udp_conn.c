@@ -15,7 +15,6 @@
  */
 #include "test.h"
 #include "testprotocol.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/udp_connection.h>
 #include <ilias/net2/workq.h>
 #include <ilias/net2/stream_acceptor.h>
@@ -214,9 +213,6 @@ main()
 
 	test_start();
 
-	/* Initialize network. */
-	net2_init();
-
 	if (udp_socketpair(&fd[0], &fd[1], 1)) {
 		printf("socketpair fail: %d %s\n", errno, strerror(errno));
 		return -1;
@@ -403,7 +399,6 @@ main()
 	net2_stream_acceptor_destroy(sa2);
 
 	test_ctx_free(protocol_ctx);
-	net2_cleanup();
 
 	test_fini();
 	return fail;

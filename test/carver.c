@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "test.h"
-#include <ilias/net2/init.h>
 #include <ilias/net2/carver.h>
 #include <ilias/net2/promise.h>
 #include <ilias/net2/buffer.h>
@@ -206,7 +205,6 @@ int
 main()
 {
 	test_start();
-	net2_init();
 
 	/* 16 BIT */
 	if (test_run(17, NET2_CARVER_16BIT))
@@ -228,7 +226,6 @@ main()
 	if (test_run(1000000, NET2_CARVER_32BIT))
 		fail++;
 
-	net2_cleanup();
 	test_fini();
 
 	return fail;
