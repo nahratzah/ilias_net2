@@ -125,7 +125,6 @@ list (APPEND srcs
 	src/types.c
 	src/tx_callback.c
 	src/workq.c
-	src/workq_io.c
 	src/xchange.c
 	)
 list (APPEND cluster_srcs
@@ -195,9 +194,13 @@ endif (NOT HAVE_SYS_TREE_H)
 # Workq-io and workq-timer code is different for windows.
 #
 if (WIN32)
-	list (APPEND srcs src/workq_timer-win32.c)
+	list (APPEND srcs
+	    src/workq_io-win32.c
+	    src/workq_timer-win32.c)
 else (WIN32)
-	list (APPEND srcs src/workq_timer-ev.c)
+	list (APPEND srcs
+	    src/workq_io-ev.c
+	    src/workq_timer-ev.c)
 endif (WIN32)
 
 #
