@@ -1423,7 +1423,9 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 fail_12:
 	net2_workq_set_thread_count(wqev, 0, 0);
 fail_11:
+#ifdef WIN32
 	net2_spinlock_deinit(&wqev->spl_timer);
+#endif
 fail_10:
 #ifndef WIN32
 	net2_semaphore_deinit(&wqev->ev_idle);
