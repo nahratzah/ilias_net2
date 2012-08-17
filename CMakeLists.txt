@@ -197,7 +197,7 @@ endif (NOT HAVE_SYS_TREE_H)
 if (WIN32)
 	list (APPEND srcs src/workq_timer-win32.c)
 else (WIN32)
-	list (APPEND srcs src/workq_timer.c)
+	list (APPEND srcs src/workq_timer-ev.c)
 endif (WIN32)
 
 #
