@@ -104,7 +104,7 @@
 #define __cold__		/* Nothing. */
 #endif
 
-#ifdef _WIN32
+#ifdef WIN32
 static void
 thryield()
 {
@@ -238,7 +238,7 @@ struct net2_workq_evbase {
 						 * evloop. */
 #define EVL_NOWAIT	1			/* Running in no-wait mode. */
 #define EVL_WAIT	2			/* Running in wait more. */
-	atomic_uintptr_t evloop;		/* Event loop. */
+	struct ev_loop	*evloop;		/* Event loop. */
 	ev_async	 ev_wakeup;		/* Wakeup for evloop. */
 	ev_async	 ev_newevent;		/* Wakeup: events are added. */
 	struct net2_semaphore
@@ -273,6 +273,9 @@ struct net2_workq_evbase {
 	struct net2_workq_timer_container
 			*timer;			/* Windows timer, to handle
 						 * timeouts. */
+#else
+	net2_spinlock	 spl_evloop;		/* Protect evloop
+						 * construction. */
 #endif
 };
 
@@ -310,12 +313,8 @@ static void	run_evl(struct net2_workq_evbase*, int);
 static __inline void
 evl_wakeup(struct net2_workq_evbase *wqev)
 {
-	struct ev_loop	*evl;
-
-	evl = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
-	    memory_order_relaxed);
-	assert(evl != NULL);
-	ev_async_send(evl, &wqev->ev_wakeup);
+	assert(wqev->evloop != NULL);
+	ev_async_send(wqev->evloop, &wqev->ev_wakeup);
 }
 #endif /* !WIN32 */
 
@@ -330,7 +329,7 @@ activate_worker(struct net2_workq_evbase *wqev)
 	}
 
 #ifndef WIN32
-	/* 
+	/*
 	 * Try to switch an idle evloop into active mode.
 	 * We first read the flag, since that will be cheaper than
 	 * decrementing the semaphore.
@@ -1372,9 +1371,9 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 		goto fail_1;
 	TAILQ_INIT(&wqev->runq);
 #ifdef WIN32
-	wqev->timer = INVALID_HANDLE_VALUE;
+	wqev->timer = NULL;	/* Lazily allocated. */
 #else
-	atomic_init(&wqev->evloop, 0);	/* Lazily allocated. */
+	wqev->evloop = NULL;	/* Lazily allocated. */
 	ev_async_init(&wqev->ev_wakeup, &evloop_wakeup);
 	ev_async_init(&wqev->ev_newevent, &evloop_new_event);
 	atomic_init(&wqev->evl_running, 0);
@@ -1410,6 +1409,9 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 #ifdef WIN32
 	if (net2_spinlock_init(&wqev->spl_timer))
 		goto fail_10;
+#else
+	if (net2_spinlock_init(&wqev->spl_evloop))
+		goto fail_10;
 #endif
 
 	if (net2_workq_set_thread_count(wqev, jobthreads, maxthreads)) {
@@ -1425,6 +1427,8 @@ fail_12:
 fail_11:
 #ifdef WIN32
 	net2_spinlock_deinit(&wqev->spl_timer);
+#else
+	net2_spinlock_deinit(&wqev->spl_evloop);
 #endif
 fail_10:
 #ifndef WIN32
@@ -1468,10 +1472,6 @@ ILIAS_NET2_EXPORT void
 __cold__
 net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 {
-#ifndef WIN32
-	struct ev_loop	*evl;
-#endif
-
 	if (predict_false(wqev == NULL))
 		return;
 	if (predict_true(atomic_fetch_sub_explicit(&wqev->refcnt, 1,
@@ -1486,10 +1486,9 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 	if (wqev->timer != NULL)
 		net2_workq_timer_container_destroy(wqev->timer);
 #else
-	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop,
-	    memory_order_relaxed));
-	if (evl != NULL)
-		ev_loop_destroy(evl);
+	net2_spinlock_deinit(&wqev->spl_evloop);
+	if (wqev->evloop != NULL)
+		ev_loop_destroy(wqev->evloop);
 	net2_semaphore_deinit(&wqev->ev_idle);
 #endif /* !WIN32 */
 
@@ -1510,12 +1509,8 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 ILIAS_NET2_LOCAL void
 net2_workq_evbase_evloop_changed(struct net2_workq_evbase *wqev)
 {
-	struct ev_loop	*evl;
-
-	evl = (struct ev_loop*)(atomic_load_explicit(&wqev->evloop,
-	    memory_order_relaxed));
-	if (evl != NULL)
-		ev_async_send(evl, &wqev->ev_newevent);
+	assert(wqev->evloop != NULL);
+	ev_async_send(wqev->evloop, &wqev->ev_newevent);
 }
 #endif /* !WIN32 */
 
@@ -1683,74 +1678,6 @@ net2_workq_unwant(struct net2_workq *wq)
 	if (workq_want_clear(wq))
 		workq_activate(wq);
 }
-
-#ifndef WIN32
-/*
- * Return the event loop.
- *
- * The ev_loop is created on demand (calling this function being the demand).
- */
-ILIAS_NET2_LOCAL struct ev_loop*
-net2_workq_get_evloop(struct net2_workq *wq)
-{
-	uintptr_t	 evl;
-	struct ev_loop	*new;
-	struct net2_workq_evbase
-			*wqev;
-
-	wqev = wq->wqev;
-
-	/* Load existing evloop. */
-	evl = atomic_load_explicit(&wqev->evloop, memory_order_relaxed);
-	if (predict_true(evl != 0))
-		return (struct ev_loop*)evl;
-
-	/* No existing evloop, create a new evloop. */
-	new = ev_loop_new(EVFLAG_AUTO);
-	if (new == NULL)
-		return NULL;
-
-	/* Assign wqev as the user data for the event loop. */
-	ev_set_userdata(new, wqev);
-
-	/*
-	 * Assign the new evloop.
-	 * Failure indicates another thread assigned an ev_loop
-	 * while we were creating one.
-	 */
-	if (atomic_compare_exchange_strong_explicit(&wqev->evloop, &evl,
-	    (uintptr_t)new, memory_order_seq_cst, memory_order_relaxed)) {
-		ev_async_start(new, &wqev->ev_wakeup);
-		ev_async_start(new, &wqev->ev_newevent);
-		return new;
-	}
-
-	/*
-	 * Failure to assign.
-	 * Free the new ev_loop and return the updated evl.
-	 */
-	ev_loop_destroy(new);
-	return (struct ev_loop*)evl;
-}
-/* Interrupt the evloop (async wakeup callback). */
-static void
-evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
-    int events ILIAS_NET2__unused)
-{
-	ev_break(loop, EVBREAK_ALL);
-}
-/* Interrupt the evloop so that it will re-evaluate its list of events. */
-static void
-evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused,
-    ev_async *ev ILIAS_NET2__unused,
-    int events ILIAS_NET2__unused)
-{
-	/*
-	 * Do nothing: desired behaviour is a side effect from invoking this
-	 * function.
-	 */
-}
-#endif /* !WIN32 */
 
 /* Acquire a queued workq from the wqev. */
 static __inline struct net2_workq*
@@ -1996,7 +1923,7 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 	net2_semaphore_up(&wqev->thr_active, count);
 
 #ifndef WIN32
-	if (wqev->maxthreads == count)
+	if (wqev->maxthreads == count && wqev->evloop != NULL)
 		evl_wakeup(wqev);
 #endif /* !WIN32 */
 
@@ -2243,7 +2170,6 @@ net2_workq_deactivate(struct net2_workq_job *j)
 static void
 run_evl(struct net2_workq_evbase *wqev, int flags)
 {
-	struct ev_loop	*evloop;
 	int		 zero;
 	int		 running;	/* Set if we will call ev_run. */
 	int		 evloop_flags;	/* Flags to ev_run. */
@@ -2262,9 +2188,7 @@ run_evl(struct net2_workq_evbase *wqev, int flags)
 		evl_running = EVL_WAIT;
 
 	/* No need to run evloop if there isn't one. */
-	evloop = (struct ev_loop*)atomic_load_explicit(&wqev->evloop,
-	    memory_order_relaxed);
-	if (evloop != NULL) {
+	if (wqev->evloop != NULL) {
 		/* Try to be the only one running the evloop. */
 		zero = 0;
 		running = atomic_compare_exchange_strong_explicit(
@@ -2282,7 +2206,7 @@ run_evl(struct net2_workq_evbase *wqev, int flags)
 
 	/* Run the event loop. */
 	if (running) {
-		ev_run(evloop, evloop_flags);
+		ev_run(wqev->evloop, evloop_flags);
 
 		/*
 		 * If we are still idle, transition from ev_idle to thr_idle.
@@ -2303,15 +2227,82 @@ run_evl(struct net2_workq_evbase *wqev, int flags)
 		    memory_order_release);
 	}
 }
-#endif /* !WIN32 */
 
-#ifdef WIN32
+/*
+ * Return the event loop.
+ *
+ * The ev_loop is created on demand (calling this function being the demand).
+ */
+ILIAS_NET2_LOCAL struct ev_loop*
+net2_workq_get_evloop(struct net2_workq *wq)
+{
+	struct ev_loop	*new;
+	struct net2_workq_evbase
+			*wqev;
+
+	wqev = wq->wqev;
+
+	if (wqev->evloop != NULL)
+		return wqev->evloop;
+
+	net2_spinlock_lock(&wqev->spl_evloop);
+	if (wqev->evloop != NULL)
+		goto out;
+
+	/* No existing evloop, create a new evloop. */
+	new = ev_loop_new(EVFLAG_AUTO);
+	if (new == NULL) {
+		net2_spinlock_unlock(&wqev->spl_evloop);
+		return NULL;
+	}
+
+	/* Assign wqev as the user data for the event loop. */
+	ev_set_userdata(new, wqev);
+
+	/*
+	 * Assign the new evloop events.
+	 * Failure indicates another thread assigned an ev_loop
+	 * while we were creating one.
+	 */
+	ev_async_start(new, &wqev->ev_wakeup);
+	ev_async_start(new, &wqev->ev_newevent);
+
+	/* Publish evloop. */
+	wqev->evloop = new;
+
+out:
+	net2_spinlock_unlock(&wqev->spl_evloop);
+
+	return wqev->evloop;
+}
+/* Interrupt the evloop (async wakeup callback). */
+static void
+evloop_wakeup(struct ev_loop *loop, ev_async *ev ILIAS_NET2__unused,
+    int events ILIAS_NET2__unused)
+{
+	ev_break(loop, EVBREAK_ALL);
+}
+/* Interrupt the evloop so that it will re-evaluate its list of events. */
+static void
+evloop_new_event(struct ev_loop *loop ILIAS_NET2__unused,
+    ev_async *ev ILIAS_NET2__unused,
+    int events ILIAS_NET2__unused)
+{
+	/*
+	 * Do nothing: desired behaviour is a side effect from invoking this
+	 * function.
+	 */
+}
+
+#else
+
+/* Get a timer manager. */
 ILIAS_NET2_LOCAL struct net2_workq_timer_container*
 net2_workq_get_timer(struct net2_workq *wq)
 {
 	struct net2_workq_evbase*wqev = wq->wqev;
 
-	if (wqev->timer == INVALID_HANDLE_VALUE) {
+	if (wqev->timer == NULL) {
 		net2_spinlock_lock(&wqev->spl_timer);
 		if (wqev->timer == NULL)
 			wqev->timer = net2_workq_timer_container_new();
