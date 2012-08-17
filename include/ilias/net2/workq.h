@@ -32,7 +32,9 @@
 ILIAS_NET2__begin_cdecl
 
 
+#ifndef WIN32
 struct ev_loop;		/* From libev. */
+#endif
 
 struct net2_workq;
 struct net2_workq_job;
@@ -81,8 +83,6 @@ ILIAS_NET2_EXPORT
 void	 net2_workq_evbase_ref(struct net2_workq_evbase*);
 ILIAS_NET2_EXPORT
 void	 net2_workq_evbase_release(struct net2_workq_evbase*);
-ILIAS_NET2_LOCAL
-void	 net2_workq_evbase_evloop_changed(struct net2_workq_evbase*);
 
 ILIAS_NET2_EXPORT
 struct net2_workq
@@ -136,12 +136,21 @@ net2_workq_work_is_null(struct net2_workq_job *j)
 	return j->fn == NULL;
 }
 
+ILIAS_NET2_EXPORT
+int	 net2_workq_aid(struct net2_workq*, int);
+
+
+#ifdef WIN32
+ILIAS_NET2_LOCAL
+struct net2_workq_timer_container
+	*net2_workq_get_timer(struct net2_workq*);
+#else
+ILIAS_NET2_LOCAL
+void	 net2_workq_evbase_evloop_changed(struct net2_workq_evbase*);
 ILIAS_NET2_LOCAL
 struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq*);
-
-ILIAS_NET2_EXPORT
-int	 net2_workq_aid(struct net2_workq*, int);
+#endif
 
 
 ILIAS_NET2__end_cdecl

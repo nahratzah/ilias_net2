@@ -125,7 +125,6 @@ list (APPEND srcs
 	src/types.c
 	src/tx_callback.c
 	src/workq.c
-	src/workq_timer.c
 	src/workq_io.c
 	src/xchange.c
 	)
@@ -191,6 +190,15 @@ endif (NOT HAVE_SYS_QUEUE_H)
 if (NOT HAVE_SYS_TREE_H)
 	list (APPEND headers include/ilias/net2/bsd_compat/queue.h)
 endif (NOT HAVE_SYS_TREE_H)
+
+#
+# Workq-io and workq-timer code is different for windows.
+#
+if (WIN32)
+	list (APPEND srcs src/workq_timer-win32.c)
+else (WIN32)
+	list (APPEND srcs src/workq_timer.c)
+endif (WIN32)
 
 #
 # Use locally defined cmake package rules.

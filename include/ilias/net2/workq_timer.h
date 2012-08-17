@@ -35,6 +35,15 @@ struct net2_workq_timer
 ILIAS_NET2_EXPORT
 void	 net2_workq_timer_free(struct net2_workq_timer*);
 
+#ifdef WIN32
+ILIAS_NET2_LOCAL
+struct net2_workq_timer_container
+	*net2_workq_timer_container_new();
+ILIAS_NET2_LOCAL
+void	 net2_workq_timer_container_destroy(
+	    struct net2_workq_timer_container*);
+#endif /* WIN32 */
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_WORKQ_TIMER_H */
