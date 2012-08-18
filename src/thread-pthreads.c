@@ -116,17 +116,3 @@ net2_thread_detach_self()
 {
 	pthread_detach(pthread_self());
 }
-
-/* Initialize threading. */
-ILIAS_NET2_LOCAL int
-net2_thread_init()
-{
-	return 0; /* Nothing to do. */
-}
-
-/* Deinitialize threading. */
-ILIAS_NET2_LOCAL void
-net2_thread_fini()
-{
-	return; /* Nothing to do. */
-}

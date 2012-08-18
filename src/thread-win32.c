@@ -264,17 +264,3 @@ net2_thread_detach_self()
 	}
 	LeaveCriticalSection(&t->s);
 }
-
-/* Initialize thread mutex. */
-ILIAS_NET2_LOCAL int
-net2_thread_init()
-{
-	return 0;
-}
-
-/* Destroy thread mutex. */
-ILIAS_NET2_LOCAL void
-net2_thread_fini()
-{
-	return;
-}

@@ -39,10 +39,6 @@ ILIAS_NET2_LOCAL
 struct net2_thread	*net2_thread_self();
 ILIAS_NET2_LOCAL
 void			 net2_thread_detach_self();
-ILIAS_NET2_LOCAL
-int			 net2_thread_init();
-ILIAS_NET2_LOCAL
-void			 net2_thread_fini();
 #endif /* BUILDING_ILIAS_NET2 */
 
 

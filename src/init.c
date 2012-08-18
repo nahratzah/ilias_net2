@@ -50,15 +50,13 @@ net2_init()
 
 	if ((rv = net2_memory_init()) != 0)
 		goto fail_0;
-	if ((rv = net2_thread_init()) != 0)
-		goto fail_1;
 	if ((rv = secure_random_init()) != 0)
-		goto fail_2;
+		goto fail_1;
 
 #ifdef WIN32
 	if ((rv = WSAStartup(MAKEWORD(2, 2), &wsa_data)) != 0) {
 		warnx("WSAStartup fail: %d", rv);
-		goto fail_3;
+		goto fail_2;
 	}
 	major = LOBYTE(wsa_data.wVersion);
 	minor = HIBYTE(wsa_data.wVersion);
@@ -66,7 +64,7 @@ net2_init()
 		warnx("Winsock %d.%d is too old, "
 		    "upgrade your windows.", major, minor);
 		rv = EINVAL;
-		goto fail_4;
+		goto fail_3;
 	}
 #endif
 
@@ -74,14 +72,12 @@ net2_init()
 	return 0;
 
 
-fail_4:
+fail_3:
 #ifdef WIN32
 	WSACleanup();
 #endif
-fail_3:
-	secure_random_deinit();
 fail_2:
-	net2_thread_fini();
+	secure_random_deinit();
 fail_1:
 	net2_memory_fini();
 fail_0:
@@ -97,13 +93,12 @@ net2_cleanup()
 	WSACleanup();
 #endif
 	secure_random_deinit();
-	net2_thread_fini();
 	net2_memory_fini();
 }
 
 #ifdef WIN32
 /* XXX fix linker to call this? */
-static BOOL
+BOOL
 WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID reserved)
 {
 	static int init = 0;
