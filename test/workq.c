@@ -193,7 +193,7 @@ workq_busy_destroy()
 	struct net2_workq_job	 j[COUNT];
 	int			 i;
 
-	wqev = net2_workq_evbase_new(__FUNCTION__, 10, 10);
+	wqev = net2_workq_evbase_new(__FUNCTION__, 4, 4);
 	for (i = 0; i < COUNT; i++)
 		wq[i] = net2_workq_new(wqev);
 	net2_workq_evbase_release(wqev);
