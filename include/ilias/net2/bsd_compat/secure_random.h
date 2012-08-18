@@ -59,8 +59,8 @@ ILIAS_NET2__end_cdecl
 #define secure_random()			win32_secure_random()
 #define secure_random_buf(_ptr, _len)	win32_secure_random_buf((_ptr), (_len))
 #define secure_random_uniform(_top)	win32_secure_random_uniform((_top))
-#define secure_random_init()		win32_secure_random_init()
-#define secure_random_deinit()		win32_secure_random_deinit()
+#define secure_random_init()		(0)
+#define secure_random_deinit()		do { /* Nothing */ } while (0)
 
 #else
 

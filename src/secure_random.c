@@ -30,40 +30,11 @@
  * Window implementation.
  */
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include <Windows.h>
+#include <NTSecAPI.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <errno.h>
-
-static BOOLEAN (APIENTRY *pfn)(void*, ULONG);
-static HMODULE hLib;
-
-ILIAS_NET2_LOCAL int
-win32_secure_random_init()
-{
-	hLib = LoadLibrary("ADVAPI32.DLL");
-	if (!hLib) {
-		const int last_error = GetLastError();
-		warn("LoadLibrary ADVAPI32.DLL: error code %d", last_error);
-		return EINVAL;
-	}
-	pfn = (BOOLEAN (APIENTRY *)(void*, ULONG))GetProcAddress(hLib, "SystemFunction036");
-	if (!pfn) {
-		const int last_error = GetLastError();
-		FreeLibrary(hLib);
-		warn("GetProcAddress(%s \"%s\") not found: error code %d", "RtlGenRandom", "SystemFunction036", last_error);
-		return EINVAL;
-	}
-	return 0;
-}
-
-ILIAS_NET2_LOCAL void
-win32_secure_random_deinit()
-{
-	FreeLibrary(hLib);
-	hLib = NULL;
-	pfn = NULL;
-}
 
 ILIAS_NET2_EXPORT uint32_t
 win32_secure_random()
@@ -77,7 +48,7 @@ win32_secure_random()
 ILIAS_NET2_EXPORT void
 win32_secure_random_buf(void *ptr, size_t len)
 {
-	if (!pfn(ptr, len))
+	if (!RtlGenRandom(ptr, len))
 		err(EX_OSERR, "RtlGenRandom");
 }
 
