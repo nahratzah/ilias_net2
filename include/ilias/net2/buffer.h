@@ -24,10 +24,12 @@
 #include <stdint.h>
 
 #ifdef WIN32
-struct iovec {
-	void	*iov_base;
-	size_t	 iov_len;
-};
+/* Redefine iovec type and fields to wsabuf. */
+#include <WinSock2.h>
+
+#define iovec		_WSABUF
+#define	iov_len		len
+#define iov_base	buf
 #else
 #include <sys/uio.h>
 #endif
