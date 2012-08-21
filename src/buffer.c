@@ -259,6 +259,23 @@ segment_impl_grow(struct net2_buffer_segment_impl **sptr,
 fail_0:
 	return rv;
 }
+/* Try to minimize space used to describe segment. */
+static void
+segment_impl_minimize(struct net2_buffer_segment_impl **sptr)
+{
+	struct net2_buffer_segment_impl	*s = *sptr;
+	size_t		require;
+
+	if ((s->flags & (BUF_STD | BUF_SENSITIVE)) == BUF_STD &&
+	    net2_refcnt_get(&s->refcnt, s->mtx,
+	    NET2_REFCNT_LOCK_ENTER | NET2_REFCNT_LOCK_EXIT) == 1) {
+		require = SEGMENT_SZ(s->use);
+		if (require == 0 || (s = net2_realloc(s, require)) == NULL)
+			return;
+		s->len = require - NET2_BUFSEGMENT_IMPL_SZ;
+		*sptr = s;
+	}
+}
 
 /*
  * Append data to segment impl at given offset.
@@ -419,6 +436,14 @@ segment_trunc(struct net2_buffer_segment *s, size_t newlen)
 {
 	assert(s->len >= newlen);
 	s->len = newlen;
+	segment_impl_minimize(&s->data);
+}
+
+/* Try to minimize space used to describe segment. */
+static void
+segment_minimize(struct net2_buffer_segment *s)
+{
+	segment_impl_minimize(&s->data);
 }
 
 /* Remove the front of a segment. */
@@ -1494,8 +1519,8 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 {
 	struct net2_buffer_segment	*list, *reserve, *seg;
 	size_t				 i, spent, seg_off, seg_len;
-	void				*iov_base;
-	size_t				 iov_len;
+	void				*v_base;
+	size_t				 v_len;
 	size_t				 old_list_lastlen;
 
 	/* Initialize. */
@@ -1520,20 +1545,20 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 		 * We operate on a copy of the iov data,
 		 * since we need to modify it in the loop below.
 		 */
-		iov_base = iov[i].iov_base;
-		iov_len = iov[i].iov_len;
+		v_base = iov[i].iov_base;
+		v_len = iov[i].iov_len;
 
-		while (iov_len > 0) {
+		while (v_len > 0) {
 			/*
 			 * Get which reserved segment describes which part
 			 * of this data.
 			 */
-			seg = find_reserved(reserve, b->reservelen, iov_base);
+			seg = find_reserved(reserve, b->reservelen, v_base);
 			if (seg == NULL)
 				goto fail;
-			seg_off = (uint8_t*)iov_base -
+			seg_off = (uint8_t*)v_base -
 			    (uint8_t*)segment_getptr(seg);
-			seg_len = MIN(seg->len - seg_off, iov_len);
+			seg_len = MIN(seg->len - seg_off, v_len);
 			assert(seg_off + seg_len <= seg->len);
 
 			/*
@@ -1560,8 +1585,8 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 				spent++;
 			}
 
-			iov_base = (uint8_t*)iov_base + seg_len;
-			iov_len -= seg_len;
+			v_base = (uint8_t*)v_base + seg_len;
+			v_len -= seg_len;
 		}
 	}
 
@@ -1569,7 +1594,10 @@ net2_buffer_commit_space(struct net2_buffer *b, struct iovec *iov,
 	 * Succes, throw away the reserved segments.
 	 */
 	kill_reserve(b);
-	b->listlen = spent;
+	while (b->listlen < spent) {
+		segment_minimize(&b->list[b->listlen]);
+		b->listlen++;
+	}
 
 	ASSERTBUFFER(b);
 	return 0;
