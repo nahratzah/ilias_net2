@@ -31,10 +31,20 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <NTSecAPI.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <errno.h>
+
+/*
+ * The windows headers mis-export the RtlGenRandom function
+ * (wrong calling convention).  To fix this, we redefine SystemFunction036
+ * temporarily to add the calling convention.
+ * (RtlGenRandom is #defined to SystemFunction036, which is the export
+ * symbol in ADVAPI32.DLL.)
+ */
+#define SystemFunction036 NTAPI SystemFunction036
+#include <NTSecAPI.h>
+#undef SystemFunction036
 
 ILIAS_NET2_EXPORT uint32_t
 win32_secure_random()
