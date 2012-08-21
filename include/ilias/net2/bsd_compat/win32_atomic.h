@@ -100,7 +100,7 @@ atomic_compare_exchange8_strong(volatile int8_t *v,
 	return (*oldval == expect);
 }
 #define atomic_compare_exchange_strong(v, oldval, newval)		\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_compare_exchange8_strong((volatile int8_t*)(v),	\
 	      (int8_t*)(oldval), (newval)),				\
 	    atomic_compare_exchange16_strong((volatile int16_t*)(v),	\
@@ -169,7 +169,7 @@ atomic_compare_exchange8_weak(volatile int8_t *v,
 	return atomic_compare_exchange8_strong(v, oldval, newval);
 }
 #define atomic_compare_exchange_weak(v, oldval, newval)			\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_compare_exchange8_weak((volatile int8_t*)(v),	\
 	      (int8_t*)(oldval), (newval)),				\
 	    atomic_compare_exchange16_weak((volatile int16_t*)(v),	\
@@ -193,6 +193,7 @@ atomic_load64(volatile int64_t *v)
 	return rv;
 #else
 	abort();	/* Not atomic mov. */
+	for (;;);
 #endif
 }
 static __inline int32_t
@@ -226,7 +227,7 @@ atomic_load8(volatile int8_t *v)
 	return rv;
 }
 #define atomic_load(v)							\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_load8((volatile int8_t*)(v)),			\
 	    atomic_load16((volatile int16_t*)(v)),			\
 	    atomic_load32((volatile int32_t*)(v)),			\
@@ -267,7 +268,7 @@ atomic_store8(volatile int8_t *v, int8_t val)
 	_ReadWriteBarrier();
 }
 #define atomic_store(v, val)						\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_store8((volatile int8_t*)(v), (val)),		\
 	    atomic_store16((volatile int16_t*)(v), (val)),		\
 	    atomic_store32((volatile int32_t*)(v), (val)),		\
@@ -303,7 +304,7 @@ atomic_fetch_add8(volatile int8_t *v, uint8_t add)
 	return _InterlockedExchangeAdd8((volatile char*)v, add);
 }
 #define atomic_fetch_add(v, val)					\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_fetch_add8((volatile int8_t*)(v), (val)),		\
 	    atomic_fetch_add16((volatile int16_t*)(v), (val)),		\
 	    atomic_fetch_add32((volatile int32_t*)(v), (val)),		\
@@ -339,7 +340,7 @@ atomic_fetch_sub8(volatile int8_t *v, uint8_t add)
 	return _InterlockedExchangeAdd8((volatile char*)v, -(int8_t)add);
 }
 #define atomic_fetch_sub(v, val)					\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_fetch_sub8((volatile int8_t*)(v), (val)),		\
 	    atomic_fetch_sub16((volatile int16_t*)(v), (val)),		\
 	    atomic_fetch_sub32((volatile int32_t*)(v), (val)),		\
@@ -375,7 +376,7 @@ atomic_fetch_or8(volatile int8_t *v, int8_t f)
 	return _InterlockedOr8((volatile char*)v, f);
 }
 #define atomic_fetch_or(v, val)						\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_fetch_or8((volatile int8_t*)(v), (val)),		\
 	    atomic_fetch_or16((volatile int16_t*)(v), (val)),		\
 	    atomic_fetch_or32((volatile int32_t*)(v), (val)),		\
@@ -411,7 +412,7 @@ atomic_fetch_and8(volatile int8_t *v, int8_t f)
 	return _InterlockedAnd8((volatile char*)v, f);
 }
 #define atomic_fetch_and(v, val)					\
-	select_8_16_32_64(*v,						\
+	select_8_16_32_64(*(v),						\
 	    atomic_fetch_and8((volatile int8_t*)(v), (val)),		\
 	    atomic_fetch_and16((volatile int16_t*)(v), (val)),		\
 	    atomic_fetch_and32((volatile int32_t*)(v), (val)),		\
