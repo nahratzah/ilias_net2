@@ -144,6 +144,9 @@ int	 net2_workq_aid(struct net2_workq*, int);
 ILIAS_NET2_LOCAL
 struct net2_workq_timer_container
 	*net2_workq_get_timer(struct net2_workq*);
+ILIAS_NET2_LOCAL
+struct net2_workq_io_container
+	*net2_workq_get_io(struct net2_workq*);
 #else
 ILIAS_NET2_LOCAL
 void	 net2_workq_evbase_evloop_changed(struct net2_workq_evbase*);

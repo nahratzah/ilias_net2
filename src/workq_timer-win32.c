@@ -463,6 +463,7 @@ net2_workq_timer_container_add(struct net2_workq_timer_container *c,
 		c->need_sort = 1;
 		goto test_expire;
 	}
+	t->active = 1;
 
 	/*
 	 * Ensure the array has enough space.
@@ -522,7 +523,7 @@ net2_workq_timer_container_del(struct net2_workq_timer_container *c,
 		c->nwq_timers--;
 	}
 	/* Should have removed this timer. */
-	assert(t->active = 0);
+	assert(t->active == 0);
 
 out:
 	/* Reduce space. */
@@ -539,6 +540,7 @@ net2_workq_timer_container_deactivate(struct net2_workq_timer_container *c,
 
 	EnterCriticalSection(&c->lock);
 	t->timeo_at.QuadPart = 0;
+	c->need_sort = 1;
 	LeaveCriticalSection(&c->lock);
 }
 /* Grow the space in the timer container. */
@@ -547,16 +549,18 @@ net2_workq_timer_container_grow(struct net2_workq_timer_container *c)
 {
 	struct net2_workq_timer	**ct;
 	int			 error;
+	size_t			 new_arrsz;
 
 	EnterCriticalSection(&c->lock);
 	if (c->nwqt_arrsz == c->nwqt_space) {
-		if ((ct = net2_recalloc(c->wq_timers, 2 * c->nwqt_arrsz,
+		new_arrsz = (c->nwqt_arrsz == 0 ? 8 : 2 * c->nwqt_arrsz);
+		if ((ct = net2_recalloc(c->wq_timers, new_arrsz,
 		    sizeof(*c->wq_timers))) == NULL) {
 			error = ENOMEM;
 			goto out;
 		}
 		c->wq_timers = ct;
-		c->nwqt_arrsz *= 2;
+		c->nwqt_arrsz = new_arrsz;
 	}
 	c->nwqt_space++;
 	error = 0;

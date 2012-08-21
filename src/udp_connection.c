@@ -48,16 +48,12 @@ static void	 net2_conn_p2p_destroy(struct net2_acceptor_socket*);
 static void	 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket*);
 
 static void	 net2_conn_p2p_recv(void*, struct net2_dgram_rx*);
-static struct net2_promise
-		*net2_conn_p2p_send(void*, size_t);
 static void	 net2_udpsocket_recv(void*, struct net2_dgram_rx*);
 static struct net2_promise
 		*net2_udpsocket_send(void*, size_t);
 
 static void	 net2_udpsock_unlock(struct net2_udpsocket*);
 static void	 net2_udpsock_conn_unlink(struct net2_udpsocket*,
-		    struct net2_conn_p2p*);
-static void	 net2_udpsock_conn_wantsend(struct net2_udpsocket*,
 		    struct net2_conn_p2p*);
 
 static struct net2_promise
@@ -84,10 +80,6 @@ struct net2_conn_p2p {
 	struct net2_udpsocket	*np2p_udpsock;	/* Shared UDP socket. */
 
 	RB_ENTRY(net2_conn_p2p)	 np2p_socktree;	/* Link into udp socket. */
-	TAILQ_ENTRY(net2_conn_p2p)
-				 np2p_wantwriteq; /* Link want-write queue. */
-	int			 np2p_flags;	/* State flags. */
-#define NP2P_F_SENDQ		 0x80000000	/* On udpsock sendqueue. */
 };
 
 RB_HEAD(net2_udpsocket_conns, net2_conn_p2p);
@@ -107,8 +99,6 @@ struct net2_udpsocket {
 
 	struct net2_udpsocket_conns
 				 conns;		/* Active connections. */
-	TAILQ_HEAD(, net2_conn_p2p)
-				 wantwrite;	/* Transmit-ready conns. */
 };
 
 /*
@@ -204,7 +194,6 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 	/* Set socket. */
 	c->np2p_sock = sock;
 	c->np2p_udpsock = NULL;
-	c->np2p_flags = 0;
 
 	/* Perform base connection initialization. */
 	if ((wq = net2_workq_new(wqev)) == NULL)
@@ -222,7 +211,7 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 
 	/* Set up libevent network-receive event. */
 	if ((c->np2p_ev = net2_workq_io_new(wq, sock, &net2_conn_p2p_recv,
-	    &net2_conn_p2p_send, c)) == NULL)
+	    c)) == NULL)
 		goto fail_3;
 	net2_workq_io_activate_rx(c->np2p_ev);
 
@@ -261,7 +250,6 @@ net2_conn_p2p_create(struct net2_ctx *ctx,
 	c->np2p_remote = NULL;
 	c->np2p_remotelen = 0;
 	c->np2p_ev = NULL;
-	c->np2p_flags = 0;
 
 	if (remote) {
 		if ((c->np2p_remote = net2_malloc(remotelen)) == NULL)
@@ -327,12 +315,11 @@ net2_conn_p2p_socket(struct net2_workq_evbase *wqev, struct sockaddr *bindaddr,
 	rv->refcnt = 1;
 	if ((rv->guard = net2_mutex_alloc()) == NULL)
 		goto fail_guard;
-	rv->ev = net2_workq_io_new(wq, fd, &net2_udpsocket_recv, &net2_udpsocket_send, rv);
+	rv->ev = net2_workq_io_new(wq, fd, &net2_udpsocket_recv, rv);
 	if (rv->ev == NULL)
 		goto fail_event_new;
 
 	net2_workq_io_activate_rx(rv->ev);
-	net2_workq_io_activate_tx(rv->ev);
 	return rv;
 
 fail_event_add:
@@ -406,11 +393,20 @@ static void
 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket *cptr)
 {
 	struct net2_conn_p2p	*c = (struct net2_conn_p2p*)cptr;
+	struct net2_promise	*p;
+	struct net2_workq_io	*io;
 
+	/* Figure out which io to use. */
 	if (c->np2p_udpsock != NULL)
-		net2_udpsock_conn_wantsend(c->np2p_udpsock, c);
+		io = c->np2p_udpsock->ev;
 	else
-		net2_workq_io_activate_tx(c->np2p_ev);
+		io = c->np2p_ev;
+	/* Get a new promise. */
+	if ((p = net2_udpsocket_gather(&c->np2p_conn, NET2_WORKQ_IO_MAXLEN,
+	    c->np2p_remote, c->np2p_remotelen)) == NULL)
+		return;
+	/* Post the promise. */
+	net2_workq_io_tx(io, p);
 }
 
 /*
@@ -430,15 +426,6 @@ net2_conn_p2p_recv(void *cptr, struct net2_dgram_rx *rx)
 	r->error = rx->error;
 
 	net2_connection_recv(&c->np2p_conn, r);
-}
-
-static struct net2_promise*
-net2_conn_p2p_send(void *cptr, size_t maxsz)
-{
-	struct net2_conn_p2p	*c = cptr;
-
-	net2_workq_io_deactivate_tx(c->np2p_ev);
-	return net2_udpsocket_gather(&c->np2p_conn, maxsz, NULL, 0);
 }
 
 /*
@@ -584,28 +571,6 @@ fail_0:
 	return NULL;
 }
 
-static struct net2_promise*
-net2_udpsocket_send(void *udps_ptr, size_t maxsz)
-{
-	struct net2_udpsocket	*udps = udps_ptr;
-	struct net2_conn_p2p	*c;
-	struct net2_promise	*conn_prom;
-
-	/* Find something to transmit. */
-	while ((c = TAILQ_FIRST(&udps->wantwrite)) != NULL) {
-		TAILQ_REMOVE(&udps->wantwrite, c, np2p_wantwriteq);
-		c->np2p_flags &= ~NP2P_F_SENDQ;
-
-		conn_prom = net2_udpsocket_gather(&c->np2p_conn, maxsz,
-		    c->np2p_remote, c->np2p_remotelen);
-		if (conn_prom != NULL) {
-			/* Found something to transmit. */
-			return conn_prom;
-		}
-	}
-	return NULL;
-}
-
 /* Unlock socket and remove it if it has no references. */
 static void
 net2_udpsock_unlock(struct net2_udpsocket *sock)
@@ -637,25 +602,4 @@ net2_udpsock_conn_unlink(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
 	if (RB_REMOVE(net2_udpsocket_conns, &sock->conns, c) != c)
 		warnx("udpsocket: removal of connection that doesn't exist");
 	net2_udpsock_unlock(sock);
-}
-
-static void
-net2_udpsock_conn_wantsend(struct net2_udpsocket *sock, struct net2_conn_p2p *c)
-{
-	if (c->np2p_flags & NP2P_F_SENDQ)
-		return;
-
-	/* Acquire exclusive access to udpsocket. */
-	net2_mutex_lock(sock->guard);
-
-	/* Modify event to be pending for write. */
-	net2_workq_io_activate_tx(sock->ev);
-
-	/* Add connection to wantwriteq. */
-	assert(RB_FIND(net2_udpsocket_conns, &sock->conns, c) == c);
-	c->np2p_flags |= NP2P_F_SENDQ;
-	TAILQ_INSERT_TAIL(&sock->wantwrite, c, np2p_wantwriteq);
-
-	/* Release exclusive access to udpsocket. */
-	net2_mutex_unlock(sock->guard);
 }

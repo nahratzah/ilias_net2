@@ -46,6 +46,7 @@
 #ifdef WIN32
 /* For timer management interaction. */
 #include <ilias/net2/workq_timer.h>
+#include <ilias/net2/workq_io.h>
 #endif
 
 /*
@@ -269,7 +270,10 @@ struct net2_workq_evbase {
 						 * threads. */
 
 #ifdef WIN32
+	net2_spinlock	 spl_io;		/* Protect io structures. */
 	net2_spinlock	 spl_timer;		/* Protect timer structures. */
+	struct net2_workq_io_container
+			*io;			/* Windows IOCP wrapper. */
 	struct net2_workq_timer_container
 			*timer;			/* Windows timer, to handle
 						 * timeouts. */
@@ -381,8 +385,10 @@ workq_onqueue(struct net2_workq *wq, int clear_run)
 	    memory_order_consume);
 	if (predict_false(fl & WQ_DYING)) {
 		assert(fl & WQ_RUNNING);
-		atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
-		    memory_order_acq_rel);
+		if (!(fl & WQ_ONQUEUE)) {
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
+			    memory_order_acq_rel);
+		}
 		do_activate_worker = 0;
 	} else if (!(fl & WQ_ONQUEUE))
 		TAILQ_INSERT_TAIL(&wqev->runq, wq, wqev_runq);
@@ -420,7 +426,7 @@ workq_offqueue(struct net2_workq *wq)
 		return 0;
 
 	net2_spinlock_lock(&wqev->spl);
-	if (atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
+	if (atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
 	    memory_order_consume) & WQ_ONQUEUE) {
 		TAILQ_REMOVE(&wqev->runq, wq, wqev_runq);
 		rv = 1;
@@ -738,6 +744,8 @@ workq_run_clear(struct net2_workq *wq, int activate)
 
 	/* Assert that the current thread holds the running state. */
 	assert(workq_self(wq));
+	assert(atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	    WQ_RUNNING);
 
 	workq_self_clear(wq);
 
@@ -1236,6 +1244,10 @@ kill_wq(struct net2_workq *wq, int wait, int killme)
 	}
 	net2_spinlock_unlock(&wq->spl);
 
+	/* Validate that the wq is indeed unreachable from wqev. */
+	assert((atomic_load_explicit(&wq->flags, memory_order_seq_cst) &
+	    (WQ_RUNNING | WQ_ONQUEUE)) == 0);
+
 	/*
 	 * No jobs point at this workq, it has no references,
 	 * nor is it running.
@@ -1372,6 +1384,7 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 	TAILQ_INIT(&wqev->runq);
 #ifdef WIN32
 	wqev->timer = NULL;	/* Lazily allocated. */
+	wqev->io = NULL;	/* Lazily allocated. */
 #else
 	wqev->evloop = NULL;	/* Lazily allocated. */
 	ev_async_init(&wqev->ev_wakeup, &evloop_wakeup);
@@ -1409,6 +1422,8 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 #ifdef WIN32
 	if (net2_spinlock_init(&wqev->spl_timer))
 		goto fail_10;
+	if (net2_spinlock_init(&wqev->spl_io))
+		goto fail_11;
 #else
 	if (net2_spinlock_init(&wqev->spl_evloop))
 		goto fail_10;
@@ -1416,14 +1431,18 @@ net2_workq_evbase_new(const char *name, int jobthreads, int maxthreads)
 
 	if (net2_workq_set_thread_count(wqev, jobthreads, maxthreads)) {
 		net2_workq_set_thread_count(wqev, 0, 0);
-		goto fail_11;
+		goto fail_12;
 	}
 
 	return wqev;
 
 
-fail_12:
+fail_13:
 	net2_workq_set_thread_count(wqev, 0, 0);
+fail_12:
+#ifdef WIN32
+	net2_spinlock_deinit(&wqev->spl_io);
+#endif
 fail_11:
 #ifdef WIN32
 	net2_spinlock_deinit(&wqev->spl_timer);
@@ -1483,8 +1502,11 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 
 #ifdef WIN32
 	net2_spinlock_deinit(&wqev->spl_timer);
+	net2_spinlock_deinit(&wqev->spl_io);
 	if (wqev->timer != NULL)
 		net2_workq_timer_container_destroy(wqev->timer);
+	if (wqev->io != NULL)
+		net2_workq_io_container_destroy(wqev->io);
 #else
 	net2_spinlock_deinit(&wqev->spl_evloop);
 	if (wqev->evloop != NULL)
@@ -1679,7 +1701,10 @@ net2_workq_unwant(struct net2_workq *wq)
 		workq_activate(wq);
 }
 
-/* Acquire a queued workq from the wqev. */
+/*
+ * Acquire a queued workq from the wqev.
+ * Caller locks wqev->spl.
+ */
 static __inline struct net2_workq*
 __hot__
 wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
@@ -1688,6 +1713,13 @@ wqev_run_pop(struct net2_workq_evbase *wqev, struct net2_thread *curthread)
 
 	/* Acquire a workq and mark it running. */
 	TAILQ_FOREACH(wq, &wqev->runq, wqev_runq) {
+		/*
+		 * Since we hold the wqev spl, the queue must be
+		 * consistent.
+		 */
+		assert(atomic_load_explicit(&wq->flags,
+		    memory_order_relaxed) & WQ_ONQUEUE);
+
 		if (workq_run_set(wq, curthread)) {
 			assert(atomic_load_explicit(&wq->flags,
 			    memory_order_relaxed) & WQ_ONQUEUE);
@@ -2309,5 +2341,22 @@ net2_workq_get_timer(struct net2_workq *wq)
 		net2_spinlock_unlock(&wqev->spl_timer);
 	}
 	return wqev->timer;
+}
+
+/* Get an io manager. */
+ILIAS_NET2_LOCAL struct net2_workq_io_container*
+net2_workq_get_io(struct net2_workq *wq)
+{
+	struct net2_workq_evbase*wqev = wq->wqev;
+
+	if (wqev->io == NULL) {
+		net2_spinlock_lock(&wqev->spl_io);
+		if (wqev->io == NULL) {
+			wqev->io = net2_workq_io_container_new(&wqev->thr_idle,
+			    &wqev->thr_active);
+		}
+		net2_spinlock_unlock(&wqev->spl_io);
+	}
+	return wqev->io;
 }
 #endif
