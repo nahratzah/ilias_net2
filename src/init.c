@@ -27,7 +27,7 @@
 
 #include "handshake.h"
 
-#if defined(__GNUC__) || defined(__clang__)
+#if !defined(WIN32) && (defined(__GNUC__) || defined(__clang__))
 #define constructor	__attribute__((constructor))
 #define destructor	__attribute__((destructor))
 #elif defined(WIN32)
