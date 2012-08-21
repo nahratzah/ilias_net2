@@ -180,7 +180,7 @@ job_destroy_workq()
 
 
 void
-workq_busy_destroy_job()
+workq_busy_destroy_job(void *unused0, void *unused1)
 {
 	return;
 }
