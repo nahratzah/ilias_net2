@@ -20,7 +20,7 @@
 
 /* Fallback implementation for spinwait. */
 #ifndef SPINWAIT
-#define SPINWAIT	do {} while (0)
+#define SPINWAIT()	do {} while (0)
 #endif
 
 #endif /* ILIAS_NET2_BSD_COMPAT_STDATOMIC_H */
