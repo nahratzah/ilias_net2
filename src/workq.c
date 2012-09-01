@@ -1700,6 +1700,12 @@ net2_workq_unwant(struct net2_workq *wq)
 	if (workq_want_clear(wq))
 		workq_activate(wq);
 }
+/* Check if the workq is running on this thread. */
+ILIAS_NET2_EXPORT int
+net2_workq_is_self(struct net2_workq *wq)
+{
+	return workq_self(wq);
+}
 
 /*
  * Acquire a queued workq from the wqev.

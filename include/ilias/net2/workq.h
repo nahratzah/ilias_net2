@@ -113,6 +113,8 @@ ILIAS_NET2_EXPORT
 int	 net2_workq_want(struct net2_workq*, int);
 ILIAS_NET2_EXPORT
 void	 net2_workq_unwant(struct net2_workq*);
+ILIAS_NET2_EXPORT
+int	 net2_workq_is_self(struct net2_workq*);
 
 /* Assign callbacks for workq modifications. */
 static __inline void
