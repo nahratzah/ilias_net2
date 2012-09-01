@@ -138,6 +138,9 @@ net2_datapipe_event_is_null(struct net2_datapipe_event *ev)
 
 
 ILIAS_NET2_EXPORT
+int	 net2_dp_new(struct net2_datapipe_in**, struct net2_datapipe_out**,
+	    struct net2_workq_evbase*, net2_dp_free, void*);
+ILIAS_NET2_EXPORT
 void	 net2_dpin_ref(struct net2_datapipe_in*);
 ILIAS_NET2_EXPORT
 void	 net2_dpout_ref(struct net2_datapipe_out*);
