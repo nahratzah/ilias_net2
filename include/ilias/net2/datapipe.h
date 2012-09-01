@@ -4,6 +4,8 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/config.h>
 #include <ilias/net2/spinlock.h>
+#include <ilias/net2/bsd_compat/atomic.h>
+#include <ilias/net2/workq.h>
 
 #ifdef HAVE_SYS_QUEUE_H
 #include <sys/queue.h>
@@ -76,6 +78,23 @@ struct net2_datapipe_event_out {
 	volatile int		*dead;
 };
 
+/*
+ * Workq job events on datapipe.
+ */
+struct net2_datapipe_event {
+	int			 evtype;	/* Event type. */
+#define NET2_DP_EVTYPE_IN	0x10000000	/* Input side event. */
+#define NET2_DP_EVTYPE_OUT	0x00000000	/* Output side event. */
+#define NET2_DP_EVTYPE_MASK	(NET2_DP_EVTYPE_IN | NET2_DP_EVTYPE_OUT)
+#define NET2_DP_EVTYPE_AVAIL	0x00000000	/* In/out available. */
+#define NET2_DP_EVTYPE_FIN	0x00000001	/* No more in/out. */
+#define NET2_DP_EVTYPE__SIZE	0x00000002	/* Number of events. */
+	struct net2_dp_queue	*owner;		/* Refer to datapipe. */
+	struct net2_workq_job	 job;		/* Workq job. */
+	TAILQ_ENTRY(net2_datapipe_event)
+				 dpevq;		/* Link into events. */
+};
+
 
 /* Initialize null input event. */
 static __inline void
@@ -91,6 +110,13 @@ net2_datapipe_event_out_init_null(struct net2_datapipe_event_out *out_ev)
 	out_ev->dp = NULL;
 	out_ev->wq = NULL;
 }
+/* Initialize a null event. */
+static __inline void
+net2_datapipe_event_init_null(struct net2_datapipe_event *ev)
+{
+	ev->owner = NULL;
+	net2_workq_init_work_null(&ev->job);
+}
 /* Test if an event is a null event. */
 static __inline int
 net2_datapipe_event_in_is_null(struct net2_datapipe_event_in *in_ev)
@@ -102,6 +128,12 @@ static __inline int
 net2_datapipe_event_out_is_null(struct net2_datapipe_event_out *out_ev)
 {
 	return out_ev->dp == NULL && out_ev->wq == NULL;
+}
+/* Test if an event is a null event. */
+static __inline int
+net2_datapipe_event_is_null(struct net2_datapipe_event *ev)
+{
+	return net2_workq_work_is_null(&ev->job);
 }
 
 
@@ -143,6 +175,16 @@ int	 net2_datapipe_event_out_init(struct net2_datapipe_event_out*,
 	    net2_dp_consumer, void*);
 ILIAS_NET2_EXPORT
 void	 net2_datapipe_event_out_deinit(struct net2_datapipe_event_out*);
+ILIAS_NET2_EXPORT
+int	 net2_datapipe_event_init_in(struct net2_datapipe_event*,
+	    struct net2_datapipe_in*, int, struct net2_workq*,
+	    net2_workq_cb, void*, void*);
+ILIAS_NET2_EXPORT
+int	 net2_datapipe_event_init_out(struct net2_datapipe_event*,
+	    struct net2_datapipe_out*, int, struct net2_workq*,
+	    net2_workq_cb, void*, void*);
+ILIAS_NET2_EXPORT
+void	 net2_datapipe_event_deinit(struct net2_datapipe_event*);
 
 ILIAS_NET2_EXPORT
 void	 net2_datapipe_event_in_activate(struct net2_datapipe_event_in*);

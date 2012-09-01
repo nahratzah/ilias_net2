@@ -1,8 +1,11 @@
 #include <ilias/net2/datapipe.h>
-#include <ilias/net2/bsd_compat/atomic.h>
 #include <ilias/net2/memory.h>
 #include <ilias/net2/workq.h>
+#include <errno.h>
 
+
+/* Define type for datapipe events. */
+TAILQ_HEAD(dp_wqevents_q, net2_datapipe_event);
 
 /* Input side of the datapipe. */
 struct net2_datapipe_in {
@@ -10,6 +13,7 @@ struct net2_datapipe_in {
 	TAILQ_HEAD(, net2_datapipe_event_in)
 				 events;
 	unsigned int		 generation;
+	struct dp_wqevents_q	 wq_events[NET2_DP_EVTYPE__SIZE];
 };
 
 /* Output side of the datapipe. */
@@ -18,6 +22,7 @@ struct net2_datapipe_out {
 	TAILQ_HEAD(, net2_datapipe_event_out)
 				 events;
 	unsigned int		 generation;
+	struct dp_wqevents_q	 wq_events[NET2_DP_EVTYPE__SIZE];
 };
 
 /* Element in datapipe queue. */
@@ -27,7 +32,8 @@ struct net2_dp_elem {
 };
 /* Datapipe queue. */
 struct net2_dp_queue {
-	net2_spinlock		 spl;		/* Spinlock guard. */
+	net2_spinlock		 spl;		/* Guard elems. */
+	net2_spinlock		 event_spl;	/* Guard events. */
 	size_t			 len;		/* Actual len of queue. */
 	size_t			 maxlen;	/* Maxlen of queue. */
 	TAILQ_HEAD(, net2_dp_elem)
@@ -55,6 +61,8 @@ struct net2_dp_queue {
 
 #define QUEUE_LOCK(q)		net2_spinlock_lock(&(q)->spl)
 #define QUEUE_UNLOCK(q)		net2_spinlock_unlock(&(q)->spl)
+#define EVENT_LOCK(q)		net2_spinlock_lock(&(q)->event_spl)
+#define EVENT_UNLOCK(q)		net2_spinlock_unlock(&(q)->event_spl)
 
 /* Datapipe splice, combining two datapipes into a single queue. */
 struct net2_datapipe_splice {
@@ -86,13 +94,55 @@ IMPL_OUT(struct net2_datapipe_out *out)
 	return (struct net2_dp_queue*)((uintptr_t)(out) - IMPL_OUT_OFFSET);
 }
 
+/* Look up the mask to mark specified event as having fired. */
+static __inline int
+evtype_to_flag(int evtype)
+{
+#define BITS			 4
+#define OFFSET			 24
+	int			 io;
+	int			 idx;
+	int			 shift;
 
-static void queue_depleted(struct net2_dp_queue*);
-static void queue_drain_closed(struct net2_dp_queue*);
-static void queue_destroy(struct net2_dp_queue*);
+#if NET2_DP_EVTYPE__SIZE > BITS
+#error evtype_to_flag needs to have more bits to store settings!
+#endif
+#if OFFSET + 2 * BITS > 32
+#error evtype_to_flag uses more bits than an int can hold!
+#endif
 
-static void invoke_producers(void*, void*);
-static void invoke_consumers(void*, void*);
+	io = (evtype & NET2_DP_EVTYPE_MASK);
+	idx = (evtype & ~NET2_DP_EVTYPE_MASK);
+
+	/* evtype may not overflow. */
+	assert(idx >= 0 && idx < NET2_DP_EVTYPE__SIZE);
+	/* io must be valid. */
+	assert(io == NET2_DP_EVTYPE_IN || io == NET2_DP_EVTYPE_OUT);
+
+	shift = OFFSET + (io == NET2_DP_EVTYPE_IN ? 0 : BITS) + idx;
+	return 1 << shift;
+#undef BITS
+}
+
+
+static void	queue_depleted(struct net2_dp_queue*);
+static void	queue_drain_closed(struct net2_dp_queue*);
+static void	queue_destroy(struct net2_dp_queue*);
+
+static void	invoke_producers(void*, void*);
+static void	invoke_consumers(void*, void*);
+
+static int	dp_init_event(struct net2_datapipe_event*,
+		    struct net2_dp_queue*, int, struct net2_workq*,
+		    net2_workq_cb, void*, void*);
+static void	dp_run_event(struct net2_dp_queue*, int);
+
+/* Clear event bit. */
+static __inline void
+dp_clear_event(struct net2_dp_queue *q, int evtype)
+{
+	atomic_fetch_and(&q->flags, ~evtype_to_flag(evtype));
+}
 
 
 /*
@@ -159,6 +209,51 @@ out:
 	}
 }
 
+/*
+ * Wait until the state of an IO event becomes ACTIVE and switch it to
+ * INACTIVE.
+ *
+ * Called with EVENT_LOCK, returns with EVENT_LOCK.
+ */
+static __inline void
+event_io_wait_running(struct net2_dp_queue *q, atomic_int *state,
+    volatile int **deadptr)
+{
+	int			 st_want;
+
+	assert(q != NULL && state != NULL && deadptr != NULL);
+
+	/* First try without changing locks. */
+	st_want = NET2_DPEV_ACTIVE;
+	if (atomic_compare_exchange_strong(state, &st_want,
+	    NET2_DPEV_INACTIVE))
+		return;
+	if (st_want == NET2_DPEV_INACTIVE)
+		return;
+
+	/* If we are invoked from within this event, mark it dead. */
+	assert(st_want == NET2_DPEV_RUNNING);
+	if (net2_workq_is_self(q->wq)) {
+		assert(*deadptr != NULL);
+		**deadptr = 1;
+		return;
+	}
+
+	/* Spin until the job ceases to be runing. */
+	EVENT_UNLOCK(q);
+	for (;;) {
+		st_want = NET2_DPEV_ACTIVE;
+		if (atomic_compare_exchange_weak(state, &st_want,
+		    NET2_DPEV_INACTIVE) || st_want == NET2_DPEV_INACTIVE) {
+			EVENT_LOCK(q);
+			if (atomic_load(state) == NET2_DPEV_INACTIVE)
+				return;
+			EVENT_UNLOCK(q);
+		}
+		SPINWAIT();
+	}
+}
+
 
 /* Create a new datapipe. */
 ILIAS_NET2_EXPORT int
@@ -169,6 +264,7 @@ net2_dp_new(struct net2_datapipe_in **in_ptr,
 {
 	struct net2_dp_queue	*q;
 	int			 error;
+	size_t			 i;
 
 	if (in_ptr == NULL || out_ptr == NULL)
 		return EINVAL;
@@ -180,12 +276,15 @@ net2_dp_new(struct net2_datapipe_in **in_ptr,
 	}
 	if ((error = net2_spinlock_init(&q->spl)) != 0)
 		goto fail_1;
+	if ((error = net2_spinlock_init(&q->event_spl)) != 0)
+		goto fail_2;
 	q->len = 0;
 	q->maxlen = SIZE_MAX;
 	TAILQ_INIT(&q->elems);
 	q->free.fn = free_fn;
 	q->free.arg = free_arg;
-	atomic_init(&q->flags, DPQ_HAS_IN | DPQ_HAS_OUT);
+	atomic_init(&q->flags, DPQ_HAS_IN | DPQ_HAS_OUT |
+	    evtype_to_flag(NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_IN));
 	atomic_init(&q->release_refcnt, 0);
 
 	/* Set up null produce/consume jobs. */
@@ -199,10 +298,15 @@ net2_dp_new(struct net2_datapipe_in **in_ptr,
 	atomic_init(&q->out.refcnt, 1);
 	TAILQ_INIT(&q->out.events);
 
+	for (i = 0; i < NET2_DP_EVTYPE__SIZE; i++) {
+		TAILQ_INIT(&q->in.wq_events[i]);
+		TAILQ_INIT(&q->out.wq_events[i]);
+	}
+
 	/* Allocate workq. */
 	if ((q->wq = net2_workq_new(wqev)) == NULL) {
 		error = ENOMEM;
-		goto fail_2;
+		goto fail_3;
 	}
 
 	/* Publish result. */
@@ -211,8 +315,10 @@ net2_dp_new(struct net2_datapipe_in **in_ptr,
 	return 0;
 
 
-fail_3:
+fail_4:
 	net2_workq_release(q->wq);
+fail_3:
+	net2_spinlock_deinit(&q->event_spl);
 fail_2:
 	net2_spinlock_deinit(&q->spl);
 fail_1:
@@ -521,19 +627,11 @@ net2_dp_pop(struct net2_datapipe_out *out)
 static void
 queue_depleted(struct net2_dp_queue *q)
 {
-	int		 want;
 	struct net2_datapipe_event_out
 			*ev_out, *next;
 
 	assert((atomic_load(&q->flags) & (DPQ_HAS_IN | DPQ_EMPTY)) ==
 	    DPQ_EMPTY);
-
-	/*
-	 * Since the queue is depleted, no more output events can occur.
-	 * Lock event subsystem to start removing all events and splices.
-	 */
-	want = net2_workq_want(q->wq, 0);
-	assert(want == 0 || want == EDEADLK);
 
 	/*
 	 * Remove all out events.
@@ -542,6 +640,7 @@ queue_depleted(struct net2_dp_queue *q)
 	 * because net2_datapipe_event_out_deinit() could invoke
 	 * queue_destroy() prematurely.
 	 */
+	EVENT_LOCK(q);
 	for (ev_out = TAILQ_FIRST(&q->out.events); ev_out != NULL; ev_out = next) {
 		next = TAILQ_NEXT(ev_out, q);
 
@@ -563,9 +662,8 @@ queue_depleted(struct net2_dp_queue *q)
 		net2_spinlock_unlock(&ev_out->spl);
 	}
 
-	/* Unlock workq. */
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	dp_run_event(q, NET2_DP_EVTYPE_OUT | NET2_DP_EVTYPE_FIN);
+	EVENT_UNLOCK(q);
 }
 /*
  * When the drain side of the datapipe becomes unreferenced,
@@ -574,18 +672,10 @@ queue_depleted(struct net2_dp_queue *q)
 static void
 queue_drain_closed(struct net2_dp_queue *q)
 {
-	int		 want;
 	struct net2_datapipe_event_in
 			*ev_in, *next;
 
 	assert((atomic_load(&q->flags) & DPQ_HAS_OUT) == 0);
-
-	/*
-	 * Since the queue is depleted, no more output events can occur.
-	 * Lock event subsystem to start removing all events.
-	 */
-	want = net2_workq_want(q->wq, 0);
-	assert(want == 0 || want == EDEADLK);
 
 	/*
 	 * Remove all in events.
@@ -594,6 +684,7 @@ queue_drain_closed(struct net2_dp_queue *q)
 	 * because net2_datapipe_event_in_deinit() could invoke
 	 * queue_destroy() prematurely.
 	 */
+	EVENT_LOCK(q);
 	for (ev_in = TAILQ_FIRST(&q->in.events); ev_in != NULL; ev_in = next) {
 		next = TAILQ_NEXT(ev_in, q);
 
@@ -615,15 +706,15 @@ queue_drain_closed(struct net2_dp_queue *q)
 		net2_spinlock_unlock(&ev_in->spl);
 	}
 
-	/* Unlock workq. */
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	dp_run_event(q, NET2_DP_EVTYPE_IN | NET2_DP_EVTYPE_FIN);
+	EVENT_UNLOCK(q);
 }
 /* Destroy an unreferenced queue. */
 static void
 queue_destroy(struct net2_dp_queue *q)
 {
 	struct net2_dp_elem	*elem;
+	size_t			 i;
 
 	/* Stop event subsystem. */
 	net2_workq_deinit_work(&q->consume);
@@ -642,8 +733,12 @@ queue_destroy(struct net2_dp_queue *q)
 	/* Check that the destroy operation won't leave dangling pointers. */
 	assert(atomic_load(&q->in.refcnt) == 0);
 	assert(TAILQ_EMPTY(&q->in.events));
+	for (i = 0; i < NET2_DP_EVTYPE__SIZE; i++)
+		assert(TAILQ_EMPTY(&q->in.wq_events[i]));
 	assert(atomic_load(&q->out.refcnt) == 0);
 	assert(TAILQ_EMPTY(&q->out.events));
+	for (i = 0; i < NET2_DP_EVTYPE__SIZE; i++)
+		assert(TAILQ_EMPTY(&q->out.wq_events[i]));
 
 	/* Finally, free the datapipe. */
 	net2_free(q);
@@ -662,7 +757,6 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
     net2_dp_producer fn, void *arg)
 {
 	struct net2_dp_queue	*q;
-	int			 want;
 	int			 error;
 	int			 was_empty;
 
@@ -671,7 +765,7 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
 
 	if ((error = net2_spinlock_init(&in_ev->spl)) != 0)
 		goto fail_0;
-	net2_spinlock_lock(&in_ev->spl);
+	net2_spinlock_lock(&in_ev->spl);	/* error -> fail_1 */
 
 	in_ev->wq = wq;
 	in_ev->dp = in;
@@ -682,11 +776,7 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
 
 	/* Lock the datapipe event subsystem. */
 	q = IMPL_IN(in);
-	want = net2_workq_want(q->wq, 0);	/* error -> fail_2 */
-	if (!(want == 0 || want == EDEADLK)) {
-		error = want;
-		goto fail_1;
-	}
+	EVENT_LOCK(q);				/* error -> fail_2 */
 
 	/* Insert the job. */
 	if ((atomic_load(&q->flags) & DPQ_HAS_OUT) != 0) {
@@ -727,15 +817,13 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
 	net2_spinlock_unlock(&in_ev->spl);
 
 	/* Unlock the datapipe event subsystem. */
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 
 	return 0;
 
 
 fail_2:
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 fail_1:
 	net2_spinlock_unlock(&in_ev->spl);
 	net2_spinlock_deinit(&in_ev->spl);
@@ -752,7 +840,6 @@ net2_datapipe_event_in_deinit(struct net2_datapipe_event_in *in_ev)
 	struct net2_datapipe_in	*in;
 	struct net2_workq	*wq;
 	struct net2_dp_queue	*q;
-	int			 want;
 
 	if (net2_datapipe_event_in_is_null(in_ev))
 		return;
@@ -771,17 +858,10 @@ net2_datapipe_event_in_deinit(struct net2_datapipe_event_in *in_ev)
 	 */
 	if (in != NULL) {
 		q = IMPL_IN(in);
-		want = net2_workq_want(q->wq, 0);
-		assert(want == 0 || want == EDEADLK);
+		EVENT_LOCK(q);
 
 		/* Event can only be running if we deadlock. */
-		assert(want != EDEADLK ||
-		    atomic_load(&in_ev->state) != NET2_DPEV_RUNNING);
-		if (want == EDEADLK &&
-		    atomic_load(&in_ev->state) == NET2_DPEV_RUNNING) {
-			assert(in_ev->dead != NULL);
-			*in_ev->dead = 1;
-		}
+		event_io_wait_running(q, &in_ev->state, &in_ev->dead);
 
 		TAILQ_REMOVE(&in->events, in_ev, q);
 		in_ev->dp = NULL;
@@ -794,9 +874,7 @@ net2_datapipe_event_in_deinit(struct net2_datapipe_event_in *in_ev)
 			QUEUE_UNLOCK(q);
 		}
 
-		if (want == 0)
-			net2_workq_unwant(q->wq);
-
+		EVENT_UNLOCK(q);
 		net2_dpin_release(in);
 	}
 
@@ -821,7 +899,6 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
     net2_dp_consumer fn, void *arg)
 {
 	struct net2_dp_queue	*q;
-	int			 want;
 	int			 error;
 	int			 was_empty;
 
@@ -841,11 +918,7 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 
 	/* Lock the datapipe event subsystem. */
 	q = IMPL_OUT(out);
-	want = net2_workq_want(q->wq, 0);	/* error -> fail_2 */
-	if (!(want == 0 || want == EDEADLK)) {
-		error = want;
-		goto fail_1;
-	}
+	EVENT_LOCK(q);				/* error -> fail_2 */
 
 	/* Insert the job. */
 	if ((atomic_load(&q->flags) & (DPQ_HAS_IN | DPQ_EMPTY)) != DPQ_EMPTY) {
@@ -886,15 +959,13 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 	net2_spinlock_unlock(&out_ev->spl);
 
 	/* Unlock the datapipe event subsystem. */
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 
 	return 0;
 
 
 fail_2:
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 fail_1:
 	net2_spinlock_unlock(&out_ev->spl);
 	net2_spinlock_deinit(&out_ev->spl);
@@ -904,6 +975,7 @@ fail_0:
 	out_ev->dp = NULL;
 	return error;
 }
+
 /* Release a datapipe input event. */
 ILIAS_NET2_EXPORT void
 net2_datapipe_event_out_deinit(struct net2_datapipe_event_out *out_ev)
@@ -911,7 +983,6 @@ net2_datapipe_event_out_deinit(struct net2_datapipe_event_out *out_ev)
 	struct net2_datapipe_out*out;
 	struct net2_workq	*wq;
 	struct net2_dp_queue	*q;
-	int			 want;
 
 	if (net2_datapipe_event_out_is_null(out_ev))
 		return;
@@ -930,17 +1001,13 @@ net2_datapipe_event_out_deinit(struct net2_datapipe_event_out *out_ev)
 	 */
 	if (out != NULL) {
 		q = IMPL_OUT(out);
-		want = net2_workq_want(q->wq, 0);
-		assert(want == 0 || want == EDEADLK);
+		EVENT_LOCK(q);
 
-		/* Event can only be running if we deadlock. */
-		assert(want != EDEADLK ||
-		    atomic_load(&out_ev->state) != NET2_DPEV_RUNNING);
-		if (want == EDEADLK &&
-		    atomic_load(&out_ev->state) == NET2_DPEV_RUNNING) {
-			assert(out_ev->dead != NULL);
-			*out_ev->dead = 1;
-		}
+		/*
+		 * Wait until event ceases to be running, or mark it dead if
+		 * we are the ones running.
+		 */
+		event_io_wait_running(q, &out_ev->state, &out_ev->dead);
 
 		TAILQ_REMOVE(&out->events, out_ev, q);
 		out_ev->dp = NULL;
@@ -953,9 +1020,7 @@ net2_datapipe_event_out_deinit(struct net2_datapipe_event_out *out_ev)
 			QUEUE_UNLOCK(q);
 		}
 
-		if (want == 0)
-			net2_workq_unwant(q->wq);
-
+		EVENT_UNLOCK(q);
 		net2_dpout_release(out);
 	}
 
@@ -976,7 +1041,6 @@ net2_datapipe_event_in_activate(struct net2_datapipe_event_in *in_ev)
 	struct net2_dp_queue	*q;
 	struct net2_datapipe_in	*in;
 	int			 state;
-	int			 want;
 
 	if (net2_datapipe_event_in_is_null(in_ev))
 		return;
@@ -1000,9 +1064,8 @@ net2_datapipe_event_in_activate(struct net2_datapipe_event_in *in_ev)
 	in = in_ev->dp;
 	q = IMPL_IN(in);
 	/* Acquire datapipe event lock. */
-	want = net2_workq_want(q->wq, 0);
+	EVENT_LOCK(q);
 	net2_spinlock_unlock(&in_ev->spl);
-	assert(want == 0 || want == EDEADLK);
 
 	/* Ensure the event will run. */
 	in_ev->generation = in->generation - 1;
@@ -1010,8 +1073,7 @@ net2_datapipe_event_in_activate(struct net2_datapipe_event_in *in_ev)
 	TAILQ_INSERT_HEAD(&in->events, in_ev, q);
 	net2_workq_activate(&q->produce, 0);
 
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 }
 /* Deactivate input event. */
 ILIAS_NET2_EXPORT void
@@ -1020,7 +1082,6 @@ net2_datapipe_event_in_deactivate(struct net2_datapipe_event_in *in_ev)
 	struct net2_dp_queue	*q;
 	struct net2_datapipe_in	*in;
 	int			 state;
-	int			 want;
 
 	if (net2_datapipe_event_in_is_null(in_ev))
 		return;
@@ -1042,16 +1103,10 @@ net2_datapipe_event_in_deactivate(struct net2_datapipe_event_in *in_ev)
 	in = in_ev->dp;
 	q = IMPL_IN(in);
 	/* Acquire datapipe event lock. */
-	want = net2_workq_want(q->wq, 0);
+	EVENT_LOCK(q);
 	net2_spinlock_unlock(&in_ev->spl);
-	assert(want == 0 || want == EDEADLK);
-
-	state = NET2_DPEV_ACTIVE;
-	atomic_compare_exchange_strong(&in_ev->state, &state,
-	    NET2_DPEV_INACTIVE);
-
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	event_io_wait_running(q, &in_ev->state, &in_ev->dead);
+	EVENT_UNLOCK(q);
 }
 /* Activate output event. */
 ILIAS_NET2_EXPORT void
@@ -1060,7 +1115,6 @@ net2_datapipe_event_out_activate(struct net2_datapipe_event_out *out_ev)
 	struct net2_dp_queue	*q;
 	struct net2_datapipe_out*out;
 	int			 state;
-	int			 want;
 
 	if (net2_datapipe_event_out_is_null(out_ev))
 		return;
@@ -1084,9 +1138,8 @@ net2_datapipe_event_out_activate(struct net2_datapipe_event_out *out_ev)
 	out = out_ev->dp;
 	q = IMPL_OUT(out);
 	/* Acquire datapipe event lock. */
-	want = net2_workq_want(q->wq, 0);
+	EVENT_LOCK(q);
 	net2_spinlock_unlock(&out_ev->spl);
-	assert(want == 0 || want == EDEADLK);
 
 	/* Ensure the event will run. */
 	out_ev->generation = out->generation - 1;
@@ -1094,8 +1147,7 @@ net2_datapipe_event_out_activate(struct net2_datapipe_event_out *out_ev)
 	TAILQ_INSERT_HEAD(&out->events, out_ev, q);
 	net2_workq_activate(&q->consume, 0);
 
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	EVENT_UNLOCK(q);
 }
 /* Deactivate output event. */
 ILIAS_NET2_EXPORT void
@@ -1104,7 +1156,6 @@ net2_datapipe_event_out_deactivate(struct net2_datapipe_event_out *out_ev)
 	struct net2_dp_queue	*q;
 	struct net2_datapipe_out*out;
 	int			 state;
-	int			 want;
 
 	if (net2_datapipe_event_out_is_null(out_ev))
 		return;
@@ -1126,16 +1177,10 @@ net2_datapipe_event_out_deactivate(struct net2_datapipe_event_out *out_ev)
 	out = out_ev->dp;
 	q = IMPL_OUT(out);
 	/* Acquire datapipe event lock. */
-	want = net2_workq_want(q->wq, 0);
+	EVENT_LOCK(q);
 	net2_spinlock_unlock(&out_ev->spl);
-	assert(want == 0 || want == EDEADLK);
-
-	state = NET2_DPEV_ACTIVE;
-	atomic_compare_exchange_strong(&out_ev->state, &state,
-	    NET2_DPEV_INACTIVE);
-
-	if (want == 0)
-		net2_workq_unwant(q->wq);
+	event_io_wait_running(q, &out_ev->state, &out_ev->dead);
+	EVENT_UNLOCK(q);
 }
 
 /*
@@ -1164,12 +1209,6 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	 */
 	queue_acquire(q);
 
-	/* If there are no events, there is nothing we can do. */
-	if (TAILQ_EMPTY(&q->in.events)) {
-		net2_workq_deactivate(&q->produce);
-		goto out;
-	}
-
 	/*
 	 * If we ran out of memory, we need to sleep.  Unfortunately,
 	 * we have no way of waking up once memory becomes available,
@@ -1180,6 +1219,9 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	 */
 	if ((elem = net2_malloc(sizeof(*elem))) == NULL)
 		goto out;
+
+	/* Clear events. */
+	dp_clear_event(q, NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_IN);
 
 	/* Reserve a position in the queue. */
 	QUEUE_LOCK(q);
@@ -1197,6 +1239,7 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 
 	/* Iterate events. */
 	item = NULL;
+	EVENT_LOCK(q);
 	while (item == NULL && (in_ev = TAILQ_FIRST(&q->in.events)) != NULL) {
 		/* Generation protects us against endless loops. */
 		if (in_ev->generation == generation)
@@ -1218,6 +1261,7 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 
 		dead = 0;
 		in_ev->dead = &dead;
+		EVENT_UNLOCK(q);
 
 		/* Sync with event workq. */
 		ev_wq = in_ev->wq;
@@ -1231,19 +1275,22 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		assert(in_ev->producer.fn != NULL);
 		item = in_ev->producer.fn(in_ev->producer.arg);
 
-		if (!dead) {
-			state = NET2_DPEV_RUNNING;
-			atomic_compare_exchange_strong(&in_ev->state, &state,
-			    NET2_DPEV_ACTIVE);
-		}
-
 		/* Release event workq. */
 		if (ev_wq != NULL) {
 			if (want == 0)
 				net2_workq_unwant(ev_wq);
 			net2_workq_release(ev_wq);
 		}
+
+		EVENT_LOCK(q);
+		if (!dead) {
+			in_ev->dead = NULL;
+			state = NET2_DPEV_RUNNING;
+			atomic_compare_exchange_strong(&in_ev->state, &state,
+			    NET2_DPEV_ACTIVE);
+		}
 	}
+	EVENT_UNLOCK(q);
 
 	/*
 	 * Update queue, either pushing back the new element or
@@ -1257,15 +1304,22 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		assert(q->len > 0);
 		q->len--;
 		net2_workq_deactivate(&q->produce);
-		net2_free(elem);
+
+		/* Start all wq events. */
+		dp_run_event(q, NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_IN);
 	} else {
 		/*
 		 * Commit code if item was created by any of the producers.
 		 */
 		elem->item = item;
 		TAILQ_INSERT_TAIL(&q->elems, elem, q);
+		elem = NULL;
 	}
 	QUEUE_UNLOCK(q);
+
+	/* Free outside of locks. */
+	if (elem != NULL)
+		net2_free(elem);
 
 	/*
 	 * Activate consumer.
@@ -1307,18 +1361,16 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	 */
 	queue_acquire(q);
 
-	/* If there are no events, we have nothing to do. */
-	if (TAILQ_EMPTY(&q->out.events)) {
-		net2_workq_deactivate(&q->consume);
-		goto out;
-	}
-
 	/* Start a new generation. */
 	generation = ++q->out.generation;
+
+	/* Clear events. */
+	dp_clear_event(q, NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_OUT);
 
 	/*
 	 * Search for an out event that is willing to handle the event.
 	 */
+	EVENT_LOCK(q);
 	while ((ev_out = TAILQ_FIRST(&q->out.events)) != NULL) {
 		/* Generation protects against endless loops. */
 		if (ev_out->generation == generation) {
@@ -1341,12 +1393,20 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	}
 	/* Stop running workq job if nothing will accept data. */
 	if (ev_out == NULL) {
+		/* Deactivate this function. */
 		net2_workq_deactivate(&q->consume);
-		goto out;
+
+		/* Start all wq events if the queue is not empty. */
+		if (!(atomic_load(&q->flags) & DPQ_EMPTY)) {
+			dp_run_event(q,
+			    NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_OUT);
+		}
 	}
+	EVENT_UNLOCK(q);
+	if (ev_out == NULL)
+		goto out;
 
 	/* Acquire an element from the queue. */
-	elem = NULL;
 	QUEUE_LOCK(q);
 	elem = TAILQ_FIRST(&q->elems);
 	assert(elem == NULL || elem->item != NULL);
@@ -1405,6 +1465,8 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	ev_out->consumer.fn(item, ev_out->consumer.arg);
 
 	if (!dead) {
+		EVENT_LOCK(q);
+
 		/* Clear running state. */
 		state = NET2_DPEV_RUNNING;
 		atomic_compare_exchange_strong(&ev_out->state, &state,
@@ -1412,6 +1474,8 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		/* Move the event to the rear. */
 		TAILQ_REMOVE(&q->out.events, ev_out, q);
 		TAILQ_INSERT_HEAD(&q->out.events, ev_out, q);
+
+		EVENT_UNLOCK(q);
 	}
 
 	/* Release event workq. */
@@ -1424,4 +1488,192 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 out:
 	queue_release(q, 0);
 	return;
+}
+
+/* Look up the dp_wqevents_q that the given evtype resolves to. */
+static __inline struct dp_wqevents_q*
+get_wqevq(struct net2_dp_queue *q, int evtype)
+{
+	struct dp_wqevents_q	*evs;
+	int			 io;
+	int			 idx;
+
+	io = (evtype & NET2_DP_EVTYPE_MASK);
+	idx = (evtype & ~NET2_DP_EVTYPE_MASK);
+
+	/* evtype may not overflow. */
+	if (idx < 0 || idx >= NET2_DP_EVTYPE__SIZE)
+		return NULL;
+
+	/* Determine event side. */
+	switch (io) {
+	case NET2_DP_EVTYPE_IN:
+		evs = q->in.wq_events;
+		break;
+	case NET2_DP_EVTYPE_OUT:
+		evs = q->out.wq_events;
+		break;
+	default:
+		return NULL;
+	}
+
+	return &evs[idx];
+}
+/*
+ * Run events.
+ *
+ * EVENT_LOCK() must be active.
+ */
+static void
+dp_run_event(struct net2_dp_queue *q, int evtype)
+{
+	struct dp_wqevents_q	*wqevq;
+	struct net2_datapipe_event
+				*ev;
+
+	wqevq = get_wqevq(q, evtype);
+	assert(wqevq != NULL);
+
+	/* Mark event as active. */
+	if (atomic_fetch_or(&q->flags, evtype_to_flag(evtype)) & evtype_to_flag(evtype))
+		return;
+
+	TAILQ_FOREACH(ev, wqevq, dpevq)
+		net2_workq_activate(&ev->job, 0);
+
+	/* Fin type events only fire once. */
+	if ((evtype & ~NET2_DP_EVTYPE_MASK) == NET2_DP_EVTYPE_FIN) {
+		while ((ev = TAILQ_FIRST(wqevq)) != NULL) {
+			ev->owner = NULL;
+			TAILQ_REMOVE(wqevq, ev, dpevq);
+			atomic_fetch_sub(&q->release_refcnt, 1);
+		}
+	}
+}
+/* True if the specified event is active. */
+static __inline int
+dp_event_active(struct net2_dp_queue *q, int evtype)
+{
+	return atomic_load(&q->flags) & evtype_to_flag(evtype);
+}
+/*
+ * Initialize event to the specified evno.
+ */
+static int
+dp_init_event(struct net2_datapipe_event *ev, struct net2_dp_queue *q,
+    int evtype, struct net2_workq *wq,
+    net2_workq_cb cb, void *arg0, void *arg1)
+{
+	struct dp_wqevents_q	*wqevq;
+	int			 error;
+	int			 active;
+
+	assert(q != NULL);
+	if (ev == NULL)
+		return EINVAL;
+
+	ev->evtype = evtype;
+	ev->owner = NULL;
+
+	/* Unimplemented event indices return ENOSYS. */
+	if ((wqevq = get_wqevq(q, evtype)) == NULL) {
+		error = ENOSYS;
+		goto fail_0;
+	}
+
+	/* Initialize callback. */
+	if ((error = net2_workq_init_work(&ev->job, wq, cb, arg0, arg1, 0)) != 0)
+		goto fail_0;
+
+	/*
+	 * Active fin event, bypass event lock and fire right now.
+	 * Note that we do not cache the 'active' variable, since we don't hold
+	 * a lock (EVENT_LOCK) that would prevent the bit from changing.
+	 *
+	 * This if-statement simply skips the locking overhead.
+	 */
+	if ((evtype & ~NET2_DP_EVTYPE_MASK) == NET2_DP_EVTYPE_FIN &&
+	    dp_event_active(q, evtype)) {
+fin_immed:
+		net2_workq_activate(&ev->job, 0);
+		return 0;
+	}
+
+	/*
+	 * Link inactive or non-fin event into datapipe.
+	 */
+	EVENT_LOCK(q);
+	active = dp_event_active(q, evtype);
+	if ((evtype & ~NET2_DP_EVTYPE_MASK) == NET2_DP_EVTYPE_FIN && active) {
+		/* Fin event became active during EVENT_LOCK(). */
+		EVENT_UNLOCK(q);
+		goto fin_immed;
+	}
+
+	queue_acquire(q);	/* Event holds reference to queue. */
+	ev->owner = q;
+	TAILQ_INSERT_TAIL(wqevq, ev, dpevq);
+
+	if (active)
+		net2_workq_activate(&ev->job, 0);
+	EVENT_UNLOCK(q);
+	return 0;
+
+
+fail_1:
+	net2_workq_deinit_work(&ev->job);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+/* Attach event to input side of queue. */
+ILIAS_NET2_EXPORT int
+net2_datapipe_event_init_in(struct net2_datapipe_event *ev,
+    struct net2_datapipe_in *in, int evno, struct net2_workq *wq,
+    net2_workq_cb cb, void *arg0, void *arg1)
+{
+	if (ev == NULL || in == NULL)
+		return EINVAL;
+	if (evno & NET2_DP_EVTYPE_MASK)
+		return ENOSYS;
+
+	return dp_init_event(ev, IMPL_IN(in), evno | NET2_DP_EVTYPE_IN,
+	    wq, cb, arg0, arg1);
+}
+/* Attach event to input side of queue. */
+ILIAS_NET2_EXPORT int
+net2_datapipe_event_init_out(struct net2_datapipe_event *ev,
+    struct net2_datapipe_out *out, int evno, struct net2_workq *wq,
+    net2_workq_cb cb, void *arg0, void *arg1)
+{
+	if (ev == NULL || out == NULL)
+		return EINVAL;
+	if (evno & NET2_DP_EVTYPE_MASK)
+		return ENOSYS;
+
+	return dp_init_event(ev, IMPL_OUT(out), evno | NET2_DP_EVTYPE_OUT,
+	    wq, cb, arg0, arg1);
+}
+/* Deinit event. */
+ILIAS_NET2_EXPORT void
+net2_datapipe_event_deinit(struct net2_datapipe_event *ev)
+{
+	struct net2_dp_queue	*q;
+	struct dp_wqevents_q	*wqevq;
+
+	q = ev->owner;
+	ev->owner = NULL;
+
+	net2_workq_deinit_work(&ev->job);
+
+	if (q != NULL) {
+		wqevq = get_wqevq(q, ev->evtype);
+		assert(wqevq != NULL);
+
+		EVENT_LOCK(q);
+		TAILQ_REMOVE(wqevq, ev, dpevq);
+		EVENT_UNLOCK(q);
+
+		queue_release(q, 0);
+	}
 }
