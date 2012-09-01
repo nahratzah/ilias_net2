@@ -32,7 +32,7 @@ struct net2_dp_elem {
 };
 /* Datapipe queue. */
 struct net2_dp_queue {
-	net2_spinlock		 spl;		/* Guard elems. */
+	net2_spinlock		 elems_spl;	/* Guard elems. */
 	net2_spinlock		 event_spl;	/* Guard events. */
 	size_t			 len;		/* Actual len of queue. */
 	size_t			 maxlen;	/* Maxlen of queue. */
@@ -59,8 +59,8 @@ struct net2_dp_queue {
 	atomic_size_t		 release_refcnt; /* queue_release running. */
 };
 
-#define QUEUE_LOCK(q)		net2_spinlock_lock(&(q)->spl)
-#define QUEUE_UNLOCK(q)		net2_spinlock_unlock(&(q)->spl)
+#define QUEUE_LOCK(q)		net2_spinlock_lock(&(q)->elems_spl)
+#define QUEUE_UNLOCK(q)		net2_spinlock_unlock(&(q)->elems_spl)
 #define EVENT_LOCK(q)		net2_spinlock_lock(&(q)->event_spl)
 #define EVENT_UNLOCK(q)		net2_spinlock_unlock(&(q)->event_spl)
 
@@ -274,7 +274,7 @@ net2_dp_new(struct net2_datapipe_in **in_ptr,
 		error = ENOMEM;
 		goto fail_0;
 	}
-	if ((error = net2_spinlock_init(&q->spl)) != 0)
+	if ((error = net2_spinlock_init(&q->elems_spl)) != 0)
 		goto fail_1;
 	if ((error = net2_spinlock_init(&q->event_spl)) != 0)
 		goto fail_2;
@@ -320,7 +320,7 @@ fail_4:
 fail_3:
 	net2_spinlock_deinit(&q->event_spl);
 fail_2:
-	net2_spinlock_deinit(&q->spl);
+	net2_spinlock_deinit(&q->elems_spl);
 fail_1:
 	net2_free(q);
 fail_0:
@@ -722,7 +722,7 @@ queue_destroy(struct net2_dp_queue *q)
 	net2_workq_release(q->wq);
 
 	/* Release left-over elements. */
-	net2_spinlock_deinit(&q->spl);
+	net2_spinlock_deinit(&q->elems_spl);
 	while ((elem = TAILQ_FIRST(&q->elems)) != NULL) {
 		TAILQ_REMOVE(&q->elems, elem, q);
 		if (q->free.fn != NULL)
