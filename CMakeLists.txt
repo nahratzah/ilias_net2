@@ -53,6 +53,7 @@ list (APPEND headers
 	include/ilias/net2/buffer.h
 	include/ilias/net2/carver.h
 	include/ilias/net2/signed_carver.h
+	include/ilias/net2/datapipe.h
 	include/ilias/net2/cneg_stage1.h
 	include/ilias/net2/cneg_key_xchange.h
 	include/ilias/net2/conn_negotiator.h
@@ -95,6 +96,7 @@ list (APPEND srcs
 	src/buffer.c
 	src/carver.c
 	src/signed_carver.c
+	src/datapipe.c
 	src/cneg_stage1.c
 	src/cneg_key_xchange.c
 	src/conn_negotiator.c
