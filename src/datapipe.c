@@ -54,7 +54,6 @@ struct net2_dp_queue {
 	atomic_int		 flags;
 #define DPQ_HAS_IN		0x01		/* in.refcnt > 0 */
 #define DPQ_HAS_OUT		0x02		/* out.refcnt > 0 */
-#define DPQ_EMPTY		0x10		/* queue is empty. */
 
 	atomic_size_t		 release_refcnt; /* queue_release running. */
 };
@@ -172,6 +171,7 @@ static __inline void
 queue_release(struct net2_dp_queue *q, int dpq_flag)
 {
 	int			 flags;
+	int			 is_empty;
 
 	assert(dpq_flag == DPQ_HAS_IN || dpq_flag == DPQ_HAS_OUT ||
 	    dpq_flag == 0);
@@ -185,10 +185,12 @@ queue_release(struct net2_dp_queue *q, int dpq_flag)
 
 	switch (dpq_flag) {
 	case DPQ_HAS_IN:
-		if ((flags & (DPQ_EMPTY | DPQ_HAS_IN)) == DPQ_EMPTY) {
+		QUEUE_LOCK(q);
+		if (q->len == 0) {
 			/* Input is depleted. */
 			queue_depleted(q);
 		}
+		QUEUE_UNLOCK(q);
 		break;
 	case DPQ_HAS_OUT:
 		if ((flags & DPQ_HAS_OUT) == 0) {
@@ -434,6 +436,12 @@ net2_dp_push_prepare(struct net2_datapipe_in_prepare *p,
 
 	if ((p->elem = net2_malloc(sizeof(*p->elem))) == NULL) {
 		error = ENOMEM;
+
+		/* Undo q->len increment. */
+		QUEUE_LOCK(q);
+		q->len--;
+		QUEUE_UNLOCK(q);
+
 		goto out;
 	}
 
@@ -475,12 +483,10 @@ net2_dp_push_commit(struct net2_datapipe_in_prepare *p, void *item)
 
 	/* Insert element into queue. */
 	QUEUE_LOCK(q);
+	if (TAILQ_EMPTY(&q->elems))
+		net2_workq_activate(&q->consume, 0);
 	TAILQ_INSERT_TAIL(&q->elems, p->elem, q);
 	QUEUE_UNLOCK(q);
-
-	/* Activate workq job. */
-	if (atomic_fetch_and(&q->flags, ~DPQ_EMPTY) & DPQ_EMPTY)
-		net2_workq_activate(&q->consume, 0);
 
 	p->elem = NULL;
 	net2_dpin_release(p->in);
@@ -511,8 +517,6 @@ net2_dp_push_rollback(struct net2_datapipe_in_prepare *p)
 	/* Activate producer workq job. */
 	if (q->len == q->maxlen - 1)
 		net2_workq_activate(&q->produce, 0);
-	if (q->len == 0)
-		atomic_fetch_or(&q->flags, DPQ_EMPTY);
 	QUEUE_UNLOCK(q);
 
 	net2_free(p->elem);
@@ -582,15 +586,6 @@ net2_dp_pop(struct net2_datapipe_out *out)
 		return NULL;
 	q = IMPL_OUT(out);
 
-	/*
-	 * Quick test: if the queue is marked as empty, it is empty.
-	 *
-	 * Note that the queue may actually appear to be empty after we
-	 * acquire the lock (since we may have had to wait to acquire it).
-	 */
-	if (atomic_load(&q->flags) & DPQ_EMPTY)
-		return NULL;
-
 	/* Retrieve the first elem from the queue. */
 	QUEUE_LOCK(q);
 	if ((elem = TAILQ_FIRST(&q->elems)) != NULL) {
@@ -608,7 +603,7 @@ net2_dp_pop(struct net2_datapipe_out *out)
 		 * guarantee the queue will exist past our lifetime.
 		 */
 		if (q->len == 0 &&
-		    (atomic_fetch_or(&q->flags, DPQ_EMPTY) & DPQ_HAS_IN) == 0)
+		    (atomic_load(&q->flags) & DPQ_HAS_IN) == 0)
 			queue_depleted(q);
 	}
 	QUEUE_UNLOCK(q);
@@ -630,8 +625,10 @@ queue_depleted(struct net2_dp_queue *q)
 	struct net2_datapipe_event_out
 			*ev_out, *next;
 
-	assert((atomic_load(&q->flags) & (DPQ_HAS_IN | DPQ_EMPTY)) ==
-	    DPQ_EMPTY);
+	assert((atomic_load(&q->flags) & DPQ_HAS_IN) == 0);
+	QUEUE_LOCK(q);
+	assert(q->len == 0);
+	QUEUE_UNLOCK(q);
 
 	/*
 	 * Remove all out events.
@@ -901,6 +898,7 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 	struct net2_dp_queue	*q;
 	int			 error;
 	int			 was_empty;
+	int			 depleted;
 
 	if (out_ev == NULL || out == NULL || fn == NULL)
 		return EINVAL;
@@ -920,8 +918,16 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 	q = IMPL_OUT(out);
 	EVENT_LOCK(q);				/* error -> fail_2 */
 
+	/* Test if the datapipe is in depleted mode. */
+	depleted = ((atomic_load(&q->flags) & DPQ_HAS_IN) == 0);
+	if (depleted) {
+		QUEUE_LOCK(q);
+		depleted = (q->len == 0);
+		QUEUE_UNLOCK(q);
+	}
+
 	/* Insert the job. */
-	if ((atomic_load(&q->flags) & (DPQ_HAS_IN | DPQ_EMPTY)) != DPQ_EMPTY) {
+	if (depleted) {
 		was_empty = TAILQ_EMPTY(&out->events);
 		TAILQ_INSERT_HEAD(&out->events, out_ev, q);
 
@@ -1397,7 +1403,11 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		net2_workq_deactivate(&q->consume);
 
 		/* Start all wq events if the queue is not empty. */
-		if (!(atomic_load(&q->flags) & DPQ_EMPTY)) {
+		QUEUE_LOCK(q);
+		if (q->len == 0)
+			QUEUE_UNLOCK(q);
+		else {
+			QUEUE_UNLOCK(q);
 			dp_run_event(q,
 			    NET2_DP_EVTYPE_AVAIL | NET2_DP_EVTYPE_OUT);
 		}
@@ -1417,8 +1427,7 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		if (q->len-- == q->maxlen)
 			net2_workq_activate(&q->produce, 0);
 		if (q->len == 0 &&
-		    (atomic_fetch_or(&q->flags, DPQ_EMPTY) &
-		    DPQ_HAS_IN) == 0)
+		    (atomic_load(&q->flags) & DPQ_HAS_IN) == 0)
 			queue_depleted(q);
 	} else {
 		/* Deactivate this function. */
