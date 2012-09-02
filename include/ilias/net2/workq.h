@@ -140,6 +140,15 @@ net2_workq_work_is_null(struct net2_workq_job *j)
 
 ILIAS_NET2_EXPORT
 int	 net2_workq_aid(struct net2_workq*, int);
+ILIAS_NET2_EXPORT
+struct net2_workq
+	*net2_workq_current();
+
+
+ILIAS_NET2_LOCAL
+int	 net2_workq_init();
+ILIAS_NET2_LOCAL
+void	 net2_workq_fini();
 
 
 #ifdef WIN32

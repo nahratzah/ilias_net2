@@ -141,6 +141,36 @@ thryield()
 #endif
 
 
+/* __thread keyword for windows. */
+#if defined(WIN32) && !defined(HAS_TLS)
+#define __thread	__declspec(thread)
+#define HAS_TLS
+#endif
+
+/* Thread specific state for workq functions. */
+struct wq_tls_state_t {
+#ifndef HAS_TLS
+	TAILQ_ENTRY(wq_tls_state_t) q;
+#endif
+
+	struct net2_workq	*active_wq;
+	struct net2_workq_evbase_worker
+				*wthr;
+};
+
+#ifndef HAS_TLS
+/* pthreads implementation. */
+static pthread_key_t wq_tls_slot;
+
+#define wq_tls_state		(*get_wq_tls_state())
+
+static struct wq_tls_state_t	*get_wq_tls_state() __attribute__((pure));
+static void			 release_wq_tls_state(void*);
+#else
+static __thread struct wq_tls_state_t wq_tls_state;
+#endif
+
+
 /* Flags that can be used at job initialization time. */
 #define NET2_WORKQ_VALID_USERFLAGS	(NET2_WORKQ_PERSIST)
 
@@ -1815,23 +1845,19 @@ static void*
 __hot__
 wqev_worker(void *wthr_ptr)
 {
-	struct net2_workq_evbase_worker
-				*wthr;
 	struct net2_thread	*curthread;
 	struct net2_workq_evbase*wqev;
-	struct net2_workq	*wq;
 	struct net2_workq_job	*j;
 	int			 did_something;
 	int			 count;
 	const int		 COUNT = 8;
 	int			 death;
 
-	/* XXX put wthr into ThreadLocalStorage. */
-	wthr = wthr_ptr;
-	net2_spinlock_lock(&wthr->spl);
-	wqev = wthr->evbase;
-	curthread = wthr->worker;
-	net2_spinlock_unlock(&wthr->spl);
+	wq_tls_state.wthr = wthr_ptr;
+	net2_spinlock_lock(&wq_tls_state.wthr->spl);
+	wqev = wq_tls_state.wthr->evbase;
+	curthread = wq_tls_state.wthr->worker;
+	net2_spinlock_unlock(&wq_tls_state.wthr->spl);
 
 	/*
 	 * A worker always transitions from active to idle.
@@ -1853,7 +1879,8 @@ wqev_worker(void *wthr_ptr)
 
 		/* Lock runq. */
 		net2_spinlock_lock(&wqev->spl);
-		while ((wq = wqev_run_pop(wqev, curthread)) != NULL) {
+		while ((wq_tls_state.active_wq = wqev_run_pop(wqev,
+		    curthread)) != NULL) {
 #ifdef WIN32
 			net2_spinlock_unlock(&wqev->spl);
 #else
@@ -1864,7 +1891,8 @@ wqev_worker(void *wthr_ptr)
 			/* Execute up to count jobs from this workq. */
 			count = COUNT;
 			while (count-- > 0 &&
-			    (j = wq_run_pop(wq, &did_something)) != NULL) {
+			    (j = wq_run_pop(wq_tls_state.active_wq,
+			    &did_something)) != NULL) {
 				death = 0;
 				j->death = &death;
 				j->fn(j->cb_arg[0], j->cb_arg[1]);
@@ -1874,13 +1902,14 @@ wqev_worker(void *wthr_ptr)
 				}
 
 				if (predict_false(atomic_load_explicit(
-				    &wq->flags,
+				    &wq_tls_state.active_wq->flags,
 				    memory_order_relaxed) & WQ_DYING))
 					break;
 			}
 
 			/* Release the workq exec state. */
-			wqev_run_push(wq, did_something);
+			wqev_run_push(wq_tls_state.active_wq, did_something);
+			wq_tls_state.active_wq = NULL;
 
 			/* Check in every so often to see if we need to die. */
 			if (net2_semaphore_trydown(&wqev->thr_die))
@@ -1905,11 +1934,13 @@ wqev_worker(void *wthr_ptr)
 die:
 	/* Mark this wthr as dead. */
 	net2_spinlock_lock(&wqev->spl_workers);
-	TAILQ_REMOVE(&wqev->workers, wthr, tq);
-	TAILQ_INSERT_TAIL(&wqev->dead_workers, wthr, tq);
+	TAILQ_REMOVE(&wqev->workers, wq_tls_state.wthr, tq);
+	TAILQ_INSERT_TAIL(&wqev->dead_workers, wq_tls_state.wthr, tq);
 	net2_spinlock_unlock(&wqev->spl_workers);
 	/* Signal for cleanup. */
 	net2_semaphore_up(&wqev->thr_death, 1);
+
+	wq_tls_state.wthr = NULL;
 	return NULL;
 }
 
@@ -2053,7 +2084,8 @@ ILIAS_NET2_EXPORT int
 net2_workq_aid(struct net2_workq *wq, int count)
 {
 	struct net2_workq_evbase_worker
-				 wthr;
+				 wthr_storage;
+	struct net2_workq	*old_wq;
 	struct net2_workq_job	*j;
 	int			 error;
 	int			 did_something = 0;
@@ -2064,28 +2096,31 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	if (count <= 0)
 		return EINVAL;
 
-	/* Create fake worker structure. */
-	if ((error = net2_spinlock_init(&wthr.spl)) != 0)
-		goto out_0;
-	if ((wthr.worker = net2_thread_self()) == NULL) {
-		error = ENOMEM;
-		goto out_1;
+	if (wq_tls_state.wthr == NULL) {
+		wq_tls_state.wthr = &wthr_storage;
+		/* Create fake worker structure. */
+		if ((error = net2_spinlock_init(&wthr_storage.spl)) != 0)
+			goto out_0;
+		if ((wthr_storage.worker = net2_thread_self()) == NULL) {
+			error = ENOMEM;
+			goto out_1;
+		}
+		wthr_storage.kind = WQEVW_AID;
+		wthr_storage.evbase = wq->wqev;
+		net2_workq_evbase_ref(wthr_storage.evbase);
 	}
-	wthr.kind = WQEVW_AID;
-	wthr.evbase = wq->wqev;
-	net2_workq_evbase_ref(wthr.evbase);
 
 #ifndef WIN32
 	/* Run event loop once. */
-	run_evl(wthr.evbase, RUNEVL_NOWAIT);
+	run_evl(wq_tls_state.wthr->evbase, RUNEVL_NOWAIT);
 #endif
 
 	/* Lock runq. */
-	net2_spinlock_lock(&wthr.evbase->spl);
+	net2_spinlock_lock(&wq_tls_state.wthr->evbase->spl);
 	wqev_locked = 1;
 
 	/* Attempt to run the wq. */
-	if (!workq_run_set(wq, wthr.worker)) {
+	if (!workq_run_set(wq, wq_tls_state.wthr->worker)) {
 		error = EBUSY;
 		goto out_3;
 	}
@@ -2093,13 +2128,16 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	/* Take job from the runqueue. */
 	if (atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
 	    memory_order_seq_cst) & WQ_ONQUEUE)
-		TAILQ_REMOVE(&wthr.evbase->runq, wq, wqev_runq);
+		TAILQ_REMOVE(&wq_tls_state.wthr->evbase->runq, wq, wqev_runq);
 	/* Unlock wqev. */
-	net2_spinlock_unlock(&wthr.evbase->spl);
+	net2_spinlock_unlock(&wq_tls_state.wthr->evbase->spl);
 	wqev_locked = 0;
 
 	/* Run up to COUNT jobs from this wq. */
-	while (count-- > 0 && (j = wq_run_pop(wq, &did_something)) != NULL) {
+	old_wq = wq_tls_state.active_wq;
+	wq_tls_state.active_wq = wq;
+	while (count-- > 0 && wq_tls_state.active_wq == wq &&
+	    (j = wq_run_pop(wq, &did_something)) != NULL) {
 		death = 0;
 		j->death = &death;
 		j->fn(j->cb_arg[0], j->cb_arg[1]);
@@ -2108,10 +2146,12 @@ net2_workq_aid(struct net2_workq *wq, int count)
 			wq_run_push(j);
 		}
 
-		if (predict_false(atomic_load_explicit(&wq->flags,
+		if (predict_false(atomic_load_explicit(
+		    &wq_tls_state.active_wq->flags,
 		    memory_order_relaxed) & WQ_DYING))
 			break;
 	}
+	wq_tls_state.active_wq = old_wq;
 
 	/* Succesful completion. */
 	if (!did_something)
@@ -2126,13 +2166,18 @@ out_4:
 out_3:
 	/* Unlock wqev. */
 	if (wqev_locked)
-		net2_spinlock_unlock(&wthr.evbase->spl);
+		net2_spinlock_unlock(&wq_tls_state.wthr->evbase->spl);
 out_2:
-	net2_workq_evbase_release(wthr.evbase);
-	net2_thread_free(wthr.worker);
+	if (wq_tls_state.wthr == &wthr_storage) {
+		net2_workq_evbase_release(wthr_storage.evbase);
+		net2_thread_free(wthr_storage.worker);
+	}
 out_1:
-	net2_spinlock_deinit(&wthr.spl);
+	if (wq_tls_state.wthr == &wthr_storage)
+		net2_spinlock_deinit(&wthr_storage.spl);
 out_0:
+	if (wq_tls_state.wthr == &wthr_storage)
+		wq_tls_state.wthr = NULL;
 	return error;
 }
 
@@ -2145,7 +2190,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 			*thr;
 	int		 death;
 	struct net2_workq
-			*wq;
+			*wq, *old_wq;
 
 	if (predict_false(j->fn == NULL))
 		return;
@@ -2172,6 +2217,10 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 			assert(atomic_load_explicit(&wq->flags,
 			    memory_order_relaxed) & WQ_RUNNING);
 
+			/* Mark this wq as active. */
+			old_wq = wq_tls_state.active_wq;
+			wq_tls_state.active_wq = wq;
+
 			/* Invoke the job. */
 			death = 0;
 			j->death = &death;
@@ -2186,6 +2235,8 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 			wqev_run_push(wq, 1);
 			/* Release thread. */
 			net2_thread_free(thr);
+			/* Restore previous active wq. */
+			wq_tls_state.active_wq = old_wq;
 			return;
 		}
 	}
@@ -2366,3 +2417,113 @@ net2_workq_get_io(struct net2_workq *wq)
 	return wqev->io;
 }
 #endif
+
+
+#ifndef HAS_TLS
+static net2_spinlock			tls_lock;
+static TAILQ_HEAD(, wq_tls_state_t)	tls_states;
+
+/*
+ * Retrieve tls state for non-__thread archs.
+ *
+ * Note that this function is declared pure, since it will always
+ * return the same value (unless it fails, in which case it'll abort
+ * the program).
+ */
+static struct wq_tls_state_t*
+get_wq_tls_state()
+{
+	struct wq_tls_state_t	*state;
+
+	if ((state = pthread_getspecific(wq_tls_slot)) == NULL) {
+		if ((state = net2_calloc(1, sizeof(*state))) == NULL)
+			abort();
+		if (pthread_setspecific(wq_tls_slot, NULL) != 0)
+			abort();
+
+		net2_spinlock_lock(&tls_lock);
+		TAILQ_INSERT_HEAD(&tls_states, state, q);
+		net2_spinlock_unlock(&tls_lock);
+	}
+
+	return state;
+}
+/*
+ * Destroy tls state at thread exit.
+ */
+static void
+release_wq_tls_state(void *state_ptr)
+{
+	struct wq_tls_state_t	*state = state_ptr;
+
+	net2_spinlock_lock(&tls_lock);
+	TAILQ_REMOVE(&tls_states, state, q);
+	net2_spinlock_unlock(&tls_lock);
+	net2_free(state);
+}
+#endif
+
+/* Initialize workq subsystem. */
+ILIAS_NET2_LOCAL int
+net2_workq_init()
+{
+	int		 error = 0;
+
+#ifndef HAS_TLS
+	if ((error = pthread_key_create(&wq_tls_slot,
+	    &release_wq_tls_state)) != 0)
+		return error;
+	TAILQ_INIT(&tls_states);
+	if ((error = net2_spinlock_init(&tls_lock)) != 0) {
+		pthread_key_delete(wq_tls_slot);
+		return error;
+	}
+#endif
+	return 0;
+}
+/* Finalize workq subsystem. */
+ILIAS_NET2_LOCAL void
+net2_workq_fini()
+{
+	struct wq_tls_state_t	*state;
+
+#ifndef HAS_TLS
+	/* First destroy the key, so no more destructors will be called. */
+	pthread_key_delete(wq_tls_slot);
+
+	/* Clean up any remaining tls states. */
+	net2_spinlock_lock(&tls_lock);
+	while ((state = TAILQ_FIRST(&tls_states)) != NULL) {
+		TAILQ_REMOVE(&tls_states, state, q);
+		net2_free(state);
+	}
+	net2_spinlock_unlock(&tls_lock);
+
+	/* Destroy the lock on the states. */
+	net2_spinlock_deinit(&tls_lock);
+#endif
+	return;
+}
+
+/*
+ * Reference and return the current workq.
+ * If the workq is not actively referenced, NULL is returned.
+ */
+ILIAS_NET2_EXPORT struct net2_workq*
+net2_workq_current()
+{
+	struct net2_workq	*wq;
+	unsigned int		 refcnt;
+
+	wq = wq_tls_state.active_wq;
+	if (wq == NULL)
+		return NULL;
+
+	refcnt = atomic_load_explicit(&wq->refcnt, memory_order_relaxed);
+	while (refcnt != 0) {
+		if (atomic_compare_exchange_explicit(&wq->refcnt, &refcnt,
+		    refcnt + 1, memory_order_acquire, memory_order_relaxed))
+			return wq;
+	}
+	return NULL;
+}

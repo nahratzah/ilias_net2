@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/memory.h>
 #include <ilias/net2/thread.h>
+#include <ilias/net2/workq.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <ilias/net2/bsd_compat/sysexits.h>
 #include <ilias/net2/bsd_compat/secure_random.h>
@@ -67,11 +68,15 @@ net2_init()
 		goto fail_3;
 	}
 #endif
+	if ((rv = net2_workq_init()) != 0)
+		goto fail_3;
 
 	/* No errors. */
 	return 0;
 
 
+fail_4:
+	net2_workq_fini();
 fail_3:
 #ifdef WIN32
 	WSACleanup();
@@ -89,6 +94,7 @@ static void
 destructor
 net2_cleanup()
 {
+	net2_workq_fini();
 #ifdef WIN32
 	WSACleanup();
 #endif
@@ -97,7 +103,7 @@ net2_cleanup()
 }
 
 #ifdef WIN32
-/* XXX fix linker to call this? */
+/* Runtime linker will call this function. */
 BOOL
 WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID reserved)
 {
