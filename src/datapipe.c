@@ -99,21 +99,6 @@ EVENT_UNLOCK(struct net2_dp_queue *q, enum dpq_io io)
 	net2_spinlock_unlock(spl);
 }
 
-/* Datapipe splice, combining two datapipes into a single queue. */
-struct net2_datapipe_splice {
-	struct net2_datapipe_in	*in;		/* Input side. */
-	struct net2_datapipe_out*out;		/* Output side. */
-
-	TAILQ_ENTRY(net2_datapipe_splice)
-				 inq,
-				 outq;
-
-	struct {
-		net2_dp_transform fn;
-		void		*arg;
-	}			 tf;		/* Element transform fn. */
-};
-
 
 #define IMPL_IN_OFFSET	((size_t)&((struct net2_dp_queue*)0)->in)
 #define IMPL_OUT_OFFSET	((size_t)&((struct net2_dp_queue*)0)->out)
@@ -186,6 +171,8 @@ static int	dp_init_event(struct net2_datapipe_event*,
 		    struct net2_dp_queue*, int, struct net2_workq*,
 		    net2_workq_cb, void*, void*);
 static void	dp_run_event(struct net2_dp_queue*, int);
+static int	setup_events(struct net2_dp_queue*, enum dpq_io);
+static void	clear_events(struct net2_dp_queue*, enum dpq_io);
 
 /* Clear event bit. */
 static __inline void
@@ -832,29 +819,13 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
 
 	/* Insert the job. */
 	if ((atomic_load(&q->flags) & DPQ_HAS_OUT) != 0) {
-		was_empty = TAILQ_EMPTY(&in->events);
-		TAILQ_INSERT_HEAD(&in->events, in_ev, q);
-
 		/* Setup producer event. */
-		if (was_empty) {
-			QUEUE_LOCK(q);
-			assert(net2_workq_work_is_null(&q->produce));
-			error = net2_workq_init_work(&q->produce, q->wq,
-			    &invoke_producers, q, NULL, NET2_WORKQ_PERSIST);
-			QUEUE_UNLOCK(q);
-
-			/*
-			 * On workq activation error,
-			 * undo the event initialization.
-			 */
-			if (error != 0) {
-				TAILQ_REMOVE(&in->events, in_ev, q);
-				goto fail_2;
-			}
-		}
+		if ((error = setup_events(q, DPQ_IO_IN)) != 0)
+			goto fail_2;
 
 		/* Assign generation. */
 		in_ev->generation = in->generation;
+		TAILQ_INSERT_TAIL(&in->events, in_ev, q);
 	} else
 		in_ev->dp = NULL;	/* Detached mode. */
 
@@ -920,12 +891,7 @@ net2_datapipe_event_in_deinit(struct net2_datapipe_event_in *in_ev)
 		in_ev->dp = NULL;
 
 		/* Remove producer event. */
-		if (TAILQ_EMPTY(&in->events)) {
-			QUEUE_LOCK(q);
-			net2_workq_deinit_work(&q->produce);
-			assert(net2_workq_work_is_null(&q->produce));
-			QUEUE_UNLOCK(q);
-		}
+		clear_events(q, DPQ_IO_IN);
 
 		EVENT_UNLOCK(q, DPQ_IO_IN);
 		net2_dpin_release(in);
@@ -984,29 +950,13 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 
 	/* Insert the job. */
 	if (depleted) {
-		was_empty = TAILQ_EMPTY(&out->events);
-		TAILQ_INSERT_HEAD(&out->events, out_ev, q);
-
 		/* Setup producer event. */
-		if (was_empty) {
-			QUEUE_LOCK(q);
-			assert(net2_workq_work_is_null(&q->consume));
-			error = net2_workq_init_work(&q->consume, q->wq,
-			    &invoke_consumers, q, NULL, NET2_WORKQ_PERSIST);
-			QUEUE_UNLOCK(q);
-
-			/*
-			 * On workq activation error,
-			 * undo the event initialization.
-			 */
-			if (error != 0) {
-				TAILQ_REMOVE(&out->events, out_ev, q);
-				goto fail_2;
-			}
-		}
+		if ((error = setup_events(q, DPQ_IO_OUT)) != 0)
+			goto fail_2;
 
 		/* Assign generation. */
 		out_ev->generation = out->generation;
+		TAILQ_INSERT_HEAD(&out->events, out_ev, q);
 	} else
 		out_ev->dp = NULL;	/* Detached mode. */
 
@@ -1076,12 +1026,7 @@ net2_datapipe_event_out_deinit(struct net2_datapipe_event_out *out_ev)
 		out_ev->dp = NULL;
 
 		/* Remove consumer event. */
-		if (TAILQ_EMPTY(&out->events)) {
-			QUEUE_LOCK(q);
-			net2_workq_deinit_work(&q->consume);
-			assert(net2_workq_work_is_null(&q->consume));
-			QUEUE_UNLOCK(q);
-		}
+		clear_events(q, DPQ_IO_OUT);
 
 		EVENT_UNLOCK(q, DPQ_IO_OUT);
 		net2_dpout_release(out);
@@ -1679,6 +1624,11 @@ fin_immed:
 		goto fin_immed;
 	}
 
+	if ((error = setup_events(q, io)) != 0) {
+		EVENT_UNLOCK(q, io);
+		goto fail_1;
+	}
+
 	queue_acquire(q);	/* Event holds reference to queue. */
 	ev->owner = q;
 	TAILQ_INSERT_TAIL(wqevq, ev, dpevq);
@@ -1744,8 +1694,74 @@ net2_datapipe_event_deinit(struct net2_datapipe_event *ev)
 
 		EVENT_LOCK(q, io);
 		TAILQ_REMOVE(wqevq, ev, dpevq);
+		clear_events(q, io);
 		EVENT_UNLOCK(q, io);
 
 		queue_release(q, 0);
+	}
+}
+
+/*
+ * Setup io event callback.
+ * Called with EVENT_LOCK.
+ */
+static int
+setup_events(struct net2_dp_queue *q, enum dpq_io io)
+{
+	int			 error;
+	struct net2_workq_job	*job;
+	net2_workq_cb		 fn;
+
+	switch (io) {
+	case DPQ_IO_IN:
+		job = &q->produce;
+		fn = &invoke_producers;
+		break;
+	case DPQ_IO_OUT:
+		job = &q->consume;
+		fn = &invoke_consumers;
+		break;
+	}
+
+	/* Already done. */
+	if (!net2_workq_work_is_null(job))
+		return 0;
+
+	QUEUE_LOCK(q);
+	error = net2_workq_init_work(job, q->wq,
+	    fn, q, NULL, NET2_WORKQ_PERSIST);
+	QUEUE_UNLOCK(q);
+	return error;
+}
+/*
+ * Clear io event callback.
+ * Called with EVENT_LOCK.
+ *
+ * Will not clear if events are present.
+ */
+static void
+clear_events(struct net2_dp_queue *q, enum dpq_io io)
+{
+	struct net2_workq_job	*job;
+
+	switch (io) {
+	case DPQ_IO_IN:
+		if (!TAILQ_EMPTY(&q->in.events) ||
+		    !TAILQ_EMPTY(&q->in.wq_events[NET2_DP_EVTYPE_AVAIL]))
+			return;
+		job = &q->produce;
+		break;
+	case DPQ_IO_OUT:
+		if (!TAILQ_EMPTY(&q->out.events) ||
+		    !TAILQ_EMPTY(&q->out.wq_events[NET2_DP_EVTYPE_AVAIL]))
+			return;
+		job = &q->consume;
+		break;
+	}
+
+	if (!net2_workq_work_is_null(job)) {
+		QUEUE_LOCK(q);
+		net2_workq_deinit_work(job);
+		QUEUE_UNLOCK(q);
 	}
 }
