@@ -10,23 +10,24 @@
 #include <stdint.h>
 #include <assert.h>
 
-typedef volatile char			atomic_char;
-typedef volatile signed char		atomic_schar;
-typedef volatile unsigned char		atomic_uchar;
-typedef volatile signed short		atomic_short;
-typedef volatile unsigned short		atomic_ushort;
-typedef volatile signed int		atomic_int;
-typedef volatile unsigned int		atomic_uint;
-typedef volatile signed long		atomic_long;
-typedef volatile unsigned long		atomic_ulong;
-typedef volatile signed long long	atomic_llong;
-typedef volatile unsigned long long	atomic_ullong;
-typedef volatile wchar_t		atomic_wchar_t;
+#define _Atomic(type)	struct { volatile type __val; }
+typedef _Atomic(char)			atomic_char;
+typedef _Atomic(signed char)		atomic_schar;
+typedef _Atomic(unsigned char)		atomic_uchar;
+typedef _Atomic(signed short)		atomic_short;
+typedef _Atomic(unsigned short)		atomic_ushort;
+typedef _Atomic(signed int)		atomic_int;
+typedef _Atomic(unsigned int)		atomic_uint;
+typedef _Atomic(signed long)		atomic_long;
+typedef _Atomic(unsigned long)		atomic_ulong;
+typedef _Atomic(signed long long)	atomic_llong;
+typedef _Atomic(unsigned long long)	atomic_ullong;
+typedef _Atomic(wchar_t)		atomic_wchar_t;
 
-typedef volatile size_t			atomic_size_t;
-typedef volatile ptrdiff_t		atomic_ptrdiff_t;
-typedef volatile intptr_t		atomic_intptr_t;
-typedef volatile uintptr_t		atomic_uintptr_t;
+typedef _Atomic(size_t)			atomic_size_t;
+typedef _Atomic(ptrdiff_t)		atomic_ptrdiff_t;
+typedef _Atomic(intptr_t)		atomic_intptr_t;
+typedef _Atomic(uintptr_t)		atomic_uintptr_t;
 
 /*
  * Choose a statement based on the number of bits in variable.
@@ -101,13 +102,17 @@ atomic_compare_exchange8_strong(volatile int8_t *v,
 }
 #define atomic_compare_exchange_strong(v, oldval, newval)		\
 	select_8_16_32_64(*(v),						\
-	    atomic_compare_exchange8_strong((volatile int8_t*)(v),	\
+	    atomic_compare_exchange8_strong(				\
+	      (volatile int8_t*)&(v)->__val,				\
 	      (int8_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange16_strong((volatile int16_t*)(v),	\
+	    atomic_compare_exchange16_strong(				\
+	      (volatile int16_t*)&(v)->__val,				\
 	      (int16_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange32_strong((volatile int32_t*)(v),	\
+	    atomic_compare_exchange32_strong(				\
+	      (volatile int32_t*)&(v)->__val,				\
 	      (int32_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange64_strong((volatile int64_t*)(v),	\
+	    atomic_compare_exchange64_strong(				\
+	      (volatile int64_t*)&(v)->__val,				\
 	      (int64_t*)(oldval), (newval)))
 #define atomic_compare_exchange_strong_explicit(v, o, n, succes, fail)	\
 	atomic_compare_exchange_strong((v), (o), (n))
@@ -170,13 +175,17 @@ atomic_compare_exchange8_weak(volatile int8_t *v,
 }
 #define atomic_compare_exchange_weak(v, oldval, newval)			\
 	select_8_16_32_64(*(v),						\
-	    atomic_compare_exchange8_weak((volatile int8_t*)(v),	\
+	    atomic_compare_exchange8_weak(				\
+	      (volatile int8_t*)&(v)->__val,				\
 	      (int8_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange16_weak((volatile int16_t*)(v),	\
+	    atomic_compare_exchange16_weak(				\
+	      (volatile int16_t*)&(v)->__val,				\
 	      (int16_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange32_weak((volatile int32_t*)(v),	\
+	    atomic_compare_exchange32_weak(				\
+	      (volatile int32_t*)&(v)->__val,				\
 	      (int32_t*)(oldval), (newval)),				\
-	    atomic_compare_exchange64_weak((volatile int64_t*)(v),	\
+	    atomic_compare_exchange64_weak(				\
+	      (volatile int64_t*)&(v)->__val,				\
 	      (int64_t*)(oldval), (newval)))
 #define atomic_compare_exchange_weak_explicit(v, o, n, succes, fail)	\
 	atomic_compare_exchange_weak((v), (o), (n))
@@ -228,10 +237,10 @@ atomic_load8(volatile int8_t *v)
 }
 #define atomic_load(v)							\
 	select_8_16_32_64(*(v),						\
-	    atomic_load8((volatile int8_t*)(v)),			\
-	    atomic_load16((volatile int16_t*)(v)),			\
-	    atomic_load32((volatile int32_t*)(v)),			\
-	    atomic_load64((volatile int64_t*)(v)))
+	    atomic_load8((volatile int8_t*)&(v)->__val),		\
+	    atomic_load16((volatile int16_t*)&(v)->__val),		\
+	    atomic_load32((volatile int32_t*)&(v)->__val),		\
+	    atomic_load64((volatile int64_t*)&(v)->__val))
 #define atomic_load_explicit(v, memory)					\
 	atomic_load((v))
 
@@ -269,10 +278,10 @@ atomic_store8(volatile int8_t *v, int8_t val)
 }
 #define atomic_store(v, val)						\
 	select_8_16_32_64(*(v),						\
-	    atomic_store8((volatile int8_t*)(v), (val)),		\
-	    atomic_store16((volatile int16_t*)(v), (val)),		\
-	    atomic_store32((volatile int32_t*)(v), (val)),		\
-	    atomic_store64((volatile int64_t*)(v), (val)))
+	    atomic_store8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_store16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_store32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_store64((volatile int64_t*)&(v)->__val, (val)))
 #define atomic_store_explicit(v, val, memory)				\
 	atomic_store((v), (val))
 
@@ -305,10 +314,10 @@ atomic_fetch_add8(volatile int8_t *v, uint8_t add)
 }
 #define atomic_fetch_add(v, val)					\
 	select_8_16_32_64(*(v),						\
-	    atomic_fetch_add8((volatile int8_t*)(v), (val)),		\
-	    atomic_fetch_add16((volatile int16_t*)(v), (val)),		\
-	    atomic_fetch_add32((volatile int32_t*)(v), (val)),		\
-	    atomic_fetch_add64((volatile int64_t*)(v), (val)))
+	    atomic_fetch_add8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_add16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_add32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_add64((volatile int64_t*)&(v)->__val, (val)))
 #define atomic_fetch_add_explicit(v, val, memory)			\
 	atomic_fetch_add((v), (val))
 
@@ -341,10 +350,10 @@ atomic_fetch_sub8(volatile int8_t *v, uint8_t add)
 }
 #define atomic_fetch_sub(v, val)					\
 	select_8_16_32_64(*(v),						\
-	    atomic_fetch_sub8((volatile int8_t*)(v), (val)),		\
-	    atomic_fetch_sub16((volatile int16_t*)(v), (val)),		\
-	    atomic_fetch_sub32((volatile int32_t*)(v), (val)),		\
-	    atomic_fetch_sub64((volatile int64_t*)(v), (val)))
+	    atomic_fetch_sub8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_sub16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_sub32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_sub64((volatile int64_t*)&(v)->__val, (val)))
 #define atomic_fetch_sub_explicit(v, val, memory)			\
 	atomic_fetch_sub((v), (val))
 
@@ -377,10 +386,10 @@ atomic_fetch_or8(volatile int8_t *v, int8_t f)
 }
 #define atomic_fetch_or(v, val)						\
 	select_8_16_32_64(*(v),						\
-	    atomic_fetch_or8((volatile int8_t*)(v), (val)),		\
-	    atomic_fetch_or16((volatile int16_t*)(v), (val)),		\
-	    atomic_fetch_or32((volatile int32_t*)(v), (val)),		\
-	    atomic_fetch_or64((volatile int64_t*)(v), (val)))
+	    atomic_fetch_or8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_or16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_or32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_or64((volatile int64_t*)&(v)->__val, (val)))
 #define atomic_fetch_or_explicit(v, val, memory)			\
 	atomic_fetch_or((v), (val))
 
@@ -413,10 +422,10 @@ atomic_fetch_and8(volatile int8_t *v, int8_t f)
 }
 #define atomic_fetch_and(v, val)					\
 	select_8_16_32_64(*(v),						\
-	    atomic_fetch_and8((volatile int8_t*)(v), (val)),		\
-	    atomic_fetch_and16((volatile int16_t*)(v), (val)),		\
-	    atomic_fetch_and32((volatile int32_t*)(v), (val)),		\
-	    atomic_fetch_and64((volatile int64_t*)(v), (val)))
+	    atomic_fetch_and8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_and16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_and32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_fetch_and64((volatile int64_t*)&(v)->__val, (val)))
 #define atomic_fetch_and_explicit(v, val, memory)			\
 	atomic_fetch_and((v), (val))
 

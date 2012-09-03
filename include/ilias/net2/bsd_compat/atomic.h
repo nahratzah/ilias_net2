@@ -13,8 +13,9 @@
 #endif /* !HAVE_STDATOMIC_H */
 
 /* ASM pause instruction for clang/gcc on intel 32/64 bit. */
-#if (defined(__GNUC__) || defined(__clang__)) &&			\
-    (defined(__amd64__) || defined(__x86_64__) || defined(__i386__))
+#if !defined(SPINWAIT) &&						\
+    (defined(__GNUC__) || defined(__clang__)) &&			\
+    (defined(__amd64__) || defined(__x86_64__) || defined(__i386__) || defined(__ia64__))
 #define SPINWAIT()	do { __asm __volatile("pause":::"memory"); } while (0)
 #endif
 
