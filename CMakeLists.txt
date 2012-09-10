@@ -48,6 +48,7 @@ set (CMAKE_MODULE_PATH
 
 list (APPEND headers
 	include/ilias/net2/ilias_net2_export.h
+	include/ilias/net2/ll.h
 	include/ilias/net2/acceptor.h
 	include/ilias/net2/bitset.h
 	include/ilias/net2/buffer.h
@@ -91,6 +92,7 @@ list (APPEND headers
 list (APPEND cluster_headers
 	)
 list (APPEND srcs
+	src/ll.c
 	src/acceptor.c
 	src/bitset.c
 	src/buffer.c
