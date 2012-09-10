@@ -16,52 +16,65 @@
 #ifndef ILIAS_NET2_LL_H
 #define ILIAS_NET2_LL_H
 
+#include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/bsd_compat/atomic.h>
 #include <stddef.h>
 
+ILIAS_NET2__begin_cdecl
+
 typedef atomic_uintptr_t elem_ptr_t;
-struct elem {
+struct ll_elem {
 	elem_ptr_t	succ, pred;
 	atomic_size_t	refcnt;
 };
 
-
-struct elem	*ll_unlink(struct elem*, struct elem*, int);
-void		 ll_unlink_release(struct elem*);
-struct elem	*ll_succ(struct elem*, struct elem*);
-struct elem	*ll_pred(struct elem*, struct elem*);
-void		 ll_ref(struct elem*, struct elem*);
-void		 ll_release(struct elem*, struct elem*);
-int		 ll_empty(struct elem*);
-void		 ll_insert_before(struct elem*, struct elem*, struct elem*);
-void		 ll_insert_after(struct elem*, struct elem*, struct elem*);
-void		 ll_insert_head(struct elem*, struct elem*);
-void		 ll_insert_tail(struct elem*, struct elem*);
-struct elem	*ll_pop_front(struct elem*);
-struct elem	*ll_pop_back(struct elem*);
+struct ll_head {
+	struct ll_elem	q;
+	atomic_size_t	size;
+};
 
 
-#define LL_HEAD(name)							\
+struct ll_elem	*ll_unlink(struct ll_head*, struct ll_elem*, int);
+void		 ll_unlink_release(struct ll_head*, struct ll_elem*);
+struct ll_elem	*ll_succ(struct ll_head*, struct ll_elem*);
+struct ll_elem	*ll_pred(struct ll_head*, struct ll_elem*);
+void		 ll_ref(struct ll_head*, struct ll_elem*);
+void		 ll_release(struct ll_head*, struct ll_elem*);
+int		 ll_empty(struct ll_head*);
+void		 ll_insert_before(struct ll_head*, struct ll_elem*,
+		    struct ll_elem*);
+void		 ll_insert_after(struct ll_head*, struct ll_elem*,
+		    struct ll_elem*);
+void		 ll_insert_head(struct ll_head*, struct ll_elem*);
+void		 ll_insert_tail(struct ll_head*, struct ll_elem*);
+struct ll_elem	*ll_pop_front(struct ll_head*);
+struct ll_elem	*ll_pop_back(struct ll_head*);
+size_t		 ll_size(struct ll_head*);
+
+
+#define LL_HEAD(name, type)						\
 	struct name {							\
-		struct elem	ll_head;				\
+		struct ll_head	ll_head;				\
 	}
 #define LL_ENTRY(type)							\
-	struct elem
+	struct ll_elem
 
 #define LL_HEAD_INITIALIZER(head)					\
-{									\
+{{									\
 	{								\
 		ATOMIC_VAR_INIT(&head.ll_head),				\
 		ATOMIC_VAR_INIT(&head.ll_head),				\
 		ATOMIC_VAR_INIT(0)					\
 	}								\
-}
+	ATOMIC_VAR_INIT(0)						\
+}}
 
 #define LL_INIT(head)							\
 do {									\
-	atomic_init(&head->ll_head.succ, &head->ll_head);		\
-	atomic_init(&head->ll_head.pred, &head->ll_head);		\
-	atomic_init(&head->ll_head.refcnt, 0);				\
+	atomic_init(&head->ll_head.q.succ, &head->ll_head);		\
+	atomic_init(&head->ll_head.q.pred, &head->ll_head);		\
+	atomic_init(&head->ll_head.q.refcnt, 0);			\
+	atomic_init(&head->ll_head.size, 0);				\
 } while (0)
 
 #define LL_NEXT(name, head, node)	ll_pred_##name(head, node)
@@ -108,10 +121,11 @@ do {									\
 
 #define LL_GENERATE(name, type, member)					\
 static __inline struct type*						\
-ll_elem_##name(struct elem *e)						\
+ll_elem_##name(struct ll_elem *e)					\
 {									\
 	return (e == NULL ? NULL :					\
-	    (struct type*)((uintptr_t)e - offsetof(type, member)));	\
+	    (struct type*)((uintptr_t)e -				\
+	    offsetof(struct type, member)));				\
 }									\
 static __inline struct type*						\
 ll_pred_##name(struct name *q, struct type *n)				\
@@ -126,12 +140,12 @@ ll_succ_##name(struct name *q, struct type *n)				\
 static __inline struct type*						\
 ll_first_##name(struct name *q)						\
 {									\
-	return ll_elem_##name(ll_succ(&q->ll_head, &q->ll_head));	\
+	return ll_elem_##name(ll_succ(&q->ll_head, &q->ll_head.q));	\
 }									\
 static __inline struct type*						\
 ll_last_##name(struct name *q)						\
 {									\
-	return ll_elem_##name(ll_pred(&q->ll_head, &q->ll_head));	\
+	return ll_elem_##name(ll_pred(&q->ll_head, &q->ll_head.q));	\
 }									\
 static __inline void							\
 ll_ref_##name(struct name *q, struct type *n)				\
@@ -146,7 +160,7 @@ ll_release_##name(struct name *q, struct type *n)			\
 static __inline int							\
 ll_empty_##name(struct name *q)						\
 {									\
-	ll_empty(&q->ll_head);						\
+	return ll_empty(&q->ll_head);					\
 }									\
 static __inline struct type*						\
 ll_foreach_succ_##name(struct name *q, struct type *n)			\
@@ -204,10 +218,10 @@ ll_unlink_nowait_##name(struct name *q, struct type *n)			\
 {									\
 	return ll_elem_##name(ll_unlink(&q->ll_head, &n->member, 0));	\
 }									\
-static __inline struct type*						\
-ll_unlink_wait_##name(struct type *n)					\
+static __inline void							\
+ll_unlink_wait_##name(struct name *q, struct type *n)			\
 {									\
-	ll_unlink_release(&n->member);					\
+	ll_unlink_release(&q->ll_head, &n->member);			\
 }									\
 static __inline struct type*						\
 ll_pop_front_##name(struct name *q)					\
@@ -218,7 +232,15 @@ static __inline struct type*						\
 ll_pop_back_##name(struct name *q)					\
 {									\
 	return ll_elem_##name(ll_pop_back(&q->ll_head));		\
+}									\
+static inline size_t							\
+ll_size_##name(struct name *q)						\
+{									\
+	return ll_size(&q->ll_head);					\
 }
 /* End of LL_GENERATE macro. */
+
+ILIAS_NET2__end_cdecl
+
 
 #endif /* ILIAS_NET2_LL_H */

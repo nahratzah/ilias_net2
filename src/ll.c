@@ -48,20 +48,20 @@
 
 
 /* Strip a pointer of its bit flags. */
-static __inline struct elem*
-ptr_clear(struct elem *e)
+static __inline struct ll_elem*
+ptr_clear(struct ll_elem *e)
 {
-	return (struct elem*)((uintptr_t)e & ~MASK);
+	return (struct ll_elem*)((uintptr_t)e & ~MASK);
 }
 /* Add the deref bit to a pointer. */
-static __inline struct elem*
-ptr_ref(struct elem *e)
+static __inline struct ll_elem*
+ptr_ref(struct ll_elem *e)
 {
-	return (struct elem*)((uintptr_t)e | DEREF);
+	return (struct ll_elem*)((uintptr_t)e | DEREF);
 }
 /* Acquire (additional) references on element. */
 static __inline void
-deref_acquire(struct elem *e, size_t count)
+deref_acquire(struct ll_elem *e, size_t count)
 {
 	atomic_fetch_add_explicit(&ptr_clear(e)->refcnt, count,
 	    memory_order_relaxed);
@@ -70,11 +70,11 @@ deref_acquire(struct elem *e, size_t count)
  * Release references on element.
  * Returns the updated value of the reference counter.
  */
-static __inline size_t
-deref_release(struct elem *e, size_t count)
+static __inline void
+deref_release(struct ll_head *q_head, struct ll_elem *e, size_t count)
 {
-	return atomic_fetch_sub_explicit(&ptr_clear(e)->refcnt, count,
-	    memory_order_relaxed) - count;
+	atomic_fetch_sub_explicit(&ptr_clear(e)->refcnt, count,
+	    memory_order_relaxed);
 }
 
 /*
@@ -85,7 +85,7 @@ deref_release(struct elem *e, size_t count)
  * (note that the DEREF bit can never be set, since the function
  * spins during that time).
  */
-static __inline struct elem*
+static __inline struct ll_elem*
 deref(elem_ptr_t *ptr)
 {
 	uintptr_t e;
@@ -93,17 +93,17 @@ deref(elem_ptr_t *ptr)
 	while ((e = atomic_fetch_or_explicit(ptr, DEREF,
 	    memory_order_relaxed)) & DEREF)
 		SPINWAIT();
-	deref_acquire((struct elem*)e, 1);
+	deref_acquire((struct ll_elem*)e, 1);
 	atomic_fetch_and_explicit(ptr, ~DEREF, memory_order_relaxed);
-	return (struct elem*)e;
+	return (struct ll_elem*)e;
 }
 /*
  * Combine the address in ptr with the flags in fl.
  */
-static __inline struct elem*
-flag_combine(struct elem *ptr, struct elem *fl)
+static __inline struct ll_elem*
+flag_combine(struct ll_elem *ptr, struct ll_elem *fl)
 {
-	return (struct elem*)((uintptr_t)ptr_clear(ptr) |
+	return (struct ll_elem*)((uintptr_t)ptr_clear(ptr) |
 	    ((uintptr_t)fl & FLAGGED));
 }
 
@@ -111,7 +111,7 @@ flag_combine(struct elem *ptr, struct elem *fl)
  * Test if the given pred pointer has the deletion mark set.
  */
 static __inline int
-deleted_ptr(struct elem *e)
+deleted_ptr(struct ll_elem *e)
 {
 	return ((uintptr_t)e & FLAGGED) != 0;
 }
@@ -119,9 +119,9 @@ deleted_ptr(struct elem *e)
  * Test if element is marked for deletion.
  */
 static __inline int
-deleted(struct elem *e)
+deleted(struct ll_elem *e)
 {
-	return deleted_ptr((struct elem*)atomic_load_explicit(
+	return deleted_ptr((struct ll_elem*)atomic_load_explicit(
 	    &ptr_clear(e)->pred, memory_order_relaxed));
 }
 /*
@@ -131,9 +131,9 @@ deleted(struct elem *e)
  * Note that this call does not alter the reference pointers.
  */
 static __inline int
-ptr_cas(elem_ptr_t *ptr, struct elem **expect, struct elem *set)
+ptr_cas(elem_ptr_t *ptr, struct ll_elem **expect, struct ll_elem *set)
 {
-	struct elem	*old = *expect;
+	struct ll_elem	*old = *expect;
 	int		 succes;
 	uintptr_t	 set_;
 
@@ -182,11 +182,12 @@ ptr_clear_deref(elem_ptr_t *ptr)
  * Returns q if n has no successor.
  * Does not clear flag bits.
  */
-static struct elem*
-succ(struct elem *q, struct elem *n)
+static struct ll_elem*
+succ(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*s, *s_, *ss;
+	struct ll_elem	*q, *s, *s_, *ss;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 
@@ -203,12 +204,12 @@ succ(struct elem *q, struct elem *n)
 			 * - once for n->succ
 			 * - once because we no longer claim s.
 			 */
-			deref_release(s, 2);
+			deref_release(q_head, s, 2);
 			s = ss;
 		} else {
 			/* cas failed */
-			deref_release(s, 1);
-			deref_release(ss, 1);
+			deref_release(q_head, s, 1);
+			deref_release(q_head, ss, 1);
 
 			/*
 			 * Cannot do s = s_, since we do not have the lock on
@@ -233,11 +234,12 @@ succ(struct elem *q, struct elem *n)
  * Returns q if n has no predecessor.
  * Does not clear flag bits.
  */
-static struct elem*
-pred(struct elem *q, struct elem *n)
+static struct ll_elem*
+pred(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*p, *p_, *ps, *pp;
+	struct ll_elem	*q, *p, *p_, *ps, *pp;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 
@@ -250,19 +252,19 @@ pred(struct elem *q, struct elem *n)
 		 * for n.
 		 */
 		if (!deleted_ptr(p)) {
-			ps = succ(q, p);
+			ps = succ(q_head, p);
 			while (ps != n && !deleted_ptr(p)) {
 				p_ = p;
 				if (ptr_cas(&n->pred, &p_, ps)) {
 					/* cas succeeded */
 					deref_acquire(ps, 1);
 					ptr_clear_deref(&n->pred);
-					deref_release(p, 2);
+					deref_release(q_head, p, 2);
 					p = ps;
 				} else {
 					/* cas failed */
-					deref_release(ps, 1);
-					deref_release(p, 1);
+					deref_release(q_head, ps, 1);
+					deref_release(q_head, p, 1);
 
 					/*
 					 * Cannot do p = p_, since we do not
@@ -273,9 +275,9 @@ pred(struct elem *q, struct elem *n)
 					p = deref(&n->pred);
 				}
 
-				ps = succ(q, p);
+				ps = succ(q_head, p);
 			}
-			deref_release(ps, 1);
+			deref_release(q_head, ps, 1);
 		}
 
 		/*
@@ -291,13 +293,13 @@ pred(struct elem *q, struct elem *n)
 		p_ = p;
 		if (ptr_cas(&n->pred, &p_, pp)) {
 			/* cas succeeded */
-			deref_release(p, 2);
+			deref_release(q_head, p, 2);
 			deref_acquire(pp, 1);
 			p = pp;
 		} else {
 			/* cas failed */
-			deref_release(p, 1);
-			deref_release(pp, 1);
+			deref_release(q_head, p, 1);
+			deref_release(q_head, pp, 1);
 			p = deref(&n->pred);
 		}
 	}
@@ -318,10 +320,12 @@ pred(struct elem *q, struct elem *n)
  * Returns true on success, false on failure.
  */
 static int
-insert_between(struct elem *q, struct elem *n, struct elem *p, struct elem *s)
+insert_between(struct ll_head *q_head, struct ll_elem *n,
+    struct ll_elem *p, struct ll_elem *s)
 {
-	struct elem	*ps = NULL, *ps_;
+	struct ll_elem	*q, *ps = NULL, *ps_;
 
+	q = &q_head->q;
 	/* Check arguments. */
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
@@ -380,13 +384,14 @@ insert_between(struct elem *q, struct elem *n, struct elem *p, struct elem *s)
 	deref_acquire(n, 1);
 	ptr_clear_deref(&p->succ);
 	/* Forget ps. */
-	deref_release(ps, 1);
+	deref_release(q_head, ps, 1);
 	ps = NULL;
 
 	/* Fix pred pointer of s. */
-	deref_release(pred(q, ptr_clear(s)), 1);
+	deref_release(q_head, pred(q_head, ptr_clear(s)), 1);
 
 	/* Clear delete block. */
+	atomic_fetch_add_explicit(&q_head->size, 1, memory_order_relaxed);
 	atomic_fetch_and_explicit(&n->succ, ~FLAGGED, memory_order_relaxed);
 
 	return 1;
@@ -394,11 +399,11 @@ insert_between(struct elem *q, struct elem *n, struct elem *p, struct elem *s)
 fail:
 	atomic_store_explicit(&n->pred, 0, memory_order_relaxed);
 	atomic_store_explicit(&n->succ, 0, memory_order_relaxed);
-	deref_release(p, 1);
-	deref_release(s, 1);
+	deref_release(q_head, p, 1);
+	deref_release(q_head, s, 1);
 
 	if (ps != NULL)
-		deref_release(ps, 1);
+		deref_release(q_head, ps, 1);
 	return 0;
 }
 
@@ -409,10 +414,11 @@ fail:
  * unlinking the element.
  */
 static int
-unlink(struct elem *q, struct elem *n)
+unlink(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*p, *p_, *ps, *i, *i_;
+	struct ll_elem	*q, *p, *p_, *ps, *i, *i_;
 
+	q = &q_head->q;
 	/* Argument validation. */
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
@@ -428,16 +434,16 @@ restart:
 	 * Fails if n->pred is already marked as deleted.
 	 */
 	for (;;) {
-		p = pred(q, n);
+		p = pred(q_head, n);
 		if (deleted_ptr(p)) {
 			/* Another thread marked n->pred with deletion. */
-			deref_release(p, 1);
+			deref_release(q_head, p, 1);
 			return 0;
 		}
 
 		/* Lock down p->succ and ensure it points at n. */
 		for (;;) {
-			ps = (struct elem*)atomic_fetch_or_explicit(
+			ps = (struct ll_elem*)atomic_fetch_or_explicit(
 			    &ptr_clear(p)->succ, DEREF, memory_order_relaxed);
 			if (ptr_clear(ps) != n) {
 				if (!((uintptr_t)ps & DEREF))
@@ -460,7 +466,7 @@ restart:
 		/*
 		 * p no longer points at n.  Re-resolve p.
 		 */
-		deref_release(p, 1);
+		deref_release(q_head, p, 1);
 	}
 	/*
 	 * p - direct predecessor of n.
@@ -470,7 +476,7 @@ restart:
 	 * Note that another thread can have acquired the deletion mark,
 	 * between our looking up of the predecessor and locking down p->succ.
 	 */
-	assert(ptr_clear((struct elem*)atomic_load_explicit(
+	assert(ptr_clear((struct ll_elem*)atomic_load_explicit(
 	    &ptr_clear(p)->succ, memory_order_relaxed)) == n);
 	assert(!((uintptr_t)p & DEREF));
 	assert(!((uintptr_t)p & FLAGGED));
@@ -483,7 +489,7 @@ restart:
 		if (((uintptr_t)p_ & FLAGGED) || ptr_clear(p_) != p) {
 			/* We have to restart or abort. */
 			ptr_clear_deref(&p->succ);
-			deref_release(p, 1);
+			deref_release(q_head, p, 1);
 
 			/* Another thread deleted n. */
 			if ((uintptr_t)p_ & FLAGGED)
@@ -508,19 +514,20 @@ restart:
 	 *
 	 * Update our predecessor p to skip n.
 	 */
-	deref_release(succ(q, p), 1);
-	deref_release(p, 1);
+	deref_release(q_head, succ(q_head, p), 1);
+	deref_release(q_head, p, 1);
+	atomic_fetch_sub_explicit(&q_head->size, 1, memory_order_relaxed);
 
 	/*
 	 * Loop the list forward, clearing up references until our refcount
 	 * becomes 1 or the list is exhausted.
 	 */
-	i = succ(q, n);
+	i = succ(q_head, n);
 	while (atomic_load_explicit(&n->refcnt, memory_order_relaxed) > 1) {
 		/* If i points at n, update its pred pointer. */
-		if (ptr_clear((struct elem*)atomic_load_explicit(&i->pred,
+		if (ptr_clear((struct ll_elem*)atomic_load_explicit(&i->pred,
 		    memory_order_relaxed)) == n)
-			deref_release(pred(q, i), 1);
+			deref_release(q_head, pred(q_head, i), 1);
 
 		/* GUARD: stop at end of q. */
 		if (i == q)
@@ -528,15 +535,15 @@ restart:
 
 		/* Skip to next element. */
 		i_ = i;
-		i = succ(q, i);
-		deref_release(i_, 1);
+		i = succ(q_head, i);
+		deref_release(q_head, i_, 1);
 	}
-	deref_release(i, 1);
+	deref_release(q_head, i, 1);
 	return 1;
 }
 /* Wait until the unlinked node is unreferenced. */
 static void
-unlink_release(struct elem *n)
+unlink_release(struct ll_head *q_head, struct ll_elem *n)
 {
 	assert(n == ptr_clear(n));
 
@@ -545,12 +552,12 @@ unlink_release(struct elem *n)
 		SPINWAIT();
 
 	/* Release our reference. */
-	deref_release(n, 1);
+	deref_release(q_head, n, 1);
 
 	/* Clear out the pred and succ pointers. */
-	deref_release((struct elem*)atomic_exchange_explicit(&n->pred, 0,
+	deref_release(q_head, (struct ll_elem*)atomic_exchange_explicit(&n->pred, 0,
 	    memory_order_relaxed), 1);
-	deref_release((struct elem*)atomic_exchange_explicit(&n->succ, 0,
+	deref_release(q_head, (struct ll_elem*)atomic_exchange_explicit(&n->succ, 0,
 	    memory_order_relaxed), 1);
 }
 
@@ -573,40 +580,40 @@ unlink_release(struct elem *n)
  * The ll_unlink_release() function should be called on n to complete the
  * wait stage prior to freeing n.
  */
-struct elem*
-ll_unlink(struct elem *q, struct elem *n, int wait)
+struct ll_elem*
+ll_unlink(struct ll_head *q_head, struct ll_elem *n, int wait)
 {
-	if (!unlink(q, n))
+	if (!unlink(q_head, n))
 		return NULL;
 	if (wait)
-		unlink_release(n);
+		unlink_release(q_head, n);
 	return n;
 }
 /*
  * Release n after unlinking it.  Should only be called if wait==0.
  */
 void
-ll_unlink_release(struct elem *n)
+ll_unlink_release(struct ll_head *q_head, struct ll_elem *n)
 {
-	return unlink_release(n);
+	return unlink_release(q_head, n);
 }
 
 /*
  * Find the successor of n.
  * This is the public facing interface for the queue.
  */
-struct elem*
-ll_succ(struct elem *q, struct elem *n)
+struct ll_elem*
+ll_succ(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*s;
+	struct ll_elem	*s;
 
-	s = succ(q, n);
+	s = succ(q_head, n);
 
 	/* Clean away the flag bits. */
 	s = ptr_clear(s);
-	if (s == q) {
+	if (s == &q_head->q) {
 		/* Don't return q: it is not an element of the list. */
-		deref_release(s, 1);
+		deref_release(q_head, s, 1);
 		s = NULL;
 	}
 	return s;
@@ -616,18 +623,18 @@ ll_succ(struct elem *q, struct elem *n)
  * Find the predecessor of n.
  * This is the public facing interface for the queue.
  */
-struct elem*
-ll_pred(struct elem *q, struct elem *n)
+struct ll_elem*
+ll_pred(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*p;
+	struct ll_elem	*p;
 
-	p = pred(q, n);
+	p = pred(q_head, n);
 
 	/* Clean away the flag bits. */
 	p = ptr_clear(p);
-	if (p == q) {
+	if (p == &q_head->q) {
 		/* Don't return q: it is not an element of the list. */
-		deref_release(p, 1);
+		deref_release(q_head, p, 1);
 		p = NULL;
 	}
 	return p;
@@ -638,9 +645,9 @@ ll_pred(struct elem *q, struct elem *n)
  * n must be in the queue or be referenced elsewhere (this is not checked).
  */
 void
-ll_ref(struct elem *q, struct elem *n)
+ll_ref(struct ll_head *q_head, struct ll_elem *n)
 {
-	assert(n != q);
+	assert(n != &q_head->q);
 	deref_acquire(n, 1);
 }
 
@@ -648,10 +655,10 @@ ll_ref(struct elem *q, struct elem *n)
  * Release reference to n.
  */
 void
-ll_release(struct elem *q, struct elem *n)
+ll_release(struct ll_head *q_head, struct ll_elem *n)
 {
-	assert(n != q);
-	deref_release(n, 1);
+	assert(n != &q_head->q);
+	deref_release(q_head, n, 1);
 }
 
 /*
@@ -664,10 +671,10 @@ ll_release(struct elem *q, struct elem *n)
  * operation happens after the call to ll_empty().
  */
 int
-ll_empty(struct elem *q)
+ll_empty(struct ll_head *q_head)
 {
-	return ptr_clear((struct elem*)atomic_load_explicit(&q->succ,
-	    memory_order_relaxed)) == q;
+	return ptr_clear((struct ll_elem*)atomic_load_explicit(&q_head->q.succ,
+	    memory_order_relaxed)) == &q_head->q;
 }
 
 /*
@@ -678,10 +685,12 @@ ll_empty(struct elem *q)
  * insert_before(q,n,rel) and insert_after(q,n,pred(rel)).
  */
 void
-ll_insert_before(struct elem *q, struct elem *n, struct elem *rel)
+ll_insert_before(struct ll_head *q_head, struct ll_elem *n,
+    struct ll_elem *rel)
 {
-	struct elem	*s, *s_, *p;
+	struct ll_elem	*q, *s, *s_, *p;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 	assert(rel == ptr_clear(rel));
@@ -702,7 +711,7 @@ ll_insert_before(struct elem *q, struct elem *n, struct elem *rel)
 	deref_acquire(s, 1);	/* Our local reference. */
 
 	/* Lookup predecessor. */
-	p = ptr_clear(pred(q, s));
+	p = ptr_clear(pred(q_head, s));
 
 	/*
 	 * We now have:
@@ -713,7 +722,7 @@ ll_insert_before(struct elem *q, struct elem *n, struct elem *rel)
 	 * Note that both p and s may be deleted by the time we read this
 	 * comment.
 	 */
-	while (!insert_between(q, n, p, s)) {
+	while (!insert_between(q_head, n, p, s)) {
 		/*
 		 * Insert failed.
 		 * This means at least one of p and s is no longer suitable.
@@ -727,26 +736,26 @@ ll_insert_before(struct elem *q, struct elem *n, struct elem *rel)
 		assert(atomic_load_explicit(&n->refcnt, memory_order_relaxed) == 1);
 
 		/* Forget p. */
-		deref_release(p, 1);
+		deref_release(q_head, p, 1);
 
 		/* Fix s:
 		 * if it is deleted, we need to insert before its successor.
 		 */
 		if (deleted(s)) {
 			s_ = s;
-			s = ptr_clear(succ(q, s));
-			deref_release(s_, 1);
+			s = ptr_clear(succ(q_head, s));
+			deref_release(q_head, s_, 1);
 		}
 
 		/* Find correct s. */
-		p = ptr_clear(pred(q, s));
+		p = ptr_clear(pred(q_head, s));
 	}
 
 	/*
 	 * We have succesfully inserted n.  Release our references on p and s.
 	 */
-	deref_release(p, 1);
-	deref_release(s, 1);
+	deref_release(q_head, p, 1);
+	deref_release(q_head, s, 1);
 }
 
 /*
@@ -757,10 +766,11 @@ ll_insert_before(struct elem *q, struct elem *n, struct elem *rel)
  * insert_before(q,n,rel) and insert_after(q,n,pred(rel)).
  */
 void
-ll_insert_after(struct elem *q, struct elem *n, struct elem *rel)
+ll_insert_after(struct ll_head *q_head, struct ll_elem *n, struct ll_elem *rel)
 {
-	struct elem	*s, *p, *p_;
+	struct ll_elem	*q, *s, *p, *p_;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 	assert(rel == ptr_clear(rel));
@@ -781,7 +791,7 @@ ll_insert_after(struct elem *q, struct elem *n, struct elem *rel)
 	deref_acquire(p, 1);	/* Our local reference. */
 
 	/* Lookup successor. */
-	s = ptr_clear(succ(q, p));
+	s = ptr_clear(succ(q_head, p));
 
 	/*
 	 * We now have:
@@ -792,7 +802,7 @@ ll_insert_after(struct elem *q, struct elem *n, struct elem *rel)
 	 * Note that both p and s may be deleted by the time we read this
 	 * comment.
 	 */
-	while (!insert_between(q, n, p, s)) {
+	while (!insert_between(q_head, n, p, s)) {
 		/*
 		 * Insert failed.
 		 * This means at least one of p and s is no longer suitable.
@@ -806,36 +816,37 @@ ll_insert_after(struct elem *q, struct elem *n, struct elem *rel)
 		assert(atomic_load_explicit(&n->refcnt, memory_order_relaxed) == 1);
 
 		/* Forget s. */
-		deref_release(s, 1);
+		deref_release(q_head, s, 1);
 
 		/* Fix p:
 		 * if it is deleted, we need to insert after its predecessor.
 		 */
 		if (deleted(p)) {
 			p_ = p;
-			p = ptr_clear(pred(q, p));
-			deref_release(p_, 1);
+			p = ptr_clear(pred(q_head, p));
+			deref_release(q_head, p_, 1);
 		}
 
 		/* Find correct s. */
-		s = ptr_clear(succ(q, p));
+		s = ptr_clear(succ(q_head, p));
 	}
 
 	/*
 	 * We have succesfully inserted n.  Release our references on p and s.
 	 */
-	deref_release(p, 1);
-	deref_release(s, 1);
+	deref_release(q_head, p, 1);
+	deref_release(q_head, s, 1);
 }
 
 /*
  * Insert n at the head of the list.
  */
 void
-ll_insert_head(struct elem *q, struct elem *n)
+ll_insert_head(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*s;
+	struct ll_elem	*q, *s;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 
@@ -849,7 +860,7 @@ ll_insert_head(struct elem *q, struct elem *n)
 	atomic_init(&n->pred, 0);
 	atomic_init(&n->succ, 0);
 
-	s = ptr_clear(succ(q, q));
+	s = ptr_clear(succ(q_head, q));
 
 	/*
 	 * We now have:
@@ -860,7 +871,7 @@ ll_insert_head(struct elem *q, struct elem *n)
 	 * Note that both s may be deleted by the time we read this
 	 * comment.
 	 */
-	while (!insert_between(q, n, q, s)) {
+	while (!insert_between(q_head, n, q, s)) {
 		/*
 		 * Insert failed.
 		 * This means s is no longer suitable.
@@ -873,24 +884,25 @@ ll_insert_head(struct elem *q, struct elem *n)
 		assert(atomic_load_explicit(&n->refcnt, memory_order_relaxed) == 1);
 
 		/* Re-resolve s. */
-		deref_release(s, 1);
-		s = ptr_clear(succ(q, q));
+		deref_release(q_head, s, 1);
+		s = ptr_clear(succ(q_head, q));
 	}
 
 	/*
 	 * We have succesfully inserted n.  Release our reference on s.
 	 */
-	deref_release(s, 1);
+	deref_release(q_head, s, 1);
 }
 
 /*
  * Insert n at the tail of the list.
  */
 void
-ll_insert_tail(struct elem *q, struct elem *n)
+ll_insert_tail(struct ll_head *q_head, struct ll_elem *n)
 {
-	struct elem	*p;
+	struct ll_elem	*q, *p;
 
+	q = &q_head->q;
 	assert(q == ptr_clear(q));
 	assert(n == ptr_clear(n));
 
@@ -904,7 +916,7 @@ ll_insert_tail(struct elem *q, struct elem *n)
 	atomic_init(&n->pred, 0);
 	atomic_init(&n->succ, 0);
 
-	p = ptr_clear(pred(q, q));
+	p = ptr_clear(pred(q_head, q));
 
 	/*
 	 * We now have:
@@ -915,7 +927,7 @@ ll_insert_tail(struct elem *q, struct elem *n)
 	 * Note that both p may be deleted by the time we read this
 	 * comment.
 	 */
-	while (!insert_between(q, n, p, q)) {
+	while (!insert_between(q_head, n, p, q)) {
 		/*
 		 * Insert failed.
 		 * This means p is no longer suitable.
@@ -928,44 +940,57 @@ ll_insert_tail(struct elem *q, struct elem *n)
 		assert(atomic_load_explicit(&n->refcnt, memory_order_relaxed) == 1);
 
 		/* Re-resolve s. */
-		deref_release(p, 1);
-		p = ptr_clear(pred(q, q));
+		deref_release(q_head, p, 1);
+		p = ptr_clear(pred(q_head, q));
 	}
 
 	/*
 	 * We have succesfully inserted n.  Release our reference on p.
 	 */
-	deref_release(p, 1);
+	deref_release(q_head, p, 1);
 }
 
 /*
  * Unlink and return the first node in the list.
  */
-struct elem*
-ll_pop_front(struct elem *q)
+struct ll_elem*
+ll_pop_front(struct ll_head *q_head)
 {
-	struct elem	*n;
+	struct ll_elem	*q, *n;
 
-	while ((n = ptr_clear(succ(q, q))) != NULL) {
-		if (ll_unlink(q, n, 1))
-			break;
-		deref_release(n, 1);
+	q = &q_head->q;
+	while ((n = ptr_clear(succ(q_head, q))) != q) {
+		if (ll_unlink(q_head, n, 1))
+			return n;
+		deref_release(q_head, n, 1);
 	}
-	return n;
+	deref_release(q_head, n, 1);
+	return NULL;
 }
 
 /*
  * Unlink and return the first node in the list.
  */
-struct elem*
-ll_pop_back(struct elem *q)
+struct ll_elem*
+ll_pop_back(struct ll_head *q_head)
 {
-	struct elem	*n;
+	struct ll_elem	*q, *n;
 
-	while ((n = ptr_clear(pred(q, q))) != NULL) {
-		if (ll_unlink(q, n, 1))
-			break;
-		deref_release(n, 1);
+	q = &q_head->q;
+	while ((n = ptr_clear(pred(q_head, q))) != q) {
+		if (ll_unlink(q_head, n, 1))
+			return n;
+		deref_release(q_head, n, 1);
 	}
-	return n;
+	deref_release(q_head, n, 1);
+	return NULL;
+}
+
+/*
+ * Return the number of nodes in the list.
+ */
+size_t
+ll_size(struct ll_head *q_head)
+{
+	return atomic_load_explicit(&q_head->size, memory_order_relaxed);
 }
