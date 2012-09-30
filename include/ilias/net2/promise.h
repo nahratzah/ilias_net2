@@ -17,10 +17,17 @@
 #define ILIAS_NET2_PROMISE_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/config.h>
 #include <ilias/net2/workq.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
+#endif
 
 ILIAS_NET2__begin_cdecl
 
@@ -100,6 +107,8 @@ ILIAS_NET2_EXPORT
 int			 net2_promise_event_init(struct net2_promise_event*,
 			    struct net2_promise*, int, struct net2_workq*,
 			    net2_workq_cb, void*, void*);
+ILIAS_NET2_EXPORT
+void			 net2_promise_event_deinit(struct net2_promise_event*);
 
 ILIAS_NET2_EXPORT
 struct net2_promise	*net2_promise_combine(struct net2_workq*,
@@ -111,13 +120,6 @@ static __inline struct net2_workq_job*
 net2_promise_event_wqjob(struct net2_promise_event *ev)
 {
 	return &ev->job;
-}
-
-/* Deinit promise event. */
-static __inline void
-net2_promise_event_deinit(struct net2_promise_event *ev)
-{
-	net2_workq_deinit_work(net2_promise_event_wqjob(ev));
 }
 
 /* Initialize a null event. */

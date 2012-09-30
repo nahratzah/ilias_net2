@@ -264,3 +264,10 @@ net2_thread_detach_self()
 	}
 	LeaveCriticalSection(&t->s);
 }
+
+/* Yield execution of the current thread. */
+ILIAS_NET2_LOCAL void
+net2_thread_yield()
+{
+	SwitchToThread();
+}

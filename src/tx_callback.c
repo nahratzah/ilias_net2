@@ -69,11 +69,6 @@ struct net2_txcb_entry {
 static void txcb_wqdestroy(struct net2_workq_job*);
 static void txcb_entry_fn(void*, void*);
 
-static const struct net2_workq_job_cb txcb_jcb = {
-	NULL,
-	&txcb_wqdestroy
-};
-
 
 /* Acquire a reference on an entry. */
 static __inline void
@@ -286,7 +281,6 @@ new_entry(struct net2_tx_callback *q, struct net2_txcb_entryq *eq,
 	e->fn[Q_NACK] = nack;
 	e->fn[Q_DESTROY] = destroy;
 	e->arg0 = arg0;
-	net2_workq_set_callbacks(&e->callback, &txcb_jcb);
 
 	/*
 	 * No failures permitted past this point.

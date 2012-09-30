@@ -22,12 +22,6 @@
 #include <errno.h>
 #include <assert.h>
 
-/* Pointer magic. */
-#define PROMCB_JOB_OFFSET						\
-	((size_t)(&((struct net2_promise_event*)0)->job))
-#define JOB_2_PROMCB(_ev)						\
-	((struct net2_promise_event*)((char*)(_ev) - PROMCB_JOB_OFFSET))
-
 struct net2_promise {
 	net2_refcnt_t		 refcnt;	/* Reference counter. */
 	net2_refcnt_t		 combi_refcnt;	/* # combi referencing this. */
@@ -88,7 +82,6 @@ static void	net2_promise_unlock(struct net2_promise*);
 static void	prom_on_run(struct net2_promise*);
 static void	prom_on_finish(struct net2_promise*);
 static void	promise_wqcb(void *pcb_ptr,void*);
-static void	pcb_destroy(struct net2_workq_job*);
 
 
 /* Read flags on promise. */
@@ -680,29 +673,6 @@ promise_wqcb(void *pcb_ptr, void *arg1)
 	net2_promise_release(p);
 }
 
-/* Handle event queue destruction. */
-static void
-pcb_destroy(struct net2_workq_job *j)
-{
-	struct net2_promise_event	*pcb;
-	struct net2_promise		*p;
-
-	pcb = JOB_2_PROMCB(j);
-	p = pcb->owner;
-
-	if (p != NULL) {
-		pcb->owner = NULL;
-		net2_mutex_lock(p->mtx);
-		TAILQ_REMOVE(&p->event[pcb->evno], pcb, promq);
-		net2_promise_unlock(p);
-	}
-}
-
-static const struct net2_workq_job_cb promcb_cb = {
-	&pcb_destroy,
-	&pcb_destroy
-};
-
 static int
 net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
     int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1,
@@ -750,7 +720,6 @@ net2_promise_event_initf(struct net2_promise_event *cb, struct net2_promise *p,
 	if ((error = net2_workq_init_work(&cb->job, wq, &promise_wqcb, cb, arg1,
 	    0)) != 0)
 		goto fail_1;
-	net2_workq_set_callbacks(&cb->job, &promcb_cb);
 
 	/*
 	 * Handle state.
@@ -788,6 +757,25 @@ net2_promise_event_init(struct net2_promise_event *cb, struct net2_promise *p,
     int evno, struct net2_workq *wq, net2_workq_cb fn, void *arg0, void *arg1)
 {
 	return net2_promise_event_initf(cb, p, evno, wq, fn, arg0, arg1, 1);
+}
+
+/* Deinitialize event promise. */
+ILIAS_NET2_EXPORT void
+net2_promise_event_deinit(struct net2_promise_event *cb)
+{
+	struct net2_promise	*p;
+
+	if (net2_promise_event_is_null(cb))
+		return;
+
+	net2_workq_deinit_work(&cb->job);
+	p = cb->owner;
+	if (p != NULL) {
+		cb->owner = NULL;
+		net2_mutex_lock(p->mtx);
+		TAILQ_REMOVE(&p->event[cb->evno], cb, promq);
+		net2_promise_unlock(p);
+	}
 }
 
 
