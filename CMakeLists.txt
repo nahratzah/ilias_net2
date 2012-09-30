@@ -31,7 +31,7 @@ endif ("${CMAKE_CXX_COMPILER}" MATCHES "clang(\\+\\+)?$" OR "${CMAKE_CXX_COMPILE
 
 include (CheckCCompilerFlag)
 include (CheckCXXCompilerFlag)
-check_c_compiler_flag("-std=c11" STD_C11)
+#check_c_compiler_flag("-std=c11" STD_C11)
 check_cxx_compiler_flag("-std=c++11" STD_CXX11)
 if (STD_C11)
 	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")

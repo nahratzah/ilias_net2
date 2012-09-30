@@ -13,14 +13,16 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef ILIAS_NET2_LL_H
-#define ILIAS_NET2_LL_H
+#ifndef LL_H
+#define LL_H
 
-#include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/bsd_compat/atomic.h>
 #include <stddef.h>
+#include <stdint.h>
 
-ILIAS_NET2__begin_cdecl
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef atomic_uintptr_t elem_ptr_t;
 struct ll_elem {
@@ -62,23 +64,26 @@ size_t		 ll_size(struct ll_head*);
 #define LL_HEAD_INITIALIZER(head)					\
 {{									\
 	{								\
-		ATOMIC_VAR_INIT(&head.ll_head),				\
-		ATOMIC_VAR_INIT(&head.ll_head),				\
-		ATOMIC_VAR_INIT(0)					\
-	}								\
-	ATOMIC_VAR_INIT(0)						\
+		ATOMIC_VAR_INIT((uintptr_t)&head.ll_head),		\
+		ATOMIC_VAR_INIT((uintptr_t)&head.ll_head),		\
+		ATOMIC_VAR_INIT((size_t)2)				\
+	},								\
+	ATOMIC_VAR_INIT((size_t)0)					\
 }}
 
 #define LL_INIT(head)							\
+	LL_INIT__LL_HEAD(&(head)->ll_head)
+
+#define LL_INIT__LL_HEAD(ll_head)					\
 do {									\
-	atomic_init(&head->ll_head.q.succ, &head->ll_head);		\
-	atomic_init(&head->ll_head.q.pred, &head->ll_head);		\
-	atomic_init(&head->ll_head.q.refcnt, 0);			\
-	atomic_init(&head->ll_head.size, 0);				\
+	atomic_init(&(ll_head)->q.succ, (uintptr_t)(ll_head));		\
+	atomic_init(&(ll_head)->q.pred, (uintptr_t)(ll_head));		\
+	atomic_init(&(ll_head)->q.refcnt, 2);				\
+	atomic_init(&(ll_head)->size, 0);				\
 } while (0)
 
-#define LL_NEXT(name, head, node)	ll_pred_##name(head, node)
-#define LL_PREV(name, head, node)	ll_succ_##name(head, node)
+#define LL_NEXT(name, head, node)	ll_succ_##name(head, node)
+#define LL_PREV(name, head, node)	ll_pred_##name(head, node)
 #define LL_FIRST(name, head)		ll_first_##name(head)
 #define LL_LAST(name, head)		ll_last_##name(head)
 #define LL_EMPTY(name, head)		ll_empty_##name(head)
@@ -105,13 +110,13 @@ do {									\
 	ll_pop_back_##name(head)
 
 #define LL_FOREACH(var, name, head)					\
-	for (var = ll_first_##name(head);				\
-	    var != NULL;						\
-	    var = ll_foreach_succ_##name(var))
+	for ((var) = ll_first_##name(head);				\
+	    (var) != NULL;						\
+	    (var) = ll_foreach_succ_##name((head), (var)))
 #define LL_FOREACH_REVERSE(var, name, head)				\
-	for (var = ll_last_##name(head);				\
-	    var != NULL;						\
-	    var = ll_foreach_pred_##name(var))
+	for ((var) = ll_last_##name(head);				\
+	    (var) != NULL;						\
+	    (var) = ll_foreach_pred_##name((head), (var)))
 
 #define LL_PUSH_FRONT(name, head, node)					\
 	ll_insert_head_##name(head, node)
@@ -128,12 +133,12 @@ ll_elem_##name(struct ll_elem *e)					\
 	    offsetof(struct type, member)));				\
 }									\
 static __inline struct type*						\
-ll_pred_##name(struct name *q, struct type *n)				\
+ll_succ_##name(struct name *q, struct type *n)				\
 {									\
 	return ll_elem_##name(ll_succ(&q->ll_head, &n->member));	\
 }									\
 static __inline struct type*						\
-ll_succ_##name(struct name *q, struct type *n)				\
+ll_pred_##name(struct name *q, struct type *n)				\
 {									\
 	return ll_elem_##name(ll_pred(&q->ll_head, &n->member));	\
 }									\
@@ -240,7 +245,9 @@ ll_size_##name(struct name *q)						\
 }
 /* End of LL_GENERATE macro. */
 
-ILIAS_NET2__end_cdecl
+#ifdef __cplusplus
+}
+#endif
 
 
-#endif /* ILIAS_NET2_LL_H */
+#endif /* LL_H */
