@@ -212,11 +212,19 @@ workq_busy_destroy()
 	sleep(10);
 #endif
 
-	for (i = 0; i < COUNT; i++)
+	fprintf(stderr, "\tReleasing workq...");
+	for (i = 0; i < COUNT; i++) {
 		net2_workq_release(wq[i]);
+		fprintf(stderr, " %d", i);
+	}
+	fprintf(stderr, "\n");
 
-	for (i = 0; i < COUNT; i++)
+	fprintf(stderr, "\tDeinitializing jobs...");
+	for (i = 0; i < COUNT; i++) {
 		net2_workq_deinit_work(&j[i]);
+		fprintf(stderr, " %d", i);
+	}
+	fprintf(stderr, "\n");
 
 	return 0;
 #undef COUNT
