@@ -483,10 +483,16 @@ net2_dp_push_prepare(struct net2_datapipe_in_prepare *p,
 	int			 error;
 	struct net2_dp_queue	*q;
 
-	if (p == NULL || in == NULL) {
-		error = EINVAL;
-		goto out;
-	}
+	/* Argument check. */
+	if (p == NULL)
+		return EINVAL;
+
+	p->elem = NULL;
+	p->in = NULL;
+
+	/* Second argument check. */
+	if (p == NULL)
+		return EINVAL;
 
 	/* Reserve space in datapipe. */
 	q = IMPL_IN(in);
