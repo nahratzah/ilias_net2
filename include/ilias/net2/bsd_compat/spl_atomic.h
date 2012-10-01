@@ -53,16 +53,16 @@ void	atomic_exchange8(volatile int8_t*, int8_t*, int8_t);
 		select_8_16_32_64(*v,					\
 		    atomic_exchange8(					\
 			(volatile int8_t*)&(v)->__val,			\
-			(int8_t*)(oldval), (newval)),			\
+			(int8_t*)&(oldval), (newval)),			\
 		    atomic_exchange16(					\
 			(volatile int16_t*)&(v)->__val,			\
-			(int16_t*)(oldval), (newval)),			\
+			(int16_t*)&(oldval), (newval)),			\
 		    atomic_exchange32(					\
 			(volatile int32_t*)&(v)->__val,			\
-			(int32_t*)(oldval), (newval)),			\
+			(int32_t*)&(oldval), (newval)),			\
 		    atomic_exchange64(					\
 			(volatile int64_t*)&(v)->__val,			\
-			(int64_t*)(oldval), (newval)));			\
+			(int64_t*)&(oldval), (newval)));		\
 									\
 		oldval;							\
 	})
