@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <assert.h>
 
-#define _Atomic(type)	volatile type
+#define _Atomic(type)	struct { volatile type __val; }
 typedef _Atomic(char)			atomic_char;
 typedef _Atomic(signed char)		atomic_schar;
 typedef _Atomic(unsigned char)		atomic_uchar;
