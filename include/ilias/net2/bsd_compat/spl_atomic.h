@@ -227,4 +227,9 @@ int8_t	atomic_fetch_and8(volatile int8_t*, int8_t);
 #define atomic_init(v, val)						\
 	do { (v)->__val = (val); } while (0)
 
+#define atomic_thread_fence(order)					\
+	__sync_synchronize()
+#define atomic_signal_fence(order)					\
+	__asm __volatile("":::"memory");
+
 #endif /* ILIAS_NET2_BSD_COMPAT_SPL_ATOMIC_H */
