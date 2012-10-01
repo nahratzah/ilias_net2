@@ -1772,6 +1772,13 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_DEINIT,
 	    memory_order_relaxed);
 
+	/*
+	 * Wait until the job stops running,
+	 * note that the job cannot start running after it stops,
+	 * because JOB_DEINIT it set.
+	 */
+	job_wait_run(job);
+
 	/* Remove job from parallel runq. */
 	if (fl & JOB_ONPQUEUE) {
 		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
@@ -1782,8 +1789,13 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 		    &wq->prunqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
 			    memory_order_relaxed);
-		} else
+		} else {
 			LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
+			/* Wait until the other thread has dequeued the job. */
+			while (atomic_load_explicit(&job->flags,
+			    memory_order_relaxed) & JOB_ONPQUEUE)
+				SPINWAIT();
+		}
 	}
 	/* Remove job from runq. */
 	if (fl & JOB_ONQUEUE) {
@@ -1795,16 +1807,17 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 		    &wq->runqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
 			    memory_order_relaxed);
-		} else
+		} else {
 			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+			/* Wait until the other thread has dequeued the job. */
+			while (atomic_load_explicit(&job->flags,
+			    memory_order_relaxed) & JOB_ONQUEUE)
+				SPINWAIT();
+		}
 	}
 
-	/*
-	 * Wait until the job stops running,
-	 * note that the job cannot start running after it stops,
-	 * because JOB_DEINIT it set.
-	 */
-	job_wait_run(job);
+	assert((atomic_load_explicit(&job->flags, memory_order_relaxed) &
+	    (JOB_ONQUEUE | JOB_ONPQUEUE)) == 0);
 
 	/* Release job, freeing it in the process. */
 	job_release(job);
