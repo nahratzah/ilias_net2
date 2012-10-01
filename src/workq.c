@@ -2139,13 +2139,9 @@ net2_workq_deactivate(struct net2_workq_job *j)
  * The ev_loop is created on demand (calling this function being the demand).
  */
 ILIAS_NET2_LOCAL struct ev_loop*
-net2_workq_get_evloop(struct net2_workq *wq)
+net2_workq_get_evloop(struct net2_workq_evbase *wqev)
 {
 	struct ev_loop	*new;
-	struct net2_workq_evbase
-			*wqev;
-
-	wqev = wq->wqev;
 
 	if (wqev->evloop != NULL)
 		return wqev->evloop;

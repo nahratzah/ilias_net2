@@ -151,7 +151,7 @@ ILIAS_NET2_LOCAL
 void	 net2_workq_evbase_evloop_changed(struct net2_workq_evbase*);
 ILIAS_NET2_LOCAL
 struct ev_loop
-	*net2_workq_get_evloop(struct net2_workq*);
+	*net2_workq_get_evloop(struct net2_workq_evbase*);
 #endif
 
 
