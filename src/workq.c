@@ -479,7 +479,11 @@ workq_release(struct net2_workq *wq)
 static __inline void
 job_ref(struct net2_workq_job_int *job)
 {
-	atomic_fetch_add_explicit(&job->refcnt, 1, memory_order_acquire);
+	size_t refcnt;
+
+	refcnt = atomic_fetch_add_explicit(&job->refcnt, 1,
+	    memory_order_acquire);
+	assert(refcnt != 0);
 }
 /*
  * Release reference to a job.
