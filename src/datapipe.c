@@ -233,7 +233,6 @@ static __inline void
 queue_release(struct net2_dp_queue *q, int dpq_flag)
 {
 	int			 flags;
-	int			 is_empty;
 
 	assert(dpq_flag == DPQ_HAS_IN || dpq_flag == DPQ_HAS_OUT ||
 	    dpq_flag == 0);
@@ -915,7 +914,6 @@ net2_datapipe_event_in_init(struct net2_datapipe_event_in *in_ev,
 {
 	struct net2_dp_queue	*q;
 	int			 error;
-	int			 was_empty;
 
 	if (in_ev == NULL || in == NULL || fn == NULL)
 		return EINVAL;
@@ -1037,7 +1035,6 @@ net2_datapipe_event_out_init(struct net2_datapipe_event_out *out_ev,
 {
 	struct net2_dp_queue	*q;
 	int			 error;
-	int			 was_empty;
 	int			 depleted;
 
 	if (out_ev == NULL || out == NULL || fn == NULL)
@@ -1321,7 +1318,6 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	struct net2_dp_queue	*q = q_ptr;
 	struct net2_dp_elem	*elem;
 	unsigned int		 generation;
-	struct net2_workq	*ev_wq;
 	struct net2_datapipe_event_in
 				*in_ev;
 	void			*item;
@@ -1467,7 +1463,6 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	void			*item;
 	int			 state;
 	unsigned int		 generation;
-	struct net2_workq	*ev_wq;
 	volatile int		 dead;
 
 	/*
