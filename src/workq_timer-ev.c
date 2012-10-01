@@ -44,28 +44,6 @@ struct net2_workq_timer {
 #define WQJ_2_TIMER(_ev)						\
 	((struct net2_workq_timer*)((char*)(_ev) - TIMER_WQJ_OFFSET))
 
-/*
- * Deactivate timer and prevent future activations.
- * Also: prevent free from using an invalid loop pointer.
- */
-static void
-wqtimer_on_wqdestroy(struct net2_workq_job *j)
-{
-	struct net2_workq_timer	*ev = WQJ_2_TIMER(j);
-
-	net2_mutex_lock(ev->loopmtx);
-	if (ev_loop != NULL) {
-		ev_timer_stop(ev->loop, &ev->watcher);
-		ev->loop = NULL;
-	}
-	net2_mutex_unlock(ev->loopmtx);
-}
-
-static const struct net2_workq_job_cb timer_wqcb = {
-	NULL,
-	wqtimer_on_wqdestroy
-};
-
 
 /* Timer callback. */
 static void
@@ -100,7 +78,7 @@ net2_workq_timer_set(struct net2_workq_timer *ev,
 		/* Workq no longer exists.  Timer cannot fire. */
 		return;
 	}
-	loop = net2_workq_get_evloop(wq);
+	loop = net2_workq_get_evloop(net2_workq_evbase(wq));
 
 	/* Calculate delay period and expected timeout moment. */
 	delay = (delay_tv->tv_sec + delay_tv->tv_usec / 1000000.);
@@ -141,7 +119,8 @@ net2_workq_timer_stop(struct net2_workq_timer *ev)
 
 	wq = net2_workq_get(&ev->job);
 	net2_workq_deactivate(&ev->job);
-	ev_timer_stop(net2_workq_get_evloop(wq), &ev->watcher);
+	ev_timer_stop(net2_workq_get_evloop(net2_workq_evbase(wq)),
+	    &ev->watcher);
 	net2_workq_evbase_evloop_changed(net2_workq_evbase(wq));
 	net2_workq_release(wq);
 }
@@ -169,10 +148,8 @@ net2_workq_timer_new(struct net2_workq *wq, net2_workq_cb cb,
 
 	ev->delay.tv_sec = 0;
 	ev->delay.tv_usec = 0;
-	ev->loop = net2_workq_get_evloop(wq);
+	ev->loop = net2_workq_get_evloop(net2_workq_evbase(wq));
 	ev->timeo_at = ev_now(ev->loop);
-
-	net2_workq_set_callbacks(&ev->job, &timer_wqcb);
 
 	return ev;
 
