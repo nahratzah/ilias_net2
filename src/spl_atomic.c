@@ -20,6 +20,39 @@ static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 #define UNLOCK(v)	pthread_mutex_unlock(&mtx)
 
 #define BODY(v, oldval, newval)						\
+	assert(v != NULL);						\
+	assert(oldval != NULL);						\
+									\
+	LOCK(v);							\
+	*oldval = *v;							\
+	*v = newval;							\
+	UNLOCK(v);
+ILIAS_NET2_LOCAL void
+atomic_exchange64(volatile int64_t *v,
+    int64_t *oldval, int64_t newval)
+{
+	BODY(v, oldval, newval)
+}
+ILIAS_NET2_LOCAL void
+atomic_exchange32(volatile int32_t *v,
+    int32_t *oldval, int32_t newval)
+{
+	BODY(v, oldval, newval)
+}
+ILIAS_NET2_LOCAL void
+atomic_exchange16(volatile int16_t *v,
+    int16_t *oldval, int16_t newval)
+{
+	BODY(v, oldval, newval)
+}
+ILIAS_NET2_LOCAL void
+atomic_exchange8(volatile int8_t *v,
+    int8_t *oldval, int8_t newval)
+{
+	BODY(v, oldval, newval)
+}
+
+#define BODY(v, oldval, newval)						\
 	int	success;						\
 									\
 	assert(v != NULL);						\

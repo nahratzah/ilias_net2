@@ -36,6 +36,40 @@ typedef _Atomic(uintptr_t)		atomic_uintptr_t;
 	)
 
 /*
+ * Atomic exchange.
+ */
+ILIAS_NET2_LOCAL
+void	atomic_exchange64(volatile int64_t*, int64_t*, int64_t);
+ILIAS_NET2_LOCAL
+void	atomic_exchange32(volatile int32_t*, int32_t*, int32_t);
+ILIAS_NET2_LOCAL
+void	atomic_exchange16(volatile int16_t*, int16_t*, int16_t);
+ILIAS_NET2_LOCAL
+void	atomic_exchange8(volatile int8_t*, int8_t*, int8_t);
+#define atomic_exchange(v, newval)					\
+	({								\
+		__typeof__((v)->__val) oldval;				\
+									\
+		select_8_16_32_64(*v,					\
+		    atomic_exchange8(					\
+			(volatile int8_t*)&(v)->__val,			\
+			(int8_t*)(oldval), (newval)),			\
+		    atomic_exchange16(					\
+			(volatile int16_t*)&(v)->__val,			\
+			(int16_t*)(oldval), (newval)),			\
+		    atomic_exchange32(					\
+			(volatile int32_t*)&(v)->__val,			\
+			(int32_t*)(oldval), (newval)),			\
+		    atomic_exchange64(					\
+			(volatile int64_t*)&(v)->__val,			\
+			(int64_t*)(oldval), (newval)));			\
+									\
+		oldval;							\
+	})
+#define atomic_exchange_explicit(v, newval, order)			\
+	atomic_exchange(v, newval)
+
+/*
  * Atomic compare/exchange.
  */
 ILIAS_NET2_LOCAL
@@ -191,6 +225,6 @@ int8_t	atomic_fetch_and8(volatile int8_t*, int8_t);
 	atomic_fetch_and((v), (val))
 
 #define atomic_init(v, val)						\
-	do { *v = val; } while (0)
+	do { (v)->__val = (val); } while (0)
 
 #endif /* ILIAS_NET2_BSD_COMPAT_SPL_ATOMIC_H */
