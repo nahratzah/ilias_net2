@@ -241,6 +241,7 @@ enum job_run_state {
 #define JOB_ACTIVE	0x00020000		/* Job is to run. */
 #define JOB_ONQUEUE	0x00100000		/* Job is on workq runq. */
 #define JOB_ONPQUEUE	0x00200000		/* Job is on workq prunq. */
+#define JOB_DEINIT	0x00400000		/* Job is being destroyed. */
 
 
 /* List definitions. */
@@ -485,11 +486,23 @@ job_ref(struct net2_workq_job_int *job)
  *
  * Returns true if the last reference went away.
  */
-static __inline int
+static __inline void
 job_release(struct net2_workq_job_int *job)
 {
-	return (atomic_fetch_sub_explicit(&job->refcnt, 1,
-	    memory_order_release) == 1);
+	size_t			 refcnt;
+	struct net2_workq	*wq;
+
+	refcnt = atomic_fetch_sub_explicit(&job->refcnt, 1,
+	    memory_order_release);
+	assert(refcnt >= 1);
+	if (predict_false(refcnt == 1)) {
+		assert(atomic_load_explicit(&job->flags,
+		    memory_order_relaxed) & JOB_DEINIT);
+
+		wq = job->wq;
+		net2_free(job);
+		net2_workq_release(wq);
+	}
 }
 
 /*
@@ -625,6 +638,17 @@ restart:
 	}
 
 	/*
+	 * If the job is being deinitialized, we may not run it.
+	 * Cancel running the job and restart this call.
+	 */
+	if (fl & JOB_DEINIT) {
+		atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
+		    memory_order_relaxed);
+		job_release(job);
+		goto restart;
+	}
+
+	/*
 	 * If the job isn't active, clear the run bit and drop the job.
 	 * This is a cas operation, since we want to prevent another thread
 	 * from marking the job as active, but failing to update the runqs
@@ -705,6 +729,17 @@ restart:
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_RUNNING,
 	    memory_order_relaxed);
 	if (fl & JOB_RUNNING) {
+		job_release(job);
+		goto restart;
+	}
+
+	/*
+	 * If the job is being deinitialized, we may not run it.
+	 * Cancel running the job and restart this call.
+	 */
+	if (fl & JOB_DEINIT) {
+		atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
+		    memory_order_relaxed);
 		job_release(job);
 		goto restart;
 	}
@@ -1042,7 +1077,8 @@ job_wait_run(struct net2_workq_job_int *job)
 	    JOB_RUNNING))
 		return;
 
-	if (wq_tls_state.active_job == job)
+	/* Job is being destroyed from within.  Don't wait up. */
+	if (job->self == &wq_tls_state)
 		return;
 
 	/* Wait until the generation counter changes. */
@@ -1410,13 +1446,14 @@ kill_wq(struct net2_workq *wq)
 			 * Wait until it clears the ONQUEUE bit
 			 * before continuing.
 			 */
+			LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
 			while (atomic_load_explicit(&wq->flags,
 			    memory_order_relaxed) & WQ_ONQUEUE)
 				SPINWAIT();
 		}
 	} else {
-		/* wq was not on the workq in the first place. */
-		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
+		/* wq was not on the workq in the first place.
+		 * Don't touch the reference counter. */
 	}
 
 	/*
@@ -1685,6 +1722,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 {
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq;
+	int				 fl;
 
 	/*
 	 * Take ownership of job from j.
@@ -1693,24 +1731,53 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	    memory_order_relaxed);
 	if (job == NULL)
 		return;
+	wq = job->wq;
 	/* Wait for other threads that require job to stay valid. */
 	while (atomic_load_explicit(&j->refcnt, memory_order_relaxed) > 0)
 		SPINWAIT();
 
 	/*
-	 * Deactivate job and wait until it is no longer running.
+	 * Mark job as deinitialized and wait until it stops running.
 	 */
-	job_deactivate(job, 0);
-	while (atomic_load_explicit(&job->flags, memory_order_relaxed) &
-	    WQ_RUNNING)
-		SPINWAIT();
+	fl = atomic_fetch_or_explicit(&job->flags, JOB_DEINIT,
+	    memory_order_relaxed);
+
+	/* Remove job from parallel runq. */
+	if (fl & JOB_ONPQUEUE) {
+		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
+		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
+		    JOB_ONPQUEUE)) {
+			/* Removed already, no need to release. */
+		} else if (LL_UNLINK(net2_workq_job_prunq,
+		    &wq->prunqueue, job)) {
+			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
+			    memory_order_relaxed);
+		} else
+			LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
+	}
+	/* Remove job from runq. */
+	if (fl & JOB_ONQUEUE) {
+		LL_REF(net2_workq_job_runq, &wq->runqueue, job);
+		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
+		    JOB_ONQUEUE)) {
+			/* Removed already, no need to release. */
+		} else if (LL_UNLINK(net2_workq_job_runq,
+		    &wq->runqueue, job)) {
+			atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
+			    memory_order_relaxed);
+		} else
+			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+	}
+
+	/*
+	 * Wait until the job stops running,
+	 * note that the job cannot start running after it stops,
+	 * because JOB_DEINIT it set.
+	 */
+	job_wait_run(job);
 
 	/* Release job, freeing it in the process. */
-	if (predict_true(job_release(job))) {
-		wq = job->wq;
-		net2_free(job);
-		net2_workq_release(wq);
-	}
+	job_release(job);
 }
 
 /*
