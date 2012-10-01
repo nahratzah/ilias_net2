@@ -20,10 +20,17 @@
 #include <ilias/net2/semaphore.h>
 #include <ilias/net2/spinlock.h>
 #include <ilias/net2/ll.h>
+#include <ilias/net2/config.h>
 #include <ilias/net2/bsd_compat/error.h>
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
+
+#ifdef HAVE_SYS_QUEUE_H
+#include <sys/queue.h>
+#else
+#include <ilias/net2/bsd_compat/queue.h>
+#endif
 
 #ifndef WIN32
 #include <pthread.h>
