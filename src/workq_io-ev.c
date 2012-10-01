@@ -24,18 +24,11 @@
 #include <ev.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #ifdef EV_C
 #include EV_C
-#endif
-
-#ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#include <WinSock2.h>
-#else
-#include <sys/types.h>
-#include <sys/socket.h>
 #endif
 
 
@@ -418,17 +411,6 @@ tx_callback(void *dg_ptr, void *dgtx_ptr)
 ready_to_send:
 		assert(result != NULL && result->data != NULL);
 
-#ifdef WIN32
-		/*
-		 * Windows cannot handle IO vectors, compress the buffer now.
-		 *
-		 * This code will be repeated later on, at sending, so we don't
-		 * care about succes or failure now.
-		 * In other words: it's an optimization to do it here.
-		 */
-		net2_buffer_pullup(result->data, (size_t)-1);
-#endif
-
 		/* Mark conclusion as progressing. */
 		if (result->tx_done != NULL)
 			net2_promise_set_running(result->tx_done);
@@ -624,13 +606,8 @@ net2_workq_io_new(struct net2_workq *wq, net2_socket_t socket,
 		goto fail_0;
 	if (tx_cb == NULL && rx_cb == NULL)
 		goto fail_0;
-#ifdef WIN32
-	if (socket == NULL)
-		goto fail_0;
-#else
 	if (socket == -1)
 		goto fail_0;
-#endif
 
 	/* Create new workq_io. */
 	if ((dg = net2_malloc(sizeof(*dg))) == NULL)
