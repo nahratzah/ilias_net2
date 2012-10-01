@@ -255,32 +255,23 @@ LL_HEAD(net2_wthrq, net2_workq_evbase_worker);
  * Internals of workq job.
  */
 struct net2_workq_job_int {
-	net2_workq_cb		 fn;
-	void			*cb_arg[2];
-
-	struct net2_workq	*wq;
-	atomic_size_t		 refcnt;	/* # references to job. */
 	LL_ENTRY(net2_workq_job_int)
 				 runq,		/* Link into workq runq. */
 				 prunq;		/* Link into parallel runq. */
 
+	net2_workq_cb		 fn;
+	void			*cb_arg[2];
+
+	struct net2_workq	*wq;
 	struct wq_tls_state_t	*self;		/* Thread running this job. */
 
+	atomic_size_t		 refcnt;	/* # references to job. */
 	atomic_int		 flags;
 	atomic_uint		 run_gen;	/* Run generation counter. */
 };
 
 /* Workq data. */
 struct net2_workq {
-	atomic_int	 flags;			/* State bits. */
-#define WQ_RUNNING	0x00000001		/* Running. */
-#define WQ_ONQUEUE	0x00000002		/* Waiting to run. */
-#define WQ_WANTLOCK	0x00000010		/* Workq is wanted. */
-	atomic_uint	 prun;			/* # parallel jobs on this wq
-						 * currently running. */
-	struct net2_workq_evbase
-			*wqev;
-
 	LL_ENTRY(net2_workq)
 			 wqev_runq;		/* WQ evbase runqueue. */
 	struct net2_workq_job_runq
@@ -291,13 +282,24 @@ struct net2_workq {
 			 workers;		/* Workers handling this
 						 * workq. */
 
-	atomic_uint	 refcnt;		/* Reference counter. */
-	atomic_uint	 want_refcnt;		/* Want refcnt. */
-	atomic_uint	 want_queued;		/* # queued wants. */
+	struct net2_workq_evbase
+			*wqev;
+
 	struct wq_tls_state_t
 			*want_owner;		/* Owner of want lock. */
 	struct net2_mutex
 			*want_mtx;		/* For want sleep sync. */
+
+	atomic_int	 flags;			/* State bits. */
+#define WQ_RUNNING	0x00000001		/* Running. */
+#define WQ_ONQUEUE	0x00000002		/* Waiting to run. */
+#define WQ_WANTLOCK	0x00000010		/* Workq is wanted. */
+	atomic_uint	 prun;			/* # parallel jobs on this wq
+						 * currently running. */
+
+	atomic_uint	 refcnt;		/* Reference counter. */
+	atomic_uint	 want_refcnt;		/* Want refcnt. */
+	atomic_uint	 want_queued;		/* # queued wants. */
 };
 
 /* Event base and thread pool. */
@@ -306,22 +308,22 @@ struct net2_workq_evbase {
 			 runq;			/* All workq that need run. */
 
 #ifndef WIN32
+	struct ev_loop	*evloop;		/* Event loop. */
+	ev_async	 ev_wakeup;		/* Wakeup for evloop. */
+	ev_async	 ev_newevent;		/* Wakeup: events are added. */
 	atomic_int	 evl_running;		/* True if a thread is running
 						 * evloop. */
 #define EVL_NOWAIT	1			/* Running in no-wait mode. */
 #define EVL_WAIT	2			/* Running in wait more. */
-	struct ev_loop	*evloop;		/* Event loop. */
-	ev_async	 ev_wakeup;		/* Wakeup for evloop. */
-	ev_async	 ev_newevent;		/* Wakeup: events are added. */
 	atomic_uint	 ev_idle;		/* Evloop is consuming an idle. */
 #endif /* !WIN32 */
 
-	int		 jobthreads;		/* # threads running jobs. */
-	int		 maxthreads;		/* # threads total. */
 	struct net2_semaphore
 			 thr_active,		/* Limit # running
 						 * worker threads. */
 			 thr_death;		/* # dead worker threads. */
+	int		 jobthreads;		/* # threads running jobs. */
+	int		 maxthreads;		/* # threads total. */
 	atomic_uint	 thr_idle,		/* # worker thread idling. */
 			 thr_die;		/* # worker threads
 						 * that need to die. */
@@ -361,19 +363,20 @@ enum wthr_kind {
 };
 /* A worker thread. */
 struct net2_workq_evbase_worker {
-	enum wthr_kind	 kind;
 	TAILQ_ENTRY(net2_workq_evbase_worker)
 			 tq;			/* Link into threads. */
+	LL_ENTRY(net2_workq_evbase_worker)
+			 wq_wthrq;		/* Link into execing workq. */
+	net2_spinlock	 spl;			/* Protect owner pointer. */
 	struct net2_thread
 			*worker;		/* Worker thread. */
 	struct net2_workq_evbase
 			*evbase;		/* Owner. */
-	net2_spinlock	 spl;			/* Protect owner pointer. */
 
 	struct net2_workq
 			*wq_wthr;		/* Execing this workq. */
-	LL_ENTRY(net2_workq_evbase_worker)
-			 wq_wthrq;		/* Link into execing workq. */
+
+	enum wthr_kind	 kind;
 };
 
 
@@ -1014,7 +1017,7 @@ job_clear_run(struct net2_workq_job_int *job)
 	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
 	    memory_order_relaxed);
 	atomic_fetch_add_explicit(&job->run_gen, 1, memory_order_relaxed);
-	if (fl & JOB_ONQUEUE)
+	if (fl & (JOB_ONQUEUE | JOB_DEINIT))
 		return;
 
 	if (fl & JOB_ACTIVE) {
@@ -1249,7 +1252,7 @@ job_activate(struct net2_workq_job_int *job)
 
 	/* Load job flags. */
 	fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
-	if (fl & JOB_ONQUEUE)
+	if (fl & JOB_DEINIT)
 		return;
 
 	/* Determine which flags to set. */
