@@ -189,6 +189,10 @@ static void	dp_run_event(struct net2_dp_queue*, int);
 static int	setup_events(struct net2_dp_queue*, enum dpq_io);
 static void	clear_events(struct net2_dp_queue*, enum dpq_io);
 
+static void	*tf_do(void*);
+static void	 tf_out_avail(void*, void*);
+static void	 tf_fin(void*, void*);
+
 /* Clear event bit. */
 static __inline void
 dp_clear_event(struct net2_dp_queue *q, int evtype)
@@ -1762,4 +1766,168 @@ clear_events(struct net2_dp_queue *q, enum dpq_io io)
 		net2_workq_deinit_work(job);
 		QUEUE_UNLOCK(q);
 	}
+}
+
+
+/*
+ * Transformer data structure.
+ * Handles transformation from one datapipe to another.
+ */
+struct dp_transform {
+	struct net2_datapipe_out*tf_src;	/* Src of objs. */
+
+	struct {
+		net2_dp_transform fn;		/* Function pointer. */
+		void		*arg;		/* First argument to fn. */
+		void		(*arg_freefn)(void*);
+						/* Free arg on
+						 * transformer destruction. */
+	}			 tf;		/* Transformation function. */
+
+	struct net2_datapipe_event_in
+				 tf_dstev;	/* Receive event. */
+	struct net2_datapipe_event
+				 tf_srcev,	/* Input avail. */
+				 tf_srcfin_ev,	/* Input depleted. */
+				 tf_dstfin_ev;	/* Output closed. */
+};
+
+/*
+ * Glue two datapipes together using a transformation function.
+ *
+ * The transformation function may be null, in which case no transformation
+ * will take place.  The transformation function may return NULL, in which
+ * case the transformed element will be consumed only (useful for filtering).
+ *
+ * Errors:
+ * - EINVAL:	invalid arguments (src, dst and wqev may not be NULL).
+ * - ENOMEM:	insufficient memory to create data structures.
+ */
+ILIAS_NET2_EXPORT int
+net2_datapipe_glue(struct net2_datapipe_out *src, struct net2_datapipe_in *dst,
+    struct net2_workq_evbase *wqev,
+    struct net2_workq *opt_wq, net2_dp_transform cb, void *cb_arg,
+    void (*cb_arg_free)(void*))
+{
+	struct dp_transform	*tf;
+	int			 error;
+	struct net2_workq	*wq = NULL;
+
+	/* Argument check. */
+	if (src == NULL || dst == NULL || wqev == NULL)
+		return EINVAL;
+
+	/* Allocation. */
+	if ((tf = net2_malloc(sizeof(*tf))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	/* Create a workq for handling cleanup calls. */
+	if ((wq = net2_workq_new(wqev)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	error = net2_workq_want(wq, 0);
+	assert(error == 0);
+
+	/* Initialize transformer. */
+	tf->tf_src = src;
+	tf->tf.fn = cb;
+	tf->tf.arg = cb_arg;
+	tf->tf.arg_freefn = cb_arg_free;
+
+	if ((error = net2_datapipe_event_in_init(&tf->tf_dstev, dst,
+	    opt_wq, &tf_do, tf)) != 0)
+		goto fail_1;
+	if ((error = net2_datapipe_event_init_out(&tf->tf_srcev, src,
+	    NET2_DP_EVTYPE_AVAIL, wq, &tf_out_avail, tf, NULL)) != 0)
+		goto fail_2;
+	if ((error = net2_datapipe_event_init_out(&tf->tf_srcfin_ev, src,
+	    NET2_DP_EVTYPE_FIN, wq, &tf_fin, tf, NULL)) != 0)
+		goto fail_3;
+	if ((error = net2_datapipe_event_init_in(&tf->tf_dstfin_ev, dst,
+	    NET2_DP_EVTYPE_FIN, wq, &tf_fin, tf, NULL)) != 0)
+		goto fail_4;
+
+	net2_workq_unwant(wq);
+	net2_workq_release(wq);
+	wq = NULL;
+
+	/* Reference src. */
+	net2_dpout_ref(src);
+
+	return 0;
+
+
+fail_5:
+	net2_datapipe_event_deinit(&tf->tf_dstfin_ev);
+fail_4:
+	net2_datapipe_event_deinit(&tf->tf_srcfin_ev);
+fail_3:
+	net2_datapipe_event_deinit(&tf->tf_srcev);
+fail_2:
+	net2_datapipe_event_in_deinit(&tf->tf_dstev);
+fail_1:
+	if (wq != NULL) {
+		net2_workq_unwant(wq);
+		net2_workq_release(wq);
+	}
+	net2_free(tf);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+
+/* Transformer producer.  Called when the source can read more input. */
+static void*
+tf_do(void *tf_ptr)
+{
+	struct dp_transform *tf = tf_ptr;
+	void		*obj;
+
+	net2_datapipe_event_in_deactivate(&tf->tf_dstev);
+	do {
+		obj = net2_dp_pop(tf->tf_src);
+		if (obj == NULL)
+			return NULL;
+
+		if (tf->tf.fn != NULL)
+			obj = tf->tf.fn(tf->tf.arg, obj);
+	} while (obj == NULL);
+	net2_datapipe_event_in_activate(&tf->tf_dstev);
+
+	return obj;
+}
+
+/* Transformer source event, called when new data is available. */
+static void
+tf_out_avail(void *tf_ptr, void *unused ILIAS_NET2__unused)
+{
+	struct dp_transform *tf = tf_ptr;
+
+	/* Activate destination event (producer function tf_do). */
+	net2_datapipe_event_in_activate(&tf->tf_dstev);
+}
+
+/*
+ * Transformer finish event.  Called when the source or destination of
+ * the transformer is depleted/closed.
+ */
+static void
+tf_fin(void *tf_ptr, void *unused ILIAS_NET2__unused)
+{
+	struct dp_transform *tf = tf_ptr;
+
+	/* Release events. */
+	net2_datapipe_event_deinit(&tf->tf_dstfin_ev);
+	net2_datapipe_event_deinit(&tf->tf_srcfin_ev);
+	net2_datapipe_event_deinit(&tf->tf_srcev);
+	net2_datapipe_event_in_deinit(&tf->tf_dstev);
+	/* Release source. */
+	net2_dpout_release(tf->tf_src);
+	/* Release callback argument. */
+	if (tf->tf.arg_freefn != NULL)
+		tf->tf.arg_freefn(tf->tf.arg);
+	/* Free transformer datastructure. */
+	net2_free(tf);
 }

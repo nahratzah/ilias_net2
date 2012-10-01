@@ -216,6 +216,11 @@ void	 net2_datapipe_event_out_activate(struct net2_datapipe_event_out*);
 ILIAS_NET2_EXPORT
 void	 net2_datapipe_event_out_deactivate(struct net2_datapipe_event_out*);
 
+ILIAS_NET2_EXPORT int
+net2_datapipe_glue(struct net2_datapipe_out*, struct net2_datapipe_in*,
+    struct net2_workq_evbase*,
+    struct net2_workq*, net2_dp_transform, void*, void (*)(void*));
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_DATAPIPE_H */
