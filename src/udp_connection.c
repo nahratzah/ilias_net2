@@ -16,6 +16,7 @@
 #include <ilias/net2/udp_connection.h>
 #include <ilias/net2/connection.h>
 #include <ilias/net2/acceptor.h>
+#include <ilias/net2/datapipe.h>
 #include <ilias/net2/mutex.h>
 #include <ilias/net2/sockdgram.h>
 #include <ilias/net2/workq.h>
@@ -47,7 +48,7 @@ struct net2_conn_p2p;
 static void	 net2_conn_p2p_destroy(struct net2_acceptor_socket*);
 static void	 net2_conn_p2p_ready_to_send(struct net2_acceptor_socket*);
 
-static void	 net2_conn_p2p_recv(void*, struct net2_dgram_rx*);
+static void	 net2_conn_p2p_recv(void*, void*);
 static void	 net2_udpsocket_recv(void*, struct net2_dgram_rx*);
 static struct net2_promise
 		*net2_udpsocket_send(void*, size_t);
@@ -78,6 +79,10 @@ struct net2_conn_p2p {
 	socklen_t		 np2p_remotelen; /* Remote address len. */
 	struct net2_workq_io	*np2p_ev;	/* Send/receive event. */
 	struct net2_udpsocket	*np2p_udpsock;	/* Shared UDP socket. */
+	struct net2_datapipe_event_in
+				 np2p_txev;	/* TX ready event. */
+	struct net2_datapipe_event_out
+				 np2p_rxev;	/* RX ready event. */
 
 	RB_ENTRY(net2_conn_p2p)	 np2p_socktree;	/* Link into udp socket. */
 };
@@ -96,6 +101,8 @@ struct net2_udpsocket {
 	struct net2_mutex	*guard;		/* Protect against races. */
 	struct net2_workq_io	*ev;		/* Send/receive event. */
 	struct net2_workq	*workq;		/* Thread context. */
+	struct net2_datapipe_event_out
+				 rxev;		/* RX ready event. */
 
 	struct net2_udpsocket_conns
 				 conns;		/* Active connections. */
@@ -210,13 +217,25 @@ net2_conn_p2p_create_fd(struct net2_ctx *ctx,
 		goto fail_3;
 
 	/* Set up libevent network-receive event. */
-	if ((c->np2p_ev = net2_workq_io_new(wq, sock, &net2_conn_p2p_recv,
-	    c)) == NULL)
+	if ((c->np2p_ev = net2_workq_io_new(wq, sock)) == NULL)
 		goto fail_3;
+	/* TX handler. */
+	if (net2_datapipe_event_in_init(&c->np2p_txev,
+	    net2_workq_io_txpipe(c->np2p_ev), wq, &net2_conn_p2p_recv, c) != 0)
+		goto fail_4;
+	/* RX handler. */
+	if (net2_datapipe_event_out_init(&c->np2p_rxev,
+	    net2_workq_io_rxpipe(c->np2p_ev), wq, &net2_conn_p2p_recv, c) != 0)
+		goto fail_5;
+
 	net2_workq_io_activate_rx(c->np2p_ev);
 
 	return &c->np2p_conn;
 
+fail_6:
+	net2_datapipe_event_out_deinit(&c->np2p_rxev);
+fail_5:
+	net2_datapipe_event_in_deinit(&c->np2p_txev);
 fail_4:
 	net2_workq_io_destroy(c->np2p_ev);
 fail_3:
@@ -315,13 +334,19 @@ net2_conn_p2p_socket(struct net2_workq_evbase *wqev, struct sockaddr *bindaddr,
 	rv->refcnt = 1;
 	if ((rv->guard = net2_mutex_alloc()) == NULL)
 		goto fail_guard;
-	rv->ev = net2_workq_io_new(wq, fd, &net2_udpsocket_recv, rv);
-	if (rv->ev == NULL)
+	if ((rv->ev = net2_workq_io_new(wq, fd)) == NULL)
 		goto fail_event_new;
+	/* RX handler. */
+	if (net2_datapipe_event_out_init(&rv->rxev,
+	    net2_workq_io_rxpipe(rv->ev), wq, &net2_udpsocket_recv, rv) != 0)
+		goto fail_event_add;
 
 	net2_workq_io_activate_rx(rv->ev);
 	return rv;
 
+
+fail_event_handler:
+	net2_datapipe_event_out_deinit(&rv->rxev);
 fail_event_add:
 	net2_workq_io_destroy(rv->ev);
 fail_event_new:
@@ -414,8 +439,9 @@ net2_conn_p2p_ready_to_send(struct net2_acceptor_socket *cptr)
  * Only to be used on connected datagram sockets.
  */
 static void
-net2_conn_p2p_recv(void *cptr, struct net2_dgram_rx *rx)
+net2_conn_p2p_recv(void *rx_ptr, void *cptr)
 {
+	struct net2_dgram_rx	*rx = rx_ptr;
 	struct net2_conn_p2p	*c = cptr;
 	struct net2_conn_receive*r;
 
@@ -424,6 +450,7 @@ net2_conn_p2p_recv(void *cptr, struct net2_dgram_rx *rx)
 	r->buf = rx->data;
 	rx->data = NULL;
 	r->error = rx->error;
+	net2_free(rx);
 
 	net2_connection_recv(&c->np2p_conn, r);
 }
