@@ -526,8 +526,6 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	assert(wq == NULL || !parallel ||
 	    (atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0));
 	assert(wq == NULL || wq != wq_tls_state.active_wq.wq);
-	assert(wq == NULL || !parallel ||
-	    atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0);
 
 	wq_prev = wq_tls_state.active_wq;
 	wq_tls_state.active_wq.wq = wq;
@@ -816,10 +814,28 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 
 	/* Select a job, dependant on the state of the WQ_RUNNING bit. */
 	if (fl & WQ_RUNNING) {
-		/* Workq is already running normal jobs.
-		 * Try one of the parallel jobs. */
-		job = wqev_prun_pop_job(wq);
+		/*
+		 * Workq is already running normal jobs.
+		 * Try one of the parallel jobs.
+		 *
+		 * We have to increment prun, but make sure we don't
+		 * start a job while WANTLOCK is engaged; hence the
+		 * optimistic increment, test and conditional decrement.
+		 */
 		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+		if (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+		    WQ_WANTLOCK)
+			job = NULL;
+		else
+			job = wqev_prun_pop_job(wq);
+		if (job == NULL) {
+			atomic_fetch_sub_explicit(&wq->prun, 1,
+			    memory_order_relaxed);
+		} else {
+			/* Sanity check. */
+			assert(atomic_load_explicit(&job->flags,
+			    memory_order_relaxed) & NET2_WORKQ_PARALLEL);
+		}
 	} else {
 		/* We hold the main run marker.
 		 * Fetch any job. */
