@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/datapipe.h>
 #include <ilias/net2/memory.h>
+#include <ilias/net2/promise.h>
 #include <ilias/net2/workq.h>
 #include <errno.h>
 
@@ -192,6 +193,10 @@ static void	clear_events(struct net2_dp_queue*, enum dpq_io);
 static void	*tf_do(void*);
 static void	 tf_out_avail(void*, void*);
 static void	 tf_fin(void*, void*);
+
+static void	dp_tfprom_fin(void*, void*);
+static void	dp_tfprom_do(void*, void*);
+static void	dp_tfprom_post(void*, void*);
 
 /* Clear event bit. */
 static __inline void
@@ -674,6 +679,100 @@ net2_dp_pop(struct net2_datapipe_out *out)
 	net2_free(elem);
 
 	return rv;
+}
+/* Prepare a pop operation. */
+ILIAS_NET2_EXPORT void*
+net2_dp_pop_prepare(struct net2_datapipe_out_prepare *p,
+    struct net2_datapipe_out *out)
+{
+	struct net2_dp_elem	*elem;
+	struct net2_dp_queue	*q;
+
+	/* Argument check. */
+	if (p == NULL)
+		return NULL;
+
+	p->out = NULL;
+	p->elem = NULL;
+
+	/* Argument check. */
+	if (out == NULL)
+		return NULL;
+
+	q = IMPL_OUT(out);
+
+	/* Retrieve the first elem from the queue. */
+	QUEUE_LOCK(q);
+	if ((elem = TAILQ_FIRST(&q->elems)) != NULL)
+		TAILQ_REMOVE(&q->elems, elem, q);
+	QUEUE_UNLOCK(q);
+
+	assert(elem == NULL || elem->item != NULL);
+	if (elem == NULL)
+		return NULL;
+
+	p->elem = elem;
+	p->out = out;
+	net2_dpout_ref(out);
+
+	return (elem == NULL ? NULL : elem->item);
+}
+/* Commit a pop operation. */
+ILIAS_NET2_EXPORT int
+net2_dp_pop_commit(struct net2_datapipe_out_prepare *p)
+{
+	struct net2_dp_queue	*q;
+
+	/* Argument check. */
+	if (p == NULL || p->out == NULL || p->elem == NULL)
+		return EINVAL;
+
+	q = IMPL_OUT(p->out);
+
+	QUEUE_LOCK(q);
+	/* If the queue is no longer full, activate the producer. */
+	if (q->len-- == q->maxlen)
+		net2_workq_activate(&q->produce, 0);
+	/*
+	 * If the queue is empty, mark it empty.
+	 * Since an empty queue may be depleted, check that case
+	 * here.
+	 *
+	 * Note that we do not do the queue_{acquire,release} dance,
+	 * since out active reference to out (by p) will
+	 * guarantee the queue will exist past our lifetime.
+	 */
+	if (q->len == 0 &&
+	    (atomic_load(&q->flags) & DPQ_HAS_IN) == 0)
+		queue_depleted(q);
+	QUEUE_UNLOCK(q);
+
+	net2_dpout_release(p->out);
+	net2_free(p->elem);
+	p->out = NULL;
+	p->elem = NULL;
+	return 0;
+}
+/* Rollback a pop operation. */
+ILIAS_NET2_EXPORT int
+net2_dp_pop_rollback(struct net2_datapipe_out_prepare *p)
+{
+	struct net2_dp_queue	*q;
+
+	/* Argument check. */
+	if (p == NULL || p->out == NULL || p->elem == NULL)
+		return EINVAL;
+
+	q = IMPL_OUT(p->out);
+
+	QUEUE_LOCK(q);
+	TAILQ_INSERT_HEAD(&q->elems, p->elem, q);
+	QUEUE_UNLOCK(q);
+
+	net2_dpout_release(p->out);
+	p->out = NULL;
+	p->elem = NULL;
+	return 0;
 }
 
 /*
@@ -1930,4 +2029,199 @@ tf_fin(void *tf_ptr, void *unused ILIAS_NET2__unused)
 		tf->tf.arg_freefn(tf->tf.arg);
 	/* Free transformer datastructure. */
 	net2_free(tf);
+}
+
+
+struct dp_tfprom {
+	struct net2_datapipe_in_prepare
+				 prep;
+	struct net2_promise_event ev;
+};
+struct dp_tfpromq {
+	struct net2_workq	*wq;
+	struct net2_datapipe_in *dst;
+	struct net2_datapipe_out*src;
+	struct net2_datapipe_event
+				 srcfin_ev,
+				 dstfin_ev,
+				 src_ev,
+				 dst_ev;
+};
+
+/*
+ * Transformer which takes promises and starts them.
+ * Once the promise completes, the promise is added to the destination.
+ */
+ILIAS_NET2_EXPORT int
+net2_datapipe_prom_glue(struct net2_datapipe_out *src,
+    struct net2_datapipe_in *dst,
+    struct net2_workq_evbase *wqev)
+{
+	struct dp_tfpromq	*pq;
+	int			 error;
+
+	/* Argument check. */
+	if (src == NULL || dst == NULL || wqev == NULL)
+		return EINVAL;
+
+	if ((pq = net2_malloc(sizeof(*pq))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	if ((pq->wq = net2_workq_new(wqev)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+	pq->src = src;
+	pq->dst = dst;
+	net2_dpout_ref(src);
+	net2_dpin_ref(dst);
+	/* fail_2 */
+
+	/* Attach events for queue depletion/close. */
+	if ((error = net2_datapipe_event_init_out(&pq->srcfin_ev, src,
+	    NET2_DP_EVTYPE_FIN, pq->wq, &dp_tfprom_fin, pq, NULL)) != 0)
+		goto fail_3;
+	if ((error = net2_datapipe_event_init_in(&pq->dstfin_ev, dst,
+	    NET2_DP_EVTYPE_FIN, pq->wq, &dp_tfprom_fin, pq, NULL)) != 0)
+		goto fail_4;
+
+	/* Attach events for queue availability. */
+	if ((net2_datapipe_event_init_out(&pq->src_ev, src,
+	    NET2_DP_EVTYPE_AVAIL, pq->wq, &dp_tfprom_do, pq, NULL)) != 0)
+		goto fail_5;
+	if ((net2_datapipe_event_init_in(&pq->dst_ev, dst,
+	    NET2_DP_EVTYPE_AVAIL, pq->wq, &dp_tfprom_do, pq, NULL)) != 0)
+		goto fail_6;
+	return 0;
+
+
+fail_7:
+	net2_datapipe_event_deinit(&pq->dst_ev);
+fail_6:
+	net2_datapipe_event_deinit(&pq->src_ev);
+fail_5:
+	net2_datapipe_event_deinit(&pq->dstfin_ev);
+fail_4:
+	net2_datapipe_event_deinit(&pq->srcfin_ev);
+fail_3:
+	net2_dpout_release(src);
+	net2_dpin_release(dst);
+fail_2:
+	net2_workq_release(pq->wq);
+fail_1:
+	net2_free(pq);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+
+/* Handle finish of promise transformer. */
+static void
+dp_tfprom_fin(void *pq_ptr, void *unused ILIAS_NET2__unused)
+{
+	struct dp_tfpromq	*pq = pq_ptr;
+
+	net2_datapipe_event_deinit(&pq->src_ev);
+	net2_datapipe_event_deinit(&pq->dst_ev);
+	net2_datapipe_event_deinit(&pq->srcfin_ev);
+	net2_datapipe_event_deinit(&pq->dstfin_ev);
+	net2_dpout_release(pq->src);
+	net2_dpin_release(pq->dst);
+	net2_workq_release(pq->wq);
+	net2_free(pq);
+}
+
+/* Read a promise from the source datapipe. */
+static __inline int
+dp_tfprom_read(struct dp_tfpromq *pq)
+{
+	struct net2_datapipe_out_prepare prep;
+	struct dp_tfprom	*tfp;
+	struct net2_promise	*prom = NULL;
+	int			 error, rv;
+
+	/* Create an event/commit structure
+	 * to handle promise completion. */
+	if ((tfp = net2_malloc(sizeof(*tfp))) == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+	/* Prepare the pop operation on the promise.
+	 * By using a prepare, we can undo the pop
+	 * if calls below fail. */
+	if ((prom = net2_dp_pop_prepare(&prep, pq->src)) == NULL) {
+		net2_free(tfp);
+		return 0;
+		/* fail_1 */
+	}
+	/* Prepare the push operation. */
+	if ((error = net2_dp_push_prepare(&tfp->prep, pq->dst)) != 0) {
+		rv = net2_dp_pop_rollback(&prep);
+		assert(rv == 0);
+		net2_free(tfp);
+		return 0;
+		/* fail_2 */
+	}
+
+	/* Fast track if the promise has already completed. */
+	if (net2_promise_is_finished(prom)) {
+		rv = net2_dp_pop_commit(&prep);
+		assert(rv == 0);
+		rv = net2_dp_push_commit(&tfp->prep, prom);
+		assert(rv == 0);
+		net2_free(tfp);
+		return 0;
+		/* fail_3 */
+	}
+
+	/* Initialize promise completion callback. */
+	if ((error = net2_promise_event_init(&tfp->ev, prom,
+	    NET2_PROM_ON_FINISH, pq->wq,
+	    &dp_tfprom_post, tfp, prom)) != 0)
+		goto fail_3;
+
+	/* Commit pop operation. */
+	error = net2_dp_pop_commit(&prep);
+	assert(error == 0);
+
+	return 0;
+
+
+fail_4:
+	net2_promise_event_deinit(&tfp->ev);
+fail_3:
+	rv = net2_dp_push_rollback(&tfp->prep);
+	assert(rv == 0);
+fail_2:
+	rv = net2_dp_pop_rollback(&prep);
+	assert(rv == 0);
+fail_1:
+	net2_free(tfp);
+fail_0:
+	assert(error != 0);
+	return error;
+}
+
+static void
+dp_tfprom_do(void *pq_ptr, void *unused ILIAS_NET2__unused)
+{
+	struct dp_tfpromq	*pq = pq_ptr;
+
+	while (dp_tfprom_read(pq) == 0);
+}
+
+/* Post a completed promise. */
+static void
+dp_tfprom_post(void *tfp_ptr, void *prom_ptr)
+{
+	struct dp_tfprom	*tfp = tfp_ptr;
+	struct net2_promise	*prom = prom_ptr;
+	int			 rv;
+
+	rv = net2_dp_push_commit(&tfp->prep, prom);
+	assert(rv == 0);
+
+	net2_promise_event_deinit(&tfp->ev);
+	net2_free(tfp);
 }

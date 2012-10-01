@@ -46,6 +46,10 @@ struct net2_datapipe_in_prepare {
 	struct net2_dp_elem	*elem;
 	struct net2_datapipe_in	*in;
 };
+struct net2_datapipe_out_prepare {
+	struct net2_dp_elem	*elem;
+	struct net2_datapipe_out*out;
+};
 
 #define NET2_DPEV_INACTIVE	 1		/* Event is inactive. */
 #define NET2_DPEV_ACTIVE	 2		/* Event is active. */
@@ -182,6 +186,13 @@ int	 net2_dp_push_rollback(struct net2_datapipe_in_prepare*);
 ILIAS_NET2_EXPORT
 int	 net2_dp_push(struct net2_datapipe_in*, void*);
 ILIAS_NET2_EXPORT
+void	*net2_dp_pop_prepare(struct net2_datapipe_out_prepare*,
+	    struct net2_datapipe_out*);
+ILIAS_NET2_EXPORT
+int	 net2_dp_pop_commit(struct net2_datapipe_out_prepare*);
+ILIAS_NET2_EXPORT
+int	 net2_dp_pop_rollback(struct net2_datapipe_out_prepare*);
+ILIAS_NET2_EXPORT
 void	*net2_dp_pop(struct net2_datapipe_out*);
 
 ILIAS_NET2_EXPORT
@@ -216,10 +227,13 @@ void	 net2_datapipe_event_out_activate(struct net2_datapipe_event_out*);
 ILIAS_NET2_EXPORT
 void	 net2_datapipe_event_out_deactivate(struct net2_datapipe_event_out*);
 
-ILIAS_NET2_EXPORT int
-net2_datapipe_glue(struct net2_datapipe_out*, struct net2_datapipe_in*,
-    struct net2_workq_evbase*,
-    struct net2_workq*, net2_dp_transform, void*, void (*)(void*));
+ILIAS_NET2_EXPORT
+int	 net2_datapipe_glue(struct net2_datapipe_out*,
+	    struct net2_datapipe_in*, struct net2_workq_evbase*,
+	    struct net2_workq*, net2_dp_transform, void*, void (*)(void*));
+ILIAS_NET2_EXPORT
+int	 net2_datapipe_prom_glue(struct net2_datapipe_out*,
+	    struct net2_datapipe_in*, struct net2_workq_evbase*);
 
 
 ILIAS_NET2__end_cdecl
