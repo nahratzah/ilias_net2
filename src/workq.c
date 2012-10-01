@@ -610,7 +610,14 @@ restart:
 	 */
 	if (fl & JOB_ONPQUEUE) {
 		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
-		if (LL_UNLINK(net2_workq_job_prunq, &wq->prunqueue, job)) {
+		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
+		    JOB_ONPQUEUE)) {
+			/*
+			 * Removed already, releasing now would be dangerous,
+			 * since we might collide with an insert.
+			 */
+		} else if (LL_UNLINK(net2_workq_job_prunq,
+		    &wq->prunqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
 			    memory_order_relaxed);
 		} else
@@ -2189,6 +2196,12 @@ net2_workq_get_evloop(struct net2_workq_evbase *wqev)
 	 */
 	ev_async_start(new, &wqev->ev_wakeup);
 	ev_async_start(new, &wqev->ev_newevent);
+
+	/*
+	 * Ensure all initialization before has been completed
+	 * prior to initialing wqev->evloop.
+	 */
+	atomic_thread_fence(memory_order_seq_cst);
 
 	/* Publish evloop. */
 	wqev->evloop = new;
