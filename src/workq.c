@@ -1316,7 +1316,8 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 		return wq_want_tryfail;
 	}
 	/* Wait until the workq is not longer running. */
-	while (fl & WQ_RUNNING) {
+	while ((fl & WQ_RUNNING) ||
+	    atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0) {
 		SPINWAIT();
 		fl = atomic_load_explicit(&wq->flags, memory_order_relaxed);
 	}
@@ -1757,6 +1758,51 @@ ILIAS_NET2_EXPORT int
 net2_workq_is_self(struct net2_workq *wq)
 {
 	return workq_self(wq);
+}
+
+/*
+ * Switch wq as the active workq.
+ * If parallel is true, the workq will be activated in parallel mode.
+ * If orig is not null, it will be filled with the previous workq,
+ * which must be reactivated afterwards using
+ * net2_workq_surf(orig->wq, orig->parallel, NULL);
+ *
+ * Synchronizes with invocations of net2_workq_want().
+ */
+ILIAS_NET2_EXPORT void
+net2_workq_surf(struct net2_workq *wq, int parallel)
+{
+	int	 ref_succes;
+
+	if (wq != NULL) {
+		ref_succes = workq_ref(wq);
+		assert(ref_succes);
+	}
+
+	wq_surf(NULL, 0, NULL);
+	if (wq == NULL)
+		return;
+
+	/*
+	 * Lock out other want acquire.
+	 *
+	 * Once other net2_workq_want() cannot acquire this wq,
+	 * set the right flags on the workq.
+	 */
+	net2_mutex_lock(wq->want_mtx);
+	if (parallel)
+		/* Parallel jobs can always run. */
+		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+	else {
+		/* Non-parallel surf needs to wait
+		 * until the workq becomes not-running. */
+		while (atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING,
+		    memory_order_relaxed) & WQ_RUNNING)
+			SPINWAIT();
+	}
+	net2_mutex_unlock(wq->want_mtx);
+
+	wq_surf(wq, parallel, NULL);
 }
 
 /* Create a worker thread for this wqev. */
