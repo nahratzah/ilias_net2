@@ -1028,6 +1028,9 @@ job_wait_run(struct net2_workq_job_int *job)
 	    JOB_RUNNING))
 		return;
 
+	if (wq_tls_state.active_job == job)
+		return;
+
 	/* Wait until the generation counter changes. */
 	while (atomic_load_explicit(&job->run_gen, memory_order_relaxed) ==
 	    gen)
@@ -1990,7 +1993,7 @@ net2_workq_aid(struct net2_workq *wq, int count)
 
 #ifndef WIN32
 	/* Run event loop once. */
-	run_evl(wq_tls_state.wthr->evbase, RUNEVL_NOWAIT);
+	run_evl(wq->wqev, RUNEVL_NOWAIT);
 #endif
 
 	for (runcount = 0; runcount < count; runcount++) {
@@ -2262,7 +2265,7 @@ get_wq_tls_state()
 	if ((state = pthread_getspecific(wq_tls_slot)) == NULL) {
 		if ((state = net2_calloc(1, sizeof(*state))) == NULL)
 			abort();
-		if (pthread_setspecific(wq_tls_slot, NULL) != 0)
+		if (pthread_setspecific(wq_tls_slot, state) != 0)
 			abort();
 
 		net2_spinlock_lock(&tls_lock);
