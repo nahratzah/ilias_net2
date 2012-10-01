@@ -1218,7 +1218,6 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	struct net2_dp_queue	*q = q_ptr;
 	struct net2_dp_elem	*elem;
 	unsigned int		 generation;
-	int			 want;
 	struct net2_workq	*ev_wq;
 	struct net2_datapipe_event_in
 				*in_ev;
@@ -1287,23 +1286,14 @@ invoke_producers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		EVENT_UNLOCK(q, DPQ_IO_IN);
 
 		/* Sync with event workq. */
-		ev_wq = in_ev->wq;
-		if (ev_wq != NULL) {
-			net2_workq_ref(ev_wq);
-			want = net2_workq_want(ev_wq, 0);
-			assert(want == 0 || want == EDEADLK);
-		}
+		net2_workq_surf(in_ev->wq, 0);
 
 		assert(in_ev->dp == &q->in);
 		assert(in_ev->producer.fn != NULL);
 		item = in_ev->producer.fn(in_ev->producer.arg);
 
 		/* Release event workq. */
-		if (ev_wq != NULL) {
-			if (want == 0)
-				net2_workq_unwant(ev_wq);
-			net2_workq_release(ev_wq);
-		}
+		net2_workq_surf(NULL, 0);
 
 		EVENT_LOCK(q, DPQ_IO_IN);
 		if (!dead) {
@@ -1373,7 +1363,6 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	struct net2_dp_elem	*elem;
 	void			*item;
 	int			 state;
-	int			 want;
 	unsigned int		 generation;
 	struct net2_workq	*ev_wq;
 	volatile int		 dead;
@@ -1479,16 +1468,14 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 	ev_out->dead = &dead;
 
 	/* Sync with event workq. */
-	ev_wq = ev_out->wq;
-	if (ev_wq != NULL) {
-		net2_workq_ref(ev_wq);
-		want = net2_workq_want(ev_wq, 0);
-		assert(want == 0 || want == EDEADLK);
-	}
+	net2_workq_surf(ev_out->wq, 0);
 
 	assert(ev_out->dp == &q->out);
 	assert(ev_out->consumer.fn != NULL);
 	ev_out->consumer.fn(item, ev_out->consumer.arg);
+
+	/* Release event workq. */
+	net2_workq_surf(NULL, 0);
 
 	if (!dead) {
 		EVENT_LOCK(q, DPQ_IO_OUT);
@@ -1502,13 +1489,6 @@ invoke_consumers(void *q_ptr, void *unused ILIAS_NET2__unused)
 		TAILQ_INSERT_HEAD(&q->out.events, ev_out, q);
 
 		EVENT_UNLOCK(q, DPQ_IO_OUT);
-	}
-
-	/* Release event workq. */
-	if (ev_wq != NULL) {
-		if (want == 0)
-			net2_workq_unwant(ev_wq);
-		net2_workq_release(ev_wq);
 	}
 
 out:
@@ -1743,8 +1723,11 @@ setup_events(struct net2_dp_queue *q, enum dpq_io io)
 		return 0;
 
 	QUEUE_LOCK(q);
-	error = net2_workq_init_work(job, q->wq,
-	    fn, q, NULL, NET2_WORKQ_PERSIST);
+	if (net2_workq_work_is_null(job))
+		error = net2_workq_init_work(job, q->wq,
+		    fn, q, NULL, NET2_WORKQ_PERSIST | NET2_WORKQ_PARALLEL);
+	else
+		error = 0;
 	QUEUE_UNLOCK(q);
 	return error;
 }
