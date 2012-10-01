@@ -802,6 +802,7 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 	else if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	    memory_order_relaxed) & WQ_ONQUEUE)) {
 		LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
+		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
 		activate_worker(wqev);
 	}
 
@@ -963,15 +964,20 @@ job_clear_run(struct net2_workq_job_int *job)
 		    memory_order_relaxed);
 
 		/* Add the job to the queues. */
-		if (!(fl & JOB_ONQUEUE))
+		if (!(fl & JOB_ONQUEUE)) {
 			LL_PUSH_BACK(net2_workq_job_runq, &wq->runqueue, job);
-		if (!(fl & JOB_ONPQUEUE) && (fl_set & JOB_ONPQUEUE))
+			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+		}
+		if (!(fl & JOB_ONPQUEUE) && (fl_set & JOB_ONPQUEUE)) {
 			LL_PUSH_BACK(net2_workq_job_prunq, &wq->prunqueue, job);
+			LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
+		}
 
 		/* Put the workq on its runqueue. */
 		if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 		    memory_order_relaxed) & WQ_ONQUEUE)) {
 			LL_PUSH_BACK(net2_workq_runq, &wq->wqev->runq, wq);
+			LL_RELEASE(net2_workq_runq, &wq->wqev->runq, wq);
 			activate_worker(wq->wqev);
 		}
 	}
@@ -1002,6 +1008,7 @@ workq_clear_run(struct net2_workq *wq)
 	    !(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	      memory_order_relaxed) & WQ_ONQUEUE)) {
 		LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
+		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
 		activate_worker(wqev);
 	}
 }
@@ -1195,7 +1202,7 @@ job_activate(struct net2_workq_job_int *job)
 		LL_PUSH_BACK(net2_workq_job_runq, &wq->runqueue, job);
 		LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
 	}
-	if (!(fl & JOB_ONPQUEUE)) {
+	if (!(fl & JOB_ONPQUEUE) && (set & JOB_ONPQUEUE)) {
 		LL_PUSH_BACK(net2_workq_job_prunq, &wq->prunqueue, job);
 		LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
 	}
