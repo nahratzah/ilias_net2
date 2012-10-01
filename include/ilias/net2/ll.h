@@ -87,6 +87,7 @@ do {									\
 #define LL_FIRST(name, head)		ll_first_##name(head)
 #define LL_LAST(name, head)		ll_last_##name(head)
 #define LL_EMPTY(name, head)		ll_empty_##name(head)
+#define LL_SIZE(name, head)		ll_size_##name(head)
 #define LL_REF(name, head, node)	ll_ref_##name(head, node)
 #define LL_RELEASE(name, head, node)	ll_release_##name(head, node)
 
