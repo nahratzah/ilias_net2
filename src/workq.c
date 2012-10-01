@@ -1529,6 +1529,18 @@ net2_workq_evbase_release(struct net2_workq_evbase *wqev)
 	/* Kill all worker threads. */
 	net2_workq_set_thread_count(wqev, 0, 0);
 
+	/* Kill event loop/iocp/timer. */
+#ifdef WIN32
+	if (wqev->timer != NULL)
+		net2_workq_timer_container_destroy(wqev->timer);
+	if (wqev->io != NULL)
+		net2_workq_io_container_destroy(wqev->io);
+#else
+	if (wqev->evloop != NULL)
+		ev_loop_destroy(wqev->evloop);
+#endif
+
+
 	net2_spinlock_deinit(&wqev->spl_workers);
 	net2_mutex_free(wqev->workers_mtx);
 	if (wqev->wq_worker_name)
