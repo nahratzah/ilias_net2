@@ -71,8 +71,7 @@ struct net2_workq_io;
 
 ILIAS_NET2_EXPORT
 struct net2_workq_io
-	*net2_workq_io_new(struct net2_workq*, net2_socket_t,
-	    net2_workq_io_recv, void*);
+	*net2_workq_io_new(struct net2_workq*, net2_socket_t);
 ILIAS_NET2_EXPORT
 void	 net2_workq_io_destroy(struct net2_workq_io*);
 ILIAS_NET2_EXPORT
@@ -84,6 +83,13 @@ int	 net2_workq_io_tx(struct net2_workq_io*, struct net2_promise*);
 
 ILIAS_NET2_EXPORT
 void	 net2_workq_io_tx_pdata_free(void*, void*);
+
+ILIAS_NET2_EXPORT
+struct net2_datapipe_in*
+	 net2_workq_io_txpipe(struct net2_workq_io *io);
+ILIAS_NET2_EXPORT
+struct net2_datapipe_out*
+	 net2_workq_io_rxpipe(struct net2_workq_io *io);
 
 #ifdef WIN32
 struct net2_workq_io_container;
