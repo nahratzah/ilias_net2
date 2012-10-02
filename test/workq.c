@@ -189,9 +189,17 @@ workq_busy_destroy()
 {
 #define COUNT	100
 	struct net2_workq_evbase*wqev;
-	struct net2_workq	*wq[COUNT];
-	struct net2_workq_job	 j[COUNT];
+	struct net2_workq	**wq;
+	struct net2_workq_job	*j;
 	int			 i;
+
+	wq = calloc(COUNT, sizeof(*wq));
+	j = calloc(COUNT, sizeof(*j));
+	if (wq == NULL || j == NULL) {
+		fprintf(stderr, "\tFailed to start %s: malloc failed (%s)\n",
+		    __FUNCTION__, strerror(errno));
+		goto fail;
+	}
 
 	wqev = net2_workq_evbase_new(__FUNCTION__, 4, 4);
 	for (i = 0; i < COUNT; i++)
@@ -226,6 +234,9 @@ workq_busy_destroy()
 	}
 	fprintf(stderr, "\n");
 
+fail:
+	free(wq);
+	free(j);
 	return 0;
 #undef COUNT
 }
