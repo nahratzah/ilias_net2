@@ -18,11 +18,11 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
-ILIAS_NET2__begin_cdecl
-
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+ILIAS_NET2__begin_cdecl
 
 typedef CRITICAL_SECTION	net2_spinlock;
 
@@ -52,10 +52,14 @@ net2_spinlock_unlock(net2_spinlock *l)
 {
 	LeaveCriticalSection(l);
 }
+
+ILIAS_NET2__end_cdecl
 #else	/* Posix implementation. */
 #include <pthread.h>
 #include <errno.h>
 #include <assert.h>
+
+ILIAS_NET2__begin_cdecl
 
 typedef pthread_spinlock_t	net2_spinlock;
 
@@ -103,8 +107,8 @@ net2_spinlock_unlock(net2_spinlock *l)
 	rv = pthread_spin_unlock(l);
 	assert(rv == 0);
 }
-#endif
-
 
 ILIAS_NET2__end_cdecl
+#endif
+
 #endif /* ILIAS_NET2_SPINLOCK_H */
