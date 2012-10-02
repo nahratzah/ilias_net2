@@ -163,7 +163,7 @@ net2_spinlock_unlock(net2_spinlock *l)
 
 ILIAS_NET2__end_cdecl
 #else				/* Use a mutex, performance will suck. */
-#include <ilias/net2/pthread.h>
+#include <pthread.h>
 
 ILIAS_NET2__begin_cdecl
 
