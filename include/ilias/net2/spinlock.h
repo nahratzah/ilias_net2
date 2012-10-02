@@ -54,7 +54,7 @@ net2_spinlock_unlock(net2_spinlock *l)
 }
 
 ILIAS_NET2__end_cdecl
-#elif defined(HAS_PTHREAD_SPINLOCK)	/* Posix implementation. */
+#elif defined(HAVE_PTHREAD_SPINLOCK)	/* Posix implementation. */
 #include <pthread.h>
 #include <errno.h>
 #include <assert.h>
