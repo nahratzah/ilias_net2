@@ -545,6 +545,7 @@ restart:
 
 	/* Acquire deletion lock. */
 	p_ = p;
+	p = ptr_clear(p);
 	while (!atomic_compare_exchange_weak_explicit(&n->pred,
 	    (uintptr_t*)&p_, (uintptr_t)p | FLAGGED,
 	    memory_order_relaxed, memory_order_relaxed)) {
