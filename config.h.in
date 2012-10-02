@@ -90,3 +90,6 @@
 
 /* Set if the platform is a big endian architecture. */
 #cmakedefine IS_BIG_ENDIAN
+
+/* Pthread spinlock is available. */
+#cmakedefine HAS_PTHREAD_SPINLOCK

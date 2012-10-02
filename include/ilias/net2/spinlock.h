@@ -54,7 +54,7 @@ net2_spinlock_unlock(net2_spinlock *l)
 }
 
 ILIAS_NET2__end_cdecl
-#else	/* Posix implementation. */
+#elif defined(HAS_PTHREAD_SPINLOCK)	/* Posix implementation. */
 #include <pthread.h>
 #include <errno.h>
 #include <assert.h>
@@ -93,7 +93,7 @@ net2_spinlock_trylock(net2_spinlock *l)
 {
 	int		 rv;
 
-	rv = pthread_spin_lock(l);
+	rv = pthread_spin_trylock(l);
 	if (rv == EBUSY)
 		return 0;
 	assert(rv == 0);
@@ -105,6 +105,112 @@ net2_spinlock_unlock(net2_spinlock *l)
 	int		 rv;
 
 	rv = pthread_spin_unlock(l);
+	assert(rv == 0);
+}
+
+ILIAS_NET2__end_cdecl
+#elif defined(HAVE_STDATOMIC_H)		/* Provide our own spinlocks. */
+#include <ilias/net2/bsd_compat/atomic.h>
+
+ILIAS_NET2__begin_cdecl
+
+typedef struct {
+	unsigned int		spl_start;
+	atomic_uint		spl_ticket;
+}				net2_spinlock;
+
+static __inline int
+net2_spinlock_init(net2_spinlock *l)
+{
+	l->spl_start = 0;
+	atomic_init(&l->spl_ticket, 0);
+	return 0;
+}
+static __inline void
+net2_spinlock_deinit(net2_spinlock *l)
+{
+	assert(atomic_load_explicit(&l->spl_ticket, memory_order_relaxed) ==
+	    l->spl_start);
+}
+static __inline void
+net2_spinlock_lock(net2_spinlock *l)
+{
+	unsigned int ticket;
+
+	ticket = atomic_fetch_add_explicit(&l->spl_ticket, 1,
+	    memory_order_relaxed);
+	while (l->spl_start != ticket)
+		SPINWAIT();
+	atomic_thread_fence(memory_order_seq_cst);
+}
+static __inline int
+net2_spinlock_trylock(net2_spinlock *l)
+{
+	unsigned int ticket;
+
+	ticket = l->spl_start;
+	return atomic_compare_exchange_strong_explicit(&l->spl_ticket, &ticket,
+	    ticket + 1, memory_order_seq_cst, memory_order_relaxed)
+}
+static __inline void
+net2_spinlock_unlock(net2_spinlock *l)
+{
+	assert(l->spl_start != atomic_load_explicit(&l->spl_ticket,
+	    memory_order_relaxed));
+	atomic_thread_fence(memory_order_seq_cst);
+	l->spl_start++;
+}
+
+ILIAS_NET2__end_cdecl
+#else				/* Use a mutex, performance will suck. */
+#include <ilias/net2/pthread.h>
+
+ILIAS_NET2__begin_cdecl
+
+typedef pthread_mutex_t		net2_spinlock;
+
+static __inline int
+net2_spinlock_init(net2_spinlock *l)
+{
+	int rv;
+
+	rv = pthread_mutex_init(l, NULL);
+	assert(rv != EINVAL && rv != EBUSY);
+	return rv;
+}
+static __inline void
+net2_spinlock_deinit(net2_spinlock *l)
+{
+	int rv;
+
+	rv = pthread_mutex_destroy(l);
+	assert(rv == 0);
+}
+static __inline void
+net2_spinlock_lock(net2_spinlock *l)
+{
+	int rv;
+
+	rv = pthread_mutex_lock(l);
+	assert(rv == 0);
+}
+static __inline int
+net2_spinlock_trylock(net2_spinlock *l)
+{
+	int rv;
+
+	rv = pthread_mutex_trylock(l);
+	if (rv == EBUSY)
+		return 0;
+	assert(rv == 0);
+	return 1;
+}
+static __inline void
+net2_spinlock_unlock(net2_spinlock *l)
+{
+	int rv;
+
+	rv = pthread_mutex_unlock(l);
 	assert(rv == 0);
 }
 
