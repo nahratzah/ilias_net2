@@ -74,4 +74,7 @@
 #define EV_USE_IOCP		0
 #endif
 
+/* Allow libev to use pthreads as fallback for synchronization. */
+#define ECB_AVOID_PTHREADS	0
+
 #include "ev.h"
