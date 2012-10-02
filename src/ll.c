@@ -584,7 +584,7 @@ restart:
 	 * Loop the list forward, clearing up references until our refcount
 	 * becomes 1 or the list is exhausted.
 	 */
-	i = succ(q_head, n);
+	i = ptr_clear(succ(q_head, n));
 	while (atomic_load_explicit(&n->refcnt, memory_order_relaxed) > 1) {
 		/* If i points at n, update its pred pointer. */
 		if (ptr_clear((struct ll_elem*)atomic_load_explicit(&i->pred,
@@ -597,7 +597,7 @@ restart:
 
 		/* Skip to next element. */
 		i_ = i;
-		i = succ(q_head, i);
+		i = ptr_clear(succ(q_head, i));
 		deref_release(q_head, i_, 1);
 	}
 	deref_release(q_head, i, 1);
