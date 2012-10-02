@@ -930,7 +930,7 @@ ecb_inline ecb_bool ecb_little_endian (void) { return ecb_byteorder_helper () ==
 
 /* ECB.H END */
 
-#if ECB_MEMORY_FENCE_NEEDS_PTHREADS
+#if 0 /* ECB_MEMORY_FENCE_NEEDS_PTHREADS */
 /* if your architecture doesn't need memory fences, e.g. because it is
  * single-cpu/core, or if you use libev in a project that doesn't use libev
  * from multiple threads, then you can define ECB_AVOID_PTHREADS when compiling
