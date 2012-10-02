@@ -111,6 +111,7 @@ net2_spinlock_unlock(net2_spinlock *l)
 ILIAS_NET2__end_cdecl
 #elif defined(HAVE_STDATOMIC_H)		/* Provide our own spinlocks. */
 #include <ilias/net2/bsd_compat/atomic.h>
+#include <assert.h>
 
 ILIAS_NET2__begin_cdecl
 
@@ -165,6 +166,7 @@ ILIAS_NET2__end_cdecl
 #else				/* Use a mutex, performance will suck. */
 #include <pthread.h>
 #include <errno.h>
+#include <assert.h>
 
 ILIAS_NET2__begin_cdecl
 
