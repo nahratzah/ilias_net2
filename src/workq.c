@@ -635,13 +635,7 @@ restart:
 	 */
 	if (fl & JOB_ONPQUEUE) {
 		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
-		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
-		    JOB_ONPQUEUE)) {
-			/*
-			 * Removed already, releasing now would be dangerous,
-			 * since we might collide with an insert.
-			 */
-		} else if (LL_UNLINK(net2_workq_job_prunq,
+		if (LL_UNLINK(net2_workq_job_prunq,
 		    &wq->prunqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
 			    memory_order_relaxed);
@@ -719,17 +713,14 @@ restart:
 	assert(fl & JOB_ONPQUEUE);
 
 	LL_REF(net2_workq_job_runq, &wq->runqueue, job);
-	fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
-	if (fl & JOB_ONQUEUE) {
-		if (LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job)) {
-			atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
-			    memory_order_relaxed);
-		} else {
-			/* Job claimed by non-parallel code. */
-			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
-			job_release(job);
-			goto restart;
-		}
+	if (LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job)) {
+		atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
+		    memory_order_relaxed);
+	} else {
+		/* Job claimed by non-parallel code. */
+		LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+		job_release(job);
+		goto restart;
 	}
 	/* If the job is not active, we cannot run it. */
 	if (!(fl & JOB_ACTIVE)) {
@@ -873,9 +864,8 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 		goto fail_eagain;
 	else if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	    memory_order_relaxed) & WQ_ONQUEUE)) {
-		LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
-		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
-		activate_worker(wqev);
+		if (LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq))
+			activate_worker(wqev);
 	}
 
 	*job_out = job;
@@ -936,6 +926,7 @@ restart:
 	 *
 	 * Both have a reference count upgrade of 1.
 	 */
+	assert(wq != NULL && job != NULL);
 	*wq_out = wq;
 	*job_out = job;
 	return 0;
@@ -1036,21 +1027,16 @@ job_clear_run(struct net2_workq_job_int *job)
 		    memory_order_relaxed);
 
 		/* Add the job to the queues. */
-		if (!(fl & JOB_ONQUEUE)) {
+		if (!(fl & JOB_ONQUEUE))
 			LL_PUSH_BACK(net2_workq_job_runq, &wq->runqueue, job);
-			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
-		}
-		if (!(fl & JOB_ONPQUEUE) && (fl_set & JOB_ONPQUEUE)) {
+		if (!(fl & JOB_ONPQUEUE) && (fl_set & JOB_ONPQUEUE))
 			LL_PUSH_BACK(net2_workq_job_prunq, &wq->prunqueue, job);
-			LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
-		}
 
 		/* Put the workq on its runqueue. */
 		if (!(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 		    memory_order_relaxed) & WQ_ONQUEUE)) {
-			LL_PUSH_BACK(net2_workq_runq, &wq->wqev->runq, wq);
-			LL_RELEASE(net2_workq_runq, &wq->wqev->runq, wq);
-			activate_worker(wq->wqev);
+			if (LL_PUSH_BACK(net2_workq_runq, &wq->wqev->runq, wq))
+				activate_worker(wq->wqev);
 		}
 	}
 }
@@ -1079,9 +1065,8 @@ workq_clear_run(struct net2_workq *wq)
 	if (!LL_EMPTY(net2_workq_job_runq, &wq->runqueue) &&
 	    !(atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	      memory_order_relaxed) & WQ_ONQUEUE)) {
-		LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
-		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
-		activate_worker(wqev);
+		if (LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq))
+			activate_worker(wqev);
 	}
 }
 /*
@@ -1244,9 +1229,8 @@ wq_onqueue_head(struct net2_workq *wq)
 	    memory_order_relaxed);
 	if (!(wqfl & WQ_ONQUEUE)) {
 		wqev = wq->wqev;
-		LL_PUSH_FRONT(net2_workq_runq, &wqev->runq, wq);
-		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
-		activate_worker(wqev);
+		if (LL_PUSH_FRONT(net2_workq_runq, &wqev->runq, wq))
+			activate_worker(wqev);
 	}
 }
 /* Put job on runq. */
@@ -1271,23 +1255,17 @@ job_activate(struct net2_workq_job_int *job)
 	fl = atomic_fetch_or_explicit(&job->flags, set, memory_order_relaxed);
 
 	/* Push on runqueue, parallel runqueue. */
-	if (!(fl & JOB_ONQUEUE)) {
+	if (!(fl & JOB_ONQUEUE))
 		LL_PUSH_BACK(net2_workq_job_runq, &wq->runqueue, job);
-		LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
-	}
-	if (!(fl & JOB_ONPQUEUE) && (set & JOB_ONPQUEUE)) {
+	if (!(fl & JOB_ONPQUEUE) && (set & JOB_ONPQUEUE))
 		LL_PUSH_BACK(net2_workq_job_prunq, &wq->prunqueue, job);
-		LL_RELEASE(net2_workq_job_prunq, &wq->prunqueue, job);
-	}
 
 	/* Push workq on its runqueue. */
 	wqev = wq->wqev;
 	wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_ONQUEUE,
 	    memory_order_relaxed);
-	if (!(wqfl & WQ_ONQUEUE)) {
+	if (!(wqfl & WQ_ONQUEUE))
 		LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
-		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
-	}
 
 	/*
 	 * Activate worker.
@@ -1464,26 +1442,20 @@ kill_wq(struct net2_workq *wq)
 	/* Remove workq from its runq. */
 	wqev = wq->wqev;
 	LL_REF(net2_workq_runq, &wqev->runq, wq);
-	if (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
-	    WQ_ONQUEUE) {
-		if (LL_UNLINK(net2_workq_runq, &wqev->runq, wq) != NULL) {
-			atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
-			    memory_order_relaxed);
-		} else {
-			/*
-			 * Unlink failure: a worker thread has dequeued this
-			 * wq before we had a chance to do so.
-			 * Wait until it clears the ONQUEUE bit
-			 * before continuing.
-			 */
-			LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
-			while (atomic_load_explicit(&wq->flags,
-			    memory_order_relaxed) & WQ_ONQUEUE)
-				SPINWAIT();
-		}
+	if (LL_UNLINK(net2_workq_runq, &wqev->runq, wq) != NULL) {
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
+		    memory_order_relaxed);
 	} else {
-		/* wq was not on the workq in the first place.
-		 * Don't touch the reference counter. */
+		/*
+		 * Unlink failure: a worker thread has dequeued this
+		 * wq before we had a chance to do so.
+		 * Wait until it clears the ONQUEUE bit
+		 * before continuing.
+		 */
+		LL_RELEASE(net2_workq_runq, &wqev->runq, wq);
+		while (atomic_load_explicit(&wq->flags,
+		    memory_order_relaxed) & WQ_ONQUEUE)
+			SPINWAIT();
 	}
 
 	/*
@@ -1667,6 +1639,7 @@ net2_workq_new(struct net2_workq_evbase *wqev)
 	LL_INIT(&wq->runqueue);
 	LL_INIT(&wq->prunqueue);
 	LL_INIT(&wq->workers);
+	LL_INIT_ENTRY(&wq->wqev_runq);
 
 	atomic_init(&wq->refcnt, 1);
 	atomic_init(&wq->want_refcnt, 0);
@@ -1742,6 +1715,8 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	workq_ref(wq);
 	atomic_store_explicit(&j->refcnt, 0, memory_order_relaxed);
 	atomic_store_explicit(&j->internal, job, memory_order_relaxed);
+	LL_INIT_ENTRY(&job->runq);
+	LL_INIT_ENTRY(&job->prunq);
 
 	return 0;
 }
@@ -1782,10 +1757,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	/* Remove job from parallel runq. */
 	if (fl & JOB_ONPQUEUE) {
 		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
-		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
-		    JOB_ONPQUEUE)) {
-			/* Removed already, no need to release. */
-		} else if (LL_UNLINK(net2_workq_job_prunq,
+		if (LL_UNLINK(net2_workq_job_prunq,
 		    &wq->prunqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
 			    memory_order_relaxed);
@@ -1800,10 +1772,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	/* Remove job from runq. */
 	if (fl & JOB_ONQUEUE) {
 		LL_REF(net2_workq_job_runq, &wq->runqueue, job);
-		if (!(atomic_load_explicit(&job->flags, memory_order_relaxed) &
-		    JOB_ONQUEUE)) {
-			/* Removed already, no need to release. */
-		} else if (LL_UNLINK(net2_workq_job_runq,
+		if (LL_UNLINK(net2_workq_job_runq,
 		    &wq->runqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
 			    memory_order_relaxed);
@@ -1963,6 +1932,7 @@ create_thread(struct net2_workq_evbase *wqev)
 	wthr->evbase = wqev;
 	net2_spinlock_init(&wthr->spl);
 	net2_spinlock_lock(&wthr->spl);
+	LL_INIT_ENTRY(&wthr->wq_wthrq);
 	wthr->worker = net2_thread_new(&wqev_worker, wthr, wname);
 	net2_spinlock_unlock(&wthr->spl);
 	if (wthr->worker == NULL) {
