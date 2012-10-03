@@ -564,7 +564,8 @@ restart:
 			goto restart;
 		}
 
-		assert(ptr_clear(p_) == p && ((uintptr_t)p_ & MASK) == DEREF);
+		assert(ptr_clear(p_) == p);
+		assert(((uintptr_t)p_ & MASK) == DEREF);
 		p_ = p;
 		SPINWAIT();
 	}
