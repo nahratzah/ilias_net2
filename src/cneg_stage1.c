@@ -1442,7 +1442,7 @@ txh_init_fingerprints(struct txh_head *list, struct net2_signset *set,
 			goto fail_2;
 
 		if (after != NULL && *after != NULL)
-			TAILQ_INSERT_AFTER(list, *after, h, q);
+			TAILQ_INSERT_AFTER(list, (*after), h, q);
 		else
 			TAILQ_INSERT_TAIL(list, h, q);
 		if (after != NULL)
@@ -1455,11 +1455,12 @@ txh_init_fingerprints(struct txh_head *list, struct net2_signset *set,
 			error = ENOMEM;
 			goto fail_1;
 		}
-		if ((error = init_header_empty_set(&h->header, F_TYPE_SIGNATURE)) != 0)
+		if ((error = init_header_empty_set(&h->header,
+		    F_TYPE_SIGNATURE)) != 0)
 			goto fail_2;
 
 		if (after != NULL && *after != NULL)
-			TAILQ_INSERT_AFTER(list, *after, h, q);
+			TAILQ_INSERT_AFTER(list, (*after), h, q);
 		else
 			TAILQ_INSERT_TAIL(list, h, q);
 		if (after != NULL)
