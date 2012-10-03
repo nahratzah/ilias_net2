@@ -467,11 +467,14 @@ activate_worker(struct net2_workq_evbase *wqev)
 static __inline int
 workq_ref(struct net2_workq *wq)
 {
-	if (atomic_fetch_add_explicit(&wq->refcnt, 1,
-	    memory_order_acquire) != 0)
-		return 1;
-	atomic_fetch_sub_explicit(&wq->refcnt, 1, memory_order_relaxed);
-	return 0;
+	unsigned int refcnt;
+
+	refcnt = atomic_load_explicit(&wq->refcnt, memory_order_relaxed);
+	while (refcnt > 0 &&
+	    !atomic_compare_exchange_weak_explicit(&wq->refcnt,
+	    &refcnt, refcnt + 1,
+	    memory_order_relaxed, memory_order_relaxed));
+	return refcnt > 0;
 }
 /*
  * Release reference to a workq.
@@ -1696,6 +1699,7 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
     net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
 	struct net2_workq_job_int	*job;
+	int				 ref_succes;
 
 	if (fn == NULL || wq == NULL || j == NULL)
 		return EINVAL;
@@ -1714,7 +1718,8 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	atomic_init(&job->flags, flags);
 	atomic_init(&job->run_gen, 0);
 
-	workq_ref(wq);
+	ref_succes = workq_ref(wq);
+	assert(ref_succes);
 	atomic_store_explicit(&j->refcnt, 0, memory_order_relaxed);
 	atomic_store_explicit(&j->internal, job, memory_order_relaxed);
 	LL_INIT_ENTRY(&job->runq);
@@ -1805,6 +1810,7 @@ net2_workq_get(struct net2_workq_job *j)
 {
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq = NULL;
+	int				 ref_succes;
 
 	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
 	if (job == NULL)
@@ -2079,8 +2085,7 @@ ILIAS_NET2_EXPORT int
 net2_workq_aid(struct net2_workq *wq, int count)
 {
 	struct net2_workq_job_int *job;
-	int			 error;
-	int			 runcount;
+	int			 error, runcount, ref_succes;
 
 
 	/* No point in running negative # of jobs. */
@@ -2110,7 +2115,8 @@ net2_workq_aid(struct net2_workq *wq, int count)
 		 * Note that the job refcounter is already incremented
 		 * by the wqev_run_pop_wq() function.
 		 */
-		workq_ref(wq);
+		ref_succes = workq_ref(wq);
+		assert(ref_succes);
 		run_job(wq, job);
 	}
 	return 0;
@@ -2183,7 +2189,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 {
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq;
-	int				 jfl, immed;
+	int				 jfl, immed, ref_succes;
 
 	/* Load job and keep it referenced via j->refcnt. */
 	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
@@ -2220,7 +2226,8 @@ unlock_return:
 
 	/* Reference workq. */
 	wq = job->wq;
-	workq_ref(wq);
+	ref_succes = workq_ref(wq);
+	assert(ref_succes);
 
 	/* Run job, consuming reference on both job and workq. */
 	run_job(wq, job);
