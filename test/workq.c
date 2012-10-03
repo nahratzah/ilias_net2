@@ -215,9 +215,9 @@ workq_busy_destroy()
 
 	/* Give all threads a moment to wakeup. */
 #ifdef WIN32
-	Sleep(10000);
+	Sleep(1000);
 #else
-	sleep(10);
+	sleep(1);
 #endif
 
 	fprintf(stderr, "\tReleasing workq...");
