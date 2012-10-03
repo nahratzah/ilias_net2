@@ -222,25 +222,6 @@ enum workq_want_state {
 	wq_want_tryfail,
 	wq_want_memfail
 };
-/*
- * Job_run_set return values.
- *
- * The job may only be set running if:
- * - the job is not currently running (job_run_twice),
- * - the job is active (job_run_inactive),
- * - the job has a workq (job_run_nowq),
- * - the job workq is not currently running or wantlocked (job_run_wqbusy).
- * - no threads are waiting for the job to cease the running state
- *   (job_run_wait).
- */
-enum job_run_state {
-	job_run_succes,
-	job_run_twice,
-	job_run_inactive,
-	job_run_wait,
-	job_run_nowq,
-	job_run_wqbusy
-};
 
 
 /* Internal state flags for workq job. */
