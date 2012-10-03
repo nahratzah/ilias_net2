@@ -116,7 +116,7 @@ ILIAS_NET2__end_cdecl
 ILIAS_NET2__begin_cdecl
 
 typedef struct {
-	unsigned int		spl_start;
+	volatile unsigned int	spl_start;
 	atomic_uint		spl_ticket;
 }				net2_spinlock;
 
