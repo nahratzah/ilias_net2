@@ -1442,7 +1442,9 @@ kill_wq(struct net2_workq *wq)
 	/* Remove workq from its runq. */
 	wqev = wq->wqev;
 	LL_REF(net2_workq_runq, &wqev->runq, wq);
-	if (LL_UNLINK(net2_workq_runq, &wqev->runq, wq) != NULL) {
+	if ((atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	    WQ_ONQUEUE) &&
+	    LL_UNLINK(net2_workq_runq, &wqev->runq, wq) != NULL) {
 		atomic_fetch_and_explicit(&wq->flags, ~WQ_ONQUEUE,
 		    memory_order_relaxed);
 	} else {
