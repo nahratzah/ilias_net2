@@ -524,10 +524,22 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	assert(wq == NULL || !parallel ||
 	    (atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0));
 	assert(wq == NULL || wq != wq_tls_state.active_wq.wq);
+	assert(wq == NULL ||
+	    atomic_load_explicit(&wq->refcnt, memory_order_relaxed) > 0);
 
 	wq_prev = wq_tls_state.active_wq;
 	wq_tls_state.active_wq.wq = wq;
 	wq_tls_state.active_wq.parallel = parallel;
+
+	assert(wq_prev.wq == NULL || wq_prev.parallel ||
+	    (atomic_load_explicit(&wq_prev.wq->flags,
+	     memory_order_relaxed) & WQ_RUNNING));
+	assert(wq_prev.wq == NULL || !wq_prev.parallel ||
+	    (atomic_load_explicit(&wq_prev.wq->prun,
+	     memory_order_relaxed) > 0));
+	assert(wq_prev.wq == NULL ||
+	    (atomic_load_explicit(&wq_prev.wq->refcnt,
+	     memory_order_relaxed) > 0));
 
 	if (orig != NULL)
 		*orig = wq_prev;
@@ -562,6 +574,8 @@ job_surf(struct net2_workq_job_int *job, struct net2_workq_job_int **orig)
 	    (atomic_load_explicit(&job->flags, memory_order_relaxed) &
 	    JOB_RUNNING));
 	assert(job == NULL || job != wq_tls_state.active_job);
+	assert(job == NULL ||
+	    atomic_load_explicit(&job->refcnt, memory_order_relaxed) > 0);
 
 	job_prev = wq_tls_state.active_job;
 	wq_tls_state.active_job = job;
@@ -569,6 +583,8 @@ job_surf(struct net2_workq_job_int *job, struct net2_workq_job_int **orig)
 	assert(job_prev == NULL ||
 	    (atomic_load_explicit(&job_prev->flags, memory_order_relaxed) &
 	    JOB_RUNNING));
+	assert(job_prev == NULL ||
+	    atomic_load_explicit(&job_prev->refcnt, memory_order_relaxed) > 0);
 
 	if (orig != NULL)
 		*orig = job_prev;
@@ -948,6 +964,8 @@ run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
 	assert(parallel ||
 	    (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
 	    WQ_RUNNING));
+	assert(!parallel ||
+	    atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0);
 
 	/* Update tls wthr. */
 	wq_surf(wq, parallel, &prev_wq);
@@ -1795,14 +1813,13 @@ net2_workq_get(struct net2_workq_job *j)
 {
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq = NULL;
-	int				 ref_succes;
 
 	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
-	if (job == NULL)
+	if (predict_false(job == NULL))
 		return NULL;
 	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_acquire);
 	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
-	if (job != NULL) {
+	if (predict_false(job != NULL)) {
 		wq = job->wq;
 		net2_workq_ref(wq);
 	}
