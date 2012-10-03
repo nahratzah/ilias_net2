@@ -619,7 +619,9 @@ restart:
 	 */
 	if (fl & JOB_ONPQUEUE) {
 		LL_REF(net2_workq_job_prunq, &wq->prunqueue, job);
-		if (LL_UNLINK(net2_workq_job_prunq,
+		if ((atomic_load_explicit(&job->flags, memory_order_relaxed) &
+		    JOB_ONPQUEUE) &&
+		    LL_UNLINK(net2_workq_job_prunq,
 		    &wq->prunqueue, job)) {
 			atomic_fetch_and_explicit(&job->flags, ~JOB_ONPQUEUE,
 			    memory_order_relaxed);
@@ -697,7 +699,9 @@ restart:
 	assert(fl & JOB_ONPQUEUE);
 
 	LL_REF(net2_workq_job_runq, &wq->runqueue, job);
-	if (LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job)) {
+	if ((atomic_load_explicit(&job->flags, memory_order_relaxed) &
+	    JOB_ONQUEUE) &&
+	    LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job)) {
 		atomic_fetch_and_explicit(&job->flags, ~JOB_ONQUEUE,
 		    memory_order_relaxed);
 	} else {
