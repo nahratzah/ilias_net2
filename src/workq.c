@@ -227,8 +227,8 @@ enum workq_want_state {
 /* Internal state flags for workq job. */
 #define JOB_RUNNING	0x00010000		/* Job is executing. */
 #define JOB_ACTIVE	0x00020000		/* Job is to run. */
-#define JOB_ONQUEUE	0x00100000		/* Job is on workq runq. */
-#define JOB_ONPQUEUE	0x00200000		/* Job is on workq prunq. */
+//#define JOB_ONQUEUE	0x00100000		/* Job is on workq runq. */
+//#define JOB_ONPQUEUE	0x00200000		/* Job is on workq prunq. */
 #define JOB_DEINIT	0x00400000		/* Job is being destroyed. */
 
 
@@ -997,7 +997,7 @@ wqev_prun_pop_job(struct net2_workq *wq)
 	int				 fl;
 
 restart:
-	if ((job == job_parallel_pop(wq)) == NULL)
+	if ((job = job_parallel_pop(wq)) == NULL)
 		return NULL;
 	fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
 
