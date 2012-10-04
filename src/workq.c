@@ -463,7 +463,7 @@ wq_offqueue(struct net2_workq *wq)
 
 	/* Refer to the runq. */
 	LL_REF(net2_workq_runq, &wqev->runq, wq);
-	rv = LL_UNLINK(net2_workq_runq, &wqev->runq, wq);
+	rv = (LL_UNLINK(net2_workq_runq, &wqev->runq, wq) != NULL);
 	if (rv) {
 		int_refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
 		    memory_order_relaxed);
@@ -605,7 +605,7 @@ workq_ref(struct net2_workq *wq)
 {
 	unsigned int refcnt;
 
-	refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
+	refcnt = atomic_fetch_add_explicit(&wq->int_refcnt, 1,
 	    memory_order_relaxed);
 	assert(refcnt > 0);
 }
@@ -620,10 +620,13 @@ workq_release(struct net2_workq *wq, int fall_to_zero)
 	unsigned int refcnt;
 
 	refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
-	    memory_order_release);
-	if (fall_to_zero)
+	    memory_order_relaxed);
+	if (fall_to_zero) {
 		assert(refcnt > 0);
-	else
+		assert(refcnt > 1 ||
+		    (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+		     WQ_DEINIT));
+	} else
 		assert(refcnt > 1);
 	if (fall_to_zero && refcnt == 1)
 		kill_wq(wq);
@@ -685,6 +688,8 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	assert(wq == NULL || wq != wq_tls_state.active_wq.wq);
 	assert(wq == NULL ||
 	    atomic_load_explicit(&wq->refcnt, memory_order_relaxed) > 0);
+	assert(wq == NULL ||
+	    atomic_load_explicit(&wq->int_refcnt, memory_order_relaxed) > 1);
 
 	wq_prev = wq_tls_state.active_wq;
 	wq_tls_state.active_wq.wq = wq;
@@ -697,7 +702,7 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	    (atomic_load_explicit(&wq_prev.wq->prun,
 	     memory_order_relaxed) > 0));
 	assert(wq_prev.wq == NULL ||
-	    (atomic_load_explicit(&wq_prev.wq->refcnt,
+	    (atomic_load_explicit(&wq_prev.wq->int_refcnt,
 	     memory_order_relaxed) > 0));
 
 	if (orig != NULL)
@@ -2178,7 +2183,6 @@ out:
  * Help out a specific workq.
  *
  * Runs up to count jobs from the specified workq.
- * The workq reference must stay valid during execution.
  * If the workq has less runnable jobs than requested, the function
  * will return before running those jobs.
  *
@@ -2203,6 +2207,11 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	/* Run event loop once. */
 	run_evl(wq->wqev, RUNEVL_NOWAIT);
 #endif
+
+	assert(atomic_load_explicit(&wq->refcnt,
+	    memory_order_relaxed) > 0);
+	assert(atomic_load_explicit(&wq->int_refcnt,
+	    memory_order_relaxed) > 0);
 
 	for (runcount = 0; runcount < count; runcount++) {
 		/* Find a runnable job. */
@@ -2557,9 +2566,7 @@ net2_workq_current()
 	if (wq != NULL &&
 	    atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0)
 		wq = NULL;
-	if (wq != NULL) {
+	if (wq != NULL)
 		net2_workq_ref(wq);
-		return wq;
-	}
 	return wq;
 }
