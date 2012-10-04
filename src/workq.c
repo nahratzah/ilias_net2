@@ -680,13 +680,16 @@ job_parallel_pop(struct net2_workq *wq)
 			break;
 	}
 
-	LL_REF(net2_workq_job_runq, &wq->runqueue, job);
-	if (LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job) != NULL) {
-		refcnt = atomic_fetch_sub_explicit(
-		    &job->refcnt, 1, memory_order_relaxed);
-		assert(refcnt > 0);
-	} else
-		LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+	if (job != NULL) {
+		LL_REF(net2_workq_job_runq, &wq->runqueue, job);
+		if (LL_UNLINK(net2_workq_job_runq, &wq->runqueue, job) !=
+		    NULL) {
+			refcnt = atomic_fetch_sub_explicit(
+			    &job->refcnt, 1, memory_order_relaxed);
+			assert(refcnt > 0);
+		} else
+			LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+	}
 
 	return job;
 }
