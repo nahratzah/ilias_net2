@@ -615,13 +615,18 @@ workq_ref(struct net2_workq *wq)
  * Returns true if the last reference went away.
  */
 static __inline void
-workq_release(struct net2_workq *wq)
+workq_release(struct net2_workq *wq, int fall_to_zero)
 {
 	unsigned int refcnt;
 
 	refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
 	    memory_order_release);
-	assert(refcnt > 1);
+	if (fall_to_zero)
+		assert(refcnt > 0);
+	else
+		assert(refcnt > 1);
+	if (fall_to_zero && refcnt == 1)
+		kill_wq(wq);
 }
 /* Only called with non-zero reference count. */
 static __inline void
@@ -705,7 +710,7 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 			    memory_order_relaxed);
 			assert(prun > 0);
 		}
-		workq_release(wq_prev.wq);
+		workq_release(wq_prev.wq, 1);
 	}
 }
 /*
@@ -1059,7 +1064,7 @@ restart:
 	/* Try to load a job from this workq. */
 	if ((error = wqev_run_pop_wq(wqev, wq, &job)) != 0) {
 		if (error == EAGAIN) {
-			workq_release(wq);
+			workq_release(wq, 0);
 			goto restart;
 		}
 		wq_onqueue_head(wq);
