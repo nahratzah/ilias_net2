@@ -1275,10 +1275,8 @@ wqev_run1(struct net2_workq_evbase *wqev)
 static void
 job_clear_run(struct net2_workq_job_int *job)
 {
-	struct net2_workq	*wq;
 	int			 fl, fl_set;
 
-	wq = job->wq;
 	/* Clear running bit, increment run generation counter. */
 	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
 	    memory_order_relaxed);
@@ -1300,10 +1298,8 @@ job_clear_run(struct net2_workq_job_int *job)
 static void
 workq_clear_run(struct net2_workq *wq)
 {
-	struct net2_workq_evbase*wqev;
 	int			 fl;
 
-	wqev = wq->wqev;
 	/* Clear running bit. */
 	fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
 	    memory_order_relaxed);
@@ -1461,15 +1457,8 @@ no_run:
 static __inline void
 job_activate(struct net2_workq_job_int *job)
 {
-	int			 fl, wqfl, set;
-
-	/* Load job flags. */
-	fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
-	if (fl & JOB_DEINIT)
-		return;
-
 	/* Set active bit. */
-	fl = atomic_fetch_or_explicit(&job->flags, JOB_ACTIVE,
+	atomic_fetch_or_explicit(&job->flags, JOB_ACTIVE,
 	    memory_order_relaxed);
 
 	/* Push on runqueue, parallel runqueue. */
@@ -1479,9 +1468,11 @@ job_activate(struct net2_workq_job_int *job)
 static __inline void
 job_deactivate(struct net2_workq_job_int *job, int wait_run)
 {
-	atomic_fetch_and_explicit(&job->flags, ~JOB_ACTIVE,
+	int			 fl;
+
+	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_ACTIVE,
 	    memory_order_relaxed);
-	if (wait_run)
+	if (wait_run && (fl & JOB_RUNNING))
 		job_wait_run(job);
 }
 
@@ -1526,7 +1517,7 @@ static enum workq_want_state
 workq_want_acquire(struct net2_workq *wq, int flags)
 {
 	int		 fl, queued_delta = 0;
-	unsigned int	 queued, refcnt;
+	unsigned int	 refcnt;
 
 	/* Argument check. */
 	assert((flags & (NET2_WQ_WANT_TRY | NET2_WQ_WANT_RECURSE)) == flags);
@@ -1547,7 +1538,7 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 		if (!net2_mutex_trylock(wq->want_mtx))
 			return wq_want_tryfail;
 	} else {
-		queued = atomic_fetch_add_explicit(&wq->want_queued, 1,
+		atomic_fetch_add_explicit(&wq->want_queued, 1,
 		    memory_order_relaxed);
 		net2_mutex_lock(wq->want_mtx);
 		queued_delta = 1;
@@ -1599,8 +1590,6 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 static void
 workq_want_release(struct net2_workq *wq)
 {
-	int	 fl;
-
 	assert(wq->want_owner == &wq_tls_state);
 	assert(atomic_load_explicit(&wq->want_refcnt,
 	    memory_order_relaxed) > 0);
@@ -1608,7 +1597,7 @@ workq_want_release(struct net2_workq *wq)
 	if (atomic_fetch_sub_explicit(&wq->want_refcnt, 1,
 	    memory_order_relaxed) == 1) {
 		wq->want_owner = NULL;
-		fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK,
+		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK,
 		    memory_order_relaxed);
 		net2_mutex_unlock(wq->want_mtx);
 
@@ -1928,7 +1917,6 @@ __hot__
 net2_workq_deinit_work(struct net2_workq_job *j)
 {
 	struct net2_workq_job_int	*job;
-	struct net2_workq		*wq;
 	int				 fl;
 
 	/*
@@ -1938,7 +1926,6 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	    memory_order_relaxed);
 	if (job == NULL)
 		return;
-	wq = job->wq;
 	/* Wait for other threads that require job to stay valid. */
 	while (atomic_load_explicit(&j->refcnt, memory_order_relaxed) > 0)
 		SPINWAIT();
@@ -1949,6 +1936,7 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	 */
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_DEINIT,
 	    memory_order_relaxed);
+	assert(!(fl & JOB_DEINIT));
 	job_offqueue(job);
 
 	/*
@@ -2310,6 +2298,7 @@ static int
 mark_job_running(struct net2_workq_job_int *job)
 {
 	int			 jfl, wfl;
+	unsigned int		 prun;
 	struct net2_workq	*wq = NULL;
 
 	jfl = atomic_load_explicit(&job->flags, memory_order_relaxed);
@@ -2333,7 +2322,9 @@ mark_job_running(struct net2_workq_job_int *job)
 		if (predict_false((wfl & WQ_WANTLOCK) ||
 		    atomic_load_explicit(&wq->want_queued,
 		    memory_order_relaxed) > 0)) {
-			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING, memory_order_relaxed);
+			wfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
+			    memory_order_relaxed);
+			assert(wfl & WQ_RUNNING);
 			return 0;
 		}
 	} else
@@ -2346,8 +2337,12 @@ mark_job_running(struct net2_workq_job_int *job)
 			/* Undo modification to workq. */
 			wfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
 			    memory_order_relaxed);
-		} else
-			atomic_fetch_sub_explicit(&wq->prun, 1, memory_order_relaxed);
+			assert(wfl & WQ_RUNNING);
+		} else {
+			prun = atomic_fetch_sub_explicit(&wq->prun, 1,
+			    memory_order_relaxed);
+			assert(prun > 0);
+		}
 		return 0;
 	}
 
