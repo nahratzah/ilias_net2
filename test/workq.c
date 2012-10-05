@@ -187,7 +187,7 @@ workq_busy_destroy_job(void *unused0, void *unused1)
 int
 workq_busy_destroy()
 {
-#define COUNT	100
+#define COUNT	16
 	struct net2_workq_evbase*wqev;
 	struct net2_workq	**wq;
 	struct net2_workq_job	*j;
@@ -201,7 +201,7 @@ workq_busy_destroy()
 		goto fail;
 	}
 
-	wqev = net2_workq_evbase_new(__FUNCTION__, 4, 4);
+	wqev = net2_workq_evbase_new(__FUNCTION__, 3, 4);
 	for (i = 0; i < COUNT; i++)
 		wq[i] = net2_workq_new(wqev);
 	net2_workq_evbase_release(wqev);
