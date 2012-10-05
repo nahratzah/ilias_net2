@@ -1861,7 +1861,7 @@ net2_workq_release(struct net2_workq *wq)
 
 	if (predict_false(wq == NULL))
 		return;
-	refcnt = atomic_fetch_add_explicit(&wq->refcnt, 1,
+	refcnt = atomic_fetch_sub_explicit(&wq->refcnt, 1,
 	    memory_order_relaxed);
 	assert(refcnt > 0);
 	if (predict_false(refcnt == 1))
