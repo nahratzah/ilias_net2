@@ -188,6 +188,7 @@ struct wq_tls_state_t {
 				*active_job;
 	struct net2_workq_evbase_worker
 				*wthr;
+	struct wthrq		*wq_stack;
 };
 
 #ifndef HAS_TLS
@@ -225,19 +226,16 @@ enum workq_want_state {
 
 
 /* Internal state flags for workq job. */
-#define JOB_RUNNING	0x00010000		/* Job is executing. */
-#define JOB_ACTIVE	0x00020000		/* Job is to run. */
-//#define JOB_ONQUEUE	0x00100000		/* Job is on workq runq. */
-//#define JOB_ONPQUEUE	0x00200000		/* Job is on workq prunq. */
-#define JOB_DEINIT	0x00400000		/* Job is being destroyed. */
+#define JOB_RUNNING	0x00000001		/* Job is executing. */
+#define JOB_ACTIVE	0x00000002		/* Job is to run. */
+#define JOB_DEINIT	0x00000010		/* Job is being destroyed. */
+#define JOB_QMANIP	0x00001000		/* Job is being put on q. */
 
 
 /* List definitions. */
 LL_HEAD(net2_workq_job_runq, net2_workq_job_int);
 LL_HEAD(net2_workq_job_prunq, net2_workq_job_int);
 LL_HEAD(net2_workq_runq, net2_workq);
-LL_HEAD(net2_wthrq, net2_workq_evbase_worker);
-
 
 /*
  * Internals of workq job.
@@ -266,9 +264,6 @@ struct net2_workq {
 			 runqueue;		/* All active jobs. */
 	struct net2_workq_job_prunq
 			 prunqueue;		/* All parallelizeable jobs. */
-	struct net2_wthrq
-			 workers;		/* Workers handling this
-						 * workq. */
 
 	struct net2_workq_evbase
 			*wqev;
@@ -280,7 +275,6 @@ struct net2_workq {
 
 	atomic_int	 flags;			/* State bits. */
 #define WQ_RUNNING	0x00000001		/* Running. */
-// #define WQ_ONQUEUE	0x00000002		/* Waiting to run. */
 #define WQ_WANTLOCK	0x00000010		/* Workq is wanted. */
 #define WQ_QMANIP	0x00000100		/* Queue manipulation active. */
 #define WQ_DEINIT	0x00000200		/* Workq deinit active. */
@@ -356,8 +350,6 @@ enum wthr_kind {
 struct net2_workq_evbase_worker {
 	TAILQ_ENTRY(net2_workq_evbase_worker)
 			 tq;			/* Link into threads. */
-	LL_ENTRY(net2_workq_evbase_worker)
-			 wq_wthrq;		/* Link into execing workq. */
 	net2_spinlock	 spl;			/* Protect owner pointer. */
 	struct net2_thread
 			*worker;		/* Worker thread. */
@@ -368,6 +360,14 @@ struct net2_workq_evbase_worker {
 			*wq_wthr;		/* Execing this workq. */
 
 	enum wthr_kind	 kind;
+
+	struct wthrq	*stack_spare;		/* Spare element. */
+};
+
+/* List of threads (via wq_tls_state) operating on a workq. */
+struct wthrq {
+	struct net2_workq	*wq;
+	struct wthrq		*next;
 };
 
 
@@ -375,7 +375,6 @@ struct net2_workq_evbase_worker {
 LL_GENERATE(net2_workq_job_runq, net2_workq_job_int, runq);
 LL_GENERATE(net2_workq_job_prunq, net2_workq_job_int, prunq);
 LL_GENERATE(net2_workq_runq, net2_workq, wqev_runq);
-LL_GENERATE(net2_wthrq, net2_workq_evbase_worker, wq_wthrq);
 
 
 static void	activate_worker(struct net2_workq_evbase*);
@@ -391,6 +390,92 @@ static void	evloop_new_event(struct ev_loop*, ev_async*, int);
 #define RUNEVL_RELEASE_SPL	0x00000002
 #define RUNEVL_THRIDLE		0x00000004
 static void	run_evl(struct net2_workq_evbase*, int);
+
+
+/* Allocate a wthr entry. */
+static __inline struct wthrq*
+__hot__
+wthrq_alloc()
+{
+	struct wthrq	*result = NULL;
+	struct net2_workq_evbase_worker
+			*wthr = wq_tls_state.wthr;
+
+	if (predict_true(wthr != NULL)) {
+		result = wthr->stack_spare;
+		wthr->stack_spare = NULL;
+	}
+	if (result == NULL)
+		result = net2_malloc(sizeof(*result));
+	if (result != NULL) {
+		result->wq = NULL;
+		result->next = NULL;
+	}
+	return result;
+}
+/* Free a wthr entry. */
+static void
+__hot__
+wthrq_free(struct wthrq *q)
+{
+	struct net2_workq_evbase_worker
+			*wthr = wq_tls_state.wthr;
+
+	if (predict_true(wthr != NULL && wthr->stack_spare == NULL))
+		wthr->stack_spare = q;
+	else
+		net2_free(q);
+}
+/* Put workq on activity stack. */
+static __inline void
+wthrq_assign(struct wthrq *q, struct net2_workq *wq)
+{
+	assert(q != NULL);
+	assert(wq != NULL);
+	assert(q->wq == NULL);
+
+	q->wq = wq;
+	q->next = wq_tls_state.wq_stack;
+	wq_tls_state.wq_stack = q;
+}
+/* Remove wq from the activity stack. */
+static void
+__hot__
+wthrq_unassign(struct net2_workq *wq)
+{
+	struct wthrq	*q, **q_ptr;
+
+	/* Find q where q->wq == wq. */
+	q_ptr = &wq_tls_state.wq_stack;
+	for (;;) {
+		q = *q_ptr;
+		/*
+		 * wq must be on the list, therefor we will never reach
+		 * the end.
+		 */
+		assert(q != NULL);
+
+		if (q->wq == wq)
+			break;
+	}
+
+	/* Remove q from list. */
+	*q_ptr = q->next;
+	wthrq_free(q);
+}
+/* Check if the given workq is present on the activity stack. */
+static int
+wthrq_present(struct net2_workq *wq)
+{
+	struct wthrq	*q;
+
+	for (q = wq_tls_state.wq_stack; q != NULL; q = q->next) {
+		if (q->wq == wq)
+			return 1;
+	}
+	return 0;
+}
+
 
 /* Interupt the event loop, allowing re-evaluation of thr_active semaphore. */
 static __inline void
@@ -705,9 +790,12 @@ job_onqueue(struct net2_workq_job_int *job)
 	int			 fl;
 
 	LL_REF(net2_workq_job_runq, &wq->runqueue, job);
-	fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
+	fl = atomic_fetch_or_explicit(&job->flags, JOB_QMANIP,
+	    memory_order_relaxed);
+	if (fl & JOB_QMANIP)
+		goto out_no_manip;
 	if (fl & JOB_DEINIT)
-		LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
+		goto out;
 
 	parallel = (fl & NET2_WORKQ_PARALLEL);
 	refcnt = atomic_fetch_add_explicit(&job->refcnt,
@@ -729,12 +817,50 @@ job_onqueue(struct net2_workq_job_int *job)
 	} else if (parallel)
 		activate = 1;
 
+out:
+	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_QMANIP,
+	    memory_order_relaxed);
+	assert(fl & JOB_QMANIP);
+out_no_manip:
 	LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
-
 	if (activate)
 		wq_onqueue_tail(wq);
 }
 
+
+/* Test if the workq is active in the current thread. */
+static __inline int
+workq_self(struct net2_workq *wq)
+{
+	if (wq == NULL)
+		return 0;
+	return (wq == wq_tls_state.active_wq.wq);
+}
+/* Test if the job is active in the current thread. */
+static __inline int
+jobint_self(struct net2_workq_job_int *job)
+{
+	if (job == NULL)
+		return 0;
+	return (job == wq_tls_state.active_job);
+}
+/* Test if the job (external view) is active in the current thread. */
+static __inline int
+job_self(struct net2_workq_job *job)
+{
+	struct net2_workq_job_int *jobint;
+	int	 is_self = 0;
+
+	if (atomic_load_explicit(&job->internal, memory_order_relaxed) == NULL)
+		return 0;
+
+	atomic_fetch_add_explicit(&job->refcnt, 1, memory_order_relaxed);
+	jobint = atomic_load_explicit(&job->internal, memory_order_relaxed);
+	if (jobint != NULL)
+		is_self = jobint_self(jobint);
+	atomic_fetch_sub_explicit(&job->refcnt, 1, memory_order_relaxed);
+	return is_self;
+}
 
 /*
  * Acquire reference counter on workq.
@@ -760,17 +886,49 @@ workq_release(struct net2_workq *wq, int fall_to_zero)
 {
 	unsigned int refcnt;
 
-	refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
-	    memory_order_relaxed);
-	if (fall_to_zero) {
-		assert(refcnt > 0);
-		assert(refcnt > 1 ||
-		    (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
-		     WQ_DEINIT));
-	} else
+	assert(wq != NULL);
+
+	/* Normal code path: workq internal reference will not fall to zero. */
+	if (predict_true(!fall_to_zero ||
+	    !(atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	      WQ_DEINIT)) ||
+	    workq_self(wq)) {
+		refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt, 1,
+		    memory_order_relaxed);
 		assert(refcnt > 1);
-	if (fall_to_zero && refcnt == 1)
-		kill_wq(wq);
+		return;
+	}
+
+	/* Check workq state. */
+	assert(atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	    WQ_DEINIT);
+	assert(atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0);
+	assert(wq_tls_state.active_wq.wq != wq);
+
+	/*
+	 * Take workq off the runqueue.
+	 * Before removing the workq, wait until the most recent insert
+	 * stabilizes (WQ_QMANIP is cleared).
+	 */
+	while (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	    WQ_QMANIP)
+		SPINWAIT();
+	wq_offqueue(wq);
+
+	/*
+	 * Wait until the reference count drops to 1 (i.e. we hold the last
+	 * reference).
+	 */
+	refcnt = 1;
+	while (!atomic_compare_exchange_weak_explicit(&wq->int_refcnt,
+	    &refcnt, 0, memory_order_relaxed, memory_order_relaxed)) {
+		refcnt = 1;
+		SPINWAIT();
+	}
+	/*
+	 * After releasing the last reference, kill the workq.
+	 */
+	kill_wq(wq);
 }
 /* Only called with non-zero reference count. */
 static __inline void
@@ -814,13 +972,16 @@ job_release(struct net2_workq_job_int *job)
  * (i.e. the reference to wq is stolen).
  * The returned workq is referenced (since its reference from wq_tls_state
  * is stolen for the return value).
+ * q is freed in the process.
  */
 static __inline void
-wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
+wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig,
+    struct wthrq *q)
 {
 	struct wq_act	 wq_prev;
 	unsigned int prun;
 
+	/* Argument validation. */
 	assert(wq == NULL || parallel ||
 	    (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
 	     WQ_RUNNING));
@@ -831,11 +992,13 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	    atomic_load_explicit(&wq->refcnt, memory_order_relaxed) > 0);
 	assert(wq == NULL ||
 	    atomic_load_explicit(&wq->int_refcnt, memory_order_relaxed) > 1);
+	/* wq and q must either both be set or both be clear. */
+	assert((wq == NULL && q == NULL) || (wq != NULL && q != NULL));
 
+	/* Store previous state. */
 	wq_prev = wq_tls_state.active_wq;
-	wq_tls_state.active_wq.wq = wq;
-	wq_tls_state.active_wq.parallel = parallel;
 
+	/* Previous workq validation. */
 	assert(wq_prev.wq == NULL || wq_prev.parallel ||
 	    (atomic_load_explicit(&wq_prev.wq->flags,
 	     memory_order_relaxed) & WQ_RUNNING));
@@ -845,6 +1008,8 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 	assert(wq_prev.wq == NULL ||
 	    (atomic_load_explicit(&wq_prev.wq->int_refcnt,
 	     memory_order_relaxed) > 0));
+	assert(wq_prev.wq == NULL ||
+	    wthrq_present(wq_prev.wq));
 
 	if (orig != NULL)
 		*orig = wq_prev;
@@ -857,7 +1022,55 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig)
 			assert(prun > 0);
 		}
 		workq_release(wq_prev.wq, 1);
+
+		/* Remove old workq from activity stack. */
+		wthrq_unassign(wq_prev.wq);
 	}
+
+	/*
+	 * Store new state.
+	 * This is done after releasing the previous state,
+	 * so workq_release can test workq_self.
+	 */
+	wq_tls_state.active_wq.wq = wq;
+	wq_tls_state.active_wq.parallel = parallel;
+
+	/* Assign workq to activity stack. */
+	if (wq != NULL)
+		wthrq_assign(q, wq);
+}
+/*
+ * Restore the active workq.
+ * orig must be previously initialized by wq_surf.
+ */
+static __inline void
+wq_surf_pop(struct wq_act *orig)
+{
+	struct wq_act	wq_prev;
+	unsigned int	prun;
+
+	assert(orig != NULL);
+	assert(orig->wq == NULL || wthrq_present(orig->wq));
+
+	/* Load old state. */
+	wq_prev = wq_tls_state.active_wq;
+	assert(wq_prev.wq == NULL || wthrq_present(wq_prev.wq));
+	if (wq_prev.wq != NULL) {
+		/* Clear running state. */
+		if (!wq_prev.parallel)
+			workq_clear_run(wq_prev.wq);
+		else {
+			prun = atomic_fetch_sub_explicit(&wq_prev.wq->prun, 1,
+			    memory_order_relaxed);
+			assert(prun > 0);
+		}
+		/* Release workq. */
+		workq_release(wq_prev.wq, 1);
+		wthrq_unassign(wq_prev.wq);
+	}
+
+	/* Assign popped state. */
+	wq_tls_state.active_wq = *orig;
 }
 /*
  * Change the active job.
@@ -1167,9 +1380,7 @@ wqev_run_pop(struct net2_workq_evbase *wqev,
 {
 	struct net2_workq	*wq;
 	struct net2_workq_job_int *job;
-	int			 fl;
 	int			 error;
-	int			 ref_succes;
 
 restart:
 	if ((wq = wq_pop(wqev)) == NULL)
@@ -1181,7 +1392,7 @@ restart:
 			workq_release(wq, 0);
 			goto restart;
 		}
-		wq_onqueue_head(wq);
+		wq_onqueue_tail(wq);
 		return error;
 	}
 
@@ -1208,7 +1419,8 @@ restart:
  */
 static void
 __hot__
-run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
+run_job(struct net2_workq *wq, struct net2_workq_job_int *job,
+    struct wthrq *q)
 {
 	struct wq_act			 prev_wq;
 	struct net2_workq_job_int	*prev_job;
@@ -1217,6 +1429,7 @@ run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
 	assert(wq != NULL && job != NULL);
 	assert(job->wq == wq);
 	assert(job->fn != NULL);
+	assert(q != NULL && q->wq == NULL);
 
 	parallel = (atomic_load_explicit(&job->flags, memory_order_relaxed) &
 	    NET2_WORKQ_PARALLEL);
@@ -1230,7 +1443,7 @@ run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
 	    atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0);
 
 	/* Update tls wthr. */
-	wq_surf(wq, parallel, &prev_wq);
+	wq_surf(wq, parallel, &prev_wq, q);
 	job_surf(job, &prev_job);
 
 	/* Mark this thread as running the job. */
@@ -1246,7 +1459,7 @@ run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
 
 	/* Pop old values of active {wq,job}. */
 	job_surf(prev_job, NULL);
-	wq_surf(prev_wq.wq, prev_wq.parallel, NULL);
+	wq_surf_pop(&prev_wq);
 }
 /*
  * Run a job on wqev.
@@ -1255,18 +1468,20 @@ run_job(struct net2_workq *wq, struct net2_workq_job_int *job)
  */
 static int
 __hot__
-wqev_run1(struct net2_workq_evbase *wqev)
+wqev_run1(struct net2_workq_evbase *wqev, struct wthrq *q)
 {
 	struct net2_workq	*wq;
 	struct net2_workq_job_int *job;
 	int			 error;
+
+	assert(q != NULL && q->wq == NULL);
 
 	wq = NULL;
 	job = NULL;
 
 	if ((error = wqev_run_pop(wqev, &wq, &job)) != 0)
 		return error;
-	run_job(wq, job);
+	run_job(wq, job, q);
 	return 0;
 }
 /*
@@ -1275,11 +1490,12 @@ wqev_run1(struct net2_workq_evbase *wqev)
 static void
 job_clear_run(struct net2_workq_job_int *job)
 {
-	int			 fl, fl_set;
+	int			 fl;
 
 	/* Clear running bit, increment run generation counter. */
 	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
 	    memory_order_relaxed);
+	assert(fl & JOB_RUNNING);
 	atomic_fetch_add_explicit(&job->run_gen, 1, memory_order_relaxed);
 	if (predict_false(fl & JOB_DEINIT))
 		return;
@@ -1364,6 +1580,7 @@ wqev_worker(void *wthr_ptr)
 	struct net2_workq_evbase *wqev;
 	int			 count;
 	static const int	 COUNT = 8;
+	struct wthrq		*q;
 
 	wq_tls_state.wthr = wthr;
 	wqev = wthr->evbase;
@@ -1373,15 +1590,23 @@ wqev_worker(void *wthr_ptr)
 		if (predict_false(decrement_idle(&wqev->thr_die)))
 			goto thrdie;		/* GUARD */
 
+		q = wthrq_alloc();
+		assert(q != NULL);
+
 		count = COUNT;
-		while (wqev_run1(wqev) == 0) {
+		while (wqev_run1(wqev, q) == 0) {
 			if (predict_false(decrement_idle(&wqev->thr_die)))
 				goto thrdie;	/* GUARD */
 			if (--count == 0) {
 				run_evl(wqev, RUNEVL_NOWAIT);
 				count = COUNT;
 			}
+
+			q = wthrq_alloc();
+			assert(q != NULL);
 		}
+		/* Release q when not consumed by wqev_run1. */
+		wthrq_free(q);
 
 #ifdef WIN32
 		wqev_thridle(wqev);
@@ -1474,40 +1699,6 @@ job_deactivate(struct net2_workq_job_int *job, int wait_run)
 	    memory_order_relaxed);
 	if (wait_run && (fl & JOB_RUNNING))
 		job_wait_run(job);
-}
-
-/* Test if the workq is active in the current thread. */
-static __inline int
-workq_self(struct net2_workq *wq)
-{
-	if (wq == NULL)
-		return 0;
-	return (wq == wq_tls_state.active_wq.wq);
-}
-/* Test if the job is active in the current thread. */
-static __inline int
-jobint_self(struct net2_workq_job_int *job)
-{
-	if (job == NULL)
-		return 0;
-	return (job == wq_tls_state.active_job);
-}
-/* Test if the job (external view) is active in the current thread. */
-static __inline int
-job_self(struct net2_workq_job *job)
-{
-	struct net2_workq_job_int *jobint;
-	int	 is_self = 0;
-
-	if (atomic_load_explicit(&job->internal, memory_order_relaxed) == NULL)
-		return 0;
-
-	atomic_fetch_add_explicit(&job->refcnt, 1, memory_order_relaxed);
-	jobint = atomic_load_explicit(&job->internal, memory_order_relaxed);
-	if (jobint != NULL)
-		is_self = jobint_self(jobint);
-	atomic_fetch_sub_explicit(&job->refcnt, 1, memory_order_relaxed);
-	return is_self;
 }
 
 #define NET2_WQ_WANT_TRY	0x01
@@ -1616,11 +1807,10 @@ __cold__
 kill_wq(struct net2_workq *wq)
 {
 	struct net2_workq_evbase*wqev;
-	int			 wqfl;
 
 	/* Assert workq state. */
 	assert(atomic_load_explicit(&wq->refcnt, memory_order_relaxed) == 0);
-	assert(atomic_load_explicit(&wq->int_refcnt, memory_order_relaxed) > 0);
+	assert(atomic_load_explicit(&wq->int_refcnt, memory_order_relaxed) == 0);
 	assert(LL_EMPTY(net2_workq_job_runq, &wq->runqueue));
 	assert(LL_EMPTY(net2_workq_job_prunq, &wq->prunqueue));
 	assert(!(atomic_load_explicit(&wq->flags, memory_order_relaxed) &
@@ -1628,11 +1818,10 @@ kill_wq(struct net2_workq *wq)
 	assert(atomic_load_explicit(&wq->prun, memory_order_relaxed) == 0);
 	assert(atomic_load_explicit(&wq->want_refcnt,
 	    memory_order_relaxed) == 0);
+	assert(atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	    WQ_DEINIT);
 
 	/* Remove workq from its runq. */
-	wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_DEINIT,
-	    memory_order_relaxed);
-	assert(!(wqfl & WQ_DEINIT));
 	wq_offqueue(wq);
 
 	/* Wait for other threads to release reference to wq. */
@@ -1820,7 +2009,6 @@ net2_workq_new(struct net2_workq_evbase *wqev)
 	wq->wqev = wqev;
 	LL_INIT(&wq->runqueue);
 	LL_INIT(&wq->prunqueue);
-	LL_INIT(&wq->workers);
 	LL_INIT_ENTRY(&wq->wqev_runq);
 
 	atomic_init(&wq->refcnt, 1);
@@ -1857,15 +2045,20 @@ net2_workq_ref(struct net2_workq *wq)
 ILIAS_NET2_EXPORT void
 net2_workq_release(struct net2_workq *wq)
 {
-	unsigned int refcnt;
+	unsigned int	 refcnt;
+	int		 fl;
 
 	if (predict_false(wq == NULL))
 		return;
 	refcnt = atomic_fetch_sub_explicit(&wq->refcnt, 1,
 	    memory_order_relaxed);
 	assert(refcnt > 0);
-	if (predict_false(refcnt == 1))
-		kill_wq(wq);
+	if (predict_false(refcnt == 1)) {
+		fl = atomic_fetch_or_explicit(&wq->flags, WQ_DEINIT,
+		    memory_order_relaxed);
+		assert(!(fl & WQ_DEINIT));
+		workq_release(wq, 1);
+	}
 }
 /*
  * Return the workq_evbase that this workq runs on.
@@ -1884,7 +2077,6 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
     net2_workq_cb fn, void *arg0, void *arg1, int flags)
 {
 	struct net2_workq_job_int	*job;
-	int				 ref_succes;
 
 	if (fn == NULL || wq == NULL || j == NULL)
 		return EINVAL;
@@ -1937,6 +2129,10 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_DEINIT,
 	    memory_order_relaxed);
 	assert(!(fl & JOB_DEINIT));
+	while (fl & JOB_QMANIP) {
+		SPINWAIT();
+		fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
+	}
 	job_offqueue(job);
 
 	/*
@@ -2048,19 +2244,25 @@ net2_workq_is_self(struct net2_workq *wq)
  * which must be reactivated afterwards using
  * net2_workq_surf(orig->wq, orig->parallel, NULL);
  *
+ * Returns ENOMEM if the surf fails.
+ *
  * Synchronizes with invocations of net2_workq_want().
  */
-ILIAS_NET2_EXPORT void
+ILIAS_NET2_EXPORT int
 net2_workq_surf(struct net2_workq *wq, int parallel)
 {
-	int	 ref_succes;
+	struct wthrq	*q = NULL;
 
-	if (wq != NULL)
+	if (wq != NULL) {
+		if ((q = wthrq_alloc()) == NULL)
+			return ENOMEM;
 		workq_ref(wq);
+	}
 
-	wq_surf(NULL, 0, NULL);
+	/* Deactivate old workq. */
+	wq_surf(NULL, 0, NULL, NULL);
 	if (wq == NULL)
-		return;
+		return 0;
 
 	/*
 	 * Lock out other want acquire.
@@ -2081,7 +2283,8 @@ net2_workq_surf(struct net2_workq *wq, int parallel)
 	}
 	net2_mutex_unlock(wq->want_mtx);
 
-	wq_surf(wq, parallel, NULL);
+	wq_surf(wq, parallel, NULL, q);
+	return 0;
 }
 
 /* Create a worker thread for this wqev. */
@@ -2098,24 +2301,36 @@ create_thread(struct net2_workq_evbase *wqev)
 	    wqev->wq_worker_name);
 
 	if ((wthr = net2_malloc(sizeof(*wthr))) == NULL)
-		return ENOMEM;
+		goto fail_0;
+	if ((wthr->stack_spare = net2_malloc(sizeof(*wthr->stack_spare))) ==
+	    NULL)
+		goto fail_1;
 	wthr->kind = WQEVW_THREAD;
 	wthr->evbase = wqev;
-	net2_spinlock_init(&wthr->spl);
+	if (net2_spinlock_init(&wthr->spl) != 0)
+		goto fail_2;
 	net2_spinlock_lock(&wthr->spl);
-	LL_INIT_ENTRY(&wthr->wq_wthrq);
 	wthr->worker = net2_thread_new(&wqev_worker, wthr, wname);
 	net2_spinlock_unlock(&wthr->spl);
-	if (wthr->worker == NULL) {
-		net2_spinlock_unlock(&wqev->spl_workers);
-		net2_free(wthr);
-		return ENOMEM;
-	}
+	if (wthr->worker == NULL)
+		goto fail_3;
+
+	/* No failure past this point. */
 
 	net2_spinlock_lock(&wqev->spl_workers);
 	TAILQ_INSERT_TAIL(&wqev->workers, wthr, tq);
 	net2_spinlock_unlock(&wqev->spl_workers);
 	return 0;
+
+
+fail_3:
+	net2_spinlock_deinit(&wthr->spl);
+fail_2:
+	net2_free(wthr->stack_spare);
+fail_1:
+	net2_free(wthr);
+fail_0:
+	return ENOMEM;
 }
 static void
 __cold__
@@ -2148,6 +2363,7 @@ destroy_thread(struct net2_workq_evbase *wqev, int count)
 		net2_thread_join(wthr->worker, NULL);
 		net2_thread_free(wthr->worker);
 		net2_spinlock_deinit(&wthr->spl);
+		net2_free(wthr->stack_spare);
 		net2_free(wthr);
 	}
 }
@@ -2211,7 +2427,7 @@ net2_workq_set_thread_count(struct net2_workq_evbase *wqev,
 			 * This process involves reducing idle by the amount
 			 * we want to steal, while activating the remainder.
 			 */
-			if (wqev->jobthreads - idle < jobthreads) {
+			if (wqev->jobthreads - idle < (unsigned)jobthreads) {
 				back = jobthreads + idle - wqev->jobthreads;
 				net2_semaphore_up(&wqev->thr_active, back);
 				idle -= back;
@@ -2248,6 +2464,7 @@ net2_workq_aid(struct net2_workq *wq, int count)
 {
 	struct net2_workq_job_int *job;
 	int			 error, runcount;
+	struct wthrq		*q;
 
 
 	/* No point in running negative # of jobs. */
@@ -2265,6 +2482,9 @@ net2_workq_aid(struct net2_workq *wq, int count)
 	    memory_order_relaxed) > 0);
 
 	for (runcount = 0; runcount < count; runcount++) {
+		if ((q = wthrq_alloc()) == NULL)
+			return (runcount == 0 ? ENOMEM : 0);
+
 		/* Find a runnable job. */
 		error = wqev_run_pop_wq(wq->wqev, wq, &job);
 
@@ -2273,8 +2493,10 @@ net2_workq_aid(struct net2_workq *wq, int count)
 		    memory_order_relaxed) & WQ_WANTLOCK))
 			error = EBUSY;
 		/* Return error if it occured. */
-		if (error != 0)
+		if (error != 0) {
+			wthrq_free(q);
 			return (runcount == 0 ? error : 0);
+		}
 
 		/*
 		 * Reference wq prior to run_job(), since the latter
@@ -2283,7 +2505,7 @@ net2_workq_aid(struct net2_workq *wq, int count)
 		 * by the wqev_run_pop_wq() function.
 		 */
 		workq_ref(wq);
-		run_job(wq, job);
+		run_job(wq, job, q);
 	}
 	return 0;
 }
@@ -2363,6 +2585,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq;
 	int				 immed;
+	struct wthrq			*q = NULL;
 
 	/* Load job and keep it referenced via j->refcnt. */
 	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
@@ -2377,14 +2600,18 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 	if (predict_true(!(flags & NET2_WQ_ACT_IMMED) ||
 	    (!(flags & NET2_WQ_ACT_RECURS) && workq_self(job->wq))))
 		immed = 0;
-	else
+	else if (predict_true((q = wthrq_alloc()) != NULL))
 		immed = mark_job_running(job);
+	else
+		immed = 0;
 
 	/* Activate and return for non-immediate case. */
 	if (predict_true(!immed)) {
 		job_activate(job);
 unlock_return:
 		atomic_fetch_sub_explicit(&j->refcnt, 1, memory_order_relaxed);
+		if (predict_false(q != NULL))
+			wthrq_free(q);
 		return;
 	}
 
@@ -2402,7 +2629,7 @@ unlock_return:
 	workq_ref(wq);
 
 	/* Run job, consuming reference on both job and workq. */
-	run_job(wq, job);
+	run_job(wq, job, q);
 }
 /* Deactivate a job. */
 ILIAS_NET2_EXPORT void

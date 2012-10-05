@@ -96,7 +96,7 @@ net2_ck_key(struct net2_conn_keys *ck, int which)
 
 /* Workq callback: kill connection. */
 static void
-do_killme(void * ILIAS_NET2__unused unused, void *conn)
+do_killme(void *unused ILIAS_NET2__unused, void *conn)
 {
 	net2_connection_destroy(conn);
 }
@@ -105,7 +105,7 @@ do_killme(void * ILIAS_NET2__unused unused, void *conn)
  * Upgrade RX alt key to active key.
  */
 static void
-do_rx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
+do_rx_alt_cutoff(void *ck_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_conn_keys		*ck = ck_ptr;
 	net2_ck_keys			*active, *alt;
@@ -131,7 +131,7 @@ do_rx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
  * Upgrade TX alt key to active key.
  */
 static void
-do_tx_alt_cutoff(void *ck_ptr, void* ILIAS_NET2__unused unused)
+do_tx_alt_cutoff(void *ck_ptr, void *unused ILIAS_NET2__unused)
 {
 	struct net2_conn_keys		*ck = ck_ptr;
 	net2_ck_keys			*active, *alt;

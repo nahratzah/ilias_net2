@@ -125,6 +125,7 @@ workq_persist()
 	struct net2_workq	*wq;
 	struct net2_workq_job	 j;
 	int			 count = 0;
+	int			 aid_result;
 
 	wqev = net2_workq_evbase_new(__FUNCTION__, 0, 0);
 	wq = net2_workq_new(wqev);
@@ -135,7 +136,11 @@ workq_persist()
 	net2_workq_activate(&j, 0);
 
 	fprintf(stderr, "\t");
-	while (net2_workq_aid(wq, 1) == 0);
+	do {
+		aid_result = net2_workq_aid(wq, 1);
+		fprintf(stderr, "[aid_result = %s] ",
+		    (aid_result == 0 ? "0" : strerror(aid_result)));
+	} while (aid_result == 0);
 	fprintf(stderr, "done\n");
 	net2_workq_release(wq);
 

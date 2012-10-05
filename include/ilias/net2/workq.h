@@ -37,8 +37,8 @@ struct net2_workq_evbase;
 typedef void (*net2_workq_cb)(void*, void*);
 typedef void (*net2_workq_job_cbfn)(struct net2_workq_job*);
 
-#define NET2_WORKQ_PERSIST	0x00000001	/* Job persists. */
-#define NET2_WORKQ_PARALLEL	0x00000002	/* Job can run parallel
+#define NET2_WORKQ_PERSIST	0x80000000	/* Job persists. */
+#define NET2_WORKQ_PARALLEL	0x40000000	/* Job can run parallel
 						 * to sibling jobs. */
 
 #define NET2_WQ_ACT_IMMED	0x00000001	/* Try to run activated job
@@ -97,7 +97,7 @@ ILIAS_NET2_EXPORT
 int	 net2_workq_is_self(struct net2_workq*);
 
 ILIAS_NET2_EXPORT
-void	net2_workq_surf(struct net2_workq*, int);
+int	net2_workq_surf(struct net2_workq*, int);
 
 /*
  * Initialize a null workq job.

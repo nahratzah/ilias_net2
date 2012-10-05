@@ -34,7 +34,7 @@
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
-#define ILIAS_NET2__dead	__attribute__((__noreturn__))
+#define ILIAS_NET2__dead	__attribute__ ((__noreturn__))
 #define ILIAS_NET2__unused	__attribute__ ((__unused__))
 #else
 #define ILIAS_NET2__dead	/* nothing */
