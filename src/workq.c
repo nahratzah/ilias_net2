@@ -392,6 +392,16 @@ static void	evloop_new_event(struct ev_loop*, ev_async*, int);
 static void	run_evl(struct net2_workq_evbase*, int);
 
 
+/* Interupt the event loop, allowing re-evaluation of thr_active semaphore. */
+static __inline void
+evl_wakeup(struct net2_workq_evbase *wqev)
+{
+	assert(wqev->evloop != NULL);
+	ev_async_send(wqev->evloop, &wqev->ev_wakeup);
+}
+#endif /* !WIN32 */
+
+
 /* Allocate a wthr entry. */
 static __inline struct wthrq*
 __hot__
@@ -476,15 +486,6 @@ wthrq_present(struct net2_workq *wq)
 	return 0;
 }
 
-
-/* Interupt the event loop, allowing re-evaluation of thr_active semaphore. */
-static __inline void
-evl_wakeup(struct net2_workq_evbase *wqev)
-{
-	assert(wqev->evloop != NULL);
-	ev_async_send(wqev->evloop, &wqev->ev_wakeup);
-}
-#endif /* !WIN32 */
 
 /*
  * Decrement atomic_uint, unless it is 0.
@@ -1600,7 +1601,9 @@ wqev_worker(void *wthr_ptr)
 			if (predict_false(decrement_idle(&wqev->thr_die)))
 				goto thrdie;	/* GUARD */
 			if (--count == 0) {
+#ifndef WIN32
 				run_evl(wqev, RUNEVL_NOWAIT);
+#endif
 				count = COUNT;
 			}
 
