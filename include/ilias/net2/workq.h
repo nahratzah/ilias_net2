@@ -89,6 +89,8 @@ ILIAS_NET2_EXPORT
 struct net2_workq
 	*net2_workq_get(struct net2_workq_job*);
 
+#define NET2_WQ_WANT_TRY	0x00000001
+#define NET2_WQ_WANT_RECURSE	0x00000002
 ILIAS_NET2_EXPORT
 int	 net2_workq_want(struct net2_workq*, int);
 ILIAS_NET2_EXPORT
@@ -128,6 +130,8 @@ struct net2_workq
 	*net2_workq_current();
 
 
+#if defined(ilias_net2_EXPORTS)
+
 #ifndef HAS_TLS
 ILIAS_NET2_LOCAL
 int	 net2_workq_init();
@@ -154,11 +158,14 @@ struct ev_loop
 	*net2_workq_get_evloop(struct net2_workq_evbase*);
 #endif
 
+#endif /* ilias_net2_EXPORTS */
+
 ILIAS_NET2__end_cdecl
 
 
 #ifdef __cplusplus
 
+#include <cassert>
 #include <exception>
 #include <stdexcept>
 
@@ -254,8 +261,8 @@ private:
 	workq_sync(const workq_sync&);
 
 public:
-	static const int TRYLOCK = 0x1;
-	static const int SELFLOCK_OK = 0x2;
+	static const int TRY = NET2_WQ_WANT_TRY;
+	static const int RECURSE = NET2_WQ_WANT_RECURSE;
 
 	workq_sync(const workq&, int = 0) throw (std::bad_alloc, workq_sync_error);
 	~workq_sync() throw ();
@@ -451,20 +458,17 @@ workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, workq_
 	selflocked(false),
 	locked(false)
 {
-	int error = net2_workq_want(wq.c_workq(), flags & TRYLOCK);
-	if ((flags & SELFLOCK_OK) && error == EDEADLK)
-		selflocked = locked = true;
-	else if (error)
+	assert((flags & (TRY | RECURSE)) == flags);
+
+	int error = net2_workq_want(wq.c_workq(), flags);
+	if (error)
 		do_error(error);
-	else
-		locked = true;
 }
 
 inline
 workq_sync::~workq_sync() throw ()
 {
-	if (locked && !selflocked)
-		net2_workq_unwant(wq.c_workq());
+	net2_workq_unwant(wq.c_workq());
 }
 
 

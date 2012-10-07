@@ -1703,8 +1703,6 @@ job_deactivate(struct net2_workq_job_int *job, int wait_run)
 		job_wait_run(job);
 }
 
-#define NET2_WQ_WANT_TRY	0x01
-#define NET2_WQ_WANT_RECURSE	0x02
 /* Acquire the workq want lock. */
 static enum workq_want_state
 workq_want_acquire(struct net2_workq *wq, int flags)
