@@ -37,8 +37,14 @@ if (STD_C11)
 	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
 endif (STD_C11)
 if (STD_CXX11)
-	set (CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++11")
+	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif (STD_CXX11)
+check_cxx_compiler_flag("-fno-exceptions" CXX_NOEXCEPT)
+if (CXX_NOEXCEPT)
+	set (CMAKS_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
+else (CXX_NOEXCEPT)
+	message (WARNING "C++ compiler does not accept -fno-exceptions, final library may not link without c++ standard library")
+endif (CXX_NOEXCEPT)
 
 # Include necessary submodules
 set (CMAKE_MODULE_PATH
