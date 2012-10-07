@@ -414,7 +414,7 @@ net2_sockdgram_dnf(net2_socket_t sock)
 #ifdef IP_DONTFRAG
 		opt = 1;
 		if (setsockopt(sock, IPPROTO_IP, IP_DONTFRAG,
-		    &opt, sizeof(opt))) {
+		    (void*)&opt, sizeof(opt))) {
 			switch (errno) {
 			case EBADF:
 			case ENOTSOCK:
@@ -457,7 +457,7 @@ net2_sockdgram_dnf(net2_socket_t sock)
 #ifdef IPV6_DONTFRAG
 		opt = 1;
 		if (setsockopt(sock, IPPROTO_IPV6, IPV6_DONTFRAG,
-		    &opt, sizeof(opt))) {
+		    (void*)&opt, sizeof(opt))) {
 			switch (errno) {
 			case EBADF:
 			case ENOTSOCK:
