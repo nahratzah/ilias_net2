@@ -569,19 +569,52 @@ promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_f
 }
 
 
+/*
+ * Intermediary invoker.
+ * Converts one element from in[] promises to a c++ promise, recursively transforming all
+ * into a set of c++ promises.
+ */
 template<typename Prom0, typename... Promises, typename Functor, typename Result, typename... Args>
 void
 _invoke(const Functor& functor, promise<Result>& result, net2_promise** in, Args&&... args) throw ()
 {
 	_invoke<Promises...>(functor, result, in + 1, args..., std::move(Prom0(*in)));
 }
+/*
+ * Final invoker.
+ * Called with all promises converted.
+ * Invokes the functor and assigns the result.
+ */
 template<typename Functor, typename Result, typename... Args>
 void
 _invoke(const Functor& functor, promise<Result>& result, net2_promise** ILIAS_NET2__unused in, Args&&... args) throw ()
 {
-	Result	*v = functor(args...);
-	result.fin_ok(v);
+	Result	*v;
+
+	try {
+		v = functor(args...);
+	} catch (const promise_finerr_error& e) {
+		result.fin_error(e.error);
+		return;
+	} catch (const promise_canceled& e) {
+		result.fin_cancel();
+		return;
+	} catch (...) {
+		/* Promise internals will assign fin_fail. */
+		return;
+	}
+
+	try {
+		result.fin_ok(v);
+	} catch (...) {
+		if (v)
+			result.do_delete(v, 0);
+	}
 }
+/*
+ * Combiner callback wrapper.
+ * Invokes the functor via _invoke() transformation.
+ */
 template<typename Functor, typename Result, typename... Promises>
 void
 _invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, size_t insz, void *arg) throw ()
@@ -593,6 +626,10 @@ _invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, siz
 	_invoke<Promises...>(*functor, cxx_out, in);
 }
 
+/*
+ * Promise combiner.
+ * Combines the functor and promises into a combi promise.
+ */
 template<typename Functor, typename... Promises>
 auto promise_combine(const workq& wq, const Functor& f, const Promises&... promises) ->
     promise<typename std::remove_reference<decltype(*f(promises...))>::type>&&
