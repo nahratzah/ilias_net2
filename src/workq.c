@@ -1488,6 +1488,7 @@ wqev_run1(struct net2_workq_evbase *wqev, struct wthrq *q)
  * Clear the run bit on a job.
  */
 static void
+__hot__
 job_clear_run(struct net2_workq_job_int *job)
 {
 	int			 fl;
@@ -1512,6 +1513,7 @@ job_clear_run(struct net2_workq_job_int *job)
  * empty though (it's not illegal, it's simply more efficient not to).
  */
 static void
+__hot__
 workq_clear_run(struct net2_workq *wq)
 {
 	int			 fl;
