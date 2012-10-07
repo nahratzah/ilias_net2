@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/promise.h>
 #include <cassert>
+#include <cerrno>
 
 namespace ilias {
 
