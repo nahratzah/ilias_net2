@@ -570,6 +570,13 @@ promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_f
 
 
 /*
+ * MS VC doesn't support variadic templates at this moment.
+ * XXX test against actual version once it does.
+ */
+#ifndef _MSC_VER
+
+
+/*
  * Intermediary invoker.
  * Converts one element from in[] promises to a c++ promise, recursively transforming all
  * into a set of c++ promises.
@@ -647,6 +654,9 @@ auto promise_combine(const workq& wq, const Functor& f, const Promises&... promi
 	}
 	return std::move(out_type(result));
 }
+
+
+#endif /* !_MSC_VER */
 
 
 }
