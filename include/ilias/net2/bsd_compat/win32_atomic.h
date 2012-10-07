@@ -5,6 +5,8 @@
 #error MS Interlocked code requires MSC.
 #endif
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
 #include <intrin.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -286,6 +288,42 @@ atomic_store8(volatile int8_t *v, int8_t val)
 	atomic_store((v), (val))
 
 static __inline int64_t
+atomic_exchange64(volatile int64_t *v, int64_t nv)
+{
+#ifdef _WIN64
+	_InterlockedExchange64
+#else
+	abort();	/* Unsupported. */
+#endif
+}
+static __inline int32_t
+atomic_exchange32(volatile int32_t *v, int32_t nv)
+{
+	assert(sizeof(int32_t) == sizeof(long));
+	return _InterlockedExchange((volatile long*)v, nv);
+}
+static __inline int16_t
+atomic_exchange16(volatile int16_t *v, int16_t nv)
+{
+	assert(sizeof(int16_t) == sizeof(long));
+	return _InterlockedExchange16((volatile short*)v, nv);
+}
+static __inline int8_t
+atomic_exchange8(volatile int8_t *v, int8_t nv)
+{
+	assert(sizeof(int8_t) == sizeof(char));
+	return _InterlockedExchange8((volatile char*)v, nv);
+}
+#define atomic_exchange(v, val)						\
+	select_8_16_32_64(*(v),						\
+	    atomic_exchange8((volatile int8_t*)&(v)->__val, (val)),	\
+	    atomic_exchange16((volatile int16_t*)&(v)->__val, (val)),	\
+	    atomic_exchange32((volatile int32_t*)&(v)->__val, (val)),	\
+	    atomic_exchange64((volatile int64_t*)&(v)->__val, (val)))
+#define atomic_exchange_explicit(v, val, memory)			\
+	atomic_exchange((v), (val))
+
+static __inline int64_t
 atomic_fetch_add64(volatile int64_t *v, uint64_t add)
 {
 #ifdef _WIN64
@@ -430,7 +468,7 @@ atomic_fetch_and8(volatile int8_t *v, int8_t f)
 	atomic_fetch_and((v), (val))
 
 #define atomic_init(v, val)						\
-	do { *v = val; } while (0)
+	do { (v)->__val = val; } while (0)
 
 /* Spinwait assembly for ms compiler. */
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
@@ -441,5 +479,10 @@ atomic_fetch_and8(volatile int8_t *v, int8_t f)
 		};							\
 	} while (0)
 #endif
+
+#define atomic_thread_fence(memory)					\
+	_ReadWriteBarrier()	/* XXX must be MemoryBarrier() (vista) */
+#define atomic_signal_fence(memory)					\
+	_ReadWriteBarrier()
 
 #endif /* ILIAS_NET2_BSD_COMPAT_WIN32_ATOMIC_H */
