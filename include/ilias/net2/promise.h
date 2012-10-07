@@ -392,7 +392,7 @@ promise<T>::operator== (const promise& rhs) throw ()
 }
 
 template<typename T>
-struct net2_promise*
+net2_promise*
 promise<T>::c_promise() const throw ()
 {
 	return p;
@@ -517,7 +517,7 @@ _run_finalizer(void* ILIAS_NET2__unused unused, void *f_ptr) throw ()
 template<typename T>
 template<typename Finalizer>
 void
-promise<T>::fin_ok(promise<T>::result_type *r, Finalizer fin) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+promise<T>::fin_ok(typename promise<T>::result_type *r, Finalizer fin) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
 {
 	Finalizer	*fin_functor = new Finalizer(fin);
 	void		(*free)(void*, void*) = &_run_finalizer<Finalizer>;
@@ -532,14 +532,14 @@ promise<T>::fin_ok(promise<T>::result_type *r, Finalizer fin) throw (std::bad_al
 
 template<typename T>
 void
-promise<T>::do_delete(promise<T>::result_type *r, void*) throw ()
+promise<T>::do_delete(typename promise<T>::result_type *r, void*) throw ()
 {
 	delete r;
 }
 
 template<typename T>
 void
-promise<T>::fin_ok(promise<T>::result_type *r) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+promise<T>::fin_ok(typename promise<T>::result_type *r) throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
 {
 	void		(*free)(result_type*, void*) =
 	    &promise<T>::do_delete;
