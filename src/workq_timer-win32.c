@@ -74,29 +74,6 @@ static void	 net2_workq_timer_container_add(
 		    struct net2_workq_timer*, const struct timeval*);
 
 
-/*
- * Deactivate timer and prevent future activations.
- * Also: prevent free from using an invalid loop pointer.
- */
-static void
-wqtimer_on_wqdestroy(struct net2_workq_job *j)
-{
-	struct net2_workq_timer	*ev = WQJ_2_TIMER(j);
-
-	/*
-	 * No workq lock: job won't give it, but we're ensured
-	 * of the existence of wqev, since it is kept alive until
-	 * the workq is totally dead.
-	 */
-	net2_workq_timer_container_del(ev->container, ev);
-}
-
-static const struct net2_workq_job_cb timer_wqcb = {
-	NULL,
-	wqtimer_on_wqdestroy
-};
-
-
 /* Make the timer expire after the given delay. */
 ILIAS_NET2_EXPORT void
 net2_workq_timer_set(struct net2_workq_timer *ev,
@@ -157,8 +134,6 @@ net2_workq_timer_new(struct net2_workq *wq, net2_workq_cb cb,
 	/* Prepare space in timer array. */
 	if (net2_workq_timer_container_grow(ev->container) != 0)
 		goto fail_2;
-
-	net2_workq_set_callbacks(&ev->job, &timer_wqcb);
 
 	return ev;
 
