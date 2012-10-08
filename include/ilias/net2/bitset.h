@@ -23,8 +23,11 @@
 ILIAS_NET2__begin_cdecl
 
 struct net2_bitset {
-	size_t		 size;
-	int		*data;
+	size_t			 size;
+	union {
+		uintptr_t	*indir;
+		uintptr_t	 immed;
+	};
 };
 
 
