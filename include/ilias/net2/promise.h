@@ -626,11 +626,22 @@ template<typename Functor, typename Result, typename... Promises>
 void
 _invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, size_t insz, void *arg) throw ()
 {
-	promise<Result>  cxx_out(out);
-	Functor		*functor = reinterpret_cast<Functor*>(arg);
+	promise<Result> cxx_out(out);
+	Functor *functor = reinterpret_cast<Functor*>(arg);
 
 	assert(sizeof...(Promises) == insz);
 	_invoke<Promises...>(*functor, cxx_out, in);
+}
+/*
+ * Templated destructor.
+ */
+template<typename Functor>
+void
+_promise_delete_functor(void *f_ptr, void *unused ILIAS_NET2__unused) throw ()
+{
+	Functor *f = reinterpret_cast<Functor*>(f_ptr);
+	if (f)
+		delete f;
 }
 
 /*
@@ -652,6 +663,7 @@ auto promise_combine(const workq& wq, const Functor& f, const Promises&... promi
 		delete arg;
 		throw std::bad_alloc();
 	}
+	net2_promise_destroy_cb(result, &_promise_delete_functor<Functor>, arg, NULL);
 	return std::move(out_type(result));
 }
 
