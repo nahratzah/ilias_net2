@@ -259,13 +259,13 @@ class workq_sync
 private:
 	const workq wq;
 
-	ILIAS_NET2_EXPORT static void do_error(int) throw (std::bad_alloc, workq_sync_error);
+	ILIAS_NET2_EXPORT static void do_error(int) throw (std::bad_alloc, std::invalid_argument, workq_sync_error);
 
 public:
 	static const int TRY = NET2_WQ_WANT_TRY;
 	static const int RECURSE = NET2_WQ_WANT_RECURSE;
 
-	workq_sync(const workq&, int = 0) throw (std::bad_alloc, workq_sync_error);
+	workq_sync(const workq&, int = 0) throw (std::bad_alloc, std::invalid_argument, workq_sync_error);
 	~workq_sync() throw ();
 
 	/* Remove copy/assignment. */
@@ -538,11 +538,9 @@ workq_evbase::c_workq_evbase() const throw ()
 
 
 inline
-workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, workq_sync_error) :
+workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, std::invalid_argument, workq_sync_error) :
 	wq(wq)
 {
-	assert((flags & (TRY | RECURSE)) == flags);
-
 	int error = net2_workq_want(wq.c_workq(), flags);
 	if (error)
 		do_error(error);

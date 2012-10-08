@@ -20,7 +20,7 @@ namespace ilias {
 
 
 void
-workq_sync::do_error(int error) throw (std::bad_alloc, workq_sync_error)
+workq_sync::do_error(int error) throw (std::bad_alloc, std::invalid_argument, workq_sync_error)
 {
 	switch (error) {
 	case 0:
