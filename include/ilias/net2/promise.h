@@ -667,6 +667,30 @@ auto promise_combine(const workq& wq, const Functor& f, const Promises&... promi
 	return std::move(out_type(result));
 }
 
+/*
+ * Promise combiner.
+ * Combines the functor and promises into a combi promise.
+ * Using move constructor for functor.
+ */
+template<typename Functor, typename... Promises>
+auto promise_combine(const workq& wq, const Functor&& f, const Promises&... promises) ->
+    promise<typename std::remove_reference<decltype(*f(promises...))>::type>&&
+{
+	typedef promise<typename std::remove_reference<decltype(*f(promises...))>::type> out_type;
+
+	struct net2_promise	*c_proms[] = { promises.c_promise()... };
+	net2_promise_ccb	 ccb = &_invoke_promise_combiner<Functor, typename out_type::result_type, Promises...>;
+	Functor			*arg = new Functor(f);
+
+	struct net2_promise	*result = net2_promise_combine(wq.c_workq(), ccb, reinterpret_cast<void*>(arg), c_proms, sizeof...(Promises));
+	if (!result) {
+		delete arg;
+		throw std::bad_alloc();
+	}
+	net2_promise_destroy_cb(result, &_promise_delete_functor<Functor>, arg, NULL);
+	return std::move(out_type(result));
+}
+
 
 #endif /* !_MSC_VER */
 
