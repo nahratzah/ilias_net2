@@ -136,6 +136,7 @@ ILIAS_NET2__end_cdecl
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace ilias {
 
@@ -160,16 +161,29 @@ public:
 	explicit buffer(struct net2_buffer*) throw (std::invalid_argument);
 	buffer(buffer_create_t) throw (std::bad_alloc);
 	buffer(const buffer&) throw (std::bad_alloc);
+#if HAS_RVALUE_REF
 	buffer(buffer&&) throw ();
+#endif
 	buffer(const void*, size_type) throw (std::bad_alloc);
 	~buffer() throw ();
 
 	buffer& operator= (const buffer& rhs) throw (std::bad_alloc);
+#if HAS_RVALUE_REF
 	buffer& operator= (buffer&& rhs) throw ();
+#endif
+
 	buffer& operator+= (const buffer& rhs) throw (std::bad_alloc);
+#if HAS_RVALUE_REF
 	buffer& operator+= (buffer&& rhs) throw (std::bad_alloc);
+#endif
+
+#if HAS_RVALUE_REF
 	buffer&& operator+ (const buffer& rhs) const throw (std::bad_alloc);
 	buffer&& operator+ (const buffer&& rhs) const throw (std::bad_alloc);
+#else
+	buffer operator+ (const buffer& rhs) const throw (std::bad_alloc);
+	buffer operator+ (const buffer&& rhs) const throw (std::bad_alloc);
+#endif
 
 	bool empty() const throw ();
 	size_type size() const throw ();
@@ -198,7 +212,11 @@ public:
 
 	struct net2_buffer* c_buffer(bool) throw (std::bad_alloc);
 	struct net2_buffer* c_buffer() const throw (std::bad_alloc);
+#if HAS_RVALUE_REF
 	std::string&& hex() const throw (std::bad_alloc);
+#else
+	std::string hex() const throw (std::bad_alloc);
+#endif
 };
 
 class buffer_iterator
@@ -260,12 +278,14 @@ buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
 		throw std::bad_alloc();
 }
 
+#if HAS_RVALUE_REF
 inline
 buffer::buffer(buffer&& rhs) throw () :
 	buf(rhs.buf)
 {
 	rhs.buf = 0;
 }
+#endif
 
 inline
 buffer::buffer(const void* data, buffer::size_type len) throw (std::bad_alloc) :
@@ -301,6 +321,7 @@ buffer::operator= (const buffer& rhs) throw (std::bad_alloc)
 	return *this;
 }
 
+#if HAS_RVALUE_REF
 inline buffer&
 buffer::operator= (buffer&& rhs) throw ()
 {
@@ -310,6 +331,7 @@ buffer::operator= (buffer&& rhs) throw ()
 	rhs.buf = 0;
 	return *this;
 }
+#endif
 
 inline buffer&
 buffer::operator+= (const buffer& rhs) throw (std::bad_alloc)
@@ -336,6 +358,7 @@ buffer::operator+= (const buffer& rhs) throw (std::bad_alloc)
 	return *this;
 }
 
+#if HAS_RVALUE_REF
 inline buffer&
 buffer::operator+= (buffer&& rhs) throw (std::bad_alloc)
 {
@@ -355,7 +378,9 @@ buffer::operator+= (buffer&& rhs) throw (std::bad_alloc)
 
 	return *this;
 }
+#endif
 
+#if HAS_RVALUE_REF
 inline buffer&&
 buffer::operator+ (const buffer& rhs) const throw (std::bad_alloc)
 {
@@ -363,7 +388,17 @@ buffer::operator+ (const buffer& rhs) const throw (std::bad_alloc)
 	clone += rhs;
 	return std::move(clone);
 }
+#else
+inline buffer
+buffer::operator+ (const buffer& rhs) const throw (std::bad_alloc)
+{
+	buffer clone = *this;
+	clone += rhs;
+	return clone;
+}
+#endif
 
+#if HAS_RVALUE_REF
 inline buffer&&
 buffer::operator+ (const buffer&& rhs) const throw (std::bad_alloc)
 {
@@ -371,6 +406,15 @@ buffer::operator+ (const buffer&& rhs) const throw (std::bad_alloc)
 	clone += std::move(rhs);
 	return std::move(clone);
 }
+#else
+inline buffer
+buffer::operator+ (const buffer&& rhs) const throw (std::bad_alloc)
+{
+	buffer clone = *this;
+	clone += std::move(rhs);
+	return clone;
+}
+#endif
 
 inline bool
 buffer::empty() const throw ()
@@ -684,6 +728,7 @@ buffer_iterator::find(void* needle, size_type len) throw ()
 	return net2_buffer_search(buf, &ptr, needle, len, &ptr) == 0;
 }
 
+#ifdef HAS_RVALUE_REF
 inline std::string&&
 buffer::hex() const throw (std::bad_alloc)
 {
@@ -701,6 +746,25 @@ buffer::hex() const throw (std::bad_alloc)
 	}
 	return std::move(out);
 }
+#else
+inline std::string
+buffer::hex() const throw (std::bad_alloc)
+{
+	std::string out;
+
+	if (buf) {
+		char *hex = net2_buffer_hex(buf, &malloc);
+		try {
+			out = hex;
+		} catch (...) {
+			free(hex);
+			throw;
+		}
+		free(hex);
+	}
+	return out;
+}
+#endif
 
 
 } /* namespace ilias */

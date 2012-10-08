@@ -145,7 +145,11 @@ ILIAS_NET2__end_cdecl
 #include <cassert>
 #include <exception>
 #include <stdexcept>
-#include <type_traits>
+#include <utility>
+
+#if HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
+#include <type_traits>	/* For combi promise templates. */
+#endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
 namespace ilias {
 
@@ -281,11 +285,15 @@ public:
 	promise(promise_create_t) throw (std::bad_alloc);
 	explicit promise(struct net2_promise*) throw ();
 	promise(const promise&) throw ();
+#if HAS_RVALUE_REF
 	promise(promise&&) throw ();
+#endif
 	~promise() throw ();
 
 	promise& operator= (const promise&) throw ();
+#if HAS_RVALUE_REF
 	promise& operator= (promise&&) throw ();
+#endif
 	bool operator== (const promise&) throw ();
 
 	struct net2_promise *c_promise() const throw ();
@@ -345,6 +353,7 @@ promise<T>::promise(const promise<T>& rhs) throw () :
 		net2_promise_ref(p);
 }
 
+#if HAS_RVALUE_REF
 template<typename T>
 promise<T>::promise(promise<T>&& rhs) throw () :
 	p(rhs.p)
@@ -353,6 +362,7 @@ promise<T>::promise(promise<T>&& rhs) throw () :
 	if (p)
 		net2_promise_ref(p);
 }
+#endif
 
 template<typename T>
 promise<T>::~promise() throw ()
@@ -373,6 +383,7 @@ promise<T>::operator= (const promise<T>& rhs) throw ()
 	return *this;
 }
 
+#if HAS_RVALUE_REF
 template<typename T>
 promise<T>&
 promise<T>::operator= (promise<T>&& rhs) throw ()
@@ -383,6 +394,7 @@ promise<T>::operator= (promise<T>&& rhs) throw ()
 	rhs.p = 0;
 	return *this;
 }
+#endif
 
 template<typename T>
 bool
@@ -569,11 +581,7 @@ promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_f
 }
 
 
-/*
- * MS VC doesn't support variadic templates at this moment.
- * XXX test against actual version once it does.
- */
-#ifndef _MSC_VER
+#if HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
 
 
 /*
@@ -692,7 +700,7 @@ auto promise_combine(const workq& wq, Functor&& f, const Promises&... promises) 
 }
 
 
-#endif /* !_MSC_VER */
+#endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
 
 }

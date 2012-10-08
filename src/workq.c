@@ -565,15 +565,54 @@ wq_pop(struct net2_workq_evbase *wqev)
 {
 	struct net2_workq	*wq;
 	unsigned int		 int_refcnt;
+	int			 wqfl;
 
-	while ((wq = LL_POP_FRONT(net2_workq_runq, &wqev->runq)) != NULL) {
+	while ((wq = LL_POP_FRONT_NOWAIT(net2_workq_runq, &wqev->runq)) !=
+	    NULL) {
 		if (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
 		    WQ_DEINIT) {
+			LL_UNLINK_WAIT(net2_workq_runq, &wqev->runq, wq);
 			int_refcnt = atomic_fetch_sub_explicit(&wq->int_refcnt,
 			    1, memory_order_relaxed);
 			assert(int_refcnt > 0);
 		} else
 			break;
+	}
+	if (wq == NULL)
+		return NULL;
+
+	if (LL_EMPTY(net2_workq_job_runq, &wq->runqueue)) {
+wait_only:
+		LL_UNLINK_WAIT(net2_workq_runq, &wqev->runq, wq);
+	} else {
+		wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_QMANIP,
+		    memory_order_relaxed);
+		if (wqfl & WQ_QMANIP)
+			goto wait_only;
+		if (wqfl & WQ_DEINIT) {
+			atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
+			    memory_order_relaxed);
+			goto wait_only;
+		}
+
+		atomic_fetch_add_explicit(&wq->int_refcnt, 1,
+		    memory_order_relaxed);
+		LL_UNLINK_WAIT_INSERT_TAIL(net2_workq_runq,
+		    &wqev->runq, wq);
+
+		wqfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
+		    memory_order_relaxed);
+		assert(wqfl & WQ_QMANIP);
+
+		/*
+		 * Release wq, since UNLINK_WAIT_INSERT_TAIL does not release
+		 * the last reference.
+		 */
+		LL_RELEASE(net2_workq_runq,
+		    &wqev->runq, wq);
+
+		/* Activate an additional worker to pick up this workq. */
+		activate_worker(wqev);
 	}
 	return wq;
 }

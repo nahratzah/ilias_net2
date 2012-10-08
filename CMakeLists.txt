@@ -33,12 +33,15 @@ include (CheckCCompilerFlag)
 include (CheckCXXCompilerFlag)
 #check_c_compiler_flag("-std=c11" STD_C11)
 check_cxx_compiler_flag("-std=c++11" STD_CXX11)
+check_cxx_compiler_flag("-std=c++0x" STD_CXX0X)
 if (STD_C11)
 	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
 endif (STD_C11)
 if (STD_CXX11)
 	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-endif (STD_CXX11)
+elseif (STD_CXX0X)
+	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+endif ()
 
 
 # Include necessary submodules

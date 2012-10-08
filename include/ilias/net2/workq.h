@@ -166,9 +166,11 @@ ILIAS_NET2__end_cdecl
 #ifdef __cplusplus
 
 #include <cassert>
+#include <cerrno>
 #include <exception>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 namespace ilias {
 
@@ -210,24 +212,35 @@ private:
 	struct net2_workq *wq;
 	static net2_workq *wq_from_wqev(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
 
-public:
+#if HAS_DELETED_FN
 	workq() = delete;
+#else
+	workq();
+#endif
+
+public:
 	workq(workq_evbase&) throw (std::bad_alloc);
 	explicit workq(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
 	explicit workq(struct net2_workq*) throw (std::invalid_argument);
 	workq(const workq&) throw ();
+#if HAS_RVALUE_REF
 	workq(workq&&) throw ();
+#endif
 	~workq() throw ();
 
 	workq& operator= (const workq&) throw ();
+#if HAS_RVALUE_REF
 	workq& operator= (workq&&) throw ();
+#endif
 	bool operator== (const workq&) const throw ();
 	bool operator!= (const workq&) const throw ();
 
 	void surf(bool = false) const throw (std::bad_alloc);
 	bool aid(int = 1) const throw (std::bad_alloc, std::invalid_argument);
 
+#if HAS_RVALUE_REF
 	workq_evbase&& evbase() const throw ();
+#endif
 
 	struct net2_workq *c_workq() const throw ();
 };
@@ -243,11 +256,15 @@ public:
 	workq_evbase(const std::string&) throw (std::bad_alloc);
 	explicit workq_evbase(struct net2_workq_evbase*) throw (std::invalid_argument);
 	workq_evbase(const workq_evbase&) throw ();
+#if HAS_RVALUE_REF
 	workq_evbase(workq_evbase&&) throw ();
+#endif
 	~workq_evbase() throw ();
 
 	workq_evbase& operator= (const workq_evbase&) throw ();
+#if HAS_RVALUE_REF
 	workq_evbase& operator= (workq_evbase&&) throw ();
+#endif
 	bool operator== (const workq_evbase&) const throw ();
 	bool operator!= (const workq_evbase&) const throw ();
 
@@ -269,8 +286,14 @@ public:
 	~workq_sync() throw ();
 
 	/* Remove copy/assignment. */
+#if HAS_DELETED_FN
 	workq_sync(const workq_sync&) = delete;
 	workq_sync& operator=(const workq_sync&) = delete;
+#else
+private:
+	workq_sync(const workq_sync&);
+	workq_sync& operator=(const workq_sync&);
+#endif
 };
 
 class workq_job
@@ -294,25 +317,37 @@ public:
 
 	template<typename Functor>
 	workq_job(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+#if HAS_RVALUE_REF
 	template<typename Functor>
 	workq_job(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+#endif
 
 	void reset() throw ();
 
 	template<typename Functor>
 	void reset(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+#if HAS_RVALUE_REF
 	template<typename Functor>
 	void reset(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+#endif
 
 	bool is_null() const throw ();
+#if HAS_RVALUE_REF
 	workq&& get_workq() const;
+#endif
 
 	void activate(int = 0) const throw ();
 	void deactivate() const throw ();
 
 	/* Remove copy/assignment. */
+#if HAS_DELETED_FN
 	workq_job(const workq_job&) = delete;
 	workq_job& operator=(const workq_job&) = delete;
+#else
+private:
+	workq_job(const workq_job&);
+	workq_job& operator=(const workq_job&);
+#endif
 };
 
 
@@ -358,12 +393,14 @@ workq::workq(const workq& rhs) throw () :
 	net2_workq_ref(wq);
 }
 
+#if HAS_RVALUE_REF
 inline
 workq::workq(workq&& rhs) throw () :
 	wq(rhs.wq)
 {
 	rhs.wq = 0;
 }
+#endif
 
 inline
 workq::~workq() throw ()
@@ -381,6 +418,7 @@ workq::operator= (const workq& rhs) throw ()
 	return *this;
 }
 
+#if HAS_RVALUE_REF
 inline workq&
 workq::operator= (workq&& rhs) throw ()
 {
@@ -389,6 +427,7 @@ workq::operator= (workq&& rhs) throw ()
 	rhs.wq = 0;
 	return *this;
 }
+#endif
 
 inline bool
 workq::operator== (const workq& rhs) const throw ()
@@ -432,6 +471,7 @@ workq::aid(int count) const throw (std::bad_alloc, std::invalid_argument)
 	return false;
 }
 
+#if HAS_RVALUE_REF
 inline workq_evbase&&
 workq::evbase() const throw ()
 {
@@ -439,6 +479,7 @@ workq::evbase() const throw ()
 	net2_workq_evbase_ref(wqev);
 	return std::move(workq_evbase(wqev));
 }
+#endif
 
 inline struct net2_workq*
 workq::c_workq() const throw ()
@@ -486,12 +527,14 @@ workq_evbase::workq_evbase(const workq_evbase& rhs) throw () :
 	net2_workq_evbase_ref(wqev);
 }
 
+#if HAS_RVALUE_REF
 inline
 workq_evbase::workq_evbase(workq_evbase&& rhs) throw () :
 	wqev(rhs.wqev)
 {
 	rhs.wqev = 0;
 }
+#endif
 
 inline
 workq_evbase::~workq_evbase() throw ()
@@ -509,6 +552,7 @@ workq_evbase::operator= (const workq_evbase& rhs) throw ()
 	return *this;
 }
 
+#if HAS_RVALUE_REF
 inline workq_evbase&
 workq_evbase::operator= (workq_evbase&& rhs) throw ()
 {
@@ -517,6 +561,7 @@ workq_evbase::operator= (workq_evbase&& rhs) throw ()
 	rhs.wqev = 0;
 	return *this;
 }
+#endif
 
 inline bool
 workq_evbase::operator== (const workq_evbase& rhs) const throw ()
@@ -566,12 +611,14 @@ workq_job::workq_job(const workq& wq, const Functor& f, int flags) throw (std::b
 	this->reset(wq, f, flags);
 }
 
+#if HAS_RVALUE_REF
 template<typename Functor>
 workq_job::workq_job(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc, std::invalid_argument)
 {
 	net2_workq_init_work_null(&this->job);
 	this->reset(wq, f, flags);
 }
+#endif
 
 inline
 workq_job::~workq_job() throw ()
@@ -631,6 +678,7 @@ workq_job::reset(const workq& wq, const Functor& f, int flags) throw (std::bad_a
 	this->deletor = &workq_job::delete_fun<Functor>;
 }
 
+#if HAS_RVALUE_REF
 template<typename Functor>
 void
 workq_job::reset(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc, std::invalid_argument)
@@ -656,6 +704,7 @@ workq_job::reset(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc,
 	this->functor = reinterpret_cast<void*>(arg.release());
 	this->deletor = &workq_job::delete_fun<Functor>;
 }
+#endif
 
 inline bool
 workq_job::is_null() const throw ()
@@ -663,6 +712,7 @@ workq_job::is_null() const throw ()
 	return net2_workq_work_is_null(&this->job);
 }
 
+#if HAS_RVALUE_REF
 inline workq&&
 workq_job::get_workq() const
 {
@@ -673,6 +723,7 @@ workq_job::get_workq() const
 		net2_workq_release(wq);
 	return std::move(result);
 }
+#endif
 
 inline void
 workq_job::activate(int flags) const throw ()

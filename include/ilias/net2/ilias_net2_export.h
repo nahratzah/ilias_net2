@@ -17,6 +17,10 @@
 #define ILIAS_ILIAS_NET2_EXPORT_H
 
 
+/* Include ilias config here, so I won't keep tripping over missing include. */
+#include <ilias/net2/config.h>
+
+
 #if defined(WIN32)
 #ifdef ilias_net2_EXPORTS
 #define ILIAS_NET2_EXPORT	__declspec(dllexport)
