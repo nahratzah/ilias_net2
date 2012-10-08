@@ -167,8 +167,8 @@ ILIAS_NET2__end_cdecl
 
 #include <cassert>
 #include <exception>
+#include <memory>
 #include <stdexcept>
-
 
 namespace ilias {
 
@@ -207,11 +207,11 @@ public:
 class workq
 {
 private:
-	struct net2_workq	*wq;
-
+	struct net2_workq *wq;
 	static net2_workq *wq_from_wqev(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
 
 public:
+	workq() = delete;
 	workq(workq_evbase&) throw (std::bad_alloc);
 	explicit workq(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
 	explicit workq(struct net2_workq*) throw (std::invalid_argument);
@@ -236,6 +236,7 @@ private:
 
 public:
 	workq_evbase() throw (std::bad_alloc);
+	workq_evbase(const char*) throw (std::bad_alloc);
 	workq_evbase(const std::string&) throw (std::bad_alloc);
 	explicit workq_evbase(struct net2_workq_evbase*) throw (std::invalid_argument);
 	workq_evbase(const workq_evbase&) throw ();
@@ -254,11 +255,8 @@ class workq_sync
 {
 private:
 	const workq wq;
-	bool locked;
-	bool selflocked;
 
 	ILIAS_NET2_EXPORT static void do_error(int) throw (std::bad_alloc, workq_sync_error);
-	workq_sync(const workq_sync&);
 
 public:
 	static const int TRY = NET2_WQ_WANT_TRY;
@@ -266,6 +264,49 @@ public:
 
 	workq_sync(const workq&, int = 0) throw (std::bad_alloc, workq_sync_error);
 	~workq_sync() throw ();
+
+	/* Remove copy/assignment. */
+	workq_sync(const workq_sync&) = delete;
+	workq_sync& operator=(const workq_sync&) = delete;
+};
+
+class workq_job
+{
+private:
+	mutable struct net2_workq_job job;
+	void *functor;
+	void (*deletor)(void*);
+
+	template<typename Functor>
+	static void delete_fun(void*);
+	template<typename Functor>
+	static void invoke_fun(void*, void*);
+
+public:
+	workq_job() throw ();
+	~workq_job() throw ();
+
+	template<typename Functor>
+	workq_job(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+	template<typename Functor>
+	workq_job(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+
+	void reset() throw ();
+
+	template<typename Functor>
+	void reset(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+	template<typename Functor>
+	void reset(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
+
+	bool is_null() const throw ();
+	workq&& get_workq() const;
+
+	void activate(int = 0) const throw ();
+	void deactivate() const throw ();
+
+	/* Remove copy/assignment. */
+	workq_job(const workq_job&) = delete;
+	workq_job& operator=(const workq_job&) = delete;
 };
 
 
@@ -379,6 +420,14 @@ workq_evbase::workq_evbase() throw (std::bad_alloc) :
 }
 
 inline
+workq_evbase::workq_evbase(const char *name) throw (std::bad_alloc) :
+	wqev(net2_workq_evbase_new(name, 0, 0))
+{
+	if (!wqev)
+		throw std::bad_alloc();
+}
+
+inline
 workq_evbase::workq_evbase(const std::string& name) throw (std::bad_alloc) :
 	wqev(net2_workq_evbase_new(name.c_str(), 0, 0))
 {
@@ -454,9 +503,7 @@ workq_evbase::c_workq_evbase() const throw ()
 
 inline
 workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, workq_sync_error) :
-	wq(wq),
-	selflocked(false),
-	locked(false)
+	wq(wq)
 {
 	assert((flags & (TRY | RECURSE)) == flags);
 
@@ -469,6 +516,140 @@ inline
 workq_sync::~workq_sync() throw ()
 {
 	net2_workq_unwant(wq.c_workq());
+}
+
+
+inline
+workq_job::workq_job() throw ()
+{
+	net2_workq_init_work_null(&this->job);
+}
+
+template<typename Functor>
+workq_job::workq_job(const workq& wq, const Functor& f, int flags) throw (std::bad_alloc, std::invalid_argument)
+{
+	net2_workq_init_work_null(&this->job);
+	this->reset(wq, f, flags);
+}
+
+template<typename Functor>
+workq_job::workq_job(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc, std::invalid_argument)
+{
+	net2_workq_init_work_null(&this->job);
+	this->reset(wq, f, flags);
+}
+
+inline
+workq_job::~workq_job() throw ()
+{
+	this->reset();
+}
+
+template<typename Functor>
+void
+workq_job::invoke_fun(void *f_ptr, void *unused ILIAS_NET2__unused)
+{
+	Functor *f = reinterpret_cast<void*>(f_ptr);
+	(*f)();
+}
+
+template<typename Functor>
+void
+workq_job::delete_fun(void *f_ptr)
+{
+	Functor *f = reinterpret_cast<void*>(f_ptr);
+	delete f;
+}
+
+inline void
+workq_job::reset() throw ()
+{
+	net2_workq_deinit_work(&this->job);
+	if (this->functor)
+		(*this->deletor)(this->functor);
+	this->deletor = 0;
+	this->functor = 0;
+}
+
+template<typename Functor>
+void
+workq_job::reset(const workq& wq, const Functor& f, int flags) throw (std::bad_alloc, std::invalid_argument)
+{
+	std::auto_ptr<Functor> arg;
+
+	this->reset();
+
+	arg = new Functor(f);
+	int error = net2_workq_init_work(&this->job, wq.c_workq(), &workq_job::invoke_fun<Functor>, reinterpret_cast<void*>(arg.get()), NULL, flags);
+	switch (error) {
+	case 0:
+		break;
+	case ENOMEM:
+		throw std::bad_alloc();
+	case EINVAL:
+		throw std::invalid_argument("workq_job assignment");
+	default:
+		/* UNREACHABLE */
+		assert(0);
+	}
+
+	this->functor = reinterpret_cast<void*>(arg.release());
+	this->deletor = &workq_job::delete_fun<Functor>;
+}
+
+template<typename Functor>
+void
+workq_job::reset(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc, std::invalid_argument)
+{
+	std::auto_ptr<Functor> arg;
+
+	this->reset();
+
+	arg = new Functor(f);
+	int error = net2_workq_init_work(&this->job, wq.c_workq(), &workq_job::invoke_fun<Functor>, reinterpret_cast<void*>(arg.get()), NULL, flags);
+	switch (error) {
+	case 0:
+		break;
+	case ENOMEM:
+		throw std::bad_alloc();
+	case EINVAL:
+		throw std::invalid_argument("workq_job assignment");
+	default:
+		/* UNREACHABLE */
+		assert(0);
+	}
+
+	this->functor = reinterpret_cast<void*>(arg.release());
+	this->deletor = &workq_job::delete_fun<Functor>;
+}
+
+inline bool
+workq_job::is_null() const throw ()
+{
+	return net2_workq_work_is_null(&this->job);
+}
+
+inline workq&&
+workq_job::get_workq() const
+{
+	struct net2_workq *wq;
+
+	workq result(wq = net2_workq_get(&this->job));
+	if (wq)
+		net2_workq_release(wq);
+	return std::move(result);
+}
+
+inline void
+workq_job::activate(int flags) const throw ()
+{
+	net2_workq_activate(&this->job, flags);
+}
+
+inline void
+workq_job::deactivate() const throw ()
+{
+	net2_workq_deactivate(&this->job);
 }
 
 
