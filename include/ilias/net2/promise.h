@@ -673,7 +673,7 @@ auto promise_combine(const workq& wq, const Functor& f, const Promises&... promi
  * Using move constructor for functor.
  */
 template<typename Functor, typename... Promises>
-auto promise_combine(const workq& wq, const Functor&& f, const Promises&... promises) ->
+auto promise_combine(const workq& wq, Functor&& f, const Promises&... promises) ->
     promise<typename std::remove_reference<decltype(*f(promises...))>::type>&&
 {
 	typedef promise<typename std::remove_reference<decltype(*f(promises...))>::type> out_type;
