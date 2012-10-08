@@ -224,6 +224,9 @@ public:
 	bool operator== (const workq&) const throw ();
 	bool operator!= (const workq&) const throw ();
 
+	void surf(bool = false) const throw (std::bad_alloc);
+	bool aid(int = 1) const throw (std::bad_alloc, std::invalid_argument);
+
 	workq_evbase&& evbase() const throw ();
 
 	struct net2_workq *c_workq() const throw ();
@@ -283,6 +286,9 @@ private:
 	static void invoke_fun(void*, void*);
 
 public:
+	static const int PERSIST = NET2_WORKQ_PERSIST;
+	static const int PARALLEL = NET2_WORKQ_PARALLEL;
+
 	workq_job() throw ();
 	~workq_job() throw ();
 
@@ -396,10 +402,40 @@ workq::operator!= (const workq& rhs) const throw ()
 	return !(*this == rhs);
 }
 
+inline void
+workq::surf(bool parallel) const throw (std::bad_alloc)
+{
+	int error = net2_workq_surf(this->wq, parallel);
+	switch (error) {
+	case 0:
+		break;
+	case ENOMEM:
+		throw std::bad_alloc();
+	default:
+		/* UNREACHABLE */
+		assert(0);
+	}
+}
+
+inline bool
+workq::aid(int count) const throw (std::bad_alloc, std::invalid_argument)
+{
+	int error = net2_workq_aid(this->wq, count);
+	switch (error) {
+	case 0:
+		return true;
+	case ENOMEM:
+		throw std::bad_alloc();
+	case EINVAL:
+		throw std::invalid_argument("workq::aid(count)");
+	}
+	return false;
+}
+
 inline workq_evbase&&
 workq::evbase() const throw ()
 {
-	struct net2_workq_evbase *wqev = net2_workq_evbase(wq);
+	struct net2_workq_evbase *wqev = net2_workq_evbase(this->wq);
 	net2_workq_evbase_ref(wqev);
 	return std::move(workq_evbase(wqev));
 }
