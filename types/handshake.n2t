@@ -1,0 +1,648 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <stdint.h>
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/types.h>
+#include "signature.h"
+
+
+/*
+ * Negotiation packets.
+ *
+ * These are kept small, so they won't span multiple packets during
+ * transmission: the conn_negotiator has no way of making a message cross
+ * a boundary.
+ *
+ * Headers may only be coded using net2_proto at version 0.
+ * Otherwise, future extensions may break backwards compatibility during
+ * the negotiation stage, making it impossible to achieve a connection.
+ */
+struct header {
+	uint32_t		 flags;
+#define F_TYPEMASK		 0x00000fffU
+#define F_TYPE_PVER		 0x00000000U
+#define F_TYPE_XCHANGE		(0x00000000U | F_SET_ELEMENT)
+#define F_TYPE_HASH		(0x00000001U | F_SET_ELEMENT)
+#define F_TYPE_CRYPT		(0x00000002U | F_SET_ELEMENT)
+#define F_TYPE_SIGN		(0x00000003U | F_SET_ELEMENT)
+#define F_TYPE_SIGNATURE	(0x00000004U | F_SET_ELEMENT)
+#define F_TYPE_SIGNATURE_ACCEPT	(0x00000005U | F_SET_ELEMENT)
+#define F_SET_ELEMENT		 0x00000800U
+#define F_SET_LASTELEM		 0x00001000U
+#define F_SET_EMPTY		 0x00002000U
+#define FT_MASK			 0x000f0000U
+#define FT_MASKSHIFT		16U	/* Shift, to convert FT to index. */
+#define FT_INT			 0x00000000U
+#define FT_STRING		 0x00010000U
+#define FT_BUFFER		 0x00020000U
+#define F_POETRY		 0x80000000U
+
+/* Indicates the end of a connection negotiation. */
+#define F_LAST_HEADER		 0xffffffffU
+
+	uint32_t		 fin_reserved;	/* Must be zero. */
+
+	uint32_t		 seq;
+	union {
+		struct {
+			net2_protocol_t
+				 version;
+			uint16_t num_types;
+			uint16_t num_settypes;
+			uint32_t options;
+			uint32_t reserved;	/* Must be zero. */
+		};
+		char		*string;
+		struct net2_buffer
+				*buf;
+		uint32_t	 val;
+	}			 payload;
+};
+
+
+extern ILIAS_NET2_LOCAL
+const struct header	header_fini;
+/* Length of header_fini on the wire. */
+#define FINI_LEN	4 /* bytes */
+
+
+ILIAS_NET2_LOCAL
+uint32_t mask_option(net2_protocol_t, uint32_t);
+ILIAS_NET2_LOCAL
+int	 header_flag_supported(net2_protocol_t, uint32_t);
+
+ILIAS_NET2_LOCAL
+int	 init_header_protocol(struct header*, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_val(struct header*, uint32_t, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_string(struct header*, const char*, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_buf(struct header*, struct net2_buffer*, uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_valset(struct header*, int, uint32_t, int,
+	    uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_stringset(struct header*, int, const char*, int,
+	    uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_bufset(struct header*, int, struct net2_buffer*, int,
+	    uint32_t);
+ILIAS_NET2_LOCAL
+int	 init_header_empty_set(struct header*, uint32_t);
+ILIAS_NET2_LOCAL
+void	 deinit_header(struct header*);
+
+ILIAS_NET2_LOCAL
+int	 net2_init_poetry();
+ILIAS_NET2_LOCAL
+void	 net2_destroy_poetry();
+ILIAS_NET2_LOCAL
+int	 net2_add_poetry(struct net2_buffer*, size_t);
+
+
+%%
+#include "handshake.h"
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/memory.h>
+%%
+
+
+type header (
+	ctype struct header,
+	encode cp_header_encode,
+	decode cp_header_decode,
+	init cp_header_init,
+	destroy cp_header_destroy
+);
+
+struct pver_header_content (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	net2_protocol	payload.version;
+	uint16		payload.num_types;
+	uint16		payload.num_settypes;
+	uint32		payload.options;
+	uint32		payload.reserved;
+};
+
+struct val_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32		payload.val;
+};
+
+struct string_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	string		payload.string;
+};
+
+struct buffer_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	short_net2_buffer
+			payload.buf;
+};
+
+struct last_header (ctype struct header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32		fin_reserved;
+};
+
+type set_header (ctype struct header,
+    encode set_encode,
+    decode set_decode);
+
+type header_payload (ctype struct header,
+    encode payload_encode,
+    decode payload_decode);
+
+type header__no_flags (ctype struct header,
+    encode header__no_flags_encode,
+    decode header__no_flags_decode);
+
+type poetry_header (ctype struct header,
+    encode poetry_encode,
+    decode poetry_decode);
+
+
+%%
+
+/* Extracts the encoding type of a header based on the flags. */
+static __inline const struct command_param*
+get_header__no_flags_type(uint32_t hflags)
+{
+	if (hflags == F_TYPE_PVER)
+		return &cp_pver_header_content;
+	if (hflags == F_LAST_HEADER)
+		return &cp_last_header;
+
+	if (hflags & F_SET_ELEMENT)
+		return &cp_set_header;
+	if (hflags & F_POETRY)
+		return &cp_poetry_header;
+	return &cp_header_payload;
+}
+
+static int
+header__no_flags_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header__no_flags_type(h->flags)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, h, NULL);
+}
+
+static int
+header__no_flags_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header__no_flags_type(h->flags)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, h, in, NULL);
+}
+
+
+static const struct command_param *const header_cp_type[] = {
+	/* INT */	&cp_val_header,
+	/* STRING */	&cp_string_header,
+	/* BUFFER */	&cp_buffer_header,
+};
+
+#define HEADER_FLAGS__TYPE(header)					\
+	(((header)->flags & FT_MASK) >> FT_MASKSHIFT)
+
+/* Returns the command param type for the payload of the given header. */
+static __inline const struct command_param*
+get_header_cp_type(const struct header *h)
+{
+	uint32_t	 idx;
+
+	idx = HEADER_FLAGS__TYPE(h);
+	if (idx > sizeof(header_cp_type) / sizeof(header_cp_type[0]))
+		return NULL;
+	return header_cp_type[idx];
+}
+
+static int
+payload_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header_cp_type(h)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, h, NULL);
+}
+
+static int
+payload_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
+{
+	const struct command_param	*cp;
+
+	if ((cp = get_header_cp_type(h)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, h, in, NULL);
+}
+
+static int
+set_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
+{
+	int				 error;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if ((h->flags & (F_SET_ELEMENT | F_SET_LASTELEM | F_SET_EMPTY | FT_MASK | F_TYPEMASK)) != h->flags)
+		return EINVAL;
+
+	if (h->flags & F_SET_EMPTY) {
+		if (h->flags & F_SET_LASTELEM)
+			return EINVAL;
+		return 0;
+	}
+
+	if ((error = net2_cp_encode(c, &cp_uint32, out, &h->seq, NULL)) != 0)
+		return error;
+
+	if ((error = net2_cp_encode(c, &cp_header_payload, out, h, NULL)) != 0)
+		return error;
+	return 0;
+}
+
+static int
+set_decode(struct net2_encdec_ctx *c, struct header *h, struct net2_buffer *in,
+    const void *cp_arg ILIAS_NET2__unused)
+{
+	int				 error;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if ((h->flags & (F_SET_ELEMENT | F_SET_LASTELEM | F_SET_EMPTY | FT_MASK | F_TYPEMASK)) != h->flags)
+		return EINVAL;
+
+	if (h->flags & F_SET_EMPTY) {
+		if (h->flags & F_SET_LASTELEM)
+			return EINVAL;
+		return 0;
+	}
+
+	if ((error = net2_cp_decode(c, &cp_uint32, &h->seq, in, NULL)) != 0)
+		return error;
+
+	if ((error = net2_cp_decode(c, &cp_header_payload, h, in, NULL)) != 0)
+		return error;
+	return 0;
+}
+
+static int
+poetry_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct header *h, const void *cp_arg ILIAS_NET2__unused)
+{
+	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
+		return EINVAL;
+	return net2_cp_encode(c, &cp_header_payload, out, h, NULL);
+}
+
+static int
+poetry_decode(struct net2_encdec_ctx *c, struct header *h,
+    struct net2_buffer *in, const void *cp_arg ILIAS_NET2__unused)
+{
+	if ((h->flags & (F_POETRY | FT_MASK)) != h->flags)
+		return EINVAL;
+	return net2_cp_decode(c, &cp_header_payload, h, in, NULL);
+}
+
+
+
+/* Describe for each option which protocol version first supported it. */
+static const net2_protocol_t	options[] = {
+	/* ENCRYPTION */	 0,
+	/* SIGNING */		 0,
+};
+
+/*
+ * Describe for each header payload type at which protocol version it was
+ * first supported.
+ */
+static const net2_protocol_t	header_flags[] = {
+	/* PVER */		 0,
+};
+/*
+ * Describe for each header set payload type at which protocol version it was
+ * first supported.
+ */
+static const net2_protocol_t	header_set_flags[] = {
+	/* XCHANGE */		 0,
+	/* HASH */		 0,
+	/* CRYPT */		 0,
+	/* SIGN */		 0,
+	/* SIGNATURE */		 0,
+	/* SIGNATURE_ACCEPT */	 0,
+};
+
+
+/*
+ * Mask options to only include those supported at a given protocol version.
+ */
+ILIAS_NET2_LOCAL uint32_t
+mask_option(net2_protocol_t pver, uint32_t option)
+{
+	unsigned int	i;
+	uint32_t	supported;
+#define NUM_OPTIONS	(sizeof(options) / sizeof(options[0]))
+
+	/* Mark all supported options based on pver. */
+	supported = 0;
+	for (i = 0; i < NUM_OPTIONS; i++) {
+		if (options[i] <= pver)
+			supported |= (uint32_t)1 << i;
+	}
+#undef NUM_OPTIONS
+
+	return option & supported;
+}
+
+/*
+ * Test if a certain header flag is supported.
+ */
+ILIAS_NET2_LOCAL int
+header_flag_supported(net2_protocol_t pver, uint32_t hflag)
+{
+	uint32_t	 type;
+	const net2_protocol_t
+			*collection;
+	size_t		 coll_size;
+
+	type = hflag & F_TYPEMASK;
+	if (hflag & F_SET_ELEMENT) {
+		collection = header_set_flags;
+		coll_size = sizeof(header_set_flags) /
+		    sizeof(header_set_flags[0]);
+		type &= ~F_SET_ELEMENT;
+	} else {
+		collection = header_flags;
+		coll_size = sizeof(header_flags) /
+		    sizeof(header_flags[0]);
+	}
+
+	if (type >= coll_size)
+		return 0;
+	if (collection[type] > pver)
+		return 0;
+	return 1;
+}
+
+
+/* Create protocol header. */
+ILIAS_NET2_LOCAL int
+init_header_protocol(struct header *h, uint32_t flags)
+{
+	h->flags = F_TYPE_PVER;
+	h->payload.version = net2_proto.version;
+	h->payload.num_types =
+	    sizeof(header_flags) / sizeof(header_flags[0]);
+	h->payload.num_settypes =
+	    sizeof(header_set_flags) / sizeof(header_set_flags[0]);
+	h->payload.options = flags;
+	h->payload.reserved = 0;
+	return 0;
+}
+/* Describe value header. */
+ILIAS_NET2_LOCAL int
+init_header_val(struct header *h, uint32_t value, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	h->payload.val = value;
+	h->flags |= FT_INT;
+	return 0;
+}
+/* Describe string header. */
+ILIAS_NET2_LOCAL int
+init_header_string(struct header *h, const char *value, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	if (value == NULL)
+		return EINVAL;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	if ((h->payload.string = net2_strdup(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_STRING;
+	return 0;
+}
+/* Describe buffer header. */
+ILIAS_NET2_LOCAL int
+init_header_buf(struct header *h, struct net2_buffer *value, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+
+	if (h->flags & F_SET_ELEMENT)
+		return EINVAL;
+	if ((h->payload.buf = net2_buffer_copy(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_BUFFER;
+	return 0;
+}
+/* Create valset header. */
+ILIAS_NET2_LOCAL int
+init_header_valset(struct header *h, int seq, uint32_t value,
+    int max_seq, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	h->seq = seq;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	h->payload.val = value;
+	h->flags |= FT_INT;
+	return 0;
+}
+/* Create stringset header. */
+ILIAS_NET2_LOCAL int
+init_header_stringset(struct header *h, int seq, const char *value,
+    int max_seq, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	h->seq = seq;
+	if (value == NULL)
+		return EINVAL;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	if ((h->payload.string = net2_strdup(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_STRING;
+	return 0;
+}
+/* Describe bufferset header. */
+ILIAS_NET2_LOCAL int
+init_header_bufset(struct header *h, int seq, struct net2_buffer *value,
+    int max_seq, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	h->flags = which;
+	h->seq = seq;
+
+	if (!(h->flags & F_SET_ELEMENT))
+		return EINVAL;
+	if (seq == max_seq)
+		h->flags |= F_SET_LASTELEM;
+	if ((h->payload.buf = net2_buffer_copy(value)) == NULL)
+		return ENOMEM;
+	h->flags |= FT_BUFFER;
+	return 0;
+}
+/* Create empty set. */
+ILIAS_NET2_LOCAL int
+init_header_empty_set(struct header *h, uint32_t which)
+{
+	if ((which & F_TYPEMASK) != which)
+		return EINVAL;
+	if (!(which & F_SET_ELEMENT))
+		return EINVAL;
+	h->flags = which;
+	h->flags |= F_SET_EMPTY;
+	return 0;
+}
+/* Free resources of header. */
+ILIAS_NET2_LOCAL void
+deinit_header(struct header *h)
+{
+	if (h->flags == F_LAST_HEADER)
+		return;
+
+	switch (h->flags & FT_MASK) {
+	case FT_INT:
+		/* Nothing. */
+		break;
+	case FT_STRING:
+		net2_cp_destroy(&cp_string,
+		    &h->payload.string, NULL);
+		break;
+	case FT_BUFFER:
+		net2_cp_destroy(&cp_short_net2_buffer,
+		    h->payload.buf, NULL);
+		break;
+	default:
+		/* Ignore (might be incorrect received packet?). */
+		break;
+	}
+}
+
+/* Encode header. */
+static int
+cp_header_encode(struct net2_encdec_ctx *ctx, struct net2_buffer *out,
+    const struct header *h, const void *arg ILIAS_NET2__unused)
+{
+	int			 error;
+
+	/* Encode flags. */
+	if ((error = net2_cp_encode(ctx, &cp_uint32, out, &h->flags,
+	    NULL)) != 0)
+		return error;
+	if ((error = net2_cp_encode(ctx, &cp_header__no_flags, out, h,
+	    NULL)) != 0)
+		return error;
+	return 0;
+}
+
+/* Decode header. */
+static int
+cp_header_decode(struct net2_encdec_ctx *ctx, struct header *h,
+    struct net2_buffer *in, const void *arg ILIAS_NET2__unused)
+{
+	int			 error;
+
+	memset(h, 0, sizeof(*h));
+
+	/* Decode flags. */
+	if ((error = net2_cp_decode(ctx, &cp_uint32, &h->flags, in,
+	    NULL)) != 0)
+		return error;
+	if ((error = net2_cp_decode(ctx, &cp_header__no_flags, h, in,
+	    NULL)) != 0)
+		return error;
+	return 0;
+}
+
+/* Initialize header. */
+static int
+cp_header_init(struct header *h,
+    const void *arg ILIAS_NET2__unused)
+{
+	memset(h, 0, sizeof(*h));
+	return 0;
+}
+/* Destroy header. */
+static int
+cp_header_destroy(struct header *h,
+    const void *arg ILIAS_NET2__unused)
+{
+	deinit_header(h);
+	return 0;
+}
+
+
+ILIAS_NET2_LOCAL const struct header	header_fini = {
+#if defined(__GNUC__) || defined(__clang__)
+	/*
+	 * This way, the compiler won't complain about the rest of the fields
+	 * lacking an explicit initializer.
+	 */
+	.flags = F_LAST_HEADER,
+	.fin_reserved = 0,		/* reserved */
+#else
+	/* Fallback initializer, for compilers that don't implement C11. */
+	F_LAST_HEADER,
+	0,		/* reserved */
+#endif
+	/* Rest is undefined. */
+};

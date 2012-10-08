@@ -1,0 +1,247 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <ilias/net2/buffer.h>
+#include "signature.h"
+#include <sys/types.h>
+#include <stdint.h>
+
+/*
+ * Format on the wire, of exchange messages.
+ */
+struct exchange_msg {
+	uint16_t			 slot;
+#define SLOT_FIN			0xffff
+	uint16_t			 msg_id;
+#define XMSG_POETRY			0x0001	/* Only in SLOT_FIN. */
+#define XMSG_SIGNATURE			0x8000
+#define XMSG_INITBUF			0x0001
+#define XMSG_RESPONSE			0x0002
+
+	union {
+		/* Poetry extension. */
+		char			*poetry;
+
+		/* Signature. */
+		uint32_t		 signature_idx;
+	}				 payload;
+};
+
+/* Encoded form of exchange initbuf. */
+struct exchange_initbuf {
+	char				*xchange_name;
+	char				*result_name;
+	struct net2_buffer		*xchange_init;
+};
+
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_buf(struct exchange_msg*, int, int);
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_signature(struct exchange_msg*, int, int, int);
+ILIAS_NET2_LOCAL
+int	 mk_exchange_msg_fin(struct exchange_msg*, int);
+
+%%
+#include "exchange.h"
+#include <string.h>
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/xchange.h>
+#include <ilias/net2/memory.h>
+#include <ilias/net2/conn_negotiator.h>	/* For NET2_CNEG_S2_MAX define. */
+
+%%
+
+type exchange_msg (ctype struct exchange_msg,
+    init exchange_msg_init,
+    destroy exchange_msg_destroy,
+    encode exchange_msg_encode,
+    decode exchange_msg_decode);
+
+struct exchange_msg__shared (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint16			slot;
+	uint16			msg_id;
+};
+
+struct exchange_msg__transfer (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+};
+
+struct exchange_msg__fin (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+};
+
+struct exchange_msg__signature (ctype struct exchange_msg,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32			payload.signature_idx;
+};
+
+struct exchange_initbuf (ctype struct exchange_initbuf,
+    protocol net2_proto) {
+	string			result_name;
+	string			xchange_name;
+	short_net2_buffer	xchange_init;
+};
+
+struct exchange_msg__fin_poetry (ctype struct exchange_msg,
+    init NULL,
+    protocol net2_proto) {
+	paddedstring		payload.poetry;
+};
+
+%%
+
+static __inline const struct command_param*
+get_exchange_cp(const struct exchange_msg *msg)
+{
+	if (msg->slot == SLOT_FIN) {
+		switch (msg->msg_id) {
+		default:
+			return NULL;
+		case 0:
+			return &cp_exchange_msg__fin;
+		case XMSG_POETRY:
+			return &cp_exchange_msg__fin_poetry;
+		}
+	}
+	if (msg->msg_id & XMSG_SIGNATURE)
+		return &cp_exchange_msg__signature;
+
+	switch (msg->msg_id) {
+	case XMSG_INITBUF:
+	case XMSG_RESPONSE:
+		return &cp_exchange_msg__transfer;
+	default:
+		return NULL;
+	}
+}
+
+static int
+exchange_msg_init(struct exchange_msg *msg,
+    const void *arg ILIAS_NET2__unused)
+{
+	memset(msg, 0, sizeof(*msg));
+	return 0;
+}
+static int
+exchange_msg_destroy(struct exchange_msg *msg,
+    const void *arg ILIAS_NET2__unused)
+{
+	const struct command_param
+				*cp;
+
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_destroy(cp, msg, NULL);
+}
+static int
+exchange_msg_encode(struct net2_encdec_ctx *c, struct net2_buffer *out,
+    const struct exchange_msg *msg, const void *arg ILIAS_NET2__unused)
+{
+	int			 error;
+	const struct command_param
+				*cp;
+
+	if ((error = net2_cp_encode(c, &cp_exchange_msg__shared, out, msg,
+	    NULL)) != 0)
+		return error;
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_encode(c, cp, out, msg, NULL);
+}
+static int
+exchange_msg_decode(struct net2_encdec_ctx *c, struct exchange_msg *msg,
+    struct net2_buffer *in, const void *arg ILIAS_NET2__unused)
+{
+	int			 error;
+	const struct command_param
+				*cp;
+
+	if ((error = net2_cp_decode(c, &cp_exchange_msg__shared, msg, in,
+	    NULL)) != 0)
+		return error;
+	if ((cp = get_exchange_cp(msg)) == NULL)
+		return EINVAL;
+	return net2_cp_decode(c, cp, msg, in, NULL);
+}
+
+
+/* Create initbuf and response messages. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_buf(struct exchange_msg *msg, int slot, int msg_id)
+{
+	if (slot < 0 || slot > 0xffff)
+		return EINVAL;
+
+	/* Test if msg_id is a valid parameter. */
+	switch (msg_id) {
+	case XMSG_INITBUF:
+	case XMSG_RESPONSE:
+		break;
+	default:
+		return EINVAL;
+	}
+
+	memset(msg, 0, sizeof(*msg));
+	msg->slot = slot;
+	msg->msg_id = msg_id;
+
+	return 0;
+}
+
+/* Create signature message. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_signature(struct exchange_msg *msg, int slot,
+    int msg_id, int sig_idx)
+{
+	if (slot < 0 || slot > 0xffff)
+		return EINVAL;
+	if (msg_id > 0x7fff)	/* High bit is reserved for XMSG_SIGNATURE. */
+		return EINVAL;
+
+	memset(msg, 0, sizeof(*msg));
+	msg->slot = slot;
+	msg->msg_id = msg_id | XMSG_SIGNATURE;
+	msg->payload.signature_idx = sig_idx;
+	return 0;
+}
+
+/* Create the final message. */
+ILIAS_NET2_LOCAL int
+mk_exchange_msg_fin(struct exchange_msg *msg, int poetry)
+{
+	static const char *const poetry_text =
+	    "Secrecy and security aren't the same, "
+	    "even though it may seem that way. "
+	    "Only bad security relies on secrecy; "
+	    "good security works even if all the details of it "
+	    "are public. -- Bruce Schneier";
+
+	msg->slot = SLOT_FIN;
+	msg->msg_id = (poetry ? XMSG_POETRY : 0);
+	if (poetry)
+		msg->payload.poetry = net2_strdup(poetry_text);
+	else
+		msg->payload.poetry = NULL;
+	return 0;
+}

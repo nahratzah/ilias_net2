@@ -1,0 +1,89 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/buffer.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+struct carver_msg_16 {
+	uint16_t		 offset;
+	struct net2_buffer	*payload;
+};
+
+struct carver_msg_32 {
+	uint32_t		 offset;
+	struct net2_buffer	*payload;
+};
+
+struct carver_msg_setup_16 {
+	uint32_t		 flags;
+	uint16_t		 size;
+};
+
+struct carver_msg_setup_32 {
+	uint32_t		 flags;
+	uint32_t		 size;
+};
+
+struct carver_msg_header {
+	uint8_t		 msg_type;
+#define CARVER_MSGTYPE_SETUP	0x00
+#define CARVER_MSGTYPE_DATA	0x01
+};
+
+#define NET2_CARVER_SETUP_EMPTY	0x00000001	/* Empty carver message. */
+
+#define OVERHEAD_HEADER		1	/* Header is 1 byte. */
+#define OVERHEAD16_SETUP	6	/* 16-bit setup is 6 byte. */
+#define OVERHEAD32_SETUP	8	/* 32-bit setup is 8 byte. */
+#define OVERHEAD16_MSG		4	/* 16-bit message requires 4 byte. */
+#define OVERHEAD32_MSG		6	/* 32-bit message requires 8 byte. */
+
+%%
+#include "carver_msg.h"
+#include <ilias/net2/ctypes.h>
+%%
+
+struct carver_msg_16 (ctype struct carver_msg_16,
+    protocol net2_proto) {
+	uint16			offset;
+	short_net2_buffer	payload;
+};
+
+struct carver_msg_32 (ctype struct carver_msg_32,
+    protocol net2_proto) {
+	uint32			offset;
+	short_net2_buffer	payload;
+};
+
+struct carver_msg_setup_16 (ctype struct carver_msg_setup_16,
+    protocol net2_proto) {
+	uint32			flags;
+	uint16			size;
+};
+
+struct carver_msg_setup_32 (ctype struct carver_msg_setup_32,
+    protocol net2_proto) {
+	uint32			flags;
+	uint32			size;
+};
+
+struct carver_msg_header (ctype struct carver_msg_header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint8			msg_type;
+};

@@ -1,0 +1,38 @@
+#ifndef COMPAT_H
+#define COMPAT_H
+
+#cmakedefine HAS_VASPRINTF
+#cmakedefine HAS_ASPRINTF
+#cmakedefine HAS_VSNPRINTF
+#cmakedefine HAS_SNPRINTF
+#cmakedefine HAS_STRLCPY
+#cmakedefine HAS_STRLCAT
+#cmakedefine HAVE_GETOPT_H
+#cmakedefine HAVE_ERR_H
+
+
+#ifndef HAS_VASPRINTF
+extern int	vasprintf(char**, const char*, va_list);
+#endif
+
+#ifndef HAS_ASPRINTF
+extern int	asprintf(char**, const char*, ...);
+#endif
+
+#ifndef HAS_VSNPRINTF
+extern int	vsnprintf(char*, size_t, const char*, va_list);
+#endif
+
+#ifndef HAS_SNPRINTF
+extern int	snprintf(char*, size_t, const char*, ...);
+#endif
+
+#ifndef HAS_STRLCPY
+extern size_t	strlcpy(char*, const char*, size_t);
+#endif
+
+#ifndef HAS_STRLCAT
+extern size_t	strlcat(char*, const char*, size_t);
+#endif
+
+#endif /* COMPAT_H */

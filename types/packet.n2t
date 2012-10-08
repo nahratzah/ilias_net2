@@ -1,0 +1,463 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/conn_keys.h>
+#include <ilias/net2/types.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+struct packet_header {
+	uint32_t		 seq;
+	uint32_t		 flags;
+};
+
+#define PH_ENCRYPTED		0x00000001	/* Content is encrypted. */
+#define PH_SIGNED		0x00000002	/* Content is signed. */
+#define PH_WINUPDATE		0x00000004	/* Containing window update. */
+#define PH_STALLED		0x00000008	/* Window stalled. */
+#define PH_PAYLOAD		0x00000010	/* Acceptor content present. */
+#define PH_HANDSHAKE		0x00000020	/* Stage 1 handshake. */
+#define PH_HANDSHAKE_S2		0x00000040	/* Stage 2 handshake. */
+#define PH_ALTKEY		0x80000000	/* Alternate key in use. */
+
+/* Any of these flags indicate data is present. */
+#define PH_DATA_PRESENT		(PH_PAYLOAD | PH_HANDSHAKE | PH_HANDSHAKE_S2)
+
+
+ILIAS_NET2_LOCAL
+struct net2_buffer	*net2_ph_to_iv(struct net2_encdec_ctx*,
+			    struct packet_header*, size_t);
+
+#define NET2_PDECODE_OK		0
+#define NET2_PDECODE_RESOURCE	1
+#define NET2_PDECODE_BAD	2
+#define NET2_PDECODE_UNSAFE	3
+#define NET2_PDECODE_WINDOW	4
+ILIAS_NET2_LOCAL
+int			 net2_packet_decode(struct net2_connection*,
+			    struct net2_encdec_ctx*, struct packet_header*,
+			    struct net2_buffer**, int);
+#define NET2_PENCODE_OK		0
+#define NET2_PENCODE_RESOURCE	1
+#define NET2_PENCODE_BAD	2
+#define NET2_PENCODE_UNSAFE	3
+ILIAS_NET2_LOCAL
+int			 net2_packet_encode(struct net2_connection*,
+			    struct net2_encdec_ctx*, struct packet_header*,
+			    struct net2_buffer**, struct net2_buffer*,
+			    net2_ck_keys*);
+
+/* Size of packet header, after encoding. */
+extern ILIAS_NET2_EXPORT size_t net2_ph_overhead;
+
+%%
+#include "packet.h"
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/encdec_ctx.h>
+#include <ilias/net2/hash.h>
+#include <ilias/net2/enc.h>
+#include <ilias/net2/connwindow.h>
+#include <ilias/net2/conn_negotiator.h>
+#include <ilias/net2/protocol.h>
+
+#include <ilias/net2/config.h>
+#ifdef HAS_SHA2
+#include <sha2.h>
+#else
+#include <ilias/net2/bsd_compat/sha2.h>
+#endif
+#include <ilias/net2/bsd_compat/minmax.h>
+#include <ilias/net2/bsd_compat/error.h>
+
+#include <assert.h>
+#include <string.h>
+
+%%
+struct packet_header (ctype struct packet_header,
+    init NULL,
+    destroy NULL,
+    protocol net2_proto) {
+	uint32			seq;
+	uint32			flags;
+};
+%%
+ILIAS_NET2_EXPORT size_t net2_ph_overhead = 8;	/* 2 uint32. */
+
+/* Derive an IV from a packet header. */
+ILIAS_NET2_LOCAL struct net2_buffer*
+net2_ph_to_iv(struct net2_encdec_ctx *ctx, struct packet_header *ph,
+    size_t ivlen)
+{
+	struct net2_buffer	*iv;
+	struct net2_buffer	*ph_network;
+	SHA2_CTX		 sha2_ctx;
+	struct iovec		 iov;
+	size_t			 iovlen;
+	void			*ph_netbuf, *iv_buf;
+	size_t			 ph_netlen, iv_netlen;
+
+	/* Allocate resources. */
+	if ((iv = net2_buffer_new()) == NULL)
+		goto fail_0;
+	if ((ph_network = net2_buffer_new()) == NULL)
+		goto fail_1;
+
+	/* Encode packet header in network byte order, as a starting point
+	 * for the hashes. */
+	if (net2_cp_encode(ctx, &cp_packet_header, ph_network, ph, NULL))
+		goto fail_2;
+	ph_netlen = net2_buffer_length(ph_network);
+	if ((ph_netbuf = net2_buffer_pullup(ph_network, ph_netlen)) == NULL)
+		goto fail_2;
+
+	/*
+	 * Repeatedly add the SHA256 of (ph, iv) to iv,
+	 * until the iv is long enough.
+	 */
+	while ((iv_netlen = net2_buffer_length(iv)) < ivlen) {
+		if ((iv_buf = net2_buffer_pullup(iv, iv_netlen)) == NULL)
+			goto fail_2;
+
+		SHA256Init(&sha2_ctx);
+		SHA256Update(&sha2_ctx, ph_netbuf, ph_netlen);
+		SHA256Update(&sha2_ctx, iv_buf, iv_netlen);
+		iovlen = 1;
+		if (net2_buffer_reserve_space(iv, SHA256_DIGEST_LENGTH,
+		    &iov, &iovlen))
+			goto fail_2;
+		iov.iov_len = MIN(SHA256_DIGEST_LENGTH, ivlen - iv_netlen);
+		SHA256Final(iov.iov_base, &sha2_ctx);
+		if (net2_buffer_commit_space(iv, &iov, 1))
+			goto fail_2;
+	}
+
+	/* No longer need packet header in network byte order. */
+	net2_buffer_free(ph_network);
+
+	return iv;
+
+fail_2:
+	net2_buffer_free(ph_network);
+fail_1:
+	net2_buffer_free(iv);
+fail_0:
+	return NULL;
+}
+
+
+/*
+ * Decode a packet that arrived over the wire.
+ *
+ * In case of a decoding failure, the bufptr buffer will be freed.
+ * In case of a decoding succes, the bufptr will be replaced.
+ *
+ * If windowcheck is true, the connection window will be checked and
+ * decoding will be fail if the window is unwilling to accept the packet.
+ */
+ILIAS_NET2_LOCAL int
+net2_packet_decode(struct net2_connection *conn, struct net2_encdec_ctx *ctx,
+    struct packet_header *ph, struct net2_buffer **bufptr, int windowcheck)
+{
+	struct net2_buffer	*buf, *supplied_hash, *calculated_hash, *ivbuf;
+	struct net2_buffer	*encrypted;
+	void			*iv;
+	int			 rv;
+	int			 do_sign, do_cryp;
+	size_t			 hashlen, ivlen;
+	net2_ck_keys		*keys;
+	int			 hash_alg, enc_alg;
+	size_t			 hash_keylen, enc_keylen;
+	void			*hash_key, *enc_key;
+
+	assert(bufptr != NULL && *bufptr != NULL);
+	assert(ctx != NULL && ph != NULL);
+	buf = *bufptr;
+	*bufptr = NULL;
+	ivbuf = calculated_hash = supplied_hash = NULL;
+
+	/* Decode packet header. */
+	if (net2_cp_init(&cp_packet_header, ph, NULL)) {
+		rv = NET2_PDECODE_RESOURCE;
+		goto fail_0;
+	}
+	if (net2_cp_decode(ctx, &cp_packet_header, ph, buf, NULL)) {
+		rv = NET2_PDECODE_BAD;
+		goto fail_1;
+	}
+	if (windowcheck && !net2_connwindow_accept(&conn->n2c_window,
+	    ph)) {
+		debug("received duplicate packet, seq=%x, flags=0x%x",
+		    ph->seq, ph->flags);
+		rv = NET2_PDECODE_WINDOW;
+		goto fail_1;
+	}
+	debug("received packet, seq=%x, flags=0x%x", ph->seq, ph->flags);
+
+	/* Fetch keys, now we have the packet header. */
+	net2_ck_rx_key(&keys, &conn->n2c_keys, &conn->n2c_window, ph);
+
+	/*
+	 * Check for encryption and signing flags on packet header.
+	 */
+	do_sign = (ph->flags & PH_SIGNED);
+	do_cryp = (ph->flags & PH_ENCRYPTED);
+	if ((!do_sign && (*keys)[NET2_CNEG_S2_HASH].alg != 0) ||
+	    (!do_cryp && (*keys)[NET2_CNEG_S2_ENC].alg != 0)) {
+		rv = NET2_PDECODE_UNSAFE;
+		goto fail_1;
+	}
+
+	/*
+	 * Check the hash.
+	 */
+	if (do_sign) {
+		hash_alg = (*keys)[NET2_CNEG_S2_HASH].alg;
+		hash_keylen =
+		    net2_buffer_length((*keys)[NET2_CNEG_S2_HASH].key);
+		hash_key = net2_buffer_pullup((*keys)[NET2_CNEG_S2_HASH].key,
+		    hash_keylen);
+
+		/* Extract supplied hash. */
+		hashlen = net2_hash_gethashlen(hash_alg);
+		if ((supplied_hash = net2_buffer_new()) == NULL) {
+			rv = NET2_PDECODE_RESOURCE;
+			goto fail_1;
+		}
+		if (net2_buffer_remove_buffer(buf, supplied_hash, hashlen) !=
+		    hashlen) {
+			rv = NET2_PDECODE_BAD;
+			goto fail_2;
+		}
+
+		/* Calculate actual hash. */
+		if ((calculated_hash = net2_hashctx_hashbuf(hash_alg,
+		    hash_key, hash_keylen, buf)) == NULL) {
+			rv = NET2_PDECODE_RESOURCE;
+			goto fail_2;
+		}
+		assert(net2_buffer_length(calculated_hash) == hashlen);
+
+		/* Compare supplied and calculated hash. */
+		if (net2_buffer_cmp(supplied_hash, calculated_hash)) {
+			rv = NET2_PDECODE_BAD;
+			goto fail_2;
+		}
+	}
+
+	/*
+	 * Decrypt packet.
+	 */
+	if (do_cryp) {
+		enc_alg = (*keys)[NET2_CNEG_S2_ENC].alg;
+		enc_keylen =
+		    net2_buffer_length((*keys)[NET2_CNEG_S2_ENC].key);
+		enc_key = net2_buffer_pullup((*keys)[NET2_CNEG_S2_ENC].key,
+		    enc_keylen);
+
+		/* Generate an IV from the packet header. */
+		ivlen = net2_enc_getivlen(enc_alg);
+		if ((ivbuf = net2_ph_to_iv(ctx, ph, ivlen)) == NULL) {
+			rv = NET2_PDECODE_RESOURCE;
+			goto fail_2;
+		}
+		if ((iv = net2_buffer_pullup(ivbuf, ivlen)) == NULL) {
+			rv = NET2_PDECODE_RESOURCE;
+			goto fail_2;
+		}
+
+		/* Decrypt the packet.
+		 * Replaces buf with the decrypted counterpart of itelf. */
+		encrypted = buf;
+		buf = net2_encctx_encbuf(enc_alg,
+		    enc_key, enc_keylen,
+		    iv, ivlen, NET2_ENC_DECRYPT, encrypted);
+		net2_buffer_free(encrypted);
+		if (buf == NULL) {
+			rv = NET2_PDECODE_BAD;
+			goto fail_2;
+		}
+	}
+
+	/*
+	 * Hash was correct, commit key info updates.
+	 */
+	switch (net2_ck_rx_key_commit(&conn->n2c_keys, &conn->n2c_window,
+	    ph)) {
+	case 0:
+		break;
+	case ENOMEM:
+		rv = NET2_PDECODE_RESOURCE;
+		goto fail_2;
+		break;
+	case EINVAL:
+		rv = NET2_PDECODE_UNSAFE;
+		goto fail_2;
+		break;
+	default:
+		rv = NET2_PDECODE_BAD;
+		goto fail_2;
+		break;
+	}
+
+	/* Decoding succesful. */
+	rv = NET2_PDECODE_OK;
+
+fail_2:
+	if (ivbuf)
+		net2_buffer_free(ivbuf);
+	if (calculated_hash)
+		net2_buffer_free(calculated_hash);
+	if (supplied_hash)
+		net2_buffer_free(supplied_hash);
+fail_1:
+	if (rv != NET2_PDECODE_OK &&
+	    net2_cp_destroy(&cp_packet_header, ph, NULL))
+		warnx("failed to destroy deserialized packet header");
+fail_0:
+	if (rv == NET2_PDECODE_OK) {
+		assert(buf != NULL);
+		*bufptr = buf;
+	} else if (buf)
+		net2_buffer_free(buf);
+	return rv;
+}
+
+/*
+ * Encode a packet before it's put on the wire.
+ */
+ILIAS_NET2_LOCAL int
+net2_packet_encode(struct net2_connection *conn ILIAS_NET2__unused,
+    struct net2_encdec_ctx *ctx,
+    struct packet_header *ph, struct net2_buffer **outptr,
+    struct net2_buffer *payload, net2_ck_keys *keys)
+{
+	struct net2_buffer	*out, *hash, *ph_net, *ivbuf;
+	int			 do_cryp, do_sign;
+	int			 rv;
+	size_t			 ivlen;
+	void			*iv;
+	int			 hash_alg, enc_alg;
+	size_t			 hash_keylen, enc_keylen;
+	void			*hash_key, *enc_key;
+
+	assert(outptr != NULL && *outptr == NULL && payload != NULL);
+	assert(ctx != NULL && ph != NULL);
+	out = hash = ph_net = ivbuf = NULL;
+
+	/* Check if we need to encrypt/sign. */
+	do_cryp = (ph->flags & PH_ENCRYPTED);
+	do_sign = (ph->flags & PH_SIGNED);
+	/* Check supplied flags against sign/enc. */
+	if ((!do_sign && (*keys)[NET2_CNEG_S2_HASH].alg != 0) ||
+	    (!do_cryp && (*keys)[NET2_CNEG_S2_ENC].alg != 0) ||
+	    (do_sign && (*keys)[NET2_CNEG_S2_HASH].alg == 0) ||
+	    (do_cryp && (*keys)[NET2_CNEG_S2_ENC].alg == 0)) {
+		rv = NET2_PENCODE_UNSAFE;
+		goto fail;
+	}
+
+	/*
+	 * Encrypt data.
+	 */
+	if (do_cryp) {
+		enc_alg = (*keys)[NET2_CNEG_S2_ENC].alg;
+		enc_keylen =
+		    net2_buffer_length((*keys)[NET2_CNEG_S2_ENC].key);
+		enc_key = net2_buffer_pullup((*keys)[NET2_CNEG_S2_ENC].key,
+		    enc_keylen);
+
+		/* Generate an IV from the packet header. */
+		ivlen = net2_enc_getivlen(enc_alg);
+		if ((ivbuf = net2_ph_to_iv(ctx, ph, ivlen)) == NULL) {
+			rv = NET2_PENCODE_RESOURCE;
+			goto fail;
+		}
+		if ((iv = net2_buffer_pullup(ivbuf, ivlen)) == NULL) {
+			rv = NET2_PENCODE_RESOURCE;
+			goto fail;
+		}
+
+		out = net2_encctx_encbuf(enc_alg, enc_key, enc_keylen,
+		    iv, ivlen, NET2_ENC_ENCRYPT, payload);
+		if (out == NULL) {
+			rv = NET2_PENCODE_BAD;
+			goto fail;
+		}
+	} else {
+		out = net2_buffer_copy(payload);
+		if (out == NULL) {
+			rv = NET2_PENCODE_RESOURCE;
+			goto fail;
+		}
+	}
+
+	/*
+	 * Sign encrypted data.
+	 */
+	if (do_sign) {
+		hash_alg = (*keys)[NET2_CNEG_S2_HASH].alg;
+		hash_keylen =
+		    net2_buffer_length((*keys)[NET2_CNEG_S2_HASH].key);
+		hash_key = net2_buffer_pullup((*keys)[NET2_CNEG_S2_HASH].key,
+		    hash_keylen);
+
+		hash = net2_hashctx_hashbuf(hash_alg, hash_key, hash_keylen,
+		    out);
+		if (hash == NULL) {
+			rv = NET2_PENCODE_RESOURCE;
+			goto fail;
+		}
+		if (net2_buffer_prepend(out, hash)) {
+			rv = NET2_PENCODE_RESOURCE;
+			goto fail;
+		}
+	}
+
+	/*
+	 * Encode packet header.
+	 */
+	if ((ph_net = net2_buffer_new()) == NULL) {
+		rv = NET2_PENCODE_RESOURCE;
+		goto fail;
+	}
+	if (net2_cp_encode(ctx, &cp_packet_header, ph_net, ph, NULL)) {
+		rv = NET2_PENCODE_BAD;
+		goto fail;
+	}
+	if (net2_buffer_prepend(out, ph_net)) {
+		rv = NET2_PENCODE_RESOURCE;
+		goto fail;
+	}
+
+	/*
+	 * Succes.
+	 */
+	rv = NET2_PENCODE_OK;
+	assert(out != NULL);
+	*outptr = out;
+	out = NULL;
+
+fail:
+	if (ph_net != NULL)
+		net2_buffer_free(ph_net);
+	if (hash != NULL)
+		net2_buffer_free(hash);
+	if (ivbuf != NULL)
+		net2_buffer_free(ivbuf);
+	if (out != NULL)
+		net2_buffer_free(out);
+	return rv;
+}

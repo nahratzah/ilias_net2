@@ -1,0 +1,189 @@
+/*
+ * Copyright (c) 2012 Ariane van der Steldt <ariane@stack.nl>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/buffer.h>
+#include <ilias/net2/sign.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+struct net2_signature {
+	char			*sign_alg;
+	char			*hash_alg;
+
+	struct net2_buffer	*data;
+};
+
+ILIAS_NET2_LOCAL
+int	net2_signature_create(struct net2_signature*,
+	    const struct net2_buffer*, int, struct net2_sign_ctx*);
+ILIAS_NET2_LOCAL
+int	net2_signature_validate(struct net2_signature*,
+	    const struct net2_buffer*, struct net2_sign_ctx*,
+	    int*);
+ILIAS_NET2_LOCAL
+void	net2_signature_deinit(struct net2_signature*);
+
+%%
+#include "signature.h"
+#include <ilias/net2/ctypes.h>
+#include <ilias/net2/hash.h>
+#include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+%%
+
+struct net2_signature (ctype struct net2_signature,
+    protocol net2_proto) {
+	string			 sign_alg;
+	string			 hash_alg;
+	short_net2_buffer	 data;
+};
+
+%%
+
+/*
+ * Sign the buffer.
+ */
+ILIAS_NET2_LOCAL int
+net2_signature_create(struct net2_signature *s,
+    const struct net2_buffer *to_sign,
+    int hash_alg, struct net2_sign_ctx *sign)
+{
+	int			 error;
+	struct net2_buffer	*hash;
+	const char		*hash_name;
+
+	if (s == NULL || to_sign == NULL || sign == NULL)
+		return EINVAL;
+	if ((hash_name = net2_hash_getname(hash_alg)) == NULL)
+		return EINVAL;
+
+	/* Lookup name of sign algorithm. */
+	if ((s->sign_alg = strdup(net2_signctx_name(sign))) == NULL) {
+		error = errno;
+		goto fail_0;
+	}
+	/* Lookup name of hash algorithm. */
+	if ((s->hash_alg = strdup(hash_name)) == NULL) {
+		error = ENOMEM;
+		goto fail_1;
+	}
+
+	/* Prepare storage for signature. */
+	if ((s->data = net2_buffer_new()) == NULL) {
+		error = ENOMEM;
+		goto fail_2;
+	}
+
+	/* Calculate the hash of to_sign. */
+	hash = net2_hashctx_hashbuf(hash_alg, NULL, 0, to_sign);
+	if (hash == NULL) {
+		error = ENOMEM;
+		goto fail_3;
+	}
+
+	/* Calculate hash signature. */
+	if ((error = net2_signctx_sign(sign, hash, s->data)) != 0)
+		goto fail_4;
+
+	/* Cleanup hash, since we don't need it anymore. */
+	net2_buffer_free(hash);
+
+	/* Succes. */
+	return 0;
+
+
+fail_4:
+	net2_buffer_free(hash);
+fail_3:
+	net2_buffer_free(s->data);
+fail_2:
+	free(s->hash_alg);
+fail_1:
+	free(s->sign_alg);
+fail_0:
+	return error;
+}
+
+/*
+ * Validate buffer signature.
+ */
+ILIAS_NET2_LOCAL int
+net2_signature_validate(struct net2_signature *s,
+    const struct net2_buffer *to_sign,
+    struct net2_sign_ctx *signature, int *valid)
+{
+	int			 error;
+	int			 hash_alg;
+	struct net2_buffer	*hash = NULL;
+
+	if (valid == NULL)
+		return EINVAL;
+	*valid = 0;	/* Default to invalid, to be safe. */
+
+	if (s == NULL || to_sign == NULL)
+		return EINVAL;
+	if (s->data == NULL || s->hash_alg == NULL || s->sign_alg == NULL)
+		return EINVAL;
+
+	/* Calculate hash. */
+	if ((hash_alg = net2_hash_findname(s->hash_alg)) == -1) {
+		error = EOPNOTSUPP;
+		goto fail_0;
+	}
+	hash = net2_hashctx_hashbuf(hash_alg, NULL, 0, to_sign);
+	if (hash == NULL) {
+		error = ENOMEM;
+		goto fail_0;
+	}
+
+
+	/* Skip obvious non-match: wrong algorithm. */
+	if (strcmp(net2_signctx_name(signature), s->sign_alg) != 0) {
+		error = EINVAL;
+		goto fail_0;
+	}
+
+	/* Correct algorithm, test. */
+	if (net2_signctx_validate(signature, s->data, hash))
+		*valid = 1;
+
+	/* Release hash buffer. */
+	net2_buffer_free(hash);
+
+	/* Succes. */
+	return 0;
+
+
+fail_0:
+	if (hash != NULL)
+		net2_buffer_free(hash);
+	return error;
+}
+
+ILIAS_NET2_LOCAL void
+net2_signature_deinit(struct net2_signature *s)
+{
+	if (s != NULL) {
+		free(s->hash_alg);
+		free(s->sign_alg);
+		if (s->data != NULL)
+			net2_buffer_free(s->data);
+
+		s->hash_alg = s->sign_alg = NULL;
+		s->data = NULL;
+	}
+}
