@@ -382,9 +382,21 @@ merge_q(struct net2_tx_callback *dst, struct net2_tx_callback *src)
 		lock_order[1] = dst->mtx;
 	}
 
+#define LOCK()								\
+	do {								\
+		net2_mutex_lock(lock_order[0]);				\
+		if (lock_order[0] != lock_order[1])			\
+			net2_mutex_lock(lock_order[1]);			\
+	} while (0)
+#define UNLOCK()							\
+	do {								\
+		net2_mutex_unlock(lock_order[0]);			\
+		if (lock_order[0] != lock_order[1])			\
+			net2_mutex_unlock(lock_order[1]);		\
+	} while (0)
+
 	/* Acquire both queues. */
-	net2_mutex_lock(lock_order[0]);
-	net2_mutex_lock(lock_order[1]);
+	LOCK();
 
 	while ((e = TAILQ_FIRST(&src->entries)) != NULL) {
 		/*
@@ -408,16 +420,14 @@ merge_q(struct net2_tx_callback *dst, struct net2_tx_callback *src)
 			 * reacquire the locks.
 			 */
 			entry_acquire(e);
-			net2_mutex_unlock(src->mtx);
-			net2_mutex_unlock(dst->mtx);
+			UNLOCK();
 
 			/*
 			 * Acquire all locks in the correct order:
 			 * change_mtx before queues, queues in lock_order.
 			 */
 			net2_mutex_lock(e->change_mtx);
-			net2_mutex_lock(lock_order[0]);
-			net2_mutex_lock(lock_order[1]);
+			LOCK();
 
 			/*
 			 * Queue might have changed.
@@ -442,8 +452,10 @@ merge_q(struct net2_tx_callback *dst, struct net2_tx_callback *src)
 	}
 
 	/* Release both queues. */
-	net2_mutex_unlock(src->mtx);
-	net2_mutex_unlock(dst->mtx);
+	UNLOCK();
+
+#undef LOCK
+#undef UNLOCK
 }
 
 
@@ -470,6 +482,19 @@ net2_txcb_init(struct net2_tx_callback *cb)
 }
 
 /*
+ * Initialize new tx_callback,
+ * merging entries from other callback and destroying that.
+ */
+ILIAS_NET2_EXPORT void
+net2_txcb_init_merge(struct net2_tx_callback *cb, struct net2_tx_callback *src)
+{
+	cb->mtx = src->mtx;
+	TAILQ_INIT(&cb->entries);
+	merge_q(cb, src);
+	src->mtx = NULL;
+}
+
+/*
  * Release resources held by tx_callback.
  *
  * Any remaining callbacks are cancelled, using their destroy callback.
@@ -477,8 +502,10 @@ net2_txcb_init(struct net2_tx_callback *cb)
 ILIAS_NET2_EXPORT void
 net2_txcb_deinit(struct net2_tx_callback *cb)
 {
-	txcb_fire(cb, Q_DESTROY);
-	net2_mutex_free(cb->mtx);
+	if (cb->mtx != NULL) {
+		txcb_fire(cb, Q_DESTROY);
+		net2_mutex_free(cb->mtx);
+	}
 }
 
 /* TX callback ACK completion. */

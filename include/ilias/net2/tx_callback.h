@@ -56,6 +56,9 @@ struct net2_tx_callback {
 ILIAS_NET2_EXPORT
 int	net2_txcb_init(struct net2_tx_callback*);
 ILIAS_NET2_EXPORT
+void	net2_txcb_init_merge(struct net2_tx_callback*,
+	    struct net2_tx_callback*);
+ILIAS_NET2_EXPORT
 void	net2_txcb_deinit(struct net2_tx_callback*);
 ILIAS_NET2_EXPORT
 void	net2_txcb_ack(struct net2_tx_callback*);
@@ -113,7 +116,7 @@ public:
 	tx_callback();
 	~tx_callback() throw ();
 #if HAS_RVALUE_REF
-	tx_callback(tx_callback&&);
+	tx_callback(tx_callback&&) throw ();
 #endif
 
 #if HAS_DELETED_FN
@@ -197,21 +200,9 @@ tx_callback::tx_callback()
 
 #if HAS_RVALUE_REF
 inline
-tx_callback::tx_callback(tx_callback&& o)
+tx_callback::tx_callback(tx_callback&& o) throw ()
 {
-	int error = net2_txcb_init(&this->m_txcb);
-	switch (error) {
-	case ENOMEM:
-		throw std::bad_alloc();
-	case EINVAL:
-		throw std::invalid_argument("tx callback initialization");
-	case 0:
-		break;
-	default:
-		throw std::exception();
-	}
-
-	this->merge(o);
+	net2_txcb_init_merge(&this->m_txcb, &o.m_txcb);
 }
 #endif /* HAS_RVALUE_REF */
 
