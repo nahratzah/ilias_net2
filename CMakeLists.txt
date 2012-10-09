@@ -138,6 +138,7 @@ list (APPEND cluster_srcs
 	)
 
 list (APPEND cxx_srcs
+	src/acceptor.cc
 	src/promise.cc
 	src/workq.cc
 	)

@@ -27,9 +27,9 @@ net2_acceptor_socket_init(struct net2_acceptor_socket *self,
 
 	self->fn = fn;
 	self->acceptor = NULL;
-	self->workq = workq;
+	self->wq = workq;
 	self->state = 0;
-	net2_workq_ref(self->workq);
+	net2_workq_ref(self->wq);
 	return 0;
 }
 
@@ -38,7 +38,7 @@ ILIAS_NET2_EXPORT void
 net2_acceptor_socket_deinit(struct net2_acceptor_socket *self)
 {
 	net2_acceptor_detach(self);
-	net2_workq_release(self->workq);
+	net2_workq_release(self->wq);
 }
 
 /* Acceptor socket destructor. */
@@ -50,7 +50,7 @@ net2_acceptor_socket_destroy(struct net2_acceptor_socket *s)
 			*wq;
 
 	assert(s->fn->destroy != NULL);
-	wq = s->workq;
+	wq = s->wq;
 	net2_workq_ref(wq);
 	want = net2_workq_want(wq, 0);
 	assert(want == 0 || want == EDEADLK);
@@ -193,7 +193,7 @@ net2_acceptor_socket_pvlist(struct net2_acceptor_socket *s,
 ILIAS_NET2_EXPORT struct net2_workq*
 net2_acceptor_socket_workq(struct net2_acceptor_socket *s)
 {
-	return s->workq;
+	return s->wq;
 }
 
 /*
