@@ -586,12 +586,12 @@ wait_only:
 		LL_UNLINK_WAIT(net2_workq_runq, &wqev->runq, wq);
 	} else {
 		wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_QMANIP,
-		    memory_order_relaxed);
+		    memory_order_acquire);
 		if (wqfl & WQ_QMANIP)
 			goto wait_only;
 		if (wqfl & WQ_DEINIT) {
 			atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
-			    memory_order_relaxed);
+			    memory_order_release);
 			goto wait_only;
 		}
 
@@ -601,7 +601,7 @@ wait_only:
 		    &wqev->runq, wq);
 
 		wqfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
-		    memory_order_relaxed);
+		    memory_order_release);
 		assert(wqfl & WQ_QMANIP);
 
 		/*
@@ -638,12 +638,12 @@ wq_onqueue_tail(struct net2_workq *wq)
 
 	/* Mark queue as undergoing queue manipulation. */
 	wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_QMANIP,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	if (predict_true((wqfl & (WQ_QMANIP | WQ_DEINIT)) == 0))
 		pb_succes = LL_PUSH_BACK(net2_workq_runq, &wqev->runq, wq);
 	if (predict_true((wqfl & WQ_QMANIP) == 0)) {
 		wqfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
-		    memory_order_relaxed);
+		    memory_order_release);
 		assert(wqfl & WQ_QMANIP);
 	}
 
@@ -690,12 +690,12 @@ wq_onqueue_head(struct net2_workq *wq)
 
 	/* Mark queue as undergoing queue manipulation. */
 	wqfl = atomic_fetch_or_explicit(&wq->flags, WQ_QMANIP,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	if (predict_true((wqfl & (WQ_QMANIP | WQ_DEINIT)) == 0))
 		pb_succes = LL_PUSH_FRONT(net2_workq_runq, &wqev->runq, wq);
 	if (predict_true((wqfl & WQ_QMANIP) == 0)) {
 		wqfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_QMANIP,
-		    memory_order_relaxed);
+		    memory_order_release);
 		assert(wqfl & WQ_QMANIP);
 	}
 
@@ -831,7 +831,7 @@ job_onqueue(struct net2_workq_job_int *job)
 
 	LL_REF(net2_workq_job_runq, &wq->runqueue, job);
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_QMANIP,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	if (fl & JOB_QMANIP)
 		goto out_no_manip;
 	if (fl & JOB_DEINIT)
@@ -859,7 +859,7 @@ job_onqueue(struct net2_workq_job_int *job)
 
 out:
 	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_QMANIP,
-	    memory_order_relaxed);
+	    memory_order_release);
 	assert(fl & JOB_QMANIP);
 out_no_manip:
 	LL_RELEASE(net2_workq_job_runq, &wq->runqueue, job);
@@ -950,7 +950,7 @@ workq_release(struct net2_workq *wq, int fall_to_zero)
 	 * Before removing the workq, wait until the most recent insert
 	 * stabilizes (WQ_QMANIP is cleared).
 	 */
-	while (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
+	while (atomic_load_explicit(&wq->flags, memory_order_acquire) &
 	    WQ_QMANIP)
 		SPINWAIT();
 	wq_offqueue(wq);
@@ -1058,7 +1058,7 @@ wq_surf(struct net2_workq *wq, int parallel, struct wq_act *orig,
 			workq_clear_run(wq_prev.wq);
 		else {
 			prun = atomic_fetch_sub_explicit(&wq_prev.wq->prun, 1,
-			    memory_order_relaxed);
+			    memory_order_release);
 			assert(prun > 0);
 		}
 		workq_release(wq_prev.wq, 1);
@@ -1101,7 +1101,7 @@ wq_surf_pop(struct wq_act *orig)
 			workq_clear_run(wq_prev.wq);
 		else {
 			prun = atomic_fetch_sub_explicit(&wq_prev.wq->prun, 1,
-			    memory_order_relaxed);
+			    memory_order_release);
 			assert(prun > 0);
 		}
 		/* Release workq. */
@@ -1178,7 +1178,7 @@ restart:
 	/* Mark job as running,
 	 * to prevent it from reappearing on the runqueues. */
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_RUNNING,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	/*
 	 * Did we win the race?
 	 */
@@ -1193,7 +1193,7 @@ restart:
 	 */
 	if (fl & JOB_DEINIT) {
 		atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
-		    memory_order_relaxed);
+		    memory_order_release);
 		job_release(job);
 		goto restart;
 	}
@@ -1215,7 +1215,7 @@ restart:
 	while (!(fl & JOB_ACTIVE)) {
 		if (atomic_compare_exchange_weak_explicit(&job->flags,
 		    &fl, fl & ~JOB_RUNNING,
-		    memory_order_relaxed, memory_order_relaxed)) {
+		    memory_order_release, memory_order_relaxed)) {
 			job_release(job);
 			goto restart;
 		}
@@ -1257,7 +1257,7 @@ restart:
 	/* Mark job as running,
 	 * to prevent it from reappearing on the runqueues. */
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_RUNNING,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	/*
 	 * Did we win the race?
 	 */
@@ -1272,7 +1272,7 @@ restart:
 	 */
 	if (fl & JOB_DEINIT) {
 		atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
-		    memory_order_relaxed);
+		    memory_order_release);
 		job_release(job);
 		goto restart;
 	}
@@ -1340,7 +1340,7 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 
 	/* Set running bit. */
 	fl = atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 
 	/* If the workq is wanted, cancel the run_pop operation. */
 	if (predict_false((fl & WQ_WANTLOCK) ||
@@ -1357,7 +1357,7 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 		 * start a job while WANTLOCK is engaged; hence the
 		 * optimistic increment, test and conditional decrement.
 		 */
-		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_acquire);
 		if (atomic_load_explicit(&wq->flags, memory_order_relaxed) &
 		    WQ_WANTLOCK)
 			job = NULL;
@@ -1365,7 +1365,7 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 			job = wqev_prun_pop_job(wq);
 		if (job == NULL) {
 			atomic_fetch_sub_explicit(&wq->prun, 1,
-			    memory_order_relaxed);
+			    memory_order_release);
 		} else {
 			/* Sanity check. */
 			assert(atomic_load_explicit(&job->flags,
@@ -1379,9 +1379,9 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 		 * on the workq. */
 		if (job != NULL && (atomic_load_explicit(&job->flags,
 		    memory_order_relaxed) & NET2_WORKQ_PARALLEL)) {
-			atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+			atomic_fetch_add_explicit(&wq->prun, 1, memory_order_acquire);
 			atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
-			    memory_order_relaxed);
+			    memory_order_release);
 		}
 	}
 
@@ -1401,7 +1401,7 @@ wqev_run_pop_wq(struct net2_workq_evbase *wqev,
 fail_eagain:
 	if (!(fl & WQ_RUNNING)) {
 		atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
-		    memory_order_relaxed);
+		    memory_order_release);
 	}
 	*job_out = NULL;
 	return EAGAIN;
@@ -1535,9 +1535,9 @@ job_clear_run(struct net2_workq_job_int *job)
 
 	/* Clear running bit, increment run generation counter. */
 	fl = atomic_fetch_and_explicit(&job->flags, ~JOB_RUNNING,
-	    memory_order_relaxed);
+	    memory_order_release);
 	assert(fl & JOB_RUNNING);
-	atomic_fetch_add_explicit(&job->run_gen, 1, memory_order_relaxed);
+	atomic_fetch_add_explicit(&job->run_gen, 1, memory_order_release);
 	if (predict_false(fl & JOB_DEINIT))
 		return;
 
@@ -1560,7 +1560,7 @@ workq_clear_run(struct net2_workq *wq)
 
 	/* Clear running bit. */
 	fl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
-	    memory_order_relaxed);
+	    memory_order_release);
 	assert(fl & WQ_RUNNING);
 
 	/* If the workq has jobs, place it on the wqev runq. */
@@ -1595,7 +1595,7 @@ job_wait_run(struct net2_workq_job_int *job)
 		return;
 
 	/* Wait until the generation counter changes. */
-	while (atomic_load_explicit(&job->run_gen, memory_order_relaxed) ==
+	while (atomic_load_explicit(&job->run_gen, memory_order_consume) ==
 	    gen)
 		SPINWAIT();
 }
@@ -2097,7 +2097,7 @@ net2_workq_release(struct net2_workq *wq)
 	assert(refcnt > 0);
 	if (predict_false(refcnt == 1)) {
 		fl = atomic_fetch_or_explicit(&wq->flags, WQ_DEINIT,
-		    memory_order_relaxed);
+		    memory_order_acquire);
 		assert(!(fl & WQ_DEINIT));
 		workq_release(wq, 1);
 	}
@@ -2138,10 +2138,22 @@ net2_workq_init_work(struct net2_workq_job *j, struct net2_workq *wq,
 	atomic_init(&job->run_gen, 0);
 
 	net2_workq_ref(wq);
-	atomic_store_explicit(&j->refcnt, 0, memory_order_relaxed);
-	atomic_store_explicit(&j->internal, job, memory_order_relaxed);
 	LL_INIT_ENTRY(&job->runq);
 	LL_INIT_ENTRY(&job->prunq);
+
+	/*
+	 * Synchronize this job to all threads.
+	 *
+	 * Note that the job is in essence immutable, apart from the
+	 * atomic state variables.
+	 * Thus after construction and prior to destruction are the
+	 * only moments we need to actively fence.
+	 */
+	atomic_thread_fence(memory_order_seq_cst);
+
+	/* Publish result. */
+	atomic_store_explicit(&j->refcnt, 0, memory_order_release);
+	atomic_store_explicit(&j->internal, job, memory_order_release);
 
 	return 0;
 }
@@ -2157,11 +2169,11 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	 * Take ownership of job from j.
 	 */
 	job = atomic_exchange_explicit(&j->internal, NULL,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	if (job == NULL)
 		return;
 	/* Wait for other threads that require job to stay valid. */
-	while (atomic_load_explicit(&j->refcnt, memory_order_relaxed) > 0)
+	while (atomic_load_explicit(&j->refcnt, memory_order_acquire) > 0)
 		SPINWAIT();
 
 	/*
@@ -2169,11 +2181,11 @@ net2_workq_deinit_work(struct net2_workq_job *j)
 	 * until it stops running.
 	 */
 	fl = atomic_fetch_or_explicit(&job->flags, JOB_DEINIT,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	assert(!(fl & JOB_DEINIT));
 	while (fl & JOB_QMANIP) {
 		SPINWAIT();
-		fl = atomic_load_explicit(&job->flags, memory_order_relaxed);
+		fl = atomic_load_explicit(&job->flags, memory_order_acquire);
 	}
 	job_offqueue(job);
 
@@ -2211,11 +2223,11 @@ net2_workq_get(struct net2_workq_job *j)
 	struct net2_workq_job_int	*job;
 	struct net2_workq		*wq = NULL;
 
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	job = atomic_load_explicit(&j->internal, memory_order_acquire);
 	if (predict_false(job == NULL))
 		return NULL;
 	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_acquire);
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	job = atomic_load_explicit(&j->internal, memory_order_consume);
 	if (predict_false(job != NULL)) {
 		wq = job->wq;
 		if (atomic_load_explicit(&wq->refcnt,
@@ -2315,12 +2327,12 @@ net2_workq_surf(struct net2_workq *wq, int parallel)
 	net2_mutex_lock(wq->want_mtx);
 	if (parallel)
 		/* Parallel jobs can always run. */
-		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_acquire);
 	else {
 		/* Non-parallel surf needs to wait
 		 * until the workq becomes not-running. */
 		while (atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING,
-		    memory_order_relaxed) & WQ_RUNNING)
+		    memory_order_acquire) & WQ_RUNNING)
 			SPINWAIT();
 	}
 	net2_mutex_unlock(wq->want_mtx);
@@ -2573,13 +2585,9 @@ mark_job_running(struct net2_workq_job_int *job)
 	if (!(jfl & NET2_WORKQ_PARALLEL)) {
 		wq = job->wq;
 
-		wfl = atomic_load_explicit(&wq->flags, memory_order_relaxed);
-		if (wfl & (WQ_RUNNING | WQ_WANTLOCK))
-			return 0;
-
 		/* Mark as running. */
 		wfl = atomic_fetch_or_explicit(&wq->flags, WQ_RUNNING,
-		    memory_order_relaxed);
+		    memory_order_acquire);
 		/* Check flags again: they may have changed in the meantime. */
 		if (wfl & WQ_RUNNING)
 			return 0;
@@ -2587,24 +2595,24 @@ mark_job_running(struct net2_workq_job_int *job)
 		    atomic_load_explicit(&wq->want_queued,
 		    memory_order_relaxed) > 0)) {
 			wfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
-			    memory_order_relaxed);
+			    memory_order_release);
 			assert(wfl & WQ_RUNNING);
 			return 0;
 		}
 	} else
-		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_relaxed);
+		atomic_fetch_add_explicit(&wq->prun, 1, memory_order_acquire);
 
 	/* Mark job as running. */
-	jfl = atomic_fetch_or_explicit(&job->flags, JOB_RUNNING, memory_order_relaxed);
+	jfl = atomic_fetch_or_explicit(&job->flags, JOB_RUNNING, memory_order_acquire);
 	if (jfl & JOB_RUNNING) {
 		if (!(jfl & NET2_WORKQ_PARALLEL)) {
 			/* Undo modification to workq. */
 			wfl = atomic_fetch_and_explicit(&wq->flags, ~WQ_RUNNING,
-			    memory_order_relaxed);
+			    memory_order_release);
 			assert(wfl & WQ_RUNNING);
 		} else {
 			prun = atomic_fetch_sub_explicit(&wq->prun, 1,
-			    memory_order_relaxed);
+			    memory_order_release);
 			assert(prun > 0);
 		}
 		return 0;
@@ -2630,11 +2638,11 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 	struct wthrq			*q = NULL;
 
 	/* Load job and keep it referenced via j->refcnt. */
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	job = atomic_load_explicit(&j->internal, memory_order_acquire);
 	if (predict_false(job == NULL))
 		return;
-	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_relaxed);
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_acquire);
+	job = atomic_load_explicit(&j->internal, memory_order_consume);
 	if (predict_false(job == NULL))
 		goto unlock_return;
 
@@ -2651,7 +2659,7 @@ net2_workq_activate(struct net2_workq_job *j, int flags)
 	if (predict_true(!immed)) {
 		job_activate(job);
 unlock_return:
-		atomic_fetch_sub_explicit(&j->refcnt, 1, memory_order_relaxed);
+		atomic_fetch_sub_explicit(&j->refcnt, 1, memory_order_release);
 		if (predict_false(q != NULL))
 			wthrq_free(q);
 		return;
@@ -2681,14 +2689,14 @@ net2_workq_deactivate(struct net2_workq_job *j)
 	struct net2_workq_job_int	*job;
 
 	/* Load job and keep it referenced via j->refcnt. */
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	job = atomic_load_explicit(&j->internal, memory_order_acquire);
 	if (predict_false(job == NULL))
 		return;
-	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_relaxed);
-	job = atomic_load_explicit(&j->internal, memory_order_relaxed);
+	atomic_fetch_add_explicit(&j->refcnt, 1, memory_order_acquire);
+	job = atomic_load_explicit(&j->internal, memory_order_consume);
 	if (job != NULL)
 		job_deactivate(job, 1);
-	atomic_fetch_sub_explicit(&j->refcnt, 1, memory_order_relaxed);
+	atomic_fetch_sub_explicit(&j->refcnt, 1, memory_order_release);
 }
 
 #ifndef WIN32
