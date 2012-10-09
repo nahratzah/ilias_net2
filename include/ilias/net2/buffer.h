@@ -217,6 +217,8 @@ public:
 #else
 	std::string hex() const throw (std::bad_alloc);
 #endif
+
+	struct net2_buffer *release() throw ();
 };
 
 class buffer_iterator
@@ -765,6 +767,14 @@ buffer::hex() const throw (std::bad_alloc)
 	return out;
 }
 #endif
+
+inline struct net2_buffer*
+buffer::release() throw ()
+{
+	struct net2_buffer *rv = this->buf;
+	this->buf = 0;
+	return rv;
+}
 
 
 } /* namespace ilias */
