@@ -1761,7 +1761,7 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 
 	/* If we already own the wq want-lock, recurse. */
 	if (wq->want_owner == &wq_tls_state) {
-		atomic_fetch_or_explicit(&wq->want_refcnt, 1, memory_order_relaxed);
+		atomic_fetch_add_explicit(&wq->want_refcnt, 1, memory_order_relaxed);
 		return wq_want_succes;
 	}
 
@@ -1777,7 +1777,7 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 		queued_delta = 1;
 	}
 	fl = atomic_fetch_or_explicit(&wq->flags, WQ_WANTLOCK,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	if (queued_delta != 0) {
 		atomic_fetch_sub_explicit(&wq->want_queued, queued_delta,
 		    memory_order_relaxed);
@@ -1788,12 +1788,12 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 	 * want_mtx is locked by us.
 	 */
 
-	/* XXX this is wrong: it doesn't fail on WANT_TRY when prun>0. */
-
 	/* If the workq is running, fail if try-flag is set. */
-	if ((fl & WQ_RUNNING) && (flags & NET2_WQ_WANT_TRY)) {
+	if ((flags & NET2_WQ_WANT_TRY) &&
+	    ((fl & WQ_RUNNING) ||
+	     atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0)) {
 		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK,
-		    memory_order_relaxed);
+		    memory_order_release);
 		if (!LL_EMPTY(net2_workq_job_runq, &wq->runqueue))
 			wq_onqueue_head(wq);
 		net2_mutex_unlock(wq->want_mtx);
@@ -1801,21 +1801,21 @@ workq_want_acquire(struct net2_workq *wq, int flags)
 	}
 	/* Wait until the workq is not longer running. */
 	while ((fl & WQ_RUNNING) ||
-	    atomic_load_explicit(&wq->prun, memory_order_relaxed) > 0) {
+	    atomic_load_explicit(&wq->prun, memory_order_acquire) > 0) {
 		SPINWAIT();
-		fl = atomic_load_explicit(&wq->flags, memory_order_relaxed);
+		fl = atomic_load_explicit(&wq->flags, memory_order_acquire);
 	}
 
 	/* Assign first reference. */
 	refcnt = atomic_exchange_explicit(&wq->want_refcnt, 1,
-	    memory_order_relaxed);
+	    memory_order_acquire);
 	assert(refcnt == 0);
 
 	/* Assign this as owner. */
 	wq->want_owner = &wq_tls_state;
 
 	/* Synchronize state between previous owners and current owner. */
-	atomic_thread_fence(memory_order_acquire);
+	atomic_thread_fence(memory_order_seq_cst);
 
 	return wq_want_succes;
 }
@@ -1828,10 +1828,10 @@ workq_want_release(struct net2_workq *wq)
 	    memory_order_relaxed) > 0);
 
 	if (atomic_fetch_sub_explicit(&wq->want_refcnt, 1,
-	    memory_order_relaxed) == 1) {
+	    memory_order_release) == 1) {
 		wq->want_owner = NULL;
 		atomic_fetch_and_explicit(&wq->flags, ~WQ_WANTLOCK,
-		    memory_order_relaxed);
+		    memory_order_release);
 		net2_mutex_unlock(wq->want_mtx);
 
 		if (!LL_EMPTY(net2_workq_job_runq, &wq->runqueue))
