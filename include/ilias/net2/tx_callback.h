@@ -75,15 +75,18 @@ int	net2_txcb_add(struct net2_tx_callback*, struct net2_workq*,
 	    net2_tx_callback_fn, void*, void*);
 
 ILIAS_NET2_EXPORT
-int	 net2_txcb_entryq_init(struct net2_txcb_entryq*);
+int	net2_txcb_entryq_init(struct net2_txcb_entryq*);
 ILIAS_NET2_EXPORT
-void	 net2_txcb_entryq_deinit(struct net2_txcb_entryq*);
+void	net2_txcb_entryq_init_merge(struct net2_txcb_entryq*,
+	    struct net2_txcb_entryq*);
 ILIAS_NET2_EXPORT
-int	 net2_txcb_entryq_empty(struct net2_txcb_entryq*, int which);
+void	net2_txcb_entryq_deinit(struct net2_txcb_entryq*);
 ILIAS_NET2_EXPORT
-void	 net2_txcb_entryq_clear(struct net2_txcb_entryq*, int which);
+int	net2_txcb_entryq_empty(struct net2_txcb_entryq*, int which);
 ILIAS_NET2_EXPORT
-void	 net2_txcb_entryq_merge(struct net2_txcb_entryq*,
+void	net2_txcb_entryq_clear(struct net2_txcb_entryq*, int which);
+ILIAS_NET2_EXPORT
+void	net2_txcb_entryq_merge(struct net2_txcb_entryq*,
 	    struct net2_txcb_entryq*);
 
 #define NET2_TXCB_EQ_TIMEOUT	0x00000001
@@ -161,7 +164,7 @@ public:
 	~txcb_entryq() throw ();
 
 #if HAS_RVALUE_REF
-	txcb_entryq(txcb_entryq&&);
+	txcb_entryq(txcb_entryq&&) throw ();
 #endif
 
 #if HAS_DELETED_FN
@@ -287,21 +290,9 @@ txcb_entryq::~txcb_entryq() throw ()
 
 #if HAS_RVALUE_REF
 inline
-txcb_entryq::txcb_entryq(txcb_entryq&& o)
+txcb_entryq::txcb_entryq(txcb_entryq&& o) throw ()
 {
-	int error = net2_txcb_entryq_init(&this->m_txcbq);
-	switch (error) {
-	case ENOMEM:
-		throw std::bad_alloc();
-	case EINVAL:
-		throw std::invalid_argument("tx callback initialization");
-	case 0:
-		break;
-	default:
-		throw std::exception();
-	}
-
-	net2_txcb_entryq_merge(&this->m_txcbq, &o.m_txcbq);
+	net2_txcb_entryq_init_merge(&this->m_txcbq, &o.m_txcbq);
 }
 #endif
 

@@ -558,12 +558,23 @@ net2_txcb_entryq_init(struct net2_txcb_entryq *eq)
 	TAILQ_INIT(&eq->entries);
 	return 0;
 }
+/* Initialize txcb entry set, destroying other set in the process. */
+ILIAS_NET2_EXPORT void
+net2_txcb_entryq_init_merge(struct net2_txcb_entryq *eq, struct net2_txcb_entryq *src)
+{
+	eq->mtx = src->mtx;
+	TAILQ_INIT(&eq->entries);
+	net2_txcb_entryq_merge(eq, src);
+	src->mtx = NULL;
+}
 /* Deinitialize txcb entry set.  Cancels each callback. */
 ILIAS_NET2_EXPORT void
 net2_txcb_entryq_deinit(struct net2_txcb_entryq *eq)
 {
-	entryq_cancel(eq);
-	net2_mutex_free(eq->mtx);
+	if (eq->mtx != NULL) {
+		entryq_cancel(eq);
+		net2_mutex_free(eq->mtx);
+	}
 }
 /* Test if txcb entry set is empty. */
 ILIAS_NET2_EXPORT int
@@ -772,9 +783,21 @@ net2_txcb_entryq_merge(struct net2_txcb_entryq *dst,
 		lock_order[1] = src->mtx;
 	}
 
+#define LOCK()								\
+	do {								\
+		net2_mutex_lock(lock_order[0]);				\
+		if (lock_order[0] != lock_order[1])			\
+			net2_mutex_lock(lock_order[1]);			\
+	} while (0)
+#define UNLOCK()							\
+	do {								\
+		net2_mutex_unlock(lock_order[0]);			\
+		if (lock_order[0] != lock_order[1])			\
+			net2_mutex_unlock(lock_order[1]);		\
+	} while (0)
+
 	/* Lock both queues. */
-	net2_mutex_lock(lock_order[0]);
-	net2_mutex_lock(lock_order[1]);
+	LOCK();
 
 	while ((e = TAILQ_FIRST(&src->entries)) != NULL) {
 		if (net2_mutex_trylock(e->change_mtx)) {
@@ -789,13 +812,11 @@ net2_txcb_entryq_merge(struct net2_txcb_entryq *dst,
 		} else {
 			/* Release locks, ensuring entry will stay alive. */
 			entry_acquire(e);
-			net2_mutex_unlock(dst->mtx);
-			net2_mutex_unlock(src->mtx);
+			UNLOCK();
 
 			/* Acquire locks in the correct order. */
 			net2_mutex_lock(e->change_mtx);
-			net2_mutex_lock(lock_order[0]);
-			net2_mutex_lock(lock_order[1]);
+			LOCK();
 
 			/*
 			 * Now that the locks are acquired properly,
@@ -814,6 +835,8 @@ net2_txcb_entryq_merge(struct net2_txcb_entryq *dst,
 		}
 	}
 
-	net2_mutex_unlock(src->mtx);
-	net2_mutex_unlock(dst->mtx);
+	UNLOCK();
+
+#undef LOCK
+#undef UNLOCK
 }
