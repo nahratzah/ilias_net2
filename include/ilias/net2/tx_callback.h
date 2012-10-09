@@ -117,9 +117,9 @@ private:
 
 public:
 	tx_callback();
-	~tx_callback() throw ();
+	~tx_callback() ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	tx_callback(tx_callback&&) throw ();
+	tx_callback(tx_callback&&) ILIAS_NET2_NOTHROW;
 #endif
 
 #if HAS_DELETED_FN
@@ -137,14 +137,14 @@ public:
 #endif
 	void merge(tx_callback& other);
 
-	void merge_out(tx_callback&) throw ();
-	void merge_out(struct net2_tx_callback*) throw ();
+	void merge_out(tx_callback&) ILIAS_NET2_NOTHROW;
+	void merge_out(struct net2_tx_callback*) ILIAS_NET2_NOTHROW;
 
-	bool empty() const throw ();
+	bool empty() const ILIAS_NET2_NOTHROW;
 
-	void ack() throw ();
-	void nack() throw ();
-	void timeout() throw ();
+	void ack() ILIAS_NET2_NOTHROW;
+	void nack() ILIAS_NET2_NOTHROW;
+	void timeout() ILIAS_NET2_NOTHROW;
 };
 
 
@@ -161,10 +161,10 @@ public:
 	static const int ALL = NET2_TXCB_EQ_ALL;
 
 	txcb_entryq();
-	~txcb_entryq() throw ();
+	~txcb_entryq() ILIAS_NET2_NOTHROW;
 
 #if HAS_RVALUE_REF
-	txcb_entryq(txcb_entryq&&) throw ();
+	txcb_entryq(txcb_entryq&&) ILIAS_NET2_NOTHROW;
 #endif
 
 #if HAS_DELETED_FN
@@ -176,12 +176,12 @@ private:
 	txcb_entryq& operator=(const txcb_entryq&);
 #endif
 
-	bool empty(int = ALL) const throw ();
-	void clear(int = ALL) throw ();
+	bool empty(int = ALL) const ILIAS_NET2_NOTHROW;
+	void clear(int = ALL) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	void merge(txcb_entryq&&) throw ();
+	void merge(txcb_entryq&&) ILIAS_NET2_NOTHROW;
 #endif
-	void merge(txcb_entryq&) throw ();
+	void merge(txcb_entryq&) ILIAS_NET2_NOTHROW;
 };
 
 
@@ -203,14 +203,14 @@ tx_callback::tx_callback()
 
 #if HAS_RVALUE_REF
 inline
-tx_callback::tx_callback(tx_callback&& o) throw ()
+tx_callback::tx_callback(tx_callback&& o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_init_merge(&this->m_txcb, &o.m_txcb);
 }
 #endif /* HAS_RVALUE_REF */
 
 inline
-tx_callback::~tx_callback() throw ()
+tx_callback::~tx_callback() ILIAS_NET2_NOTHROW
 {
 	net2_txcb_deinit(&this->m_txcb);
 }
@@ -230,37 +230,37 @@ tx_callback::merge(tx_callback& o)
 }
 
 inline void
-tx_callback::merge_out(tx_callback& o) throw ()
+tx_callback::merge_out(tx_callback& o) ILIAS_NET2_NOTHROW
 {
 	this->merge_out(&o.m_txcb);
 }
 
 inline void
-tx_callback::merge_out(struct net2_tx_callback *o) throw ()
+tx_callback::merge_out(struct net2_tx_callback *o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_merge(o, &this->m_txcb);
 }
 
 inline bool
-tx_callback::empty() const throw ()
+tx_callback::empty() const ILIAS_NET2_NOTHROW
 {
 	return net2_txcb_empty(&this->m_txcb);
 }
 
 inline void
-tx_callback::ack() throw ()
+tx_callback::ack() ILIAS_NET2_NOTHROW
 {
 	net2_txcb_ack(&this->m_txcb);
 }
 
 inline void
-tx_callback::nack() throw ()
+tx_callback::nack() ILIAS_NET2_NOTHROW
 {
 	net2_txcb_nack(&this->m_txcb);
 }
 
 inline void
-tx_callback::timeout() throw ()
+tx_callback::timeout() ILIAS_NET2_NOTHROW
 {
 	net2_txcb_timeout(&this->m_txcb);
 }
@@ -283,39 +283,39 @@ txcb_entryq::txcb_entryq()
 }
 
 inline
-txcb_entryq::~txcb_entryq() throw ()
+txcb_entryq::~txcb_entryq() ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_deinit(&this->m_txcbq);
 }
 
 #if HAS_RVALUE_REF
 inline
-txcb_entryq::txcb_entryq(txcb_entryq&& o) throw ()
+txcb_entryq::txcb_entryq(txcb_entryq&& o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_init_merge(&this->m_txcbq, &o.m_txcbq);
 }
 #endif
 
 inline bool
-txcb_entryq::empty(int which) const throw ()
+txcb_entryq::empty(int which) const ILIAS_NET2_NOTHROW
 {
 	return net2_txcb_entryq_empty(&this->m_txcbq, which);
 }
 
 inline void
-txcb_entryq::clear(int which) throw ()
+txcb_entryq::clear(int which) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_clear(&this->m_txcbq, which);
 }
 
 inline void
-txcb_entryq::merge(txcb_entryq&& o) throw ()
+txcb_entryq::merge(txcb_entryq&& o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_merge(&this->m_txcbq, &o.m_txcbq);
 }
 
 inline void
-txcb_entryq::merge(txcb_entryq& o) throw ()
+txcb_entryq::merge(txcb_entryq& o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_merge(&this->m_txcbq, &o.m_txcbq);
 }

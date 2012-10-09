@@ -159,31 +159,31 @@ class ILIAS_NET2_EXPORT promise_error :
 	public virtual std::exception
 {
 public:
-	virtual ~promise_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Uninitialized promise error, promise was not properly initialized. */
 class ILIAS_NET2_EXPORT promise_noinit_error :
 	public virtual promise_error
 {
 public:
-	virtual ~promise_noinit_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_noinit_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 class ILIAS_NET2_EXPORT promise_fin_error :
 	public virtual promise_error
 {
 public:
-	virtual ~promise_fin_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_fin_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise dereference error, thrown when result is unavailable. */
 class ILIAS_NET2_EXPORT promise_deref_error :
 	public virtual promise_error
 {
 public:
-	virtual ~promise_deref_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_deref_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise dereference error for uninitialized promise. */
 class ILIAS_NET2_EXPORT promise_deref_noinit_error :
@@ -191,24 +191,24 @@ class ILIAS_NET2_EXPORT promise_deref_noinit_error :
 	public virtual promise_noinit_error
 {
 public:
-	virtual ~promise_deref_noinit_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_deref_noinit_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise was canceled. */
 class ILIAS_NET2_EXPORT promise_canceled :
 	public virtual promise_deref_error
 {
 public:
-	virtual ~promise_canceled() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_canceled() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise has not finished. */
 class ILIAS_NET2_EXPORT promise_unfinished :
 	public virtual promise_deref_error
 {
 public:
-	virtual ~promise_unfinished() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_unfinished() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise finished with error code. */
 class ILIAS_NET2_EXPORT promise_finerr_error :
@@ -224,39 +224,39 @@ public:
 		return;
 	}
 
-	virtual ~promise_finerr_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_finerr_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise became unreferenced before result was set. */
 class ILIAS_NET2_EXPORT promise_unref_error :
 	public virtual promise_deref_error
 {
 public:
-	virtual ~promise_unref_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_unref_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 /* Promise failed to execute. */
 class ILIAS_NET2_EXPORT promise_fail_error :
 	public virtual promise_deref_error
 {
 public:
-	virtual ~promise_fail_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_fail_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 class ILIAS_NET2_EXPORT promise_fin_twice_error :
 	public virtual promise_fin_error
 {
 public:
-	virtual ~promise_fin_twice_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_fin_twice_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 class ILIAS_NET2_EXPORT promise_fin_noinit_error :
 	public virtual promise_noinit_error,
 	public virtual promise_fin_error
 {
 public:
-	virtual ~promise_fin_noinit_error() throw ();
-	virtual const char *what() const throw ();
+	virtual ~promise_fin_noinit_error() ILIAS_NET2_NOTHROW;
+	virtual const char *what() const ILIAS_NET2_NOTHROW;
 };
 
 
@@ -281,26 +281,26 @@ private:
 	struct net2_promise *p;
 
 public:
-	promise() throw ();
+	promise() ILIAS_NET2_NOTHROW;
 	promise(promise_create_t) throw (std::bad_alloc);
-	explicit promise(struct net2_promise*) throw ();
-	promise(const promise&) throw ();
+	explicit promise(struct net2_promise*) ILIAS_NET2_NOTHROW;
+	promise(const promise&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	promise(promise&&) throw ();
+	promise(promise&&) ILIAS_NET2_NOTHROW;
 #endif
-	~promise() throw ();
+	~promise() ILIAS_NET2_NOTHROW;
 
-	promise& operator= (const promise&) throw ();
+	promise& operator= (const promise&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	promise& operator= (promise&&) throw ();
+	promise& operator= (promise&&) ILIAS_NET2_NOTHROW;
 #endif
-	bool operator== (const promise&) throw ();
+	bool operator== (const promise&) ILIAS_NET2_NOTHROW;
 
-	struct net2_promise *c_promise() const throw ();
+	struct net2_promise *c_promise() const ILIAS_NET2_NOTHROW;
 
-	bool is_running() const throw ();
-	bool is_cancel_req() const throw ();
-	bool is_finished() const throw ();
+	bool is_running() const ILIAS_NET2_NOTHROW;
+	bool is_cancel_req() const ILIAS_NET2_NOTHROW;
+	bool is_finished() const ILIAS_NET2_NOTHROW;
 
 	void start() throw (promise_noinit_error);
 	void wait() const throw (promise_noinit_error);
@@ -317,13 +317,13 @@ public:
 	void fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_fin_error);
 
 private:
-	result_type* get_internal(bool, int*, uint32_t*) const throw ();
-	static void do_delete(result_type*, void*) throw ();
+	result_type* get_internal(bool, int*, uint32_t*) const ILIAS_NET2_NOTHROW;
+	static void do_delete(result_type*, void*) ILIAS_NET2_NOTHROW;
 };
 
 
 template<typename T>
-promise<T>::promise() throw () :
+promise<T>::promise() ILIAS_NET2_NOTHROW :
 	p(0)
 {
 	return;
@@ -338,7 +338,7 @@ promise<T>::promise(promise_create_t) throw (std::bad_alloc) :
 }
 
 template<typename T>
-promise<T>::promise(struct net2_promise *np) throw () :
+promise<T>::promise(struct net2_promise *np) ILIAS_NET2_NOTHROW :
 	p(np)
 {
 	if (p)
@@ -346,7 +346,7 @@ promise<T>::promise(struct net2_promise *np) throw () :
 }
 
 template<typename T>
-promise<T>::promise(const promise<T>& rhs) throw () :
+promise<T>::promise(const promise<T>& rhs) ILIAS_NET2_NOTHROW :
 	p(rhs.p)
 {
 	if (p)
@@ -355,7 +355,7 @@ promise<T>::promise(const promise<T>& rhs) throw () :
 
 #if HAS_RVALUE_REF
 template<typename T>
-promise<T>::promise(promise<T>&& rhs) throw () :
+promise<T>::promise(promise<T>&& rhs) ILIAS_NET2_NOTHROW :
 	p(rhs.p)
 {
 	rhs.p = 0;
@@ -365,7 +365,7 @@ promise<T>::promise(promise<T>&& rhs) throw () :
 #endif
 
 template<typename T>
-promise<T>::~promise() throw ()
+promise<T>::~promise() ILIAS_NET2_NOTHROW
 {
 	if (p)
 		net2_promise_release(p);
@@ -373,7 +373,7 @@ promise<T>::~promise() throw ()
 
 template<typename T>
 promise<T>&
-promise<T>::operator= (const promise<T>& rhs) throw ()
+promise<T>::operator= (const promise<T>& rhs) ILIAS_NET2_NOTHROW
 {
 	if (p)
 		net2_promise_release(p);
@@ -386,7 +386,7 @@ promise<T>::operator= (const promise<T>& rhs) throw ()
 #if HAS_RVALUE_REF
 template<typename T>
 promise<T>&
-promise<T>::operator= (promise<T>&& rhs) throw ()
+promise<T>::operator= (promise<T>&& rhs) ILIAS_NET2_NOTHROW
 {
 	if (p)
 		net2_promise_release(p);
@@ -398,35 +398,35 @@ promise<T>::operator= (promise<T>&& rhs) throw ()
 
 template<typename T>
 bool
-promise<T>::operator== (const promise& rhs) throw ()
+promise<T>::operator== (const promise& rhs) ILIAS_NET2_NOTHROW
 {
 	return p == rhs.p;
 }
 
 template<typename T>
 net2_promise*
-promise<T>::c_promise() const throw ()
+promise<T>::c_promise() const ILIAS_NET2_NOTHROW
 {
 	return p;
 }
 
 template<typename T>
 bool
-promise<T>::is_running() const throw ()
+promise<T>::is_running() const ILIAS_NET2_NOTHROW
 {
 	return p && net2_promise_is_running(p);
 }
 
 template<typename T>
 bool
-promise<T>::is_cancel_req() const throw ()
+promise<T>::is_cancel_req() const ILIAS_NET2_NOTHROW
 {
 	return p && net2_promise_is_cancelreq(p);
 }
 
 template<typename T>
 bool
-promise<T>::is_finished() const throw ()
+promise<T>::is_finished() const ILIAS_NET2_NOTHROW
 {
 	return p && net2_promise_is_finished(p);
 }
@@ -460,7 +460,7 @@ promise<T>::cancel() throw (promise_noinit_error)
 
 template<typename T>
 typename promise<T>::result_type*
-promise<T>::get_internal(bool do_wait, int* fin, uint32_t* err) const throw ()
+promise<T>::get_internal(bool do_wait, int* fin, uint32_t* err) const ILIAS_NET2_NOTHROW
 {
 	void		*vptr;
 
@@ -518,7 +518,7 @@ promise<T>::get(bool do_wait) const throw (promise_deref_error)
 
 template<typename Finalizer>
 void
-_run_finalizer(void* ILIAS_NET2__unused unused, void *f_ptr) throw ()
+_run_finalizer(void* ILIAS_NET2__unused unused, void *f_ptr) ILIAS_NET2_NOTHROW
 {
 	Finalizer	*f = reinterpret_cast<Finalizer>(f);
 
@@ -544,7 +544,7 @@ promise<T>::fin_ok(typename promise<T>::result_type *r, Finalizer fin) throw (st
 
 template<typename T>
 void
-promise<T>::do_delete(typename promise<T>::result_type *r, void*) throw ()
+promise<T>::do_delete(typename promise<T>::result_type *r, void*) ILIAS_NET2_NOTHROW
 {
 	delete r;
 }
@@ -591,7 +591,7 @@ promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_f
  */
 template<typename Prom0, typename... Promises, typename Functor, typename Result, typename... Args>
 void
-_invoke(const Functor& functor, promise<Result>& result, net2_promise** in, Args&&... args) throw ()
+_invoke(const Functor& functor, promise<Result>& result, net2_promise** in, Args&&... args) ILIAS_NET2_NOTHROW
 {
 	_invoke<Promises...>(functor, result, in + 1, args..., std::move(Prom0(*in)));
 }
@@ -602,7 +602,7 @@ _invoke(const Functor& functor, promise<Result>& result, net2_promise** in, Args
  */
 template<typename Functor, typename Result, typename... Args>
 void
-_invoke(const Functor& functor, promise<Result>& result, net2_promise** ILIAS_NET2__unused in, Args&&... args) throw ()
+_invoke(const Functor& functor, promise<Result>& result, net2_promise** ILIAS_NET2__unused in, Args&&... args) ILIAS_NET2_NOTHROW
 {
 	Result	*v;
 
@@ -632,7 +632,7 @@ _invoke(const Functor& functor, promise<Result>& result, net2_promise** ILIAS_NE
  */
 template<typename Functor, typename Result, typename... Promises>
 void
-_invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, size_t insz, void *arg) throw ()
+_invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, size_t insz, void *arg) ILIAS_NET2_NOTHROW
 {
 	promise<Result> cxx_out(out);
 	Functor *functor = reinterpret_cast<Functor*>(arg);
@@ -645,7 +645,7 @@ _invoke_promise_combiner(struct net2_promise *out, struct net2_promise **in, siz
  */
 template<typename Functor>
 void
-_promise_delete_functor(void *f_ptr, void *unused ILIAS_NET2__unused) throw ()
+_promise_delete_functor(void *f_ptr, void *unused ILIAS_NET2__unused) ILIAS_NET2_NOTHROW
 {
 	Functor *f = reinterpret_cast<Functor*>(f_ptr);
 	if (f)

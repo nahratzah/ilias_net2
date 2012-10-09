@@ -101,6 +101,7 @@
 #define HAS_DECLTYPE		__has_feature(cxx_decltype)
 #define HAS_DELETED_FN		__has_feature(cxx_deleted_functions)
 #define HAS_RVALUE_REF		__has_feature(cxx_rvalue_references)
+#define HAS_NOEXCEPT		__has_feature(cxx_noexcept)
 
 #elif defined(__GNUC__)
 /* Features of GNU compiler. */
@@ -110,6 +111,7 @@
 #define HAS_DECLTYPE		ILIAS_NET2_gnuc_require(4, 3)
 #define HAS_DELETED_FN		ILIAS_NET2_gnuc_require(4, 4)
 #define HAS_RVALUE_REF		ILIAS_NET2_gnuc_require(4, 3)
+#define HAS_NOEXCEPT		ILIAS_NET2_gnuc_require(4, 6)
 
 #else
 /* Unknown compiler, assume it doesn't implement anything. */
@@ -125,5 +127,18 @@
 #warn "We don't know if your compiler supports Deleted Functions."
 #define HAS_DELETED_FN		0
 #endif
+#ifndef HAS_NOEXCEPT
+#warn "We don't know if your compiler supports NoExcept keyword."
+#define HAS_NOEXCEPT		0
+#endif
 
+#endif
+
+
+#if HAS_NOEXCEPT
+#define ILIAS_NET2_NOTHROW		noexcept
+#define ILIAS_NET2_NOTHROW_CND(_x)	noexcept(_x)
+#else
+#define ILIAS_NET2_NOTHROW		throw ()
+#define ILIAS_NET2_NOTHROW_CND(_x)	/* No conditional support. */
 #endif

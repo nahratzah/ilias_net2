@@ -185,24 +185,24 @@ class ILIAS_NET2_EXPORT workq_sync_error :
 	public virtual std::exception
 {
 public:
-	virtual ~workq_sync_error() throw ();
-	virtual const char* what() const throw ();
+	virtual ~workq_sync_error() ILIAS_NET2_NOTHROW;
+	virtual const char* what() const ILIAS_NET2_NOTHROW;
 };
 /* Synchronization failed due to current callstack running on the workq. */
 class ILIAS_NET2_EXPORT workq_sync_self :
 	public virtual workq_sync_error
 {
 public:
-	virtual ~workq_sync_self() throw ();
-	virtual const char* what() const throw ();
+	virtual ~workq_sync_self() ILIAS_NET2_NOTHROW;
+	virtual const char* what() const ILIAS_NET2_NOTHROW;
 };
 /* Workq was busy. */
 class ILIAS_NET2_EXPORT workq_sync_tryfail :
 	public virtual workq_sync_error
 {
 public:
-	virtual ~workq_sync_tryfail() throw ();
-	virtual const char* what() const throw ();
+	virtual ~workq_sync_tryfail() ILIAS_NET2_NOTHROW;
+	virtual const char* what() const ILIAS_NET2_NOTHROW;
 };
 
 
@@ -222,27 +222,27 @@ public:
 	workq(workq_evbase&) throw (std::bad_alloc);
 	explicit workq(struct net2_workq_evbase*) throw (std::invalid_argument, std::bad_alloc);
 	explicit workq(struct net2_workq*) throw (std::invalid_argument);
-	workq(const workq&) throw ();
+	workq(const workq&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	workq(workq&&) throw ();
+	workq(workq&&) ILIAS_NET2_NOTHROW;
 #endif
-	~workq() throw ();
+	~workq() ILIAS_NET2_NOTHROW;
 
-	workq& operator= (const workq&) throw ();
+	workq& operator= (const workq&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	workq& operator= (workq&&) throw ();
+	workq& operator= (workq&&) ILIAS_NET2_NOTHROW;
 #endif
-	bool operator== (const workq&) const throw ();
-	bool operator!= (const workq&) const throw ();
+	bool operator== (const workq&) const ILIAS_NET2_NOTHROW;
+	bool operator!= (const workq&) const ILIAS_NET2_NOTHROW;
 
 	void surf(bool = false) const throw (std::bad_alloc);
 	bool aid(int = 1) const throw (std::bad_alloc, std::invalid_argument);
 
 #if HAS_RVALUE_REF
-	workq_evbase&& evbase() const throw ();
+	workq_evbase&& evbase() const ILIAS_NET2_NOTHROW;
 #endif
 
-	struct net2_workq *c_workq() const throw ();
+	struct net2_workq *c_workq() const ILIAS_NET2_NOTHROW;
 };
 
 class workq_evbase
@@ -255,20 +255,20 @@ public:
 	workq_evbase(const char*) throw (std::bad_alloc);
 	workq_evbase(const std::string&) throw (std::bad_alloc);
 	explicit workq_evbase(struct net2_workq_evbase*) throw (std::invalid_argument);
-	workq_evbase(const workq_evbase&) throw ();
+	workq_evbase(const workq_evbase&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	workq_evbase(workq_evbase&&) throw ();
+	workq_evbase(workq_evbase&&) ILIAS_NET2_NOTHROW;
 #endif
-	~workq_evbase() throw ();
+	~workq_evbase() ILIAS_NET2_NOTHROW;
 
-	workq_evbase& operator= (const workq_evbase&) throw ();
+	workq_evbase& operator= (const workq_evbase&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	workq_evbase& operator= (workq_evbase&&) throw ();
+	workq_evbase& operator= (workq_evbase&&) ILIAS_NET2_NOTHROW;
 #endif
-	bool operator== (const workq_evbase&) const throw ();
-	bool operator!= (const workq_evbase&) const throw ();
+	bool operator== (const workq_evbase&) const ILIAS_NET2_NOTHROW;
+	bool operator!= (const workq_evbase&) const ILIAS_NET2_NOTHROW;
 
-	struct net2_workq_evbase *c_workq_evbase() const throw ();
+	struct net2_workq_evbase *c_workq_evbase() const ILIAS_NET2_NOTHROW;
 };
 
 class workq_sync
@@ -283,7 +283,7 @@ public:
 	static const int RECURSE = NET2_WQ_WANT_RECURSE;
 
 	workq_sync(const workq&, int = 0) throw (std::bad_alloc, std::invalid_argument, workq_sync_error);
-	~workq_sync() throw ();
+	~workq_sync() ILIAS_NET2_NOTHROW;
 
 	/* Remove copy/assignment. */
 #if HAS_DELETED_FN
@@ -312,8 +312,8 @@ public:
 	static const int PERSIST = NET2_WORKQ_PERSIST;
 	static const int PARALLEL = NET2_WORKQ_PARALLEL;
 
-	workq_job() throw ();
-	~workq_job() throw ();
+	workq_job() ILIAS_NET2_NOTHROW;
+	~workq_job() ILIAS_NET2_NOTHROW;
 
 	template<typename Functor>
 	workq_job(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
@@ -322,7 +322,7 @@ public:
 	workq_job(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
 #endif
 
-	void reset() throw ();
+	void reset() ILIAS_NET2_NOTHROW;
 
 	template<typename Functor>
 	void reset(const workq&, const Functor&, int = 0) throw (std::bad_alloc, std::invalid_argument);
@@ -331,13 +331,13 @@ public:
 	void reset(const workq&, Functor&&, int = 0) throw (std::bad_alloc, std::invalid_argument);
 #endif
 
-	bool is_null() const throw ();
+	bool is_null() const ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
 	workq&& get_workq() const;
 #endif
 
-	void activate(int = 0) const throw ();
-	void deactivate() const throw ();
+	void activate(int = 0) const ILIAS_NET2_NOTHROW;
+	void deactivate() const ILIAS_NET2_NOTHROW;
 
 	/* Remove copy/assignment. */
 #if HAS_DELETED_FN
@@ -387,7 +387,7 @@ workq::workq(struct net2_workq *wq) throw (std::invalid_argument) :
 }
 
 inline
-workq::workq(const workq& rhs) throw () :
+workq::workq(const workq& rhs) ILIAS_NET2_NOTHROW :
 	wq(rhs.wq)
 {
 	net2_workq_ref(wq);
@@ -395,7 +395,7 @@ workq::workq(const workq& rhs) throw () :
 
 #if HAS_RVALUE_REF
 inline
-workq::workq(workq&& rhs) throw () :
+workq::workq(workq&& rhs) ILIAS_NET2_NOTHROW :
 	wq(rhs.wq)
 {
 	rhs.wq = 0;
@@ -403,14 +403,14 @@ workq::workq(workq&& rhs) throw () :
 #endif
 
 inline
-workq::~workq() throw ()
+workq::~workq() ILIAS_NET2_NOTHROW
 {
 	if (wq)
 		net2_workq_release(wq);
 }
 
 inline workq&
-workq::operator= (const workq& rhs) throw ()
+workq::operator= (const workq& rhs) ILIAS_NET2_NOTHROW
 {
 	net2_workq_release(wq);
 	wq = rhs.wq;
@@ -420,7 +420,7 @@ workq::operator= (const workq& rhs) throw ()
 
 #if HAS_RVALUE_REF
 inline workq&
-workq::operator= (workq&& rhs) throw ()
+workq::operator= (workq&& rhs) ILIAS_NET2_NOTHROW
 {
 	net2_workq_release(wq);
 	wq = rhs.wq;
@@ -430,13 +430,13 @@ workq::operator= (workq&& rhs) throw ()
 #endif
 
 inline bool
-workq::operator== (const workq& rhs) const throw ()
+workq::operator== (const workq& rhs) const ILIAS_NET2_NOTHROW
 {
 	return wq == rhs.wq;
 }
 
 inline bool
-workq::operator!= (const workq& rhs) const throw ()
+workq::operator!= (const workq& rhs) const ILIAS_NET2_NOTHROW
 {
 	return !(*this == rhs);
 }
@@ -473,7 +473,7 @@ workq::aid(int count) const throw (std::bad_alloc, std::invalid_argument)
 
 #if HAS_RVALUE_REF
 inline workq_evbase&&
-workq::evbase() const throw ()
+workq::evbase() const ILIAS_NET2_NOTHROW
 {
 	struct net2_workq_evbase *wqev = net2_workq_evbase(this->wq);
 	net2_workq_evbase_ref(wqev);
@@ -482,7 +482,7 @@ workq::evbase() const throw ()
 #endif
 
 inline struct net2_workq*
-workq::c_workq() const throw ()
+workq::c_workq() const ILIAS_NET2_NOTHROW
 {
 	return wq;
 }
@@ -521,7 +521,7 @@ workq_evbase::workq_evbase(struct net2_workq_evbase* wqev) throw (std::invalid_a
 }
 
 inline
-workq_evbase::workq_evbase(const workq_evbase& rhs) throw () :
+workq_evbase::workq_evbase(const workq_evbase& rhs) ILIAS_NET2_NOTHROW :
 	wqev(rhs.wqev)
 {
 	net2_workq_evbase_ref(wqev);
@@ -529,7 +529,7 @@ workq_evbase::workq_evbase(const workq_evbase& rhs) throw () :
 
 #if HAS_RVALUE_REF
 inline
-workq_evbase::workq_evbase(workq_evbase&& rhs) throw () :
+workq_evbase::workq_evbase(workq_evbase&& rhs) ILIAS_NET2_NOTHROW :
 	wqev(rhs.wqev)
 {
 	rhs.wqev = 0;
@@ -537,14 +537,14 @@ workq_evbase::workq_evbase(workq_evbase&& rhs) throw () :
 #endif
 
 inline
-workq_evbase::~workq_evbase() throw ()
+workq_evbase::~workq_evbase() ILIAS_NET2_NOTHROW
 {
 	if (wqev)
 		net2_workq_evbase_release(wqev);
 }
 
 inline workq_evbase&
-workq_evbase::operator= (const workq_evbase& rhs) throw ()
+workq_evbase::operator= (const workq_evbase& rhs) ILIAS_NET2_NOTHROW
 {
 	net2_workq_evbase_release(wqev);
 	wqev = rhs.wqev;
@@ -554,7 +554,7 @@ workq_evbase::operator= (const workq_evbase& rhs) throw ()
 
 #if HAS_RVALUE_REF
 inline workq_evbase&
-workq_evbase::operator= (workq_evbase&& rhs) throw ()
+workq_evbase::operator= (workq_evbase&& rhs) ILIAS_NET2_NOTHROW
 {
 	net2_workq_evbase_release(wqev);
 	wqev = rhs.wqev;
@@ -564,19 +564,19 @@ workq_evbase::operator= (workq_evbase&& rhs) throw ()
 #endif
 
 inline bool
-workq_evbase::operator== (const workq_evbase& rhs) const throw ()
+workq_evbase::operator== (const workq_evbase& rhs) const ILIAS_NET2_NOTHROW
 {
 	return wqev == rhs.wqev;
 }
 
 inline bool
-workq_evbase::operator!= (const workq_evbase& rhs) const throw ()
+workq_evbase::operator!= (const workq_evbase& rhs) const ILIAS_NET2_NOTHROW
 {
 	return !(*this == rhs);
 }
 
 inline struct net2_workq_evbase *
-workq_evbase::c_workq_evbase() const throw ()
+workq_evbase::c_workq_evbase() const ILIAS_NET2_NOTHROW
 {
 	return wqev;
 }
@@ -592,14 +592,14 @@ workq_sync::workq_sync(const workq& wq, int flags) throw (std::bad_alloc, std::i
 }
 
 inline
-workq_sync::~workq_sync() throw ()
+workq_sync::~workq_sync() ILIAS_NET2_NOTHROW
 {
 	net2_workq_unwant(wq.c_workq());
 }
 
 
 inline
-workq_job::workq_job() throw ()
+workq_job::workq_job() ILIAS_NET2_NOTHROW
 {
 	net2_workq_init_work_null(&this->job);
 }
@@ -621,7 +621,7 @@ workq_job::workq_job(const workq& wq, Functor&& f, int flags) throw (std::bad_al
 #endif
 
 inline
-workq_job::~workq_job() throw ()
+workq_job::~workq_job() ILIAS_NET2_NOTHROW
 {
 	this->reset();
 }
@@ -643,7 +643,7 @@ workq_job::delete_fun(void *f_ptr)
 }
 
 inline void
-workq_job::reset() throw ()
+workq_job::reset() ILIAS_NET2_NOTHROW
 {
 	net2_workq_deinit_work(&this->job);
 	if (this->functor)
@@ -707,7 +707,7 @@ workq_job::reset(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc,
 #endif
 
 inline bool
-workq_job::is_null() const throw ()
+workq_job::is_null() const ILIAS_NET2_NOTHROW
 {
 	return net2_workq_work_is_null(&this->job);
 }
@@ -726,13 +726,13 @@ workq_job::get_workq() const
 #endif
 
 inline void
-workq_job::activate(int flags) const throw ()
+workq_job::activate(int flags) const ILIAS_NET2_NOTHROW
 {
 	net2_workq_activate(&this->job, flags);
 }
 
 inline void
-workq_job::deactivate() const throw ()
+workq_job::deactivate() const ILIAS_NET2_NOTHROW
 {
 	net2_workq_deactivate(&this->job);
 }
