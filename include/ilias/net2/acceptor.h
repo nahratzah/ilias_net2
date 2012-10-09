@@ -202,9 +202,11 @@ public:
 
 #if HAS_DELETE_FN
 	abstract_acceptor(const abstract_acceptor&) = delete;
+	abstract_acceptor& operator=(const abstract_acceptor&) = delete;
 #else
 private:
 	abstract_acceptor(const abstract_acceptor&);
+	abstract_acceptor& operator=(const abstract_acceptor&);
 #endif
 
 
@@ -248,9 +250,11 @@ public:
 
 #if HAS_DELETE_FN
 	abstract_acceptor_socket(const abstract_acceptor_socket&) = delete;
+	abstract_acceptor_socket& operator=(const abstract_acceptor_socket&) = delete;
 #else
 private:
 	abstract_acceptor_socket(const abstract_acceptor_socket&);
+	abstract_acceptor_socket& operator=(const abstract_acceptor_socket&);
 #endif
 
 
