@@ -179,6 +179,7 @@ namespace ilias {
 
 class buffer;
 class workq;
+class tx_callback;
 
 class ILIAS_NET2_EXPORT abstract_acceptor :
 	private net2_acceptor
@@ -214,7 +215,7 @@ private:
 	virtual void detach(struct net2_acceptor_socket*) = 0;
 	virtual int attach(struct net2_acceptor_socket*) = 0;
 	virtual void accept(buffer&) = 0;
-	virtual int get_transmit(buffer&, struct net2_tx_callback*, int, size_t) = 0;
+	virtual int get_transmit(buffer&, tx_callback&, int, size_t) = 0;
 	virtual void on_close() = 0;
 
 
@@ -261,7 +262,7 @@ private:
 private:
 	virtual void ready_to_send() = 0;
 	virtual void accept(buffer&) = 0;
-	virtual int get_transmit(buffer&, struct net2_tx_callback*, int, size_t) = 0;
+	virtual int get_transmit(buffer&, tx_callback&, int, size_t) = 0;
 	virtual int get_pvlist(struct net2_pvlist*) = 0;
 
 

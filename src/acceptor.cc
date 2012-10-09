@@ -60,11 +60,12 @@ abstract_acceptor::cwrap_accept(struct net2_acceptor *a,
 ILIAS_NET2_LOCAL int
 abstract_acceptor::cwrap_get_transmit(struct net2_acceptor *a,
     struct net2_buffer **buf,
-    struct net2_tx_callback *txcb, int first, size_t maxlen) throw ()
+    struct net2_tx_callback *c_txcb, int first, size_t maxlen) throw ()
 {
 	assert(!*buf);
 
 	ilias::buffer b = ilias::BUFFER_CREATE;
+	tx_callback txcb;
 	int rv;
 
 	try {
@@ -78,8 +79,10 @@ abstract_acceptor::cwrap_get_transmit(struct net2_acceptor *a,
 		return EIO;
 	}
 
-	if (rv == 0)
+	if (rv == 0) {
 		*buf = b.release();
+		txcb.merge_out(c_txcb);
+	}
 	return rv;
 }
 
@@ -135,11 +138,12 @@ abstract_acceptor_socket::cwrap_accept(struct net2_acceptor_socket *as,
 ILIAS_NET2_LOCAL int
 abstract_acceptor_socket::cwrap_get_transmit(struct net2_acceptor_socket *as,
     struct net2_buffer **buf,
-    struct net2_tx_callback *txcb, int first, size_t maxlen) throw ()
+    struct net2_tx_callback *c_txcb, int first, size_t maxlen) throw ()
 {
 	assert(!*buf);
 
-	ilias::buffer b = ilias::BUFFER_CREATE;
+	buffer b = ilias::BUFFER_CREATE;
+	tx_callback txcb;
 	int rv;
 
 	try {
@@ -153,8 +157,10 @@ abstract_acceptor_socket::cwrap_get_transmit(struct net2_acceptor_socket *as,
 		return EIO;
 	}
 
-	if (rv == 0)
+	if (rv == 0) {
 		*buf = b.release();
+		txcb.merge_out(c_txcb);
+	}
 	return rv;
 }
 
