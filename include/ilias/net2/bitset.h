@@ -23,7 +23,7 @@
 ILIAS_NET2__begin_cdecl
 
 struct net2_bitset {
-	size_t			 size;
+	size_t			 sz;
 	union {
 		uintptr_t	*indir;
 		uintptr_t	 immed;
@@ -31,7 +31,7 @@ struct net2_bitset {
 };
 
 
-#define net2_bitset_size(_s)	((_s)->size + 0)
+#define net2_bitset_size(_s)	((_s)->sz + 0)
 ILIAS_NET2_EXPORT
 void	net2_bitset_init(struct net2_bitset*);
 ILIAS_NET2_EXPORT
@@ -103,7 +103,7 @@ public:
 	operator bool() const;
 	boolref& operator=(bool);
 	bool exchange(bool);
-}
+};
 
 
 inline
@@ -170,6 +170,7 @@ bitset::operator=(bitset&& o) ILIAS_NET2_NOTHROW
 {
 	net2_bitset_deinit(this);
 	net2_bitset_init_move(this, &o);
+	return *this;
 }
 
 inline bool
@@ -241,7 +242,7 @@ bitset::boolref::operator bool() const
 	return m_bitset[m_idx];
 }
 
-inline boolref&
+inline bitset::boolref&
 bitset::boolref::operator=(bool newval)
 {
 	int error = net2_bitset_set(&m_bitset, m_idx, newval, NULL);
@@ -253,10 +254,11 @@ bitset::boolref::operator=(bool newval)
 	default:
 		throw std::exception();
 	}
+	return *this;
 }
 
 inline bool
-bitset::boolref::exchange(bool)
+bitset::boolref::exchange(bool newval)
 {
 	int rv;
 

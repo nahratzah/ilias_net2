@@ -66,122 +66,122 @@ do_promise_fin_exception(struct net2_promise *p, int err)
 }
 
 
-promise_error::~promise_error() throw ()
+promise_error::~promise_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_error::what() const throw ()
+promise_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise error";
 }
 
-promise_noinit_error::~promise_noinit_error() throw ()
+promise_noinit_error::~promise_noinit_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_noinit_error::what() const throw ()
+promise_noinit_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise uninitalized";
 }
 
-promise_deref_error::~promise_deref_error() throw ()
+promise_deref_error::~promise_deref_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_deref_error::what() const throw ()
+promise_deref_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise null dereference";
 }
 
-promise_deref_noinit_error::~promise_deref_noinit_error() throw ()
+promise_deref_noinit_error::~promise_deref_noinit_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_deref_noinit_error::what() const throw ()
+promise_deref_noinit_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise unreferenced without initialization";
 }
 
-promise_canceled::~promise_canceled() throw ()
+promise_canceled::~promise_canceled() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_canceled::what() const throw ()
+promise_canceled::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise canceled";
 }
 
-promise_unfinished::~promise_unfinished() throw ()
+promise_unfinished::~promise_unfinished() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_unfinished::what() const throw ()
+promise_unfinished::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise unfinished";
 }
 
-promise_finerr_error::~promise_finerr_error() throw ()
+promise_finerr_error::~promise_finerr_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_finerr_error::what() const throw ()
+promise_finerr_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise completed with error";
 }
 
-promise_unref_error::~promise_unref_error() throw ()
+promise_unref_error::~promise_unref_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_unref_error::what() const throw ()
+promise_unref_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise unreferenced before completion";
 }
 
-promise_fail_error::~promise_fail_error() throw ()
+promise_fail_error::~promise_fail_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_fail_error::what() const throw ()
+promise_fail_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise failed to execute";
 }
 
-promise_fin_error::~promise_fin_error() throw ()
+promise_fin_error::~promise_fin_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_fin_error::what() const throw ()
+promise_fin_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise assign finish error";
 }
 
-promise_fin_twice_error::~promise_fin_twice_error() throw ()
+promise_fin_twice_error::~promise_fin_twice_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_fin_twice_error::what() const throw ()
+promise_fin_twice_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise already finished";
 }
 
-promise_fin_noinit_error::~promise_fin_noinit_error() throw ()
+promise_fin_noinit_error::~promise_fin_noinit_error() ILIAS_NET2_NOTHROW
 {
 	return;
 }
 const char*
-promise_fin_noinit_error::what() const throw ()
+promise_fin_noinit_error::what() const ILIAS_NET2_NOTHROW
 {
 	return "ilias::promise uninitialized while setting final state";
 }

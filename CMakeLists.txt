@@ -139,6 +139,7 @@ list (APPEND cluster_srcs
 
 list (APPEND cxx_srcs
 	src/acceptor.cc
+	src/connection.cc
 	src/promise.cc
 	src/workq.cc
 	)

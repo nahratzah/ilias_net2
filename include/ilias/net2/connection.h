@@ -114,4 +114,86 @@ net2_connection_close(struct net2_connection *c)
 
 
 ILIAS_NET2__end_cdecl
+
+#ifdef __cplusplus
+
+namespace ilias {
+
+class buffer;
+class workq;
+
+class abstract_connection :
+	private net2_connection
+{
+private:
+	static ILIAS_NET2_LOCAL abstract_connection* conn_cast(struct net2_acceptor_socket*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_destroy(struct net2_acceptor_socket*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_ready_to_send(struct net2_acceptor_socket*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_accept(struct net2_acceptor_socket*,
+	    struct net2_buffer*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL int cwrap_get_transmit(struct net2_acceptor_socket*,
+	    struct net2_buffer**,
+	    struct net2_tx_callback*, int, size_t) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL int cwrap_get_pvlist(struct net2_acceptor_socket*,
+	    struct net2_pvlist*) ILIAS_NET2_NOTHROW;
+
+	static const net2_acceptor_socket_fn m_vtable;
+
+public:
+	abstract_connection(struct net2_ctx*, const workq&);
+	virtual ~abstract_connection() ILIAS_NET2_NOTHROW;
+
+#if HAS_DELETE_FN
+	abstract_connection(const abstract_connection&) = delete;
+	abstract_connection& operator=(const abstract_connection&) = delete;
+#else
+private:
+	abstract_connection(const abstract_connection&);
+	abstract_connection& operator=(const abstract_connection&);
+#endif
+
+
+private:
+	virtual void ready_to_send() = 0;
+	virtual void accept(buffer&) = 0;
+	virtual int get_transmit(buffer&, tx_callback&, int, size_t) = 0;
+	virtual int get_pvlist(struct net2_pvlist*) = 0;
+
+
+protected:
+#if HAS_RVALUE_REF
+	workq&& get_workq() const ILIAS_NET2_NOTHROW;
+#else
+	workq get_workq() const ILIAS_NET2_NOTHROW;
+#endif
+};
+
+
+inline
+abstract_connection::abstract_connection(struct net2_ctx* nctx, const workq& wq)
+{
+	net2_connection_init(this, nctx, wq.c_workq(), &m_vtable);
+}
+
+inline
+#if HAS_RVALUE_REF
+workq&&
+#else
+workq
+#endif
+abstract_connection::get_workq() const ILIAS_NET2_NOTHROW
+{
+	workq wq(net2_acceptor_socket_workq(&const_cast<abstract_connection*>(this)->n2c_socket));
+
+#if HAS_RVALUE_REF
+	return std::move(wq);
+#else
+	return wq;
+#endif
+}
+
+
+}
+
+#endif /* __cplusplus */
 #endif /* ILIAS_NET2_CONNECTION_H */

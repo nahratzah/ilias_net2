@@ -157,19 +157,19 @@ private:
 	struct net2_buffer	*buf;
 
 public:
-	buffer() throw ();
+	buffer() ILIAS_NET2_NOTHROW;
 	explicit buffer(struct net2_buffer*) throw (std::invalid_argument);
 	buffer(buffer_create_t) throw (std::bad_alloc);
 	buffer(const buffer&) throw (std::bad_alloc);
 #if HAS_RVALUE_REF
-	buffer(buffer&&) throw ();
+	buffer(buffer&&) ILIAS_NET2_NOTHROW;
 #endif
 	buffer(const void*, size_type) throw (std::bad_alloc);
-	~buffer() throw ();
+	~buffer() ILIAS_NET2_NOTHROW;
 
 	buffer& operator= (const buffer& rhs) throw (std::bad_alloc);
 #if HAS_RVALUE_REF
-	buffer& operator= (buffer&& rhs) throw ();
+	buffer& operator= (buffer&& rhs) ILIAS_NET2_NOTHROW;
 #endif
 
 	buffer& operator+= (const buffer& rhs) throw (std::bad_alloc);
@@ -185,27 +185,27 @@ public:
 	buffer operator+ (const buffer&& rhs) const throw (std::bad_alloc);
 #endif
 
-	bool empty() const throw ();
-	size_type size() const throw ();
-	bool operator== (const buffer&) const throw ();
-	bool operator!= (const buffer&) const throw ();
-	bool operator< (const buffer&) const throw ();
-	bool operator> (const buffer&) const throw ();
-	bool operator<= (const buffer&) const throw ();
-	bool operator>= (const buffer&) const throw ();
+	bool empty() const ILIAS_NET2_NOTHROW;
+	size_type size() const ILIAS_NET2_NOTHROW;
+	bool operator== (const buffer&) const ILIAS_NET2_NOTHROW;
+	bool operator!= (const buffer&) const ILIAS_NET2_NOTHROW;
+	bool operator< (const buffer&) const ILIAS_NET2_NOTHROW;
+	bool operator> (const buffer&) const ILIAS_NET2_NOTHROW;
+	bool operator<= (const buffer&) const ILIAS_NET2_NOTHROW;
+	bool operator>= (const buffer&) const ILIAS_NET2_NOTHROW;
 
 	buffer& append(const void *, size_type) throw (std::bad_alloc);
 	buffer& add_reference(const void *, size_type, void (*)(void*), void*) throw (std::bad_alloc);
 	buffer& add_reference(const void *, size_type, void (*)(void*)) throw (std::bad_alloc);
 
-	void truncate(size_type) throw ();
-	void drain(size_type) throw ();
-	void clear() throw ();
+	void truncate(size_type) ILIAS_NET2_NOTHROW;
+	void drain(size_type) ILIAS_NET2_NOTHROW;
+	void clear() ILIAS_NET2_NOTHROW;
 
-	size_type copyout(void*, size_type) const throw ();
-	size_type move(void*, size_type) throw ();
+	size_type copyout(void*, size_type) const ILIAS_NET2_NOTHROW;
+	size_type move(void*, size_type) ILIAS_NET2_NOTHROW;
 	void* pullup(size_type) throw (std::bad_alloc, std::out_of_range);
-	bool sensitive() throw ();
+	bool sensitive() ILIAS_NET2_NOTHROW;
 
 	buffer subrange(size_type, size_type) const throw (std::bad_alloc, std::out_of_range);
 	buffer subrange(buffer_iterator, size_type) const throw (std::bad_alloc, std::out_of_range);
@@ -218,7 +218,7 @@ public:
 	std::string hex() const throw (std::bad_alloc);
 #endif
 
-	struct net2_buffer *release() throw ();
+	struct net2_buffer *release() ILIAS_NET2_NOTHROW;
 };
 
 class buffer_iterator
@@ -231,14 +231,14 @@ private:
 	struct net2_buffer_ptr	 ptr;
 
 public:
-	buffer_iterator() throw ();
-	buffer_iterator(const buffer&) throw ();
+	buffer_iterator() ILIAS_NET2_NOTHROW;
+	buffer_iterator(const buffer&) ILIAS_NET2_NOTHROW;
 	buffer_iterator(const buffer&, size_type) throw (std::out_of_range);
 	buffer_iterator(struct net2_buffer*, struct net2_buffer_ptr*) throw (std::invalid_argument);
 
-	size_type pos() const throw ();
-	size_type segment() const throw ();
-	size_type segment_offset() const throw ();
+	size_type pos() const ILIAS_NET2_NOTHROW;
+	size_type segment() const ILIAS_NET2_NOTHROW;
+	size_type segment_offset() const ILIAS_NET2_NOTHROW;
 
 	void advance(size_type) throw (std::out_of_range);
 	buffer_iterator& operator++ () throw (std::out_of_range);
@@ -246,17 +246,18 @@ public:
 	buffer_iterator& operator+= (size_type) throw (std::out_of_range);
 	buffer_iterator operator+ (size_type) const throw(std::out_of_range);
 
-	bool find(void*, size_type) throw ();
+	bool find(void*, size_type) ILIAS_NET2_NOTHROW;
 };
 
 
 inline
-buffer::buffer() throw () :
+buffer::buffer() ILIAS_NET2_NOTHROW :
 	buf(0)
 {
 	return;
 }
 
+inline
 buffer::buffer(struct net2_buffer* buf) throw (std::invalid_argument) :
 	buf(buf)
 {
@@ -282,7 +283,7 @@ buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
 
 #if HAS_RVALUE_REF
 inline
-buffer::buffer(buffer&& rhs) throw () :
+buffer::buffer(buffer&& rhs) ILIAS_NET2_NOTHROW :
 	buf(rhs.buf)
 {
 	rhs.buf = 0;
@@ -299,7 +300,7 @@ buffer::buffer(const void* data, buffer::size_type len) throw (std::bad_alloc) :
 }
 
 inline
-buffer::~buffer() throw ()
+buffer::~buffer() ILIAS_NET2_NOTHROW
 {
 	if (buf)
 		net2_buffer_free(buf);
@@ -325,7 +326,7 @@ buffer::operator= (const buffer& rhs) throw (std::bad_alloc)
 
 #if HAS_RVALUE_REF
 inline buffer&
-buffer::operator= (buffer&& rhs) throw ()
+buffer::operator= (buffer&& rhs) ILIAS_NET2_NOTHROW
 {
 	if (buf)
 		net2_buffer_free(buf);
@@ -419,19 +420,19 @@ buffer::operator+ (const buffer&& rhs) const throw (std::bad_alloc)
 #endif
 
 inline bool
-buffer::empty() const throw ()
+buffer::empty() const ILIAS_NET2_NOTHROW
 {
 	return !buf || net2_buffer_empty(buf);
 }
 
 inline buffer::size_type
-buffer::size() const throw ()
+buffer::size() const ILIAS_NET2_NOTHROW
 {
 	return (buf ? net2_buffer_length(buf) : 0);
 }
 
 inline bool
-buffer::operator== (const buffer& rhs) const throw ()
+buffer::operator== (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	if (!buf && !rhs.buf)
 		return true;
@@ -442,13 +443,13 @@ buffer::operator== (const buffer& rhs) const throw ()
 }
 
 inline bool
-buffer::operator!= (const buffer& rhs) const throw ()
+buffer::operator!= (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	return !(*this == rhs);
 }
 
 inline bool
-buffer::operator< (const buffer& rhs) const throw ()
+buffer::operator< (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	if (!buf)
 		return !rhs.empty();
@@ -459,7 +460,7 @@ buffer::operator< (const buffer& rhs) const throw ()
 }
 
 inline bool
-buffer::operator> (const buffer& rhs) const throw ()
+buffer::operator> (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	if (!rhs.buf)
 		return !empty();
@@ -470,7 +471,7 @@ buffer::operator> (const buffer& rhs) const throw ()
 }
 
 inline bool
-buffer::operator<= (const buffer& rhs) const throw ()
+buffer::operator<= (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	if (!buf)
 		return true;
@@ -481,7 +482,7 @@ buffer::operator<= (const buffer& rhs) const throw ()
 }
 
 inline bool
-buffer::operator>= (const buffer& rhs) const throw ()
+buffer::operator>= (const buffer& rhs) const ILIAS_NET2_NOTHROW
 {
 	if (!rhs.buf)
 		return true;
@@ -526,21 +527,21 @@ buffer::add_reference(const void* data, buffer::size_type len, void (*release)(v
 }
 
 inline void
-buffer::truncate(buffer::size_type len) throw ()
+buffer::truncate(buffer::size_type len) ILIAS_NET2_NOTHROW
 {
 	if (buf)
 		net2_buffer_truncate(buf, len);
 }
 
 inline void
-buffer::drain(buffer::size_type len) throw ()
+buffer::drain(buffer::size_type len) ILIAS_NET2_NOTHROW
 {
 	if (buf)
 		net2_buffer_drain(buf, len);
 }
 
 inline void
-buffer::clear() throw ()
+buffer::clear() ILIAS_NET2_NOTHROW
 {
 	if (buf) {
 		net2_buffer_free(buf);
@@ -565,7 +566,7 @@ buffer::c_buffer() const throw (std::bad_alloc)
 }
 
 inline buffer::size_type
-buffer::copyout(void* addr, size_type len) const throw ()
+buffer::copyout(void* addr, size_type len) const ILIAS_NET2_NOTHROW
 {
 	if (!buf)
 		return 0;
@@ -573,7 +574,7 @@ buffer::copyout(void* addr, size_type len) const throw ()
 }
 
 inline buffer::size_type
-buffer::move(void* addr, size_type len) throw ()
+buffer::move(void* addr, size_type len) ILIAS_NET2_NOTHROW
 {
 	if (!buf)
 		return 0;
@@ -601,7 +602,7 @@ buffer::pullup(size_type len) throw (std::bad_alloc, std::out_of_range)
 }
 
 inline bool
-buffer::sensitive() throw ()
+buffer::sensitive() ILIAS_NET2_NOTHROW
 {
 	return net2_buffer_sensitive(buf);
 }
@@ -627,7 +628,7 @@ buffer::subrange(buffer_iterator pos, size_type len) const throw (std::bad_alloc
 
 
 inline
-buffer_iterator::buffer_iterator() throw () :
+buffer_iterator::buffer_iterator() ILIAS_NET2_NOTHROW :
 	buf(0),
 	ptr(net2_buffer_ptr0)
 {
@@ -635,7 +636,7 @@ buffer_iterator::buffer_iterator() throw () :
 }
 
 inline
-buffer_iterator::buffer_iterator(const buffer& b) throw () :
+buffer_iterator::buffer_iterator(const buffer& b) ILIAS_NET2_NOTHROW :
 	buf(b.c_buffer()),
 	ptr(net2_buffer_ptr0)
 {
@@ -663,19 +664,19 @@ buffer_iterator::buffer_iterator(struct net2_buffer* b, struct net2_buffer_ptr* 
 }
 
 inline buffer_iterator::size_type
-buffer_iterator::pos() const throw ()
+buffer_iterator::pos() const ILIAS_NET2_NOTHROW
 {
 	return ptr.pos;
 }
 
 inline buffer_iterator::size_type
-buffer_iterator::segment() const throw ()
+buffer_iterator::segment() const ILIAS_NET2_NOTHROW
 {
 	return ptr.segment;
 }
 
 inline buffer_iterator::size_type
-buffer_iterator::segment_offset() const throw ()
+buffer_iterator::segment_offset() const ILIAS_NET2_NOTHROW
 {
 	return ptr.off;
 }
@@ -722,7 +723,7 @@ buffer_iterator::operator+ (buffer_iterator::size_type delta) const throw (std::
 }
 
 inline bool
-buffer_iterator::find(void* needle, size_type len) throw ()
+buffer_iterator::find(void* needle, size_type len) ILIAS_NET2_NOTHROW
 {
 	if (!buf)
 		return false;
@@ -769,7 +770,7 @@ buffer::hex() const throw (std::bad_alloc)
 #endif
 
 inline struct net2_buffer*
-buffer::release() throw ()
+buffer::release() ILIAS_NET2_NOTHROW
 {
 	struct net2_buffer *rv = this->buf;
 	this->buf = 0;

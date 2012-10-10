@@ -186,20 +186,20 @@ class ILIAS_NET2_EXPORT abstract_acceptor :
 {
 private:
 	static ILIAS_NET2_LOCAL void cwrap_detach(struct net2_acceptor_socket*,
-	    struct net2_acceptor*) throw ();
+	    struct net2_acceptor*) ILIAS_NET2_NOTHROW;
 	static ILIAS_NET2_LOCAL int cwrap_attach(struct net2_acceptor_socket*,
-	    struct net2_acceptor*) throw ();
+	    struct net2_acceptor*) ILIAS_NET2_NOTHROW;
 	static ILIAS_NET2_LOCAL void cwrap_accept(struct net2_acceptor*,
-	    struct net2_buffer*) throw ();
+	    struct net2_buffer*) ILIAS_NET2_NOTHROW;
 	static ILIAS_NET2_LOCAL int cwrap_get_transmit(struct net2_acceptor*,
-	    struct net2_buffer**, struct net2_tx_callback*, int, size_t) throw ();
-	static ILIAS_NET2_LOCAL void cwrap_on_close(struct net2_acceptor*) throw ();
+	    struct net2_buffer**, struct net2_tx_callback*, int, size_t) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_on_close(struct net2_acceptor*) ILIAS_NET2_NOTHROW;
 
 	static const net2_acceptor_fn m_vtable;
 
 public:
 	abstract_acceptor();
-	virtual ~abstract_acceptor() throw ();
+	virtual ~abstract_acceptor() ILIAS_NET2_NOTHROW;
 
 #if HAS_DELETE_FN
 	abstract_acceptor(const abstract_acceptor&) = delete;
@@ -226,28 +226,28 @@ protected:
 	workq get_workq() const throw (std::invalid_argument);
 #endif
 
-	void ready_to_send() const throw ();
+	void ready_to_send() const ILIAS_NET2_NOTHROW;
 };
 
 class ILIAS_NET2_EXPORT abstract_acceptor_socket :
 	private net2_acceptor_socket
 {
 private:
-	static void cwrap_destroy(struct net2_acceptor_socket*) throw ();
-	static void cwrap_ready_to_send(struct net2_acceptor_socket*) throw ();
-	static void cwrap_accept(struct net2_acceptor_socket*,
-	    struct net2_buffer*) throw ();
-	static int cwrap_get_transmit(struct net2_acceptor_socket*,
+	static ILIAS_NET2_LOCAL void cwrap_destroy(struct net2_acceptor_socket*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_ready_to_send(struct net2_acceptor_socket*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL void cwrap_accept(struct net2_acceptor_socket*,
+	    struct net2_buffer*) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL int cwrap_get_transmit(struct net2_acceptor_socket*,
 	    struct net2_buffer**,
-	    struct net2_tx_callback*, int, size_t) throw ();
-	static int cwrap_get_pvlist(struct net2_acceptor_socket*,
-	    struct net2_pvlist*) throw ();
+	    struct net2_tx_callback*, int, size_t) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_LOCAL int cwrap_get_pvlist(struct net2_acceptor_socket*,
+	    struct net2_pvlist*) ILIAS_NET2_NOTHROW;
 
 	static const net2_acceptor_socket_fn m_vtable;
 
 public:
 	abstract_acceptor_socket(const workq&);
-	virtual ~abstract_acceptor_socket() throw ();
+	virtual ~abstract_acceptor_socket() ILIAS_NET2_NOTHROW;
 
 #if HAS_DELETE_FN
 	abstract_acceptor_socket(const abstract_acceptor_socket&) = delete;
@@ -313,7 +313,7 @@ abstract_acceptor::get_workq() const throw (std::invalid_argument)
 }
 
 inline void
-abstract_acceptor::ready_to_send() const throw ()
+abstract_acceptor::ready_to_send() const ILIAS_NET2_NOTHROW
 {
 	net2_acceptor_ready_to_send(const_cast<abstract_acceptor*>(this));
 }

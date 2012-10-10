@@ -29,14 +29,14 @@
 #define OFFSET(_idx)		((_idx) % BITS)
 /* Return the pointer to element for index idx. */
 #define ptr(s_, idx)							\
-	(((s_)->size <= BITS ? &(s_)->immed : (s_)->indir) + INDEX(idx))
+	(((s_)->sz <= BITS ? &(s_)->immed : (s_)->indir) + INDEX(idx))
 
 
 /* Initialize bitset. */
 ILIAS_NET2_EXPORT void
 net2_bitset_init(struct net2_bitset *s)
 {
-	s->size = 0;
+	s->sz = 0;
 	s->indir = NULL;
 }
 
@@ -44,11 +44,11 @@ net2_bitset_init(struct net2_bitset *s)
 ILIAS_NET2_EXPORT int
 net2_bitset_init_copy(struct net2_bitset *s, const struct net2_bitset *src)
 {
-	if (src->size > BITS) {
-		if ((s->indir = malloc(SIZE_TO_BYTES(src->size))) == NULL)
+	if (src->sz > BITS) {
+		if ((s->indir = malloc(SIZE_TO_BYTES(src->sz))) == NULL)
 			return ENOMEM;
-		memcpy(s->indir, src->indir, SIZE_TO_BYTES(src->size));
-		s->size = src->size;
+		memcpy(s->indir, src->indir, SIZE_TO_BYTES(src->sz));
+		s->sz = src->sz;
 	} else
 		*s = *src;	/* Struct copy. */
 	return 0;
@@ -59,7 +59,7 @@ ILIAS_NET2_EXPORT void
 net2_bitset_init_move(struct net2_bitset *s, struct net2_bitset *src)
 {
 	*s = *src;		/* Struct copy. */
-	src->size = 0;
+	src->sz = 0;
 	src->indir = NULL;
 }
 
@@ -67,7 +67,7 @@ net2_bitset_init_move(struct net2_bitset *s, struct net2_bitset *src)
 ILIAS_NET2_EXPORT void
 net2_bitset_deinit(struct net2_bitset *s)
 {
-	if (s->size > BITS)
+	if (s->sz > BITS)
 		free(s->indir);
 }
 
@@ -78,7 +78,7 @@ net2_bitset_get(const struct net2_bitset *s, size_t idx, int *val)
 	const uintptr_t	*i;
 	uintptr_t	 mask;
 
-	if (idx >= s->size)
+	if (idx >= s->sz)
 		return EINVAL;
 	i = ptr(s, idx);
 	mask = 1 << OFFSET(idx);
@@ -95,7 +95,7 @@ net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
 	uintptr_t	*i;
 	uintptr_t	 mask;
 
-	if (idx >= s->size)
+	if (idx >= s->sz)
 		return EINVAL;
 	i = ptr(s, idx);
 	mask = 1 << OFFSET(idx);
@@ -118,7 +118,7 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	uintptr_t	*list;
 
 	if (newsz <= BITS) {
-		if (s->size > BITS) {
+		if (s->sz > BITS) {
 			list = s->indir;
 			s->immed = list[0];
 			free(s->indir);
@@ -127,12 +127,12 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 		goto init_data;
 	}
 
-	if (s->size > BITS)
+	if (s->sz > BITS)
 		list = s->indir;
 	else
 		list = NULL;
 	need = SIZE_TO_BYTES(newsz);
-	have = SIZE_TO_BYTES(s->size);
+	have = SIZE_TO_BYTES(s->sz);
 	if (newsz > SIZE_MAX / sizeof(*list))
 		return ENOMEM;	/* size_t overflow detected. */
 
@@ -147,13 +147,13 @@ net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 	}
 
 init_data:
-	if (s->size >= newsz) {
+	if (s->sz >= newsz) {
 		/* Truncated list. */
-		s->size = newsz;
+		s->sz = newsz;
 	} else {
 		/* Grown list. */
-		i = s->size;
-		s->size = newsz;
+		i = s->sz;
+		s->sz = newsz;
 		while (i < newsz) {
 			net2_bitset_set(s, i, new_is_set, NULL);
 			i++;
@@ -170,8 +170,8 @@ net2_bitset_all_value(const struct net2_bitset *s, uintptr_t test)
 	size_t			 i, index, offset;
 
 	/* Test all complete ints. */
-	index = INDEX(s->size);
-	offset = OFFSET(s->size);
+	index = INDEX(s->sz);
+	offset = OFFSET(s->sz);
 	for (i = 0; i + 1 < index; i++) {
 		if (ptr(s, 0)[i] != test)
 			return 0;

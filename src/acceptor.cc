@@ -21,17 +21,17 @@ namespace ilias {
 
 ILIAS_NET2_LOCAL void
 abstract_acceptor::cwrap_detach(struct net2_acceptor_socket* as,
-    struct net2_acceptor *a) throw ()
+    struct net2_acceptor *a) ILIAS_NET2_NOTHROW
 {
-	static_cast<ilias::abstract_acceptor*>(a)->detach(as);
+	static_cast<abstract_acceptor*>(a)->detach(as);
 }
 
 ILIAS_NET2_LOCAL int
 abstract_acceptor::cwrap_attach(struct net2_acceptor_socket *as,
-    struct net2_acceptor *a) throw ()
+    struct net2_acceptor *a) ILIAS_NET2_NOTHROW
 {
 	try {
-		return static_cast<ilias::abstract_acceptor*>(a)->attach(as);
+		return static_cast<abstract_acceptor*>(a)->attach(as);
 	} catch (const std::bad_alloc&) {
 		return ENOMEM;
 	} catch (const std::invalid_argument&) {
@@ -43,12 +43,12 @@ abstract_acceptor::cwrap_attach(struct net2_acceptor_socket *as,
 
 ILIAS_NET2_LOCAL void
 abstract_acceptor::cwrap_accept(struct net2_acceptor *a,
-    struct net2_buffer *buf) throw ()
+    struct net2_buffer *buf) ILIAS_NET2_NOTHROW
 {
 	buffer b(buf);
 
 	try {
-		static_cast<ilias::abstract_acceptor*>(a)->accept(b);
+		static_cast<abstract_acceptor*>(a)->accept(b);
 	} catch (...) {
 		b.release();
 		throw;
@@ -60,16 +60,16 @@ abstract_acceptor::cwrap_accept(struct net2_acceptor *a,
 ILIAS_NET2_LOCAL int
 abstract_acceptor::cwrap_get_transmit(struct net2_acceptor *a,
     struct net2_buffer **buf,
-    struct net2_tx_callback *c_txcb, int first, size_t maxlen) throw ()
+    struct net2_tx_callback *c_txcb, int first, size_t maxlen) ILIAS_NET2_NOTHROW
 {
 	assert(!*buf);
 
-	ilias::buffer b = ilias::BUFFER_CREATE;
+	buffer b = BUFFER_CREATE;
 	tx_callback txcb;
 	int rv;
 
 	try {
-		rv = static_cast<ilias::abstract_acceptor*>(a)->get_transmit(b, txcb,
+		rv = static_cast<abstract_acceptor*>(a)->get_transmit(b, txcb,
 		    first, maxlen);
 	} catch (const std::bad_alloc&) {
 		return ENOMEM;
@@ -87,9 +87,9 @@ abstract_acceptor::cwrap_get_transmit(struct net2_acceptor *a,
 }
 
 ILIAS_NET2_LOCAL void
-abstract_acceptor::cwrap_on_close(struct net2_acceptor *a) throw ()
+abstract_acceptor::cwrap_on_close(struct net2_acceptor *a) ILIAS_NET2_NOTHROW
 {
-	static_cast<ilias::abstract_acceptor*>(a)->on_close();
+	static_cast<abstract_acceptor*>(a)->on_close();
 }
 
 
@@ -101,32 +101,32 @@ const net2_acceptor_fn abstract_acceptor::m_vtable = {
 	&abstract_acceptor::cwrap_on_close
 };
 
-abstract_acceptor::~abstract_acceptor() throw ()
+abstract_acceptor::~abstract_acceptor() ILIAS_NET2_NOTHROW
 {
 	net2_acceptor_deinit(this);
 }
 
 
 ILIAS_NET2_LOCAL void
-abstract_acceptor_socket::cwrap_destroy(struct net2_acceptor_socket *as) throw ()
+abstract_acceptor_socket::cwrap_destroy(struct net2_acceptor_socket *as) ILIAS_NET2_NOTHROW
 {
 	delete static_cast<abstract_acceptor_socket*>(as);
 }
 
 ILIAS_NET2_LOCAL void
-abstract_acceptor_socket::cwrap_ready_to_send(struct net2_acceptor_socket *as) throw ()
+abstract_acceptor_socket::cwrap_ready_to_send(struct net2_acceptor_socket *as) ILIAS_NET2_NOTHROW
 {
 	static_cast<abstract_acceptor_socket*>(as)->ready_to_send();
 }
 
 ILIAS_NET2_LOCAL void
 abstract_acceptor_socket::cwrap_accept(struct net2_acceptor_socket *as,
-    struct net2_buffer *buf) throw ()
+    struct net2_buffer *buf) ILIAS_NET2_NOTHROW
 {
 	buffer b(buf);
 
 	try {
-		static_cast<ilias::abstract_acceptor_socket*>(as)->accept(b);
+		static_cast<abstract_acceptor_socket*>(as)->accept(b);
 	} catch (...) {
 		b.release();
 		throw;
@@ -138,16 +138,16 @@ abstract_acceptor_socket::cwrap_accept(struct net2_acceptor_socket *as,
 ILIAS_NET2_LOCAL int
 abstract_acceptor_socket::cwrap_get_transmit(struct net2_acceptor_socket *as,
     struct net2_buffer **buf,
-    struct net2_tx_callback *c_txcb, int first, size_t maxlen) throw ()
+    struct net2_tx_callback *c_txcb, int first, size_t maxlen) ILIAS_NET2_NOTHROW
 {
 	assert(!*buf);
 
-	buffer b = ilias::BUFFER_CREATE;
+	buffer b = BUFFER_CREATE;
 	tx_callback txcb;
 	int rv;
 
 	try {
-		rv = static_cast<ilias::abstract_acceptor_socket*>(as)->get_transmit(b, txcb,
+		rv = static_cast<abstract_acceptor_socket*>(as)->get_transmit(b, txcb,
 		    first, maxlen);
 	} catch (const std::bad_alloc&) {
 		return ENOMEM;
@@ -166,7 +166,7 @@ abstract_acceptor_socket::cwrap_get_transmit(struct net2_acceptor_socket *as,
 
 ILIAS_NET2_LOCAL int
 abstract_acceptor_socket::cwrap_get_pvlist(struct net2_acceptor_socket *as,
-    struct net2_pvlist *pv) throw ()
+    struct net2_pvlist *pv) ILIAS_NET2_NOTHROW
 {
 	try {
 		return static_cast<abstract_acceptor_socket*>(as)->get_pvlist(pv);
@@ -188,7 +188,7 @@ const net2_acceptor_socket_fn abstract_acceptor_socket::m_vtable = {
 	abstract_acceptor_socket::cwrap_get_pvlist
 };
 
-abstract_acceptor_socket::~abstract_acceptor_socket() throw ()
+abstract_acceptor_socket::~abstract_acceptor_socket() ILIAS_NET2_NOTHROW
 {
 	net2_acceptor_socket_deinit(this);
 }
