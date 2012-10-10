@@ -455,7 +455,7 @@ promise<T>::cancel() throw (promise_noinit_error)
 {
 	if (!p)
 		throw promise_noinit_error();
-	net2_promise_cancel(p, 0);
+	net2_promise_cancel(p);
 }
 
 template<typename T>
