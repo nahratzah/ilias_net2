@@ -65,11 +65,6 @@ struct net2_workq_io {
 #define EVTX_2_DGRAM(_ev)						\
 	((struct net2_workq_io*)((char*)(_ev) - DGRAM_EVTX_OFFSET))
 
-/* Max number of unprocessed input buffers. */
-#define MAX_RX		128
-/* Max number of outstanding tx promises. */
-#define MAX_TX		128
-
 
 static void	promfree(void*, void*);
 static void	rxfree(void*, void*);
@@ -82,12 +77,6 @@ static void	rx_evcb(struct ev_loop*, struct ev_io*, int);
 static void	tx_evcb(struct ev_loop*, struct ev_io*, int);
 
 
-/* Free promise (element destructor on datapipe). */
-static void
-promfree(void *prom_ptr, void *unused ILIAS_NET2__unused)
-{
-	net2_promise_release(prom_ptr);
-}
 /* Free rx data. */
 static void
 rxfree(void *rx_ptr, void *unused ILIAS_NET2__unused)
@@ -119,32 +108,11 @@ static int
 create_tx_pipe(struct net2_datapipe_in **in, struct net2_datapipe_out **out,
     struct net2_workq_evbase *wqev)
 {
-	struct net2_datapipe_in *proc_in, *plain_in;
-	struct net2_datapipe_out *proc_out, *plain_out;
-	int			 error;
+	int	 error;
 
-	if ((error = net2_dp_new(&plain_in, &plain_out, wqev, &promfree, NULL)) != 0)
-		goto fail_0;
-	if ((error = net2_dp_new(&proc_in, &proc_out, wqev, &promfree, NULL)) != 0)
-		goto fail_1;
-	if ((error = net2_datapipe_prom_glue(plain_out, proc_in, wqev)) != 0)
-		goto fail_2;
-	net2_dpout_set_maxlen(proc_out, MAX_TX);
-
-	*in = plain_in;
-	*out = proc_out;
-	net2_dpout_release(plain_out);
-	net2_dpin_release(proc_in);
-	return 0;
-
-fail_2:
-	net2_dpin_release(proc_in);
-	net2_dpout_release(proc_out);
-fail_1:
-	net2_dpin_release(plain_in);
-	net2_dpout_release(plain_out);
-fail_0:
-	assert(error != 0);
+	error = net2_dp_prom_new(in, out, wqev);
+	if (error == 0)
+		net2_dpout_set_maxlen(*out, MAX_TX);
 	return error;
 }
 /*

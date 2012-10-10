@@ -87,6 +87,7 @@ list (APPEND headers
 	include/ilias/net2/sockdgram.h
 	include/ilias/net2/spinlock.h
 	include/ilias/net2/stream_acceptor.h
+	include/ilias/net2/thread.h
 	include/ilias/net2/tx_callback.h
 	include/ilias/net2/workq.h
 	include/ilias/net2/workq_timer.h

@@ -91,13 +91,17 @@ ILIAS_NET2_EXPORT
 struct net2_datapipe_out*
 	 net2_workq_io_rxpipe(struct net2_workq_io *io);
 
+/* Max number of unprocessed input buffers. */
+#define MAX_RX		128
+/* Max number of outstanding tx promises. */
+#define MAX_TX		128
+
 #ifdef WIN32
 struct net2_workq_io_container;
 
 ILIAS_NET2_LOCAL
 struct net2_workq_io_container
-	 *net2_workq_io_container_new(struct net2_semaphore*,
-	    struct net2_semaphore*);
+	 *net2_workq_io_container_new();
 ILIAS_NET2_LOCAL
 void	 net2_workq_io_container_destroy(struct net2_workq_io_container*);
 #endif /* WIN32 */

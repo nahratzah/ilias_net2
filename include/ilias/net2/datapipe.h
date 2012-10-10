@@ -235,6 +235,10 @@ ILIAS_NET2_EXPORT
 int	 net2_datapipe_prom_glue(struct net2_datapipe_out*,
 	    struct net2_datapipe_in*, struct net2_workq_evbase*);
 
+ILIAS_NET2_EXPORT
+int	 net2_dp_prom_new(struct net2_datapipe_in**, struct net2_datapipe_out**,
+	    struct net2_workq_evbase*);
+
 
 ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_DATAPIPE_H */

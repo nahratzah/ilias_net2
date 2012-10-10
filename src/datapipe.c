@@ -2216,8 +2216,8 @@ dp_tfprom_do(void *pq_ptr, void *unused ILIAS_NET2__unused)
 static void
 dp_tfprom_post(void *tfp_ptr, void *prom_ptr)
 {
-	struct dp_tfprom	*tfp = tfp_ptr;
-	struct net2_promise	*prom = prom_ptr;
+	struct dp_tfprom	*tfp = (struct dp_tfprom*)tfp_ptr;
+	struct net2_promise	*prom = (struct net2_promise*)prom_ptr;
 	int			 rv;
 
 	rv = net2_dp_push_commit(&tfp->prep, prom);
@@ -2225,4 +2225,50 @@ dp_tfprom_post(void *tfp_ptr, void *prom_ptr)
 
 	net2_promise_event_deinit(&tfp->ev);
 	net2_free(tfp);
+}
+
+/* Free promise (element destructor on datapipe). */
+static void
+promfree(void *prom_ptr, void *unused ILIAS_NET2__unused)
+{
+	net2_promise_release((struct net2_promise*)prom_ptr);
+}
+
+/*
+ * Create a datapipe that accepts promises.
+ * The datapipe output side contains only completed promises.
+ *
+ * The output size of the datapipe limits the number of completed and running
+ * promises.  The input side limits the number of uncompleted promises.
+ */
+ILIAS_NET2_EXPORT int
+net2_dp_prom_new(struct net2_datapipe_in **in, struct net2_datapipe_out **out,
+    struct net2_workq_evbase *wqev)
+{
+	struct net2_datapipe_in *proc_in,  *plain_in;
+	struct net2_datapipe_out*proc_out, *plain_out;
+	int			 error;
+
+	if ((error = net2_dp_new(&plain_in, &plain_out, wqev, &promfree, NULL)) != 0)
+		goto fail_0;
+	if ((error = net2_dp_new(&proc_in, &proc_out, wqev, &promfree, NULL)) != 0)
+		goto fail_1;
+	if ((error = net2_datapipe_prom_glue(plain_out, proc_in, wqev)) != 0)
+		goto fail_2;
+
+	*in = plain_in;
+	*out = proc_out;
+	net2_dpout_release(plain_out);
+	net2_dpin_release(proc_in);
+	return 0;
+
+fail_2:
+	net2_dpin_release(proc_in);
+	net2_dpout_release(proc_out);
+fail_1:
+	net2_dpin_release(plain_in);
+	net2_dpout_release(plain_out);
+fail_0:
+	assert(error != 0);
+	return error;
 }
