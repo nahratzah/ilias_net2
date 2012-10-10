@@ -119,29 +119,35 @@
 #define HAS_RVALUE_REF		ILIAS_NET2_gnuc_require(4, 3)
 #define HAS_NOEXCEPT		ILIAS_NET2_gnuc_require(4, 6)
 
-#else
+#elif defined(_MSC_VER)
+/* Features of Microsoft compiler. */
+#define HAS_VARARG_TEMPLATES	0 /* I want this! */
+#define HAS_DECLTYPE		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
+#define HAS_DELETED_FN		0 /* Didn't spot it in the table. */
+#define HAS_RVALUE_REF		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
+#define HAS_NOEXCEPT		0 /* But throw() actually functions similar. */
+#endif
+
 /* Unknown compiler, assume it doesn't implement anything. */
 #ifndef HAS_VARARG_TEMPLATES
-#warn "We don't know if your compiler supports Variadic Template Arguments."
+/* We don't know if your compiler supports Variadic Template Arguments. */
 #define HAS_VARARG_TEMPLATES	0
 #endif
 #ifndef HAS_DECLTYPE
-#warn "We don't know if your compiler supports Decltype."
+/* We don't know if your compiler supports Decltype. */
 #define HAS_DECLTYPE		0
 #endif
 #ifndef HAS_DELETED_FN
-#warn "We don't know if your compiler supports Deleted Functions."
+/* We don't know if your compiler supports Deleted Functions. */
 #define HAS_DELETED_FN		0
 #endif
 #ifndef HAS_NOEXCEPT
-#warn "We don't know if your compiler supports NoExcept keyword."
+/* We don't know if your compiler supports NoExcept keyword. */
 #define HAS_NOEXCEPT		0
 #endif
 
-#endif
-
 #if HAS_RVALUE_REF && !defined(HAS_STD_MOVE)
-#warn "Compiler supports rvalue references, but std::move is not implemented."
+/* Compiler supports rvalue references, but std::move is not implemented. */
 #undef HAS_RVALUE_REF
 #define HAS_RVALUE_REF		0
 #endif
