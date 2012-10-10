@@ -97,6 +97,9 @@
 /* Set if <type_traits> c++ include file exists. */
 #cmakedefine HAVE_TYPE_TRAITS
 
+/* Set if std::move is present in <utility>. */
+#cmakedefine HAS_STD_MOVE
+
 
 #if defined(__clang__)
 /* Features of clang compiler. */
@@ -135,6 +138,12 @@
 #define HAS_NOEXCEPT		0
 #endif
 
+#endif
+
+#if HAS_RVALUE_REF && !defined(HAS_STD_MOVE)
+#warn "Compiler supports rvalue references, but std::move is not implemented."
+#undef HAS_RVALUE_REF
+#define HAS_RVALUE_REF		0
 #endif
 
 
