@@ -94,6 +94,9 @@
 /* Pthread spinlock is available. */
 #cmakedefine HAVE_PTHREAD_SPINLOCK
 
+/* Set if <type_traits> c++ include file exists. */
+#cmakedefine HAVE_TYPE_TRAITS
+
 
 #if defined(__clang__)
 /* Features of clang compiler. */

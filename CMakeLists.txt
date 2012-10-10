@@ -149,6 +149,7 @@ list (APPEND cxx_srcs
 #
 include (CheckFunctionExists)
 include (CheckIncludeFiles)
+include (CheckIncludeFileCXX)
 include (CheckTypeSize)
 include (TestBigEndian)
 check_function_exists (SHA256Init HAS_SHA2)
@@ -170,6 +171,7 @@ check_include_files (sys/tree.h HAVE_SYS_TREE_H)
 check_include_files (getopt.h HAVE_GETOPT_H)
 check_include_files (stdatomic.h HAVE_STDATOMIC_H)
 check_include_files (semaphore.h HAVE_SEMAPHORE_H)
+check_include_file_cxx (type_traits HAVE_TYPE_TRAITS)
 test_big_endian (IS_BIG_ENDIAN)
 
 list (APPEND headers

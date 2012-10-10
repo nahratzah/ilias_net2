@@ -147,7 +147,7 @@ ILIAS_NET2__end_cdecl
 #include <stdexcept>
 #include <utility>
 
-#if HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
+#if defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
 #include <type_traits>	/* For combi promise templates. */
 #endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
@@ -581,7 +581,7 @@ promise<T>::fin_cancel() throw (std::bad_alloc, std::invalid_argument, promise_f
 }
 
 
-#if HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
+#if defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
 
 
 /*
@@ -700,7 +700,7 @@ auto promise_combine(const workq& wq, Functor&& f, const Promises&... promises) 
 }
 
 
-#endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
+#endif /* defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
 
 }
