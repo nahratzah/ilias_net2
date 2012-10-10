@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/bitset.h>
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 
 
@@ -32,15 +33,38 @@
 
 
 /* Initialize bitset. */
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 net2_bitset_init(struct net2_bitset *s)
 {
 	s->size = 0;
 	s->indir = NULL;
 }
 
+/* Initialize bitset as copy of another bitset. */
+ILIAS_NET2_EXPORT int
+net2_bitset_init_copy(struct net2_bitset *s, const struct net2_bitset *src)
+{
+	if (src->size > BITS) {
+		if ((s->indir = malloc(SIZE_TO_BYTES(src->size))) == NULL)
+			return ENOMEM;
+		memcpy(s->indir, src->indir, SIZE_TO_BYTES(src->size));
+		s->size = src->size;
+	} else
+		*s = *src;	/* Struct copy. */
+	return 0;
+}
+
+/* Initialize bitset, moving data from other bitset into this. */
+ILIAS_NET2_EXPORT void
+net2_bitset_init_move(struct net2_bitset *s, struct net2_bitset *src)
+{
+	*s = *src;		/* Struct copy. */
+	src->size = 0;
+	src->indir = NULL;
+}
+
 /* Deinitialize bitset. */
-ILIAS_NET2_LOCAL void
+ILIAS_NET2_EXPORT void
 net2_bitset_deinit(struct net2_bitset *s)
 {
 	if (s->size > BITS)
@@ -48,7 +72,7 @@ net2_bitset_deinit(struct net2_bitset *s)
 }
 
 /* Read a value from the bitset. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_bitset_get(const struct net2_bitset *s, size_t idx, int *val)
 {
 	const uintptr_t	*i;
@@ -65,7 +89,7 @@ net2_bitset_get(const struct net2_bitset *s, size_t idx, int *val)
 }
 
 /* Set a value in the bitset. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
 {
 	uintptr_t	*i;
@@ -87,7 +111,7 @@ net2_bitset_set(struct net2_bitset *s, size_t idx, int newval, int *oldval)
 }
 
 /* Change the size of the bitset. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_bitset_resize(struct net2_bitset *s, size_t newsz, int new_is_set)
 {
 	size_t		 need, have, i;
@@ -163,13 +187,13 @@ net2_bitset_all_value(const struct net2_bitset *s, uintptr_t test)
 	return 1;
 }
 /* Test if all bits are set. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_bitset_allset(const struct net2_bitset *s)
 {
 	return net2_bitset_all_value(s, ~(uintptr_t)0);
 }
 /* Test if all bits are clear. */
-ILIAS_NET2_LOCAL int
+ILIAS_NET2_EXPORT int
 net2_bitset_allclear(const struct net2_bitset *s)
 {
 	return net2_bitset_all_value(s, (uintptr_t)0);
