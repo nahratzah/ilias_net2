@@ -244,7 +244,7 @@ tx_callback::merge_out(struct net2_tx_callback *o) ILIAS_NET2_NOTHROW
 inline bool
 tx_callback::empty() const ILIAS_NET2_NOTHROW
 {
-	return net2_txcb_empty(&this->m_txcb);
+	return net2_txcb_empty(&this->m_txcb) != 0;
 }
 
 inline void
@@ -299,7 +299,7 @@ txcb_entryq::txcb_entryq(txcb_entryq&& o) ILIAS_NET2_NOTHROW
 inline bool
 txcb_entryq::empty(int which) const ILIAS_NET2_NOTHROW
 {
-	return net2_txcb_entryq_empty(&this->m_txcbq, which);
+	return net2_txcb_entryq_empty(&this->m_txcbq, which) != 0;
 }
 
 inline void
@@ -308,11 +308,13 @@ txcb_entryq::clear(int which) ILIAS_NET2_NOTHROW
 	net2_txcb_entryq_clear(&this->m_txcbq, which);
 }
 
+#if HAS_RVALUE_REF
 inline void
 txcb_entryq::merge(txcb_entryq&& o) ILIAS_NET2_NOTHROW
 {
 	net2_txcb_entryq_merge(&this->m_txcbq, &o.m_txcbq);
 }
+#endif
 
 inline void
 txcb_entryq::merge(txcb_entryq& o) ILIAS_NET2_NOTHROW

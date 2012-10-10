@@ -132,7 +132,7 @@ struct net2_workq
 
 #if defined(ilias_net2_EXPORTS)
 
-#ifndef HAS_TLS
+#if !defined(HAS_TLS) && !defined(WIN32)
 ILIAS_NET2_LOCAL
 int	 net2_workq_init();
 ILIAS_NET2_LOCAL
@@ -709,7 +709,7 @@ workq_job::reset(const workq& wq, Functor&& f, int flags) throw (std::bad_alloc,
 inline bool
 workq_job::is_null() const ILIAS_NET2_NOTHROW
 {
-	return net2_workq_work_is_null(&this->job);
+	return net2_workq_work_is_null(&this->job) != 0;
 }
 
 #if HAS_RVALUE_REF

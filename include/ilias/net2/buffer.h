@@ -604,7 +604,7 @@ buffer::pullup(size_type len) throw (std::bad_alloc, std::out_of_range)
 inline bool
 buffer::sensitive() ILIAS_NET2_NOTHROW
 {
-	return net2_buffer_sensitive(buf);
+	return net2_buffer_sensitive(buf) != 0;
 }
 
 inline buffer
