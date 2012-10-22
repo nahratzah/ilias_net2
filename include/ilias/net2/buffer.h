@@ -34,6 +34,551 @@
 #include <sys/uio.h>
 #endif
 
+
+namespace ilias {
+
+
+template<typename T>
+class realloc_allocator
+{
+public:
+	typedef size_t size_type;
+	typedef ptrdiff_t difference_type;
+
+	typedef typename std::remove_reference<T>::type element_type;
+	typedef element_type* pointer;
+	typedef const element_type* const_pointer;
+	typedef element_type& reference;
+	typedef const element_type& const_reference;
+
+private:
+	static size_type element_size = sizeof(element_type);
+
+public:
+	pointer
+	allocate(size_type n, typename realloc_iterator<void>::pointer hint)
+	{
+		if (n > this->maxsize())
+			throw std::bad_alloc();
+
+		const pointer ptr = reinterpret_cast<pointer>(net2_malloc(n * this->element_size));
+		if (!ptr)
+			throw std::bad_alloc();
+		return ptr;
+	}
+
+	pointer
+	deallocate(pointer ptr, size_type n ILIAS_NET2__unused)
+	{
+		net2_free(ptr);
+	}
+
+	pointer
+	reallocate(pointer orig_ptr, size_type oldsz ILIAS_NET2__unused, size_type newsz)
+	{
+		if (newsz > this->maxsize())
+			throw std::bad_alloc();
+
+		const pointer ptr = net2_realloc(orig_ptr, newsz * this->element_size);
+		if (!ptr)
+			throw std::bad_alloc();
+		return ptr;
+	}
+
+	void
+	reallocate_inplace(pointer ptr, size_type oldsz, size_type newsz)
+	{
+		if (newsz > oldsz)
+			throw std::bad_alloc();
+	}
+
+#if HAS_VARARG_TEMPLATES
+	template<typename... Args>
+	void
+	construct(pointer ptr, Args... args)
+	{
+		new (ptr) element_type(args...);
+	}
+#else
+	void
+	construct(pointer ptr)
+	{
+		new (ptr) element_type();
+	}
+
+	template<typename Arg>
+	void
+	construct(pointer ptr, const Arg& arg)
+	{
+		new (ptr) element_type(arg);
+	}
+#endif
+
+	void
+	destroy(pointer ptr)
+	{
+		ptr->~value_type();
+	}
+
+	size_type
+	maxsz() const ILIAS_NET2_NOTHROW
+	{
+		return (std::numeric_limits<size_t>::max() / element_size);
+	}
+
+	template<typename U>
+	struct rebind
+	{
+		typedef realloc_allocator<U> other;
+	};
+};
+
+
+class buffer
+{
+public:
+	typedef uintptr_t size_type;
+
+	/* Segment interface. */
+	class segment
+	{
+	friend void reference(const segment*);
+	friend bool release(const segment*);
+
+	public:
+		typedef buffer::size_type size_type;
+
+	private:
+		mutable std::atomic<unsigned int> refcnt;
+
+	public:
+		segment() :
+			refcnt(0)
+		{
+			return;
+		}
+
+		virtual ~segment() ILIAS_NET2_NOTHROW = 0;
+		virtual const void* at(size_type) const = 0;
+		virtual bool contig() const ILIAS_NET2_NOTHROW = 0;
+		virtual size_type len() const ILIAS_NET2_NOTHROW = 0;
+
+		virtual void copyout(void*, size_type) const;
+		virtual bool grow(size_type, const void*, size_type) ILIAS_NET2_NOTHROW;
+	};
+
+private:
+	class segment_ref
+	{
+	private:
+		refpointer<segment> m_segment;
+
+		size_type m_off;
+		size_type m_len;
+
+		segment_ref() = delete;
+
+	public:
+		segment_ref(segment_ref&& o) ILIAS_NET2_NOTHROW :
+			m_segment(std::move(o.m_segment)),
+			m_off(std::move(o.m_off)),
+			m_len(std::move(o.m_len))
+		{
+			return;
+		}
+
+		segment_ref(const segment_ref& o) :
+			m_segment(o.m_segment),
+			m_off(o.m_off),
+			m_len(o.m_len)
+		{
+			return;
+		}
+
+		segment_ref&
+		operator= (const segment_ref& o) ILIAS_NET2_NOTHROW
+		{
+			this->m_segment = o.m_segment;
+			this->m_off = o.m_off;
+			this->m_len = o.m_len;
+			return *this;
+		}
+
+		segment_ref&
+		operator= (segment_ref&& o) ILIAS_NET2_NOTHROW
+		{
+			this->m_segment = std::move(o.m_segment);
+			this->m_off = std::move(o.m_off);
+			this->m_len = std::move(o.m_len);
+			return *this;
+		}
+
+		void*
+		at(size_type off = 0) const ILIAS_NET2_NOTHROW
+		{
+			assert(off < this->m_len);
+			return this->m_segment->at(off);
+		}
+
+		void
+		truncate(size_type len) ILIAS_NET2_NOTHROW
+		{
+			assert(len > 0 && len <= this->m_len);
+			this->m_len = len;
+		}
+
+		void
+		drain(size_type len) ILIAS_NET2_NOTHROW
+		{
+			assert(len < this->m_len);
+			this->m_off += len;
+		}
+
+		bool
+		merge(const segment_ref& o) ILIAS_NET2_NOTHROW
+		{
+			if (this->m_segment == o->m_segment &&
+			    this->m_off + this->m_len == o.m_off) {
+				this->m_len += o.m_len;
+				return true;
+			}
+			return false;
+		}
+
+		bool
+		grow(const void* data, size_type datalen) ILIAS_NET2_NOTHROW
+		{
+			if (!this->m_segment->grow(this->m_off + this->m_len, data, datalen))
+				return false;
+
+			this->m_len += datalen;
+			return true;
+		}
+	};
+
+	typedef std::vector<segment_ref, realloc_allocator<segment_ref> > list_type;
+
+	list_type m_list;
+	size_type m_size;
+
+public:
+	buffer() ILIAS_NET2_NOTHROW :
+		m_list(),
+		m_size(0)
+	{
+		return;
+	}
+
+	buffer(const buffer& rhs) :
+		m_list(rhs.m_list),
+		m_size(rhs.m_size)
+	{
+		return;
+	}
+
+	buffer(buffer&& rhs) ILIAS_NET2_NOTHROW :
+		m_list(std::move(rhs.m_list)),
+		m_size(rhs.m_size)
+	{
+		rhs.m_size = 0;
+	}
+
+	~buffer() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	size_type
+	size() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_size;
+	}
+
+	bool
+	empty() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_list.empty();
+	}
+
+	buffer&
+	operator= (const buffer& o)
+	{
+		this->m_list = o.m_list;
+		this->m_size = o.m_size;
+		return *this;
+	}
+
+	buffer&
+	operator= (buffer&& o) ILIAS_NET2_NOTHROW
+	{
+		this->m_list = std::move(o.m_list);
+		this->m_size = o.m_size;
+		return *this;
+	}
+
+	buffer&
+	operator+= (const buffer& o)
+	{
+		/* Ensure enough capacity is available. */
+		if (this->m_list.capacity() < this->m_list.size() + o.m_list.size())
+			this->m_list.reserve(this->m_list.size() + o.m_list.size());
+
+		/* Copy contents. */
+		this->m_list.push_back(o.m_list.begin(), o.m_list.end());
+		this->m_size += o.m_size;
+
+		return *this;
+	}
+
+	buffer&
+	operator+= (buffer&& o)
+	{
+		/* Ensure enough capacity is available. */
+		if (this->m_list.capacity() < this->m_list.size() + o.m_list.size())
+			this->m_list.reserve(this->m_list.size() + o.m_list.size());
+
+		/* Copy contents. */
+		this->m_list.push_back(o.m_list.begin(), o.m_list.end());
+		this->m_size += o.m_size;
+
+		/* Clear old vector. */
+		o.m_list.clear();
+		o.m_size = 0;
+
+		return *this;
+	}
+
+	buffer&&
+	operator+ (const buffer& o) const
+	{
+		buffer clone;
+
+		/* Reserve memory. */
+		clone.m_list.reserve(this->m_list.size() + o.m_list.size());
+
+		/* Copy contents. */
+		clone += *this;
+		clone += o;
+
+		return std::move(clone);
+	}
+
+	buffer&&
+	operator+ (buffer&& o) const
+	{
+		buffer clone;
+
+		/* Reserve memory. */
+		clone.m_list.reserve(this->m_list.size() + o.m_list.size());
+
+		/* Copy contents. */
+		clone += *this;
+		clone += o;
+
+		return std::move(clone);
+	}
+
+	buffer&
+	operator= (const buffer& o)
+	{
+		this->m_list = o.m_list;
+		this->m_size = o.m_size;
+		return *this;
+	}
+
+	buffer&
+	operator= (buffer&& o) ILIAS_NET2_NOTHROW
+	{
+		this->m_list = std::move(o.m_list);
+		this->m_size = o.m_size;
+		o.m_size = 0;
+		return *this;
+	}
+
+	void
+	truncate(size_type len) ILIAS_NET2_NOTHROW
+	{
+		if (this->m_size <= len)
+			return;
+
+		list_type::iterator i = this->m_list.begin();
+		size_type rlen = len;
+
+		/* Skip any elements that fit in len. */
+		while (i->m_len >= rlen) {
+			rlen -= i->m_len;
+			i++;
+		}
+		/* Truncate partial fit. */
+		if (rlen > 0) {
+			i->m_len = rlen;
+			rlen = 0;
+			i++;
+		}
+		/* Erase remaining elements. */
+		this->m_list.resize(i - this->m_list.begin());
+		this->m_size = len;
+
+		return *this;
+	}
+
+private:
+	void
+	internal_drain(size_type len, buffer* opt_dst)
+	{
+		if (this->m_size <= len) {
+			if (opt_dst)
+				*opt_dst += *this; /* May throw. */
+			this->clear();
+			return;
+		}
+
+		list_type::iterator i = this->m_list.begin();
+		size_type rlen = len;
+
+		/* Skip any elements that fit in len. */
+		while (i->m_len >= rlen) {
+			rlen -= i->m_len;
+			i++;
+		}
+
+		/* Add removed elements to opt_dst. */
+		if (opt_dst) {
+			opt_dst->m_list.reserve(opt_dst->m_list.size() + (i - this->m_list.begin()) + (rlen > 0 ? 1 : 0));
+				/* May throw. */
+			opt_dst->m_list.push_back(this->m_list.begin(), i);
+			if (rlen > 0) {
+				segment_ref tail = *i;
+				tail.m_len = rlen;
+				opt_dst->m_list.emplace_back(std::move(tail));
+			}
+		}
+
+		/* Drain from partial segment. */
+		i->m_off += rlen;
+
+		/* Move all elements forward. */
+		for (list_type::iterator dst = this->m_list.begin();
+		    i != this->m_list.end();
+		    ++dst, ++i)
+			*dst = i->release();
+
+		/* Erase now outdated elements. */
+		this->m_list.resize(dst - this->m_list.begin());
+
+		return;
+	}
+
+public:
+	void
+	drain(size_type len) ILIAS_NET2_NOTHROW
+	{
+		internal_drain(len, nullptr);
+	}
+
+	void
+	drain(size_type len, buffer& dst)
+	{
+		internal_drain(len, &dst);
+	}
+
+	void
+	swap(buffer& o) ILIAS_NET2_NOTHROW
+	{
+		std::swap(this->m_list, o.m_list);
+		std::swap(this->m_size, o.m_size);
+	}
+
+	buffer&&
+	subrange(size_type off = 0, size_type len = std::numeric_limits<size_type>::max())
+	{
+		buffer result;
+
+		/* Handle empty result early. */
+		if (off >= this->m_size || len <= 0)
+			return std::move(result);
+		/* Handle overflow and oversized request. */
+		if (off + len < off || off + len > this->m_size)
+			len = this->m_size - off;
+
+		size_type roff = off;
+		size_type rlen = len;
+
+		/* Find first segments that needs to be copied. */
+		list_type::iterator first = this->m_list.begin();
+		while (first->m_len <= roff) {
+			roff -= first->m_len;
+			++first;
+		}
+
+		/* Find last segment that needs to be copied. */
+		list_type::iterator last = first;
+		rlen += roff; /* Add remainder. */
+		while (last->m_len < rlen) {
+			rlen -= last->m_len;
+			++last;
+		}
+		last++;
+
+		/*
+		 * We now have [first, last) describing segments
+		 * that need to be copied.
+		 */
+		result.m_list.reserve(last - first); /* May throw. */
+		result.m_list.push_back(first, last);
+
+		/* Eat bytes from first segment. */
+		result.m_list.front().m_off += roff;
+		/* Eat bytes from last segment. */
+		result.m_list.back().m_len -= rlen;
+		/* Set length of result. */
+		result.m_size = len;
+
+		return std::move(result);
+	}
+
+	buffer&
+	prepend(const buffer& o)
+	{
+		list_type all;
+
+		all.reserve(this->m_list.size() + o.m_list.size());
+		all.push_back(o.m_list.begin(), o.m_list.end());
+		all.push_back(this->m_list.begin(), this->m_list.end());
+		this->m_list = std::move(all);
+		this->m_size += o.m_size;
+		return *this;
+	}
+
+	buffer&
+	prepend(buffer&& o)
+	{
+		o += *this;
+		this->clear();
+		this->swap(o);
+		return *this;
+	}
+
+	void
+	clear() ILIAS_NET2_NOTHROW
+	{
+		this->m_list.clear();
+		this->m_size = 0;
+	}
+};
+
+
+}
+
+namespace std {
+	inline void
+	swap(buffer& lhs, buffer& rhs) ILIAS_NET2_NOTHROW
+	{
+		lhs.swap(rhs);
+	}
+}
+
+
 ILIAS_NET2__begin_cdecl
 
 
