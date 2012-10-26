@@ -1005,7 +1005,7 @@ pool::entries_per_page() const
 	return page::page_entries_max(this->size, this->align, this->offset);
 }
 
-pool::page_ptr&&
+ILIAS_NET2_LOCAL pool::page_ptr&&
 pool::alloc_page()
 {
 	page_ptr pp(nullptr, deleter_type(*this));
@@ -1032,7 +1032,7 @@ pool::alloc_page()
 	return std::move(pp);
 }
 
-void
+ILIAS_NET2_LOCAL void
 pool::dealloc_page(page* p)
 {
 	assert(p->empty());
@@ -1043,7 +1043,7 @@ pool::dealloc_page(page* p)
 	assert(vfree_ok);
 }
 
-pool::page_ptr&&
+ILIAS_NET2_LOCAL pool::page_ptr&&
 pool::alloc_big_page(std::size_t n)
 {
 	page_ptr pp(nullptr, deleter_type(*this));
@@ -1071,7 +1071,7 @@ pool::alloc_big_page(std::size_t n)
 }
 
 void*
-pool::allocate(size_type n, void*)
+pool::allocate(size_type n, void*) ILIAS_NET2_NOTHROW
 {
 	/* Big allocations are easy: simply allocate a gigantic page. */
 	if (n > this->entries_per_page()) {
@@ -1100,7 +1100,7 @@ pool::allocate(size_type n, void*)
 }
 
 void
-pool::deallocate(void* ptr, size_type n)
+pool::deallocate(void* ptr, size_type n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
 	page_ptr pg(nullptr, deleter_type(*this));
@@ -1146,7 +1146,7 @@ pool::deallocate(void* ptr, size_type n)
 }
 
 bool
-pool::resize(void* ptr, size_type old_n, size_type new_n)
+pool::resize(void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
 	page_ptr pg(nullptr, deleter_type(*this));
@@ -1202,7 +1202,7 @@ pool::resize(void* ptr, size_type old_n, size_type new_n)
  * The wasted address space is a very good indicator of physical page waste however.
  */
 inline pool::size_type
-pool::waste(size_type sz, size_type align, size_type offset)
+pool::waste(size_type sz, size_type align, size_type offset) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
 
@@ -1232,7 +1232,7 @@ pool::waste(size_type sz, size_type align, size_type offset)
  * Note: this is currently a brute-force operation, try to call it sparingly.
  */
 pool::size_type
-pool::recommend_size(size_type min, size_type max, size_type align, size_type offset)
+pool::recommend_size(size_type min, size_type max, size_type align, size_type offset) ILIAS_NET2_NOTHROW
 {
 	if (min >= max)
 		return min; /* Don't clog our iteration below. */

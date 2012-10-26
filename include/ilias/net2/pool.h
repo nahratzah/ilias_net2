@@ -64,47 +64,47 @@ public:
 private:
 	inline size_type entries_per_page() const;
 
-	void page_enqueue(page*);
-	void dealloc_page(page*);
+	ILIAS_NET2_LOCAL void page_enqueue(page*);
+	ILIAS_NET2_LOCAL void dealloc_page(page*);
 
 	struct deleter_type;
 	typedef std::unique_ptr<page, deleter_type> page_ptr;
 
-	page_ptr&& alloc_page();
-	page_ptr&& pop_page();
-	page_ptr&& alloc_big_page(size_type);
+	ILIAS_NET2_LOCAL page_ptr&& alloc_page();
+	ILIAS_NET2_LOCAL page_ptr&& pop_page();
+	ILIAS_NET2_LOCAL page_ptr&& alloc_big_page(size_type);
 
 public:
-	void* allocate(size_type, void*);
-	void deallocate(void*, size_type);
-	bool resize(void*, size_type, size_type);
+	void* allocate(size_type, void*) ILIAS_NET2_NOTHROW;
+	void deallocate(void*, size_type) ILIAS_NET2_NOTHROW;
+	bool resize(void*, size_type, size_type) ILIAS_NET2_NOTHROW;
 
 	constexpr size_type
-	maxsize() const
+	maxsize() const ILIAS_NET2_NOTHROW
 	{
 		return (std::numeric_limits<size_type>::max() / this->size);
 	}
 
 	constexpr size_type
-	maxsize_bytes() const
+	maxsize_bytes() const ILIAS_NET2_NOTHROW
 	{
 		return maxsize() * this->size;
 	}
 
 	void*
-	allocate_bytes(size_type bytes, void* hint)
+	allocate_bytes(size_type bytes, void* hint) ILIAS_NET2_NOTHROW
 	{
 		return allocate((bytes + this->size - 1) / this->size, hint);
 	}
 
 	void
-	deallocate_bytes(void* addr, size_type bytes)
+	deallocate_bytes(void* addr, size_type bytes) ILIAS_NET2_NOTHROW
 	{
 		return deallocate(addr, (bytes + this->size - 1) / this->size);
 	}
 
 	bool
-	resize_bytes(void* addr, size_type old_bytes, size_type new_bytes)
+	resize_bytes(void* addr, size_type old_bytes, size_type new_bytes) ILIAS_NET2_NOTHROW
 	{
 		const size_type old_n = (old_bytes + this->size - 1) / this->size;
 		const size_type new_n = (new_bytes + this->size - 1) / this->size;
@@ -112,14 +112,14 @@ public:
 	}
 
 private:
-	static inline size_type waste(size_type, size_type, size_type);
+	static inline size_type waste(size_type, size_type, size_type) ILIAS_NET2_NOTHROW;
 
 public:
-	static size_type recommend_size(size_type min, size_type max, size_type align = default_align, size_type offset = default_offset);
+	static size_type recommend_size(size_type min, size_type max, size_type align = default_align, size_type offset = default_offset) ILIAS_NET2_NOTHROW;
 };
 
 
-template<typename T, std::size_t Align = pool::default_align, std::size_t Offset = pool::default_offset>
+template<typename T, std::size_t Align = (sizeof(T) < pool::default_align ? sizeof(T) : pool::default_align), std::size_t Offset = pool::default_offset>
 class pool_allocator :
 	private pool
 {
@@ -157,30 +157,37 @@ public:
 	pointer
 	allocate(size_type n, void* hint = nullptr)
 	{
-		return this->pool::allocate(n, hint);
+		const pointer ptr = this->pool::allocate(n, hint);
+		if (!ptr)
+			throw std::bad_alloc();
+		return ptr;
 	}
 
 	void
-	deallocate(pointer ptr, size_type n)
+	deallocate(pointer ptr, size_type n) ILIAS_NET2_NOTHROW
 	{
-		this->pool::deallocate(ptr, n);
+		if (ptr)
+			this->pool::deallocate(ptr, n);
 	}
 
 	bool
-	resize(pointer p, size_type old_n, size_type new_n)
+	resize(pointer p, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 	{
-		this->pool::resize(p, old_n, new_n);
+		if (ptr)
+			return this->pool::resize(p, old_n, new_n);
+		else
+			return false;
 	}
 
 	static pointer
-	address(reference v)
+	address(reference v) ILIAS_NET2_NOTHROW
 	{
 		typedef char& casted;
 		return reinterpret_cast<pointer>(&reinterpret_cast<casted>(v));
 	}
 
 	static const_pointer
-	address(const_reference v)
+	address(const_reference v) ILIAS_NET2_NOTHROW
 	{
 		typedef const char& casted;
 		return reinterpret_cast<const_pointer>(&reinterpret_cast<casted>(v));
