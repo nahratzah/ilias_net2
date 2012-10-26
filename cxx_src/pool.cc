@@ -20,43 +20,54 @@
 namespace {
 
 /*
- * Helper for log2_inner.
+ * ...
  */
-template<typename T, std::size_t p, std::size_t q>
-struct mask_generator
+template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
+struct shift_repeat
 {
-	static constexpr_value T pred = mask_generator<T, p, q / 2>::value;
-	static constexpr_value T value = pred | (pred << (q / 2));
-};
-
-template<typename T, std::size_t p>
-struct mask_generator<T, p, 2 * p>
-{
-	static constexpr_value T value = ((T(1) << p) - 1) << p;
-};
-
-/*
- * An efficient log2 implementation.
- */
-template<typename T, std::size_t p>
-struct log2_inner {
-private:
-	typedef struct log2_inner<T, p / 2> log2_succ;
-
-	static constexpr_value T mask = mask_generator<T, p, std::numeric_limits<T>::digits>::value;
-
-public:
-	static constexpr unsigned int
+	static constexpr T
 	get(const T& v)
 	{
-		return ((v & mask) ? p : 0) + log2_succ::get(v);
+		return shift_repeat<T, 2 * Shift>::get(v | (v << Shift));
+	}
+};
+template<typename T, size_t Shift>
+struct shift_repeat<T, Shift, true>
+{
+	static constexpr T
+	get(const T& v)
+	{
+		return v;
 	}
 };
 
-template<typename T>
-struct log2_inner<T, 0> {
-	static constexpr unsigned int
+/*
+ * ...
+ */
+template<typename T, size_t P>
+struct mask
+{
+	static constexpr_value T value = shift_repeat<T, 2 * P>::get(((T(1) << P) - 1) << P);
+};
+
+/*
+ * ...
+ */
+template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
+struct log_repeat
+{
+	static constexpr size_t
 	get(const T& v)
+	{
+		return ((v & mask<T, Shift>::value) ? Shift : 0) +
+		    log_repeat<T, 2 * Shift>::get(v);
+	}
+};
+template<typename T, size_t Shift>
+struct log_repeat<T, Shift, true>
+{
+	static constexpr size_t
+	get(const T&)
 	{
 		return 0;
 	}
@@ -69,14 +80,18 @@ template<typename T>
 static constexpr unsigned int
 log2_down(const T& value)
 {
-	return log2_inner<T, std::numeric_limits<T>::digits / 2>::get(value);
+	return log_repeat<T, 1>::get(value);
 }
 /* Calculate the smallest log2 where 2^result >= value. */
 template<typename T>
 static constexpr unsigned int
 log2_up(const T& value)
 {
-	return log2_down(2 * value - 1);
+	/*
+	 * If value is a power of 2, log2_up(value) == log2_down(value),
+	 * otherwise, log2_down(value) is 1 too small.
+	 */
+	return ((value & (value - 1)) != 0 ? 1 : 0) + log2_down(value);
 }
 
 
