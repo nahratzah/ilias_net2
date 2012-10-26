@@ -80,6 +80,7 @@ list (APPEND headers
 	include/ilias/net2/poetry.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
+	include/ilias/net2/pool.h
 	include/ilias/net2/refcnt.h
 	include/ilias/net2/semaphore.h
 	include/ilias/net2/sign.h
@@ -142,6 +143,7 @@ list (APPEND cxx_srcs
 	cxx_src/acceptor.cc
 	cxx_src/connection.cc
 	cxx_src/promise.cc
+	cxx_src/pool.cc
 	cxx_src/workq.cc
 	)
 
