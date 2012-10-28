@@ -16,10 +16,13 @@
 #ifndef ILIAS_NET2_POOL_H
 #define ILIAS_NET2_POOL_H
 
+#ifdef __cplusplus
+
 #include <ilias/net2/ilias_net2_export.h>
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <ilias/net2/ll.h>
 
 class ILIAS_NET2_EXPORT pool
 {
@@ -51,6 +54,7 @@ public:
 	const size_type align;
 	const size_type offset;
 	const size_type size;
+	ll_head head;
 
 	static constexpr_value size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
 	static constexpr_value size_type default_offset = 0;
@@ -58,7 +62,8 @@ public:
 	constexpr pool(size_type size, size_type align = default_align, size_type offset = default_offset) :
 		align(align <= 0 ? 1 : align),
 		offset(offset % this->align),
-		size(round_up(size, this->align))
+		size(round_up(size, this->align)),
+		head(LL_HEAD_INITIALIZER__HEAD(this->head))
 	{
 		/* Empty body. */
 	}
@@ -242,5 +247,7 @@ public:
 	pool_allocator(const pool_allocator&) = delete;
 	pool_allocator& operator=(const pool_allocator&) = delete;
 };
+
+#endif /* __cplusplus */
 
 #endif /* ILIAS_NET2_POOL_H */
