@@ -194,21 +194,21 @@ private:
 
 	/* Limits of value type. */
 	typedef std::numeric_limits<value_type> limits;
-	static const size_t digits = limits::digits;
+	static const std::size_t digits = limits::digits;
 
 	static constexpr bool
-	do_end(size_t begin, size_t end) ILIAS_NET2_NOTHROW
+	do_end(std::size_t begin, std::size_t end) ILIAS_NET2_NOTHROW
 	{
 		return (end - pool::round_down(begin, digits) <= digits);
 	}
 	template<typename U>
 	static constexpr const U&
-	do_end(size_t begin, size_t end, const U& yes, const U& no) ILIAS_NET2_NOTHROW
+	do_end(std::size_t begin, std::size_t end, const U& yes, const U& no) ILIAS_NET2_NOTHROW
 	{
 		return (do_end(begin, end) ? yes : no);
 	}
 	static value_type
-	mask(size_t begin, size_t end) ILIAS_NET2_NOTHROW
+	mask(std::size_t begin, std::size_t end) ILIAS_NET2_NOTHROW
 	{
 		assert(end <= std::numeric_limits<value_type>::digits);
 		assert(begin <= end);
@@ -222,7 +222,7 @@ public:
 		return this->m_succes;
 	}
 
-	range_set(atomic_type* atomics, size_t begin, size_t end,
+	range_set(atomic_type* atomics, std::size_t begin, std::size_t end,
 	    const std::memory_order& order, const std::memory_order& rollback) ILIAS_NET2_NOTHROW :
 		m_succes(false),
 		m_commit(false),
@@ -402,13 +402,13 @@ public:
 	 * This memory is not accessable until commit_mem() has been called.
 	 * The returned memory is aligned to alloc_align() bytes.
 	 */
-	void* valloc(size_t) const;
+	void* valloc(std::size_t) const;
 	/*
 	 * Allocate virtual memory at specific address.
 	 * This memory is not accessable until commit_mem() has been called.
 	 * The memory will be allocated at the given address, which must be aligned to alloc_align() bytes.
 	 */
-	void* valloc(void*, size_t) const;
+	void* valloc(void*, std::size_t) const;
 	/*
 	 * Free virtual memory.
 	 * Will uncommit the memory if it is in commited state.
@@ -417,19 +417,19 @@ public:
 	 * A single vfree() may free multiple valloc() memory, as long as there are no gaps
 	 * (free space for instance) between the valloc() regions.
 	 */
-	bool vfree(void*, size_t) const;
+	bool vfree(void*, std::size_t) const;
 	/*
 	 * Acquire memory.
 	 * The memory must be in a range previously allocated using valloc().
 	 * Pointer and size must be multiples of pagesize().
 	 */
-	bool commit_mem(void*, size_t) const;
+	bool commit_mem(void*, std::size_t) const;
 	/*
 	 * Release memory.
 	 * The memory must be in a range previously allocated using valloc().
 	 * Pointer and size must be multiples of pagesize().
 	 */
-	bool release_mem(void*, size_t) const;
+	bool release_mem(void*, std::size_t) const;
 };
 
 
@@ -504,7 +504,7 @@ public:
 			n_entries = this->n_entries;
 			break;
 		}
-		return overhead(this->n_entries, this->align, this->offset);
+		return overhead(n_entries, this->align, this->offset);
 	}
 
 	/* Calculate the number of entries that will fit in a page (allocation size osdep::page_align()). */
@@ -726,7 +726,8 @@ private:
 
 public:
 	/* Constructor. */
-	page(page_type type, std::size_t alloclen, std::size_t n_entries, std::size_t entry_size, std::size_t align, std::size_t offset) :
+	page(page_type type, std::size_t alloclen, std::size_t n_entries, std::size_t entry_size,
+	    std::size_t align, std::size_t offset) ILIAS_NET2_NOTHROW :
 		type(type),
 		alloclen(alloclen),
 		n_entries(n_entries),
@@ -755,7 +756,7 @@ public:
 	}
 
 	/* Destructor. */
-	~page()
+	~page() ILIAS_NET2_NOTHROW
 	{
 		assert(this->empty());
 
@@ -775,7 +776,7 @@ public:
 
 	/* Test if the page is empty (nothing is in use). */
 	bool
-	empty() const
+	empty() const ILIAS_NET2_NOTHROW
 	{
 		switch (this->type) {
 		case SHARED_PAGE:
@@ -795,139 +796,17 @@ public:
 	}
 
 	/* Allocate space for count contiguous entries. */
-	void*
-	allocate(std::size_t count)
-	{
-		if (this->type != SHARED_PAGE)
-			return nullptr;
-		if (count > this->n_entries)
-			return nullptr;
-
-		/*
-		 * This for-loop simulates a breadth-first tree search.
-		 * For example, n_entries = 8:
-		 * [0, 4, 2, 6, 1, 5, 3, 7].
-		 *
-		 * Since invert_bits requires a power-of-2, rejection is used to skip indices
-		 * that are out-of-bounds.
-		 */
-		for (std::size_t i = 0; i < log2_up(this->n_entries); ++i) {
-			const std::size_t idx = invert_bits(i, log2_up(this->n_entries));
-			if (idx + count > this->n_entries || idx + count < idx)
-				continue;	/* Reject oversized indices. */
-
-			if (this->acquire(idx, count))
-				return this->data(idx);
-		}
-		return nullptr;
-	}
-
+	void* allocate(std::size_t) ILIAS_NET2_NOTHROW;
 	/* Allocate entries at a specific address. */
-	void*
-	allocate(void* p, std::size_t offset, std::size_t count)
-	{
-		if (this->type != SHARED_PAGE)
-			return nullptr;
-		if (offset > this->n_entries || count > this->n_entries)
-			return nullptr;
-		const auto idx = index(p);
-		if (!idx.second)
-			return nullptr;
-		if (idx.first > this->n_entries - offset)
-			return nullptr;
-		if (this->n_entries - idx.first < offset + count)
-			return nullptr;
-
-		if (this->acquire(idx.first + offset, count))
-			return this->data(idx.first + offset);
-		return nullptr;
-	}
+	void* allocate(void*, std::size_t, std::size_t) ILIAS_NET2_NOTHROW;
 
 	/* Free space for count contiguous entries. */
-	bool
-	deallocate(void* ptr, std::size_t count)
-	{
-		if (this->type != SHARED_PAGE)
-			return false;
-
-		/* Check if this pointer is valid. */
-		if (count > this->n_entries || ptr < data() || ptr >= data(this->n_entries - count))
-			return false;
-
-		/* Lookup index and ensure pointer is an exact match. */
-		const auto idx = index(ptr);
-		if (!idx.second)
-			return false;
-
-		this->release(idx.first, count);
-		return true;
-	}
-
+	bool deallocate(void*, std::size_t) ILIAS_NET2_NOTHROW;
 	/* Free space at pointer relative to offset. */
-	bool
-	deallocate(void* ptr, std::size_t offset, std::size_t count)
-	{
-		if (this->type != SHARED_PAGE)
-			return false;
-
-		/* Check if this pointer is valid. */
-		if (count + offset > this->n_entries || ptr < data() || ptr >= data(this->n_entries - (count + offset)))
-			return false;
-
-		/* Lookup index and ensure pointer is an exact match. */
-		const auto idx = index(ptr);
-		if (!idx.second)
-			return false;
-
-		this->release(idx.first + offset, count);
-		return true;
-	}
+	bool deallocate(void*, std::size_t, std::size_t) ILIAS_NET2_NOTHROW;
 
 	/* Change the number of entries in a big page. */
-	bool
-	resize(void* ptr, std::size_t old_n, std::size_t new_n)
-	{
-		if (this->type != BIG_PAGE)
-			return false;
-
-		if (this->n_entries != old_n || ptr != this->data())
-			return false;
-		if (new_n == old_n)
-			return true;
-
-		const osdep& os = osdep::get();
-		const uintptr_t new_addr = round_up(reinterpret_cast<uintptr_t>(data(new_n)), os.pagesize());
-		const uintptr_t old_addr = round_up(reinterpret_cast<uintptr_t>(data(old_n)), os.pagesize());
-		const uintptr_t base = reinterpret_cast<uintptr_t>(static_cast<void*>(this));
-		const uintptr_t top = base + this->alloclen;
-
-		if (new_n < old_n) {
-			this->n_entries = new_n;
-
-			if (old_addr != new_addr)
-				os.release_mem(reinterpret_cast<void*>(new_addr), old_addr - new_addr);
-		} else {
-			/* Allocate more virtual memory at the end of this. */
-			if (new_addr > top) {
-				const uintptr_t new_top = round_up(new_addr, os.alloc_align());
-				if (!os.valloc(reinterpret_cast<void*>(top), new_top - top))
-					return false;
-				this->alloclen = new_top - base;
-			}
-
-			/* Commit more memory in the allocated range. */
-			if (new_addr > old_addr && !os.commit_mem(reinterpret_cast<void*>(old_addr), new_addr - old_addr)) {
-				return false;
-			}
-
-			/* Allocation succesful. */
-			this->n_entries = new_n;
-		}
-
-		/* End of function reached means resize operation was succesful. */
-		assert(ptr == this->data());	/* Failure means data() calculation is wrong for big pages. */
-		return true;
-	}
+	bool resize(void*, std::size_t, std::size_t) ILIAS_NET2_NOTHROW;
 };
 
 
@@ -1134,6 +1013,137 @@ pool::osdep::release_mem(void* ptr, std::size_t sz) const
 	return true;
 }
 #endif /* WIN32 */
+
+
+void*
+pool::page::allocate(std::size_t count) ILIAS_NET2_NOTHROW
+{
+	if (this->type != SHARED_PAGE)
+		return nullptr;
+	if (count > this->n_entries)
+		return nullptr;
+
+	/*
+	 * This for-loop simulates a breadth-first tree search.
+	 * For example, n_entries = 8:
+	 * [0, 4, 2, 6, 1, 5, 3, 7].
+	 *
+	 * Since invert_bits requires a power-of-2, rejection is used to skip indices
+	 * that are out-of-bounds.
+	 */
+	for (std::size_t i = 0; i < log2_up(this->n_entries); ++i) {
+		const std::size_t idx = invert_bits(i, log2_up(this->n_entries));
+		if (idx + count > this->n_entries || idx + count < idx)
+			continue;	/* Reject oversized indices. */
+
+		if (this->acquire(idx, count))
+			return this->data(idx);
+	}
+	return nullptr;
+}
+
+void*
+pool::page::allocate(void* p, std::size_t offset, std::size_t count) ILIAS_NET2_NOTHROW
+{
+	if (this->type != SHARED_PAGE)
+		return nullptr;
+	if (offset > this->n_entries || count > this->n_entries)
+		return nullptr;
+	const auto idx = index(p);
+	if (!idx.second)
+		return nullptr;
+	if (idx.first > this->n_entries - offset)
+		return nullptr;
+	if (this->n_entries - idx.first < offset + count)
+		return nullptr;
+
+	if (this->acquire(idx.first + offset, count))
+		return this->data(idx.first + offset);
+	return nullptr;
+}
+
+bool
+pool::page::deallocate(void* ptr, std::size_t count) ILIAS_NET2_NOTHROW
+{
+	if (this->type != SHARED_PAGE)
+		return false;
+
+	/* Check if this pointer is valid. */
+	if (count > this->n_entries || ptr < data() || ptr >= data(this->n_entries - count))
+		return false;
+
+	/* Lookup index and ensure pointer is an exact match. */
+	const auto idx = index(ptr);
+	if (!idx.second)
+		return false;
+
+	this->release(idx.first, count);
+	return true;
+}
+
+bool
+pool::page::deallocate(void* ptr, std::size_t offset, std::size_t count) ILIAS_NET2_NOTHROW
+{
+	if (this->type != SHARED_PAGE)
+		return false;
+
+	/* Check if this pointer is valid. */
+	if (count + offset > this->n_entries || ptr < data() || ptr >= data(this->n_entries - (count + offset)))
+		return false;
+
+	/* Lookup index and ensure pointer is an exact match. */
+	const auto idx = index(ptr);
+	if (!idx.second)
+		return false;
+
+	this->release(idx.first + offset, count);
+	return true;
+}
+
+bool
+pool::page::resize(void* ptr, std::size_t old_n, std::size_t new_n) ILIAS_NET2_NOTHROW
+{
+	if (this->type != BIG_PAGE)
+		return false;
+
+	if (this->n_entries != old_n || ptr != this->data())
+		return false;
+	if (new_n == old_n)
+		return true;
+
+	const osdep& os = osdep::get();
+	const uintptr_t new_addr = round_up(reinterpret_cast<uintptr_t>(data(new_n)), os.pagesize());
+	const uintptr_t old_addr = round_up(reinterpret_cast<uintptr_t>(data(old_n)), os.pagesize());
+	const uintptr_t base = reinterpret_cast<uintptr_t>(static_cast<void*>(this));
+	const uintptr_t top = base + this->alloclen;
+
+	if (new_n < old_n) {
+		this->n_entries = new_n;
+
+		if (old_addr != new_addr)
+			os.release_mem(reinterpret_cast<void*>(new_addr), old_addr - new_addr);
+	} else {
+		/* Allocate more virtual memory at the end of this. */
+		if (new_addr > top) {
+			const uintptr_t new_top = round_up(new_addr, os.alloc_align());
+			if (!os.valloc(reinterpret_cast<void*>(top), new_top - top))
+				return false;
+			this->alloclen = new_top - base;
+		}
+
+		/* Commit more memory in the allocated range. */
+		if (new_addr > old_addr && !os.commit_mem(reinterpret_cast<void*>(old_addr), new_addr - old_addr)) {
+			return false;
+		}
+
+		/* Allocation succesful. */
+		this->n_entries = new_n;
+	}
+
+	/* End of function reached means resize operation was succesful. */
+	assert(ptr == this->data());	/* Failure means data() calculation is wrong for big pages. */
+	return true;
+}
 
 
 /* Pool page handler: puts page on queue or releases it after use. */
