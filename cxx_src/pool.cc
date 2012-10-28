@@ -95,6 +95,202 @@ log2_up(const T& value)
 }
 
 
+/* Allow undo of atomic_fetch_or operation. */
+template<typename T>
+class atomic_or_undo;
+
+template<typename T>
+class atomic_or_undo< std::atomic<T> >
+{
+public:
+	typedef T value_type;
+	typedef std::atomic<value_type> atomic_type;
+
+private:
+	atomic_type& m_atom;	/* Variable on which the action is applied. */
+	bool m_commit;		/* True if commit() has been called. */
+	const std::memory_order m_rollback;
+
+public:
+	const value_type mask;		/* Mask of applied bits. */
+	const value_type orig;		/* Original value of bits prior to masking. */
+
+public:
+	atomic_or_undo(atomic_type& atom, const value_type& mask, const std::memory_order& order, const std::memory_order& rollback) ILIAS_NET2_NOTHROW :
+		m_atom(atom),
+		m_commit(false),
+		mask(mask),
+		orig((mask == 0 ? value_type(0) : atom.fetch_or(mask, order) & mask)),
+		m_rollback(rollback)
+	{
+		return;
+	}
+
+#if HAS_RVALUE_REF
+	atomic_or_undo(atomic_or_undo&& o) ILIAS_NET2_NOTHROW :
+		m_atom(o.m_atom),
+		m_commit(o.m_commit),
+		mask(o.mask),
+		orig(o.orig),
+		m_rollback(o.m_rollback)
+	{
+		/* Rollback is now our responsibility, mark o as commited to prevent rollback. */
+		o.m_commit = true;
+	}
+#endif
+
+	~atomic_or_undo() ILIAS_NET2_NOTHROW
+	{
+		if (!this->m_commit && this->mask != value_type(0))
+			m_atom.fetch_and(this->orig | ~this->mask, this->m_rollback);
+	}
+
+	void
+	commit() ILIAS_NET2_NOTHROW
+	{
+		this->m_commit = true;
+	}
+
+	/* Convenience test: true if all bits in mask were originally 0. */
+	bool
+	complete() const ILIAS_NET2_NOTHROW
+	{
+		return (this->orig == 0);
+	}
+};
+
+/*
+ * Attempt to set all bits in range.
+ *
+ * Evaluates to true if succesful.
+ * Fails if any of the bits in range is already set, in which case the operation will be rolled back.
+ *
+ * Begin, end follow array semantics (i.e. begin is the first bit that will be set, up to but not including end).
+ *
+ * Note that on failure, part of its data may be set until destruction of the range.
+ */
+template<typename T>
+struct range_set;
+
+template<typename T>
+struct range_set< std::atomic<T> >
+{
+public:
+	typedef T value_type;
+	typedef std::atomic<value_type> atomic_type;
+
+private:
+	bool m_succes;		/* Set if all bits in the range were 0. */
+	bool m_commit;		/* True if commit() has been called. */
+	const std::memory_order m_rollback;
+
+	/* Range of atomics that were at least partially within the range. */
+	atomic_type*const m_begin;
+	atomic_type*const m_end;
+	/* Undo for first atomic. */
+	atomic_or_undo<atomic_type> m_begin_undo;
+	/* Unfor for last atomic. */
+	atomic_or_undo<atomic_type> m_end_undo;
+
+	/* Limits of value type. */
+	typedef std::numeric_limits<value_type> limits;
+	static const size_t digits = limits::digits;
+
+	static constexpr bool
+	do_end(size_t begin, size_t end) ILIAS_NET2_NOTHROW
+	{
+		return (end - pool::round_down(begin, digits) <= digits);
+	}
+	template<typename U>
+	static constexpr const U&
+	do_end(size_t begin, size_t end, const U& yes, const U& no) ILIAS_NET2_NOTHROW
+	{
+		return (do_end(begin, end) ? yes : no);
+	}
+	static value_type
+	mask(size_t begin, size_t end) ILIAS_NET2_NOTHROW
+	{
+		assert(end <= std::numeric_limits<value_type>::digits);
+		assert(begin <= end);
+
+		return (value_type(1) << end) - (value_type(1) << begin);
+	}
+
+public:
+	explicit operator bool() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_succes;
+	}
+
+	range_set(atomic_type* atomics, size_t begin, size_t end,
+	    const std::memory_order& order, const std::memory_order& rollback) ILIAS_NET2_NOTHROW :
+		m_succes(false),
+		m_commit(false),
+		m_rollback(rollback),
+		m_begin(&atomics[begin / digits]),
+				/* round_down(begin, digits) / digits */
+		m_end(&atomics[(end + digits - 1) / digits]),
+				/* round_up(end, digits) / digits */
+		m_begin_undo(*this->m_begin,
+		    mask(begin % digits, std::min(end - pool::round_down(begin, digits), digits)),
+		    order, rollback),
+		m_end_undo(*this->m_end,
+		    do_end(begin, end, mask(0, end % digits), value_type(0)),
+		    order, rollback)
+	{
+		/* The in-between entries assume succes unless proven to fail, so switch m_succes. */
+		this->m_succes = this->m_begin_undo.complete() && this->m_end_undo.complete();
+
+		if (this->m_succes) {
+			auto i = this->m_begin;
+			while (++i < this->m_end) {
+				value_type zero = value_type(0);
+				if (!i->compare_exchange_strong(zero, ~zero, order, this->m_rollback)) {
+					m_succes = false;
+					while (--i != m_begin)
+						i->store(value_type(0), this->m_rollback);
+					break;
+				}
+			}
+		}
+	}
+
+#ifdef HAS_RVALUE_REF
+	range_set(range_set&& o) ILIAS_NET2_NOTHROW :
+		m_succes(o.m_succes),
+		m_commit(o.m_commit),
+		m_rollback(o.m_rollback),
+		m_begin(o.m_begin),
+		m_end(o.m_end),
+		m_begin_undo(std::move(o.m_begin_undo)),
+		m_end_undo(std::move(o.m_end_undo))
+	{
+		/* Move responsibility for rollback from o to this. */
+		o.m_commit = true;
+	}
+#endif
+
+	~range_set() ILIAS_NET2_NOTHROW
+	{
+		if (this->m_succes && !this->m_commit) {
+			auto i = this->m_begin;
+			while (++i < this->m_end)
+				i->store(value_type(0), this->m_rollback);
+		}
+	}
+
+	void
+	commit()
+	{
+		if (!this->m_succes)
+			throw std::logic_error("commit called on failed range");
+		this->m_begin_undo.commit();
+		this->m_end_undo.commit();
+		this->m_commit = true;
+	}
+};
+
+
 /*
  * Abstraction of OS dependant routines.
  */
@@ -432,7 +628,7 @@ private:
 	 * No change on failure.
 	 */
 	bool
-	acquire(std::size_t idx, std::size_t count, bool mark_inuse = true)
+	acquire(std::size_t idx, std::size_t count, bool mark_inuse = true) ILIAS_NET2_NOTHROW
 	{
 		assert(this->type == SHARED_PAGE);	/* Shared pages only. */
 
@@ -442,33 +638,9 @@ private:
 		if (idx + count < idx || idx + count >= this->n_entries)
 			return false;
 
-		entry_type*const arr = this->bitmap() + (idx / bitmap_bits);
-		const auto off = idx % bitmap_bits;
-		const auto last = (off + count);
-
-		/* Mark the first entry_type bits for allocation. */
-		const auto first_mask = mask(off, std::min(bitmap_bits, last));
-		const auto orig = (arr[0].fetch_or(first_mask, std::memory_order_relaxed) & first_mask);
-		if (orig != 0)
-			goto undo_first;
-		/* Test if this is one of those allocations that fits in a single entry. */
-		if (last <= bitmap_bits)
-			return true;
-
-		/* Mark intermediate bits for allocation. */
-		std::size_t i;
-		for (i = 1; i < (last - 1) / bitmap_bits; ++i) {
-			atomic_type<entry_type>::type zero = 0;
-			if (!arr[i].compare_exchange_strong(zero, mask(0, bitmap_bits), std::memory_order_relaxed, std::memory_order_relaxed))
-				goto undo_between;
-		}
-
-		/* Mark final bits for allocation. */
-		const std::size_t last_idx = (last - 1) / bitmap_bits;
-		const auto last_mask = mask(0, (last - 1) % bitmap_bits + 1);
-		const auto last_orig = arr[last_idx].fetch_or(last_mask, std::memory_order_relaxed) & last_mask;
-		if (last_orig != 0)
-			goto undo_last;
+		range_set<entry_type> rs(this->bitmap(), idx, idx + count, std::memory_order_relaxed, std::memory_order_relaxed);
+		if (!rs)
+			return false;
 
 		/* Commit memory. */
 		if (mark_inuse) {
@@ -477,23 +649,12 @@ private:
 			const uintptr_t end_addr = round_up(reinterpret_cast<uintptr_t>(data(idx + count)), os.pagesize());
 			assert(end_addr - start_addr <= std::numeric_limits<size_t>::max());
 			if (!os.commit_mem(reinterpret_cast<void*>(start_addr), end_addr - start_addr))
-				goto undo_last;
+				return false;
 		}
+		rs.commit();
 
 		/* All bits were succesfully acquired, allocation succeeded. */
 		return true;
-
-
-		/* Undo after failure routines. */
-undo_last:
-		arr[last_idx].fetch_and(last_orig | ~last_mask, std::memory_order_relaxed);
-undo_between:
-		while (--i > 0)
-			arr[i].store(0, std::memory_order_relaxed);
-undo_first:
-		arr[0].fetch_and(orig | ~first_mask, std::memory_order_relaxed);
-		/* Return failure. */
-		return false;
 	}
 
 	/*

@@ -31,21 +31,23 @@ private:
 	class osdep;
 	class page;
 
+public:
+	/* Helper functions. */
 	template<typename T>
-	static constexpr RVALUE(T)
+	static constexpr T
 	round_down(const T& v, const T& r)
 	{
-		return std::move((r & (r - 1)) == 0 ? (v & ~(r - 1)) : (v - v % r));
+		return ((r & (r - 1)) == 0 ? (v & ~(r - 1)) : (v - v % r));
 	}
 
+	/* Helper functions. */
 	template<typename T>
-	static constexpr RVALUE(T)
+	static constexpr T
 	round_up(const T& v, const T& r)
 	{
-		return std::move(round_down(v + r - 1, r));
+		return round_down(v + r - 1, r);
 	}
 
-public:
 	const size_type align;
 	const size_type offset;
 	const size_type size;
@@ -173,7 +175,7 @@ public:
 	bool
 	resize(pointer p, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 	{
-		if (ptr)
+		if (p)
 			return this->pool::resize(p, old_n, new_n);
 		else
 			return false;
