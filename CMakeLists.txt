@@ -98,7 +98,6 @@ list (APPEND headers
 list (APPEND cluster_headers
 	)
 list (APPEND srcs
-	src/ll.c
 	src/acceptor.c
 	src/bitset.c
 	src/buffer.c
@@ -142,6 +141,7 @@ list (APPEND cluster_srcs
 list (APPEND cxx_srcs
 	cxx_src/acceptor.cc
 	cxx_src/connection.cc
+	cxx_src/ll.cc
 	cxx_src/promise.cc
 	cxx_src/pool.cc
 	cxx_src/workq.cc
