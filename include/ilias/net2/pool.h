@@ -24,6 +24,9 @@
 #include <memory>
 #include <ilias/net2/ll.h>
 
+namespace ilias {
+
+
 class ILIAS_NET2_EXPORT pool
 {
 public:
@@ -33,6 +36,7 @@ public:
 private:
 	class osdep;
 	class page;
+	typedef ll_list< ll_base<page> > ll_list_type;
 
 public:
 	/* Helper functions. */
@@ -54,16 +58,16 @@ public:
 	const size_type align;
 	const size_type offset;
 	const size_type size;
-	ll_head head;
+	ll_list_type head;
 
 	static constexpr_value size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
 	static constexpr_value size_type default_offset = 0;
 
-	constexpr pool(size_type size, size_type align = default_align, size_type offset = default_offset) :
+	pool(size_type size, size_type align = default_align, size_type offset = default_offset) :
 		align(align <= 0 ? 1 : align),
 		offset(offset % this->align),
 		size(round_up(size, this->align)),
-		head(LL_HEAD_INITIALIZER__HEAD(this->head))
+		head()
 	{
 		/* Empty body. */
 	}
@@ -86,13 +90,13 @@ public:
 	void deallocate(void*, size_type) ILIAS_NET2_NOTHROW;
 	bool resize(void*, size_type, size_type) ILIAS_NET2_NOTHROW;
 
-	constexpr size_type
+	size_type
 	maxsize() const ILIAS_NET2_NOTHROW
 	{
 		return (std::numeric_limits<size_type>::max() / this->size);
 	}
 
-	constexpr size_type
+	size_type
 	maxsize_bytes() const ILIAS_NET2_NOTHROW
 	{
 		return maxsize() * this->size;
@@ -247,6 +251,8 @@ public:
 	pool_allocator(const pool_allocator&) = delete;
 	pool_allocator& operator=(const pool_allocator&) = delete;
 };
+
+} /* namespace ilias */
 
 #endif /* __cplusplus */
 

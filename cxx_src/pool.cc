@@ -17,10 +17,11 @@
 #endif
 
 
+namespace ilias {
 namespace {
 
 /*
- * ...
+ * Repeats a bit pattern every Shift bytes.
  */
 template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
 struct shift_repeat
@@ -42,7 +43,7 @@ struct shift_repeat<T, Shift, true>
 };
 
 /*
- * ...
+ * Create a bitpattern mask: infinite repeat of P ones followed by P zeroes
  */
 template<typename T, size_t P>
 struct mask
@@ -51,7 +52,7 @@ struct mask
 };
 
 /*
- * ...
+ * Recursive invocation to find the log2 of a value.
  */
 template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
 struct log_repeat
@@ -73,7 +74,7 @@ struct log_repeat<T, Shift, true>
 	}
 };
 
-}	/* unnamed namespace */
+} /* ilias::[unnamed namespace] */
 
 /* Calculate the largest log2 where 2^result <= value. */
 template<typename T>
@@ -436,8 +437,11 @@ public:
 /*
  * Tracking of allocation data.
  */
-class pool::page
+class pool::page :
+	private ll_base_hook<>
 {
+friend class ll_base<page>;
+
 public:
 	enum page_type {
 		SHARED_PAGE,
@@ -1185,6 +1189,12 @@ public:
 };
 
 
+void
+pool::page_enqueue(page* pg)
+{
+	this->head.push_front(pg);
+}
+
 inline std::size_t
 pool::entries_per_page() const
 {
@@ -1274,7 +1284,19 @@ pool::allocate(size_type n, void*) ILIAS_NET2_NOTHROW
 	 * Small allocation: first try a page on the freelist.
 	 * Failing that, create a new page, allocate from it and then store it.
 	 */
-	...; /* XXX implement queue. */
+	for (ll_list_type::iterator i = this->head.begin(), end = this->head.end(); i != end; ++i) {
+		void* ptr = i->allocate(n);
+		if (ptr) {
+			try {
+				page_ptr pg(i.get(), deleter_type(*this));
+				this->head.erase(i);
+			} catch (...) {
+				i->deallocate(ptr, n);
+				throw;
+			}
+			return ptr;
+		}
+	}
 
 	/*
 	 * Allocation from existing page failed.
@@ -1440,3 +1462,6 @@ pool::recommend_size(size_type min, size_type max, size_type align, size_type of
 	}
 	return best;
 }
+
+
+} /* namespace ilias */
