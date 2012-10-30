@@ -165,14 +165,14 @@
  */
 #if HAS_RVALUE_REF
 #define RVALUE(x)		x&&
+#define RVALUE_REF(x)		x&&
+#define RVALUE_CREF(x)		x&&
+#define MOVE(x)			std::move((x))
 #else
 #define RVALUE(x)		x
-#endif
-
-#if HAS_RVALUE_REF
-#define RVALUE_REF(x)		x&&
-#else
 #define RVALUE_REF(x)		x&
+#define RVALUE_CREF(x)		const x&
+#define MOVE(x)			(x)
 #endif
 
 #if HAS_CONSTEXPR
