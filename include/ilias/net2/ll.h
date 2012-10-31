@@ -292,6 +292,13 @@ public:
 		return decode_flag(this->m_value.load(std::memory_order_consume) & FLAG);
 	}
 
+	void
+	clear_flag() const ILIAS_NET2_NOTHROW
+	{
+		internal_type old = this->m_value.fetch_and(~FLAG, std::memory_order_relaxed);
+		assert(old & FLAG);
+	}
+
 	RVALUE(pointer_flag) exchange(RVALUE(hook_ptr)) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
 	RVALUE(pointer_flag) exchange(const hook_ptr&) ILIAS_NET2_NOTHROW;
@@ -573,7 +580,7 @@ private:
 
 public:
 	bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
-	
+
 private:
 	bool
 	insert_lock() const ILIAS_NET2_NOTHROW
@@ -594,7 +601,7 @@ private:
 	insert_between(const hook_ptr& pred, const hook_ptr& succ) const ILIAS_NET2_NOTHROW
 	{
 		pointer_flag orig_pred = (*this)->m_pred.exchange(pred, false);
-		pointer_flag orig_succ = (*this)->m_succ.exchange(succ, false);
+		pointer_flag orig_succ = (*this)->m_succ.exchange(succ, true);
 		assert(orig_pred.first == nullptr && !orig_pred.second);
 		assert(orig_succ.first == nullptr && orig_succ.second);
 
@@ -618,6 +625,13 @@ private:
 			(*this)->m_pred.exchange(MOVE(orig_pred));
 			return false;
 		}
+
+		/*
+		 * No failure past this point.
+		 */
+
+		/* Clear newly insert bit. */
+		(*this)->m_succ.clear_flag();
 
 		/* We are linked, unlock predecessor. */
 		pred_lck.unlock();
