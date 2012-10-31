@@ -150,7 +150,7 @@ public:
 		return;
 	}
 
-	refpointer(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_acquire(*this->m_ptr))) :
+	refpointer(const refpointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_acquire(*this->m_ptr))) :
 		m_ptr(nullptr)
 	{
 		this->reset(o);
@@ -164,19 +164,19 @@ public:
 	}
 #endif
 
-	refpointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_acquire(*this->m_ptr))) :
+	refpointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_acquire(*this->m_ptr))) :
 		m_ptr(nullptr)
 	{
 		this->reset(p, do_acquire);
 	}
 
-	~refpointer() ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	~refpointer() ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		this->reset();
 	}
 
 	void
-	reset() ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	reset() ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		if (this->m_ptr) {
 			refcnt_release(*this->m_ptr);
@@ -185,7 +185,7 @@ public:
 	}
 
 	void
-	reset(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	reset(const refpointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
 		const pointer old = this->m_ptr;
 		if (o.m_ptr) {
@@ -200,7 +200,7 @@ public:
 
 #if HAS_RVALUE_REF
 	void
-	reset(refpointer&& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	reset(refpointer&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		const pointer old = this->m_ptr;
 		this->m_ptr = o.m_ptr;
@@ -212,7 +212,7 @@ public:
 #endif
 
 	void
-	reset(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	reset(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
 		const pointer old = this->m_ptr;
 		if (p) {
@@ -228,7 +228,7 @@ public:
 
 	template<typename U>
 	void
-	reset(const refpointer<U>& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	reset(const refpointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
 		this->reset(o.get(), true);
 	}
@@ -236,21 +236,21 @@ public:
 #if HAS_RVALUE_REF
 	template<typename U>
 	void
-	reset(refpointer<U>&& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	reset(refpointer<U>&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		this->reset(o.release(), false);
 	}
 #endif
 
 	refpointer&
-	operator=(std::nullptr_t) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	operator=(std::nullptr_t) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		this->reset();
 		return *this;
 	}
 
 	refpointer&
-	operator=(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	operator=(const refpointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
 		this->reset(o);
 		return *this;
@@ -258,7 +258,7 @@ public:
 
 #if HAS_RVALUE_REF
 	refpointer&
-	operator=(refpointer&& o) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)))
+	operator=(refpointer&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)))
 	{
 		this->reset(o);
 		return *this;
@@ -266,7 +266,7 @@ public:
 #endif
 
 	refpointer&
-	operator=(pointer p) ILIAS_NET2_NOTHROW_CND(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	operator=(pointer p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
 		this->reset(p);
 		return *this;

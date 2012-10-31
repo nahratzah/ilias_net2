@@ -201,3 +201,5 @@
 #define ILIAS_NET2_NOTHROW		throw ()
 #define ILIAS_NET2_NOTHROW_CND(_x)	/* No conditional support. */
 #endif
+
+#define ILIAS_NET2_NOTHROW_CND_TEST(_x)	/* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
