@@ -174,7 +174,7 @@
 #define RVALUE_REF(x)		x&
 #define RVALUE_CREF(x)		const x&
 #define MOVE(x)			(x)
-#define MOVE_IF_NOEXCEPT	(x)
+#define MOVE_IF_NOEXCEPT(x)	(x)
 #endif
 
 #if HAS_CONSTEXPR
