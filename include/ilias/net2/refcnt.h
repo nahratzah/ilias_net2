@@ -83,15 +83,15 @@ protected:
 		/* Empty body. */
 	}
 
+	~refcount_base() ILIAS_NET2_NOTHROW
+	{
+		assert(this->m_refcount.load(std::memory_order_acq_rel) == 0);
+	}
+
 	refcount_base&
 	operator=(const refcount_base&) ILIAS_NET2_NOTHROW
 	{
 		return *this;
-	}
-
-	~refcount_base() ILIAS_NET2_NOTHROW
-	{
-		assert(this->m_refcount.load(std::memory_order_acq_rel) == 0);
 	}
 
 	friend void
