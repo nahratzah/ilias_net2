@@ -197,7 +197,7 @@ public:
 
 	template<typename U, std::size_t U_Align = Align, std::size_t U_Offset = Offset>
 	struct rebind {
-		typedef pool_allocator<U, U_Align, U_Offset> type;
+		typedef pool_allocator<U, U_Align, U_Offset> other;
 	};
 
 	pool_allocator() :
@@ -311,6 +311,11 @@ public:
 	pool_allocator() = delete;
 	pool_allocator(const pool_allocator&) = delete;
 	pool_allocator& operator=(const pool_allocator&) = delete;
+
+	template<typename U, std::size_t U_Align = Align, std::size_t U_Offset = Offset>
+	struct rebind {
+		typedef pool_allocator<U, U_Align, U_Offset> other;
+	};
 };
 
 } /* namespace ilias */
