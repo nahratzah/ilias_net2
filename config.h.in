@@ -100,6 +100,12 @@
 /* Set if std::move is present in <utility>. */
 #cmakedefine HAS_STD_MOVE
 
+/* Set if std::move_if_noexcept is present in <utility>. */
+#cmakedefine HAS_STD_MOVE_IF_NOEXCEPT
+
+/* Set if std::is_nothrow_{copy,move}_constructable and std::is_nothrow_destructable templates exist. */
+#cmakedefine HAS_CONSTRUCTOR_TRAITS
+
 
 #if defined(__clang__)
 /* Features of clang compiler. */
@@ -168,7 +174,11 @@
 #define RVALUE_REF(x)		x&&
 #define RVALUE_CREF(x)		x&&
 #define MOVE(x)			std::move((x))
+#ifdef HAS_STD_MOVE_IF_NOEXCEPT
 #define MOVE_IF_NOEXCEPT(x)	std::move_if_noexcept((x))
+#else
+#define MOVE_IF_NOEXCEPT(x)	(x)
+#endif
 #else
 #define RVALUE(x)		x
 #define RVALUE_REF(x)		x&

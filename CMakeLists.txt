@@ -177,9 +177,22 @@ check_include_files (stdatomic.h HAVE_STDATOMIC_H)
 check_include_files (semaphore.h HAVE_SEMAPHORE_H)
 check_include_file_cxx (type_traits HAVE_TYPE_TRAITS)
 
+# Test if std::move exists.
 file (READ "CMake/source/std_move.cc" STD_MOVE_CC)
 mark_as_advanced (STD_MOVE_CC)
 check_cxx_source_compiles ("${STD_MOVE_CC}" HAS_STD_MOVE)
+
+# Test if std::move_if_noexcept exists.
+file (READ "CMake/source/std_move_if_noexcept.cc" STD_MOVE_IF_NOEXCEPT_CC)
+mark_as_advanced (STD_MOVE_IF_NOEXCEPT_CC)
+check_cxx_source_compiles ("${STD_MOVE_IF_NOEXCEPT_CC}" HAS_STD_MOVE_IF_NOEXCEPT)
+
+# Test if constructor traits (is_nothrow_destructable, is_nothrow_copy_constructable, is_nothrow_move_constructable) exist.
+file (READ "CMake/source/std_constructor_traits.cc" STD_CONSTRUCTOR_TRAITS_CC)
+mark_as_advanced (STD_CONSTRUCTOR_TRAITS_CC)
+check_cxx_source_compiles ("${STD_CONSTRUCTOR_TRAITS_CC}" HAS_CONSTRUCTOR_TRAITS)
+
+# Test if hardware is big endian.
 test_big_endian (IS_BIG_ENDIAN)
 
 list (APPEND headers
