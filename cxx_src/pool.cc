@@ -1268,17 +1268,12 @@ pool::alloc_big_page(std::size_t n)
 }
 
 void*
-pool::allocate(size_type n, void*) ILIAS_NET2_NOTHROW
+pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 {
 	/* Big allocations are easy: simply allocate a gigantic page. */
 	if (n > this->entries_per_page()) {
 		page_ptr pg = alloc_big_page(n);
-		if (!pg)
-			throw std::bad_alloc();
-		void* ptr = pg->data();
-		if (!ptr)
-			throw std::bad_alloc();
-		return ptr;
+		return (pg ? pg->data() : nullptr);
 	}
 
 	/*
@@ -1308,8 +1303,8 @@ pool::allocate(size_type n, void*) ILIAS_NET2_NOTHROW
 	return ptr;
 }
 
-void
-pool::deallocate(void* ptr, size_type n) ILIAS_NET2_NOTHROW
+bool
+pool::deallocate(std::nothrow_t, void* ptr, size_type n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
 	page_ptr pg(nullptr, deleter_type(*this));
@@ -1325,7 +1320,7 @@ pool::deallocate(void* ptr, size_type n) ILIAS_NET2_NOTHROW
 		if (pg_ptr->align != this->align ||
 		    pg_ptr->entry_size != this->size ||
 		    pg_ptr->offset != this->offset)
-			throw std::invalid_argument("ptr");
+			return false;
 
 		/* Check that the page type is recognized. */
 		switch (pg_ptr->type) {
@@ -1333,7 +1328,7 @@ pool::deallocate(void* ptr, size_type n) ILIAS_NET2_NOTHROW
 		case page::BIG_PAGE:
 			break;
 		default:
-			throw std::invalid_argument("ptr");
+			return false;
 		}
 
 		/* Looks valid... let's try and use it. */
@@ -1343,19 +1338,20 @@ pool::deallocate(void* ptr, size_type n) ILIAS_NET2_NOTHROW
 	switch (pg->type) {
 	case page::SHARED_PAGE:
 		if (n > 0 && !pg->deallocate(ptr, n))
-			throw std::invalid_argument("pool::deallocate: (ptr, n)");
+			return false;
 		break;
 	case page::BIG_PAGE:
 		if (n > 0 && !pg->resize(ptr, n, 0))
-			throw std::invalid_argument("pool::deallocate: (ptr, n)");
+			return false;
 		break;
 	default:
-		throw std::invalid_argument("pool::deallocate: ptr");
+		return false;
 	}
+	return true;
 }
 
 bool
-pool::resize(void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
+pool::resize(std::nothrow_t, void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
 	page_ptr pg(nullptr, deleter_type(*this));
@@ -1371,7 +1367,7 @@ pool::resize(void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 		if (pg_ptr->align != this->align ||
 		    pg_ptr->entry_size != this->size ||
 		    pg_ptr->offset != this->offset)
-			throw std::invalid_argument("ptr");
+			return false;
 
 		/* Check that the page type is recognized. */
 		switch (pg_ptr->type) {
@@ -1379,7 +1375,7 @@ pool::resize(void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 		case page::BIG_PAGE:
 			break;
 		default:
-			throw std::invalid_argument("ptr");
+			return false;
 		}
 
 		/* Looks valid... let's try and use it. */
@@ -1399,7 +1395,7 @@ pool::resize(void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 		return pg->resize(ptr, old_n, new_n);
 		break;
 	default:
-		throw std::invalid_argument("pool::deallocate: ptr");
+		return false;
 	}
 }
 

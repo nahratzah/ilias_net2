@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <ilias/net2/ll.h>
 
 namespace ilias {
@@ -86,9 +87,32 @@ private:
 	ILIAS_NET2_LOCAL page_ptr&& alloc_big_page(size_type);
 
 public:
-	void* allocate(size_type, void*) ILIAS_NET2_NOTHROW;
-	void deallocate(void*, size_type) ILIAS_NET2_NOTHROW;
-	bool resize(void*, size_type, size_type) ILIAS_NET2_NOTHROW;
+	void* allocate(std::nothrow_t, size_type, void* = nullptr) ILIAS_NET2_NOTHROW;
+	bool deallocate(std::nothrow_t, void*, size_type) ILIAS_NET2_NOTHROW;
+	bool resize(std::nothrow_t, void*, size_type, size_type) ILIAS_NET2_NOTHROW;
+
+	void*
+	allocate(size_type sz, void* hint = nullptr) throw (std::bad_alloc)
+	{
+		void* rv = allocate(std::nothrow, sz, hint);
+		if (!rv)
+			throw std::bad_alloc();
+		return rv;
+	}
+
+	void
+	deallocate(void* addr, size_type sz) throw (std::invalid_argument)
+	{
+		if (!deallocate(std::nothrow, addr, sz))
+			throw std::invalid_argument("pool deallocate");
+	}
+
+	void
+	resize(void* addr, size_type old_sz, size_type new_sz) throw (std::bad_alloc)
+	{
+		if (!resize(std::nothrow, addr, old_sz, new_sz))
+			throw std::bad_alloc();
+	}
 
 	size_type
 	maxsize() const ILIAS_NET2_NOTHROW
@@ -103,23 +127,43 @@ public:
 	}
 
 	void*
-	allocate_bytes(size_type bytes, void* hint) ILIAS_NET2_NOTHROW
+	allocate_bytes(size_type bytes, void* hint = nullptr) throw (std::bad_alloc)
 	{
 		return allocate((bytes + this->size - 1) / this->size, hint);
 	}
 
-	void
-	deallocate_bytes(void* addr, size_type bytes) ILIAS_NET2_NOTHROW
+	void*
+	allocate_bytes(std::nothrow_t, size_type bytes, void* hint = nullptr) ILIAS_NET2_NOTHROW
 	{
-		return deallocate(addr, (bytes + this->size - 1) / this->size);
+		return allocate(std::nothrow, (bytes + this->size - 1) / this->size, hint);
 	}
 
-	bool
-	resize_bytes(void* addr, size_type old_bytes, size_type new_bytes) ILIAS_NET2_NOTHROW
+	void
+	deallocate_bytes(void* addr, size_type bytes) throw (std::invalid_argument)
+	{
+		deallocate(addr, (bytes + this->size - 1) / this->size);
+	}
+
+	void
+	deallocate_bytes(std::nothrow_t, void* addr, size_type bytes) ILIAS_NET2_NOTHROW
+	{
+		deallocate(std::nothrow, addr, (bytes + this->size - 1) / this->size);
+	}
+
+	void
+	resize_bytes(void* addr, size_type old_bytes, size_type new_bytes) throw (std::bad_alloc)
 	{
 		const size_type old_n = (old_bytes + this->size - 1) / this->size;
 		const size_type new_n = (new_bytes + this->size - 1) / this->size;
-		return resize(addr, old_n, new_n);
+		resize(addr, old_n, new_n);
+	}
+
+	bool
+	resize_bytes(std::nothrow_t, void* addr, size_type old_bytes, size_type new_bytes) ILIAS_NET2_NOTHROW
+	{
+		const size_type old_n = (old_bytes + this->size - 1) / this->size;
+		const size_type new_n = (new_bytes + this->size - 1) / this->size;
+		return resize(std::nothrow, addr, old_n, new_n);
 	}
 
 private:
@@ -156,7 +200,7 @@ public:
 		typedef pool_allocator<U, U_Align, U_Offset> type;
 	};
 
-	constexpr pool_allocator() :
+	pool_allocator() :
 		pool(sizeof(T), Align, Offset)
 	{
 		/* Empty body. */
@@ -166,28 +210,45 @@ public:
 	pool_allocator& operator=(const pool_allocator&) = delete;
 
 	pointer
-	allocate(size_type n, void* hint = nullptr)
+	allocate(size_type n, void* hint = nullptr) throw (std::bad_alloc)
 	{
-		const pointer ptr = this->pool::allocate(n, hint);
-		if (!ptr)
-			throw std::bad_alloc();
-		return ptr;
+		return this->pool::allocate(n, hint);
+	}
+
+	pointer
+	allocate(std::nothrow_t, size_type n, void* hint = nullptr) ILIAS_NET2_NOTHROW
+	{
+		return this->pool::allocate(std::nothrow, n, hint);
 	}
 
 	void
-	deallocate(pointer ptr, size_type n) ILIAS_NET2_NOTHROW
+	deallocate(pointer ptr, size_type n) throw (std::invalid_argument)
 	{
 		if (ptr)
 			this->pool::deallocate(ptr, n);
 	}
 
-	bool
-	resize(pointer p, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
+	void
+	deallocate(std::nothrow_t, pointer ptr, size_type n) ILIAS_NET2_NOTHROW
 	{
-		if (p)
-			return this->pool::resize(p, old_n, new_n);
-		else
+		if (ptr)
+			this->pool::deallocate(std::nothrow, ptr, n);
+	}
+
+	void
+	resize(pointer p, size_type old_n, size_type new_n) throw (std::bad_alloc)
+	{
+		if (!p)
+			throw std::bad_alloc();
+		this->pool::resize(p, old_n, new_n);
+	}
+
+	bool
+	resize(std::nothrow_t, pointer p, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
+	{
+		if (!p)
 			return false;
+		return this->pool::resize(std::nothrow, p, old_n, new_n);
 	}
 
 	static pointer
