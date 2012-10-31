@@ -16,157 +16,309 @@
 #ifndef ILIAS_NET2_REFCNT_H
 #define ILIAS_NET2_REFCNT_H
 
-#include <ilias/net2/config.h>
-#include <ilias/net2/mutex.h>
-#include <assert.h>
-
-
-#define NET2_REFCNT_LOCK_ENTER	0x00000001	/* Has lock on entry. */
-#define NET2_REFCNT_LOCK_EXIT	0x00000002	/* Keep lock on exit. */
-
-#if defined(HAVE_STDATOMIC_H)
-#include <stdatomic.h>
-#include <sys/types.h>
-#include <stdint.h>
-
-ILIAS_NET2__begin_cdecl
-
-#define NET2_MUTEX_FOR_REFCNT(_x)	/* No mutex required. */
-#define NET2_MUTEX_GET_REFCNT(_x)	(NULL)
-#define NET2_REFCNT_IS_ATOMIC	1
-typedef atomic_size_t net2_refcnt_t;
-
-static __inline void
-net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	if (mtx) {
-		if (!(flags & NET2_REFCNT_LOCK_ENTER) &&
-		    (flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_lock(mtx);
-	}
-
-	if (atomic_fetch_add(refcnt, 1) == (size_t)-1)
-		assert(0);	/* Overflow. */
-
-	if (mtx) {
-		if ((flags & NET2_REFCNT_LOCK_ENTER) &&
-		    !(flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_unlock(mtx);
-	}
-}
-static __inline int
-net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	int			 do_free;
-
-	if (mtx) {
-		if (!(flags & NET2_REFCNT_LOCK_ENTER) &&
-		    (flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_lock(mtx);
-	}
-
-	do_free = (atomic_fetch_sub(refcnt, 1) == 1);
-
-	if (mtx) {
-		if ((flags & NET2_REFCNT_LOCK_ENTER) &&
-		    !(flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_unlock(mtx);
-	}
-
-	return do_free;
-}
-static __inline void
-net2_refcnt_set(net2_refcnt_t *refcnt, unsigned initial)
-{
-	atomic_init(refcnt, initial);
-}
-static __inline int
-net2_refcnt_iszero(net2_refcnt_t *refcnt)
-{
-	return atomic_load(refcnt) == 0;
-}
-static __inline size_t
-net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	size_t			 rv;
-
-	if (mtx) {
-		if (!(flags & NET2_REFCNT_LOCK_ENTER) &&
-		    (flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_lock(mtx);
-	}
-
-	rv = atomic_load(refcnt);
-
-	if (mtx) {
-		if ((flags & NET2_REFCNT_LOCK_ENTER) &&
-		    !(flags & NET2_REFCNT_LOCK_EXIT))
-			net2_mutex_unlock(mtx);
-	}
-
-	return rv;
-}
-
-ILIAS_NET2__end_cdecl
-#else	/* no stdatomic.h */
-#include <sys/types.h>
-#include <stdint.h>
-
-ILIAS_NET2__begin_cdecl
-
-#define NET2_MUTEX_FOR_REFCNT(_x)	struct net2_mutex *_x
-#define NET2_MUTEX_REFCNT(_x)		(_x)
-typedef size_t net2_refcnt_t;
-
-static __inline void
-net2_refcnt_ref(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	if (!(flags & NET2_REFCNT_LOCK_ENTER))
-		net2_mutex_lock(mtx);
-	(*refcnt)++;
-	assert(*refcnt > 0);
-	if (!(flags & NET2_REFCNT_LOCK_EXIT))
-		net2_mutex_unlock(mtx);
-}
-static __inline int
-net2_refcnt_release(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	int			 do_free;
-
-	if (!(flags & NET2_REFCNT_LOCK_ENTER))
-		net2_mutex_lock(mtx);
-	assert(*refcnt > 0);
-	do_free = (--(*refcnt) == 0);
-	if (!(flags & NET2_REFCNT_LOCK_EXIT))
-		net2_mutex_unlock(mtx);
-
-	return do_free;
-}
-static __inline void
-net2_refcnt_set(net2_refcnt_t *refcnt, unsigned initial)
-{
-	*refcnt = initial;
-}
-static __inline int
-net2_refcnt_iszero(net2_refcnt_t *refcnt)
-{
-	return *refcnt == 0;
-}
-static __inline size_t
-net2_refcnt_get(net2_refcnt_t *refcnt, struct net2_mutex *mtx, int flags)
-{
-	size_t			 rv;
-
-	if (!(flags & NET2_REFCNT_LOCK_ENTER))
-		net2_mutex_lock(mtx);
-	rv = *refcnt;
-	if (!(flags & NET2_REFCNT_LOCK_EXIT))
-		net2_mutex_unlock(mtx);
-
-	return rv;
-}
-
-ILIAS_NET2__end_cdecl
+#include <ilias/net2/ilias_net2_export.h>
+#ifdef HAVE_TYPE_TRAITS
+#include <type_traits>
 #endif
+
+
+namespace ilias {
+
+
+/*
+ * Reference counted base class.
+ *
+ * Derived: derived type of the class.
+ * Deleter: deletion invocation on release of last reference.
+ */
+template<typename Derived, typename Deleter = std::default_delete<Derived> >
+class refcount_base
+{
+private:
+	mutable std::atomic<unsigned int> m_refcount;
+	Deleter m_deleter;
+
+protected:
+	refcount_base() ILIAS_NET2_NOTHROW :
+		m_refcount(0),
+		m_deleter()
+	{
+		/* Empty body. */
+	}
+
+	refcount_base(const Deleter& m_deleter)
+#ifdef HAVE_TYPE_TRAITS
+		ILIAS_NET2_NOTHROW_CND(std::is_nothrow_copy_constructible<Deleter>::value)
+#endif
+	    :
+		m_refcount(0),
+		m_deleter(m_deleter)
+	{
+		/* Empty body. */
+	}
+
+#if HAS_RVALUE_REF
+	refcount_base(Deleter&& m_deleter)
+#ifdef HAVE_TYPE_TRAITS
+		ILIAS_NET2_NOTHROW_CND(std::is_nothrow_move_constructible<Deleter>::value)
+#endif
+	    :
+		m_refcount(0),
+		m_deleter(m_deleter)
+	{
+		/* Empty body. */
+	}
+#endif
+
+	refcount_base(const refcount_base&) ILIAS_NET2_NOTHROW :
+		m_refcount(0),
+		m_deleter()
+	{
+		/* Empty body. */
+	}
+
+	refcount_base&
+	operator=(const refcount_base&) ILIAS_NET2_NOTHROW
+	{
+		return *this;
+	}
+
+	~refcount_base() ILIAS_NET2_NOTHROW
+	{
+		assert(this->m_refcount.load(std::memory_order_acq_rel) == 0);
+	}
+
+	friend void
+	acquire(Derived& o) ILIAS_NET2_NOTHROW
+	{
+		refcount_base& self = o;
+		self.m_refcount.fetch_add(1, std::memory_order_acquire);
+	}
+
+	friend void
+	release(Derived& o)
+#if defined(HAVE_TYPE_TRAITS) && HAS_RVALUE_REF
+		ILIAS_NET2_NOTHROW_CND(
+		    noexcept(o.refcount_base::m_deleter(&o)) &&
+		    (std::is_nothrow_move_constructible<Deleter>::value || std::is_nothrow_copy_constructible<Deleter>::value) &&
+		    std::is_nothrow_destructible<Deleter>::value)
+#endif
+	{
+		refcount_base& self = o;
+		if (self.m_refcount.fetch_sub(1, std::memory_order_release) == 1) {
+			Deleter deleter = MOVE_IF_NOEXCEPT(self.m_deleter);
+			deleter(&o);
+		}
+	}
+};
+
+template<typename Type>
+class refpointer
+{
+public:
+	typedef Type element_type;
+	typedef element_type* pointer;
+	typedef element_type& reference;
+
+private:
+	pointer m_ptr;
+
+public:
+	refpointer() ILIAS_NET2_NOTHROW :
+		m_ptr(nullptr)
+	{
+		return;
+	}
+
+	refpointer(std::nullptr_t, bool = true) ILIAS_NET2_NOTHROW :
+		m_ptr(nullptr)
+	{
+		return;
+	}
+
+	refpointer(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(acquire(*this->m_ptr))) :
+		m_ptr(nullptr)
+	{
+		this->reset(o);
+	}
+
+#if HAS_RVALUE_REF
+	refpointer(refpointer&& o) ILIAS_NET2_NOTHROW :
+		m_ptr(nullptr)
+	{
+		swap(this->m_ptr, o.m_ptr);
+	}
+#endif
+
+	refpointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND(noexcept(acquire(*this->m_ptr))) :
+		m_ptr(nullptr)
+	{
+		this->reset(p, do_acquire);
+	}
+
+	~refpointer() ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		this->reset();
+	}
+
+	void
+	reset() ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		if (this->m_ptr) {
+			release(*this->m_ptr);
+			this->m_ptr = nullptr;
+		}
+	}
+
+	void
+	reset(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)) && noexcept(acquire(*this->m_ptr)))
+	{
+		const pointer old = this->m_ptr;
+		if (o.m_ptr) {
+			acquire(*o.m_ptr);
+			this->m_ptr = o.m_ptr;
+		} else
+			this->m_ptr = nullptr;
+
+		if (old)
+			release(*old);
+	}
+
+#if HAS_RVALUE_REF
+	void
+	reset(refpointer&& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		const pointer old = this->m_ptr;
+		this->m_ptr = o.m_ptr;
+		o.m_ptr = nullptr;
+
+		if (old)
+			release(*old);
+	}
+#endif
+
+	void
+	reset(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)) && noexcept(acquire(*this->m_ptr)))
+	{
+		const pointer old = this->m_ptr;
+		if (p) {
+			if (do_acquire)
+				acquire(*p);
+			this->m_ptr = p;
+		} else
+			this->m_ptr = nullptr;
+
+		if (old)
+			release(*old);
+	}
+
+	template<typename U>
+	void
+	reset(const refpointer<U>& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)) && noexcept(acquire(*this->m_ptr)))
+	{
+		this->reset(o.get(), true);
+	}
+
+#if HAS_RVALUE_REF
+	template<typename U>
+	void
+	reset(refpointer<U>&& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		this->reset(o.release(), false);
+	}
+#endif
+
+	refpointer&
+	operator=(std::nullptr_t) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		this->reset();
+		return *this;
+	}
+
+	refpointer&
+	operator=(const refpointer& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)) && noexcept(acquire(*this->m_ptr)))
+	{
+		this->reset(o);
+		return *this;
+	}
+
+#if HAS_RVALUE_REF
+	refpointer&
+	operator=(refpointer&& o) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)))
+	{
+		this->reset(o);
+		return *this;
+	}
+#endif
+
+	refpointer&
+	operator=(pointer p) ILIAS_NET2_NOTHROW_CND(noexcept(release(*this->m_ptr)) && noexcept(acquire(*this->m_ptr)))
+	{
+		this->reset(p);
+		return *this;
+	}
+
+	bool
+	operator==(const refpointer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->get() == o.get());
+	}
+
+	template<typename U>
+	bool
+	operator==(const refpointer<U>& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->get() == o.get());
+	}
+
+	template<typename Ptr>
+	bool
+	operator==(Ptr* p) const ILIAS_NET2_NOTHROW
+	{
+		return (this->get() == p);
+	}
+
+	template<typename U>
+	bool
+	operator!=(const U& o) const ILIAS_NET2_NOTHROW
+	{
+		return !(*this == o);
+	}
+
+	explicit operator bool() const ILIAS_NET2_NOTHROW
+	{
+		return this->get();
+	}
+
+	pointer
+	get() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_ptr;
+	}
+
+	pointer
+	release() ILIAS_NET2_NOTHROW
+	{
+		const pointer rv = this->m_ptr;
+		this->m_ptr = nullptr;
+		return rv;
+	}
+
+	reference
+	operator*() const ILIAS_NET2_NOTHROW
+	{
+		return *this->get();
+	}
+
+	pointer
+	operator->() const ILIAS_NET2_NOTHROW
+	{
+		return this->get();
+	}
+};
+
+
+} /* namespace ilias */
+
 
 #endif /* ILIAS_NET2_REFCNT_H */
