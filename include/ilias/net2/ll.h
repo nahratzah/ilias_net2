@@ -22,6 +22,9 @@
 #include <cstdint>
 #include <iterator>
 #include <utility>
+#if HAVE_TYPE_TRAITS
+#include <type_traits>
+#endif
 
 
 namespace ilias {
@@ -117,6 +120,19 @@ private:
 		return false;
 	}
 
+	bool
+	lock_conditional(bool f) const ILIAS_NET2_NOTHROW
+	{
+		internal_type v = (f ? FLAG : 0);
+		do {
+			v &= ~DEREF;
+			if (this->m_value.compare_exchange_weak(v, v | DEREF,
+			    std::memory_order_acquire, std::memory_order_relaxed))
+				return true;
+		} while ((v & FLAG) == (f ? FLAG : 0));
+		return false;
+	}
+
 	void
 	unlock() const ILIAS_NET2_NOTHROW
 	{
@@ -176,13 +192,22 @@ public:
 		bool
 		lock_conditional(const hook* h, bool f) ILIAS_NET2_NOTHROW
 		{
-			return this->m_self.lock_conditional(h, f);
+			assert(!this->m_locked);
+			return (this->m_locked = this->m_self.lock_conditional(h, f));
 		}
 
 		bool
 		lock_conditional(const hook* h) ILIAS_NET2_NOTHROW
 		{
-			return this->m_self.lock_conditional(h);
+			assert(!this->m_locked);
+			return (this->m_locked = this->m_self.lock_conditional(h));
+		}
+
+		bool
+		lock_conditional(bool f) ILIAS_NET2_NOTHROW
+		{
+			assert(!this->m_locked);
+			return (this->m_locked = this->m_self.lock_conditional(f));
 		}
 
 		void
@@ -228,13 +253,13 @@ public:
 #endif
 	};
 
-	constexpr ll_ptr() ILIAS_NET2_NOTHROW :
+	ll_ptr() ILIAS_NET2_NOTHROW :
 		m_value(0)
 	{
 		/* Empty body. */
 	}
 
-	constexpr ll_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
+	ll_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
 		m_value(0)
 	{
 		/* Empty body. */
@@ -246,6 +271,12 @@ public:
 	get_ptr() const ILIAS_NET2_NOTHROW
 	{
 		return decode_ptr(this->m_value.load(std::memory_order_relaxed) & FLAG);
+	}
+
+	bool
+	is_set() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_value.load(std::memory_order_relaxed) != 0);
 	}
 
 	RVALUE(pointer_flag)
@@ -542,6 +573,89 @@ private:
 
 public:
 	bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
+	
+private:
+	bool
+	insert_lock() const ILIAS_NET2_NOTHROW
+	{
+		pointer_flag expect(nullptr, false);
+		pointer_flag assign(nullptr, true);
+		if (!(*this)->m_succ.compare_exchange(expect, assign))
+			return false;
+
+		/* Wait until m_pred is cleared. */
+		while ((*this)->m_pred.is_set()) {
+			//SPINWAIT();
+		}
+		return true;
+	}
+
+	bool
+	insert_between(const hook_ptr& pred, const hook_ptr& succ) const ILIAS_NET2_NOTHROW
+	{
+		pointer_flag orig_pred = (*this)->m_pred.exchange(pred, false);
+		pointer_flag orig_succ = (*this)->m_succ.exchange(succ, false);
+		assert(orig_pred.first == nullptr && !orig_pred.second);
+		assert(orig_succ.first == nullptr && orig_succ.second);
+
+		/*
+		 * Ensure pred will not go away from under us.
+		 *
+		 * We use a conditional lock, to ensure pred will only lock
+		 * if it isn't deleted.
+		 */
+		ll_ptr::deref_lock<ll_ptr> pred_lck(pred->m_pred, false);
+		if (!pred_lck.lock_conditional(false)) {
+			(*this)->m_succ.exchange(MOVE(orig_succ));
+			(*this)->m_pred.exchange(MOVE(orig_pred));
+			return false;
+		}
+
+		/* Change successor in pred from succ to this. */
+		hook_ptr expect = succ;
+		if (!pred->m_succ.compare_exchange(expect, *this)) {
+			(*this)->m_succ.exchange(MOVE(orig_succ));
+			(*this)->m_pred.exchange(MOVE(orig_pred));
+			return false;
+		}
+
+		/* We are linked, unlock predecessor. */
+		pred_lck.unlock();
+
+		/* Fix predessor of succ. */
+		succ.pred();
+
+		return true;
+	}
+
+public:
+	bool
+	insert_after(const hook_ptr& pred) const ILIAS_NET2_NOTHROW
+	{
+		if (!this->insert_lock())
+			return false;
+
+		hook_ptr succ;
+		do {
+			succ = MOVE(pred.succ());
+		} while (!this->insert_between(pred, succ));
+
+		return true;
+	}
+
+	bool
+	insert_before(const hook_ptr& succ) const ILIAS_NET2_NOTHROW
+	{
+		if (!this->insert_lock())
+			return false;
+
+		hook_ptr pred;
+		do {
+			pred = MOVE(succ.pred());
+		} while (!this->insert_between(pred, succ));
+
+		return true;
+	}
 };
 
 /* Base list implementation. */
@@ -567,11 +681,14 @@ protected:
 	 * The stable interface ensures multiple compilers with different features
 	 * will operate correct with the interface.
 	 */
-	simple_iterator& first(simple_iterator& v) const ILIAS_NET2_NOTHROW;
-	simple_iterator& last(simple_iterator& v) const ILIAS_NET2_NOTHROW;
-	simple_iterator& listhead(simple_iterator& v) const ILIAS_NET2_NOTHROW;
+	simple_iterator& first(simple_iterator&) const ILIAS_NET2_NOTHROW;
+	simple_iterator& last(simple_iterator&) const ILIAS_NET2_NOTHROW;
+	simple_iterator& listhead(simple_iterator&) const ILIAS_NET2_NOTHROW;
 	hook* pop_front() ILIAS_NET2_NOTHROW;
 	hook* pop_back() ILIAS_NET2_NOTHROW;
+	bool push_back(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
+	bool push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
+	simple_iterator& iter_to(simple_iterator&, hook&) const ILIAS_NET2_NOTHROW;
 
 public:
 	bool
@@ -593,7 +710,6 @@ private:
 class ILIAS_NET2_EXPORT list::simple_iterator
 {
 friend class list;
-friend class std::iterator_traits<simple_iterator>;
 
 public:
 	typedef std::ptrdiff_t difference_type;
@@ -979,7 +1095,7 @@ template<typename Type, typename Tag = void> class ll_base;
 class ll_member_hook
 {
 template<typename Type, ll_member_hook Type::*MemberPtr> friend class ll_member;
-friend class ll_detail::hook_offset<ll_member_hook>;
+friend struct ll_detail::hook_offset<ll_member_hook>;
 
 private:
 	ll_detail::hook m_hook;
@@ -1008,7 +1124,7 @@ template<typename Tag>
 class ll_base_hook
 {
 template<typename Type, typename TTag> friend class ll_base;
-friend class ll_detail::hook_offset<ll_base_hook<Tag> >;
+friend struct ll_detail::hook_offset<ll_base_hook<Tag> >;
 
 private:
 	ll_detail::hook m_hook;
@@ -1250,25 +1366,150 @@ public:
 		return MOVE(rv);
 	}
 
+	template<typename Dispose>
+	RVALUE(iterator)
+	erase_and_dispose(const iterator& i, Dispose dispose)
+		/* XXX needs noexcept specification. */
+	{
+		pointer disposable = nullptr;
+		if (this->erase_element(i))
+			disposable = i.get();
+		iterator rv = i++;
+		if (disposable) {
+			i = iterator();
+			dispose(disposable);
+		}
+		return MOVE(rv);
+	}
+
+	template<typename Dispose>
+	RVALUE(reverse_iterator)
+	erase_and_dispose(const reverse_iterator& i, Dispose dispose)
+		/* XXX needs noexcept specification. */
+	{
+		pointer disposable = nullptr;
+		if (this->erase_element(i))
+			disposable = i.get();
+		reverse_iterator rv = i++;
+		if (disposable) {
+			i = reverse_iterator();
+			dispose(disposable);
+		}
+		return MOVE(rv);
+	}
+
+	bool
+	push_back_element(value_type* v) ILIAS_NET2_NOTHROW
+	{
+		return this->list::push_back(ll_detail::hook_ptr(definition_type::hook(v)));
+	}
+
+	bool
+	push_front_element(value_type* v) ILIAS_NET2_NOTHROW
+	{
+		return this->list::push_front(ll_detail::hook_ptr(definition_type::hook(v)));
+	}
+
+	bool
+	push_back(reference v) ILIAS_NET2_NOTHROW
+	{
+		return this->push_back_element(&v);
+	}
+
+	bool
+	push_front(reference v) ILIAS_NET2_NOTHROW
+	{
+		return this->push_front_element(&v);
+	}
+
 	void
 	remove(const value_type& v) ILIAS_NET2_NOTHROW
 	{
 		const iterator e = this->end();
 		for (iterator i = this->begin(); i != e; ++i) {
 			if (*i == v)
-				this->erase(i);
+				this->erase_element(i);
+		}
+	}
+
+	template<typename Disposer>
+	void
+	remove_and_dispose(const value_type& v, Disposer disposer)
+		/* XXX needs dynamic exception specification. */
+	{
+		const iterator e = this->end();
+		iterator i = this->begin();
+		while (i != e) {
+			value_type* to_dispose = nullptr;
+			if (*i == v && this->erase_element(i))
+				to_dispose = i.get();
+			/* Note that we move iterator out of disposed element prior to dispose operation. */
+			++i;
+			if (to_dispose)
+				disposer(to_dispose);
 		}
 	}
 
 	template<typename Predicate>
 	void
 	remove_if(Predicate p)
+		/* XXX needs dynamic exception specification. */
 	{
 		const iterator e = this->end();
 		for (iterator i = this->begin(); i != e; ++i) {
 			if (p(*i))
-				this->erase(i);
+				this->erase_element(i);
 		}
+	}
+
+	template<typename Predicate, typename Disposer>
+	void
+	remove_and_dispose_if(Predicate p, Disposer disposer)
+		/* XXX needs dynamic exception specification. */
+	{
+		const iterator e = this->end();
+		iterator i = this->begin();
+		while (i != e) {
+			value_type* to_dispose = nullptr;
+			if (p(*i) && this->erase_element(i))
+				to_dispose = i.get();
+			/* Note that we move iterator out of disposed element prior to dispose operation. */
+			++i;
+			if (to_dispose)
+				disposer(to_dispose);
+		}
+	}
+
+	RVALUE(iterator)
+	iterator_to(reference v) ILIAS_NET2_NOTHROW
+	{
+		iterator iter;
+		this->list::iter_to(iter, v);
+		return MOVE(iter);
+	}
+
+	RVALUE(const_iterator)
+	iterator_to(const_reference v) ILIAS_NET2_NOTHROW
+	{
+		const_iterator iter;
+		this->list::iter_to(iter, v);
+		return MOVE(iter);
+	}
+
+	void
+	clear() ILIAS_NET2_NOTHROW
+	{
+		while (this->pop_front());
+	}
+
+	template<typename Disposer>
+	void
+	clear_and_dispose(Disposer dispose)
+		/* XXX needs exception specification. */
+	{
+		pointer p;
+		while ((p = this->pop_front()))
+			dispose(*p);
 	}
 };
 
@@ -1282,6 +1523,16 @@ public:
 	typedef value_type& reference;
 
 protected:
+	iterator_resolver() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	iterator_resolver(const iterator_resolver&) ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
 	~iterator_resolver() ILIAS_NET2_NOTHROW
 	{
 		return;
@@ -1351,6 +1602,23 @@ public:
 	typedef std::ptrdiff_t difference_type;
 	typedef std::bidirectional_iterator_tag iterator_category;
 
+protected:
+	iterator_forward_traverse() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	iterator_forward_traverse(const iterator_forward_traverse&) ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	~iterator_forward_traverse() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+public:
 	Derived&
 	operator++() ILIAS_NET2_NOTHROW
 	{
@@ -1389,8 +1657,26 @@ template<typename Derived>
 class ll_list<Defn>::iterator_backward_traverse
 {
 public:
+	typedef std::ptrdiff_t difference_type;
 	typedef std::bidirectional_iterator_tag iterator_category;
 
+protected:
+	iterator_backward_traverse() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	iterator_backward_traverse(const iterator_backward_traverse&) ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	~iterator_backward_traverse() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+public:
 	Derived&
 	operator--() ILIAS_NET2_NOTHROW
 	{

@@ -176,6 +176,27 @@ list::pop_back() ILIAS_NET2_NOTHROW
 	return nullptr;
 }
 
+bool
+list::push_back(const hook_ptr& hp) ILIAS_NET2_NOTHROW
+{
+	return hp.insert_before(hook_ptr(&this->m_head));
+}
+
+bool
+list::push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW
+{
+	return hp.insert_after(hook_ptr(&this->m_head));
+}
+
+list::simple_iterator&
+list::iter_to(list::simple_iterator& v, hook& h) const ILIAS_NET2_NOTHROW
+{
+	hook_ptr headnode = const_cast<hook*>(&this->m_head);
+	hook_ptr element = &h;
+	v.reset(MOVE(headnode), MOVE(element));
+	return v;
+}
+
 void
 list::simple_iterator::step_forward() ILIAS_NET2_NOTHROW
 {
