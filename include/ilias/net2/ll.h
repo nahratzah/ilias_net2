@@ -346,7 +346,6 @@ private:
 
 public:
 	struct HEAD {};
-	static constexpr_value HEAD LIST_HEAD = {};
 
 	explicit hook(HEAD) ILIAS_NET2_NOTHROW;
 
@@ -683,7 +682,7 @@ private:
 
 public:
 	list() ILIAS_NET2_NOTHROW :
-		m_head(hook::LIST_HEAD)
+		m_head(hook::HEAD())
 	{
 		/* Empty body. */
 	}
