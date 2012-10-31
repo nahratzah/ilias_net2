@@ -168,11 +168,13 @@
 #define RVALUE_REF(x)		x&&
 #define RVALUE_CREF(x)		x&&
 #define MOVE(x)			std::move((x))
+#define MOVE_IF_NOEXCEPT(x)	std::move_if_noexcept((x))
 #else
 #define RVALUE(x)		x
 #define RVALUE_REF(x)		x&
 #define RVALUE_CREF(x)		const x&
 #define MOVE(x)			(x)
+#define MOVE_IF_NOEXCEPT	(x)
 #endif
 
 #if HAS_CONSTEXPR
