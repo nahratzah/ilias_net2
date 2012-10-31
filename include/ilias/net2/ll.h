@@ -22,7 +22,7 @@
 #include <cstdint>
 #include <iterator>
 #include <utility>
-#if HAVE_TYPE_TRAITS
+#ifdef HAVE_TYPE_TRAITS
 #include <type_traits>
 #endif
 
@@ -637,7 +637,7 @@ public:
 
 		hook_ptr succ;
 		do {
-			succ = MOVE(pred.succ());
+			succ = MOVE(pred.succ().first);
 		} while (!this->insert_between(pred, succ));
 
 		return true;
@@ -651,7 +651,7 @@ public:
 
 		hook_ptr pred;
 		do {
-			pred = MOVE(succ.pred());
+			pred = MOVE(succ.pred().first);
 		} while (!this->insert_between(pred, succ));
 
 		return true;
@@ -1209,13 +1209,13 @@ public:
 	static ll_detail::hook*
 	hook(pointer p) ILIAS_NET2_NOTHROW
 	{
-		return p;
+		return &p->hook_type::m_hook;
 	}
 
 	static const ll_detail::hook*
 	hook(const_pointer p) ILIAS_NET2_NOTHROW
 	{
-		return p;
+		return &p->hook_type::m_hook;
 	}
 
 	static pointer

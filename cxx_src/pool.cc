@@ -1192,7 +1192,8 @@ public:
 void
 pool::page_enqueue(page* pg)
 {
-	this->head.push_front(pg);
+	if (pg)
+		this->head.push_front(*pg);
 }
 
 inline std::size_t
