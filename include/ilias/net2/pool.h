@@ -144,10 +144,10 @@ public:
 		deallocate(addr, (bytes + this->size - 1) / this->size);
 	}
 
-	void
+	bool
 	deallocate_bytes(std::nothrow_t, void* addr, size_type bytes) ILIAS_NET2_NOTHROW
 	{
-		deallocate(std::nothrow, addr, (bytes + this->size - 1) / this->size);
+		return deallocate(std::nothrow, addr, (bytes + this->size - 1) / this->size);
 	}
 
 	void
