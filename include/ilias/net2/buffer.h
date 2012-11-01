@@ -26,12 +26,7 @@
 #include <cstdint>
 
 #ifdef WIN32
-/* Redefine iovec type and fields to wsabuf. */
 #include <WinSock2.h>
-
-#define iovec		_WSABUF
-#define	iov_len		len
-#define iov_base	buf
 #else
 #include <sys/types.h>
 #include <sys/uio.h>
@@ -443,6 +438,7 @@ private:
 #endif
 	};
 
+	/* Segment reference, manages shared ownership of a segment. */
 	class segment_ref
 	{
 	private:
@@ -563,8 +559,10 @@ private:
 		}
 	};
 
+	/* The type of the segment list. */
 	typedef std::vector<std::pair<size_t, segment_ref> > list_type;
 
+	/* The list of segments. */
 	list_type m_list;
 
 private:
@@ -639,15 +637,18 @@ private:
 	ILIAS_NET2_LOCAL RVALUE(list_type::const_iterator) find_offset(size_type) const ILIAS_NET2_NOTHROW;
 
 public:
+	/* Default constructor. */
 	buffer() ILIAS_NET2_NOTHROW :
 		m_list()
 	{
 		return;
 	}
 
+	/* Copy constructor. */
 	buffer(const buffer& rhs);
 
 #if HAS_RVALUE_REF
+	/* Move constructor. */
 	buffer(buffer&& rhs) ILIAS_NET2_NOTHROW :
 		m_list(std::move(rhs.m_list))
 	{
@@ -657,12 +658,14 @@ public:
 
 	~buffer() ILIAS_NET2_NOTHROW;
 
+	/* Test if the buffer is empty. */
 	bool
 	empty() const ILIAS_NET2_NOTHROW
 	{
 		return this->m_list.empty();
 	}
 
+	/* Return the size (in bytes) of this buffer. */
 	size_type
 	size() const ILIAS_NET2_NOTHROW
 	{
@@ -673,9 +676,18 @@ public:
 		return back.first + back.second.length();
 	}
 
+	/* Return the number of segments in this buffer. */
+	size_type
+	segments() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_list.size();
+	}
+
+	/* Assignment. */
 	buffer& operator= (const buffer& o);
 
 #if HAS_RVALUE_REF
+	/* Move assignment. */
 	buffer&
 	operator= (buffer&& o) ILIAS_NET2_NOTHROW
 	{
@@ -684,8 +696,10 @@ public:
 	}
 #endif
 
+	/* Append a buffer. */
 	buffer& operator+= (const buffer& o);
 
+	/* Create a buffer that is this buffer and another buffer concatenated. */
 	RVALUE(buffer)
 	operator+ (const buffer& o) const
 	{
@@ -694,25 +708,34 @@ public:
 		return MOVE(copy);
 	}
 
+	/* Swap the contents of two buffers. */
 	void
 	swap(buffer& o) ILIAS_NET2_NOTHROW
 	{
 		this->m_list.swap(o.m_list);
 	}
 
+	/* Swap the contents of two buffers. */
 	friend void
 	swap(buffer& lhs, buffer& rhs) ILIAS_NET2_NOTHROW
 	{
 		lhs.swap(rhs);
 	}
 
+	/* Clear the buffer. */
 	void clear() ILIAS_NET2_NOTHROW;
+	/* Drain bytes from the buffer into supplied void* buffer. */
 	void drain(void*, size_type) ILIAS_NET2_NOTHROW;
+	/* Truncate the buffer to the given size. */
 	void truncate(size_type) ILIAS_NET2_NOTHROW;
+	/* Prepend a buffer (this is an expensive operation). */
 	void prepend(const buffer& o);
+	/* Append data to the buffer.  Set the boolean to true if this data is sensitive. */
 	void append(const void*, size_type, bool = false);
+	/* Mark the entire buffer as containing sensitive data. */
 	void mark_sensitive() ILIAS_NET2_NOTHROW;
 
+	/* Remove the first len bytes from this buffer. */
 	void
 	drain(size_type len) ILIAS_NET2_NOTHROW
 	{
