@@ -1599,11 +1599,32 @@ public:
 		return self == o;
 	}
 
-	template<typename Iter>
 	bool
-	operator!=(const Iter& o) const ILIAS_NET2_NOTHROW
+	operator!=(const ll_list<Defn>::iterator& o) const ILIAS_NET2_NOTHROW
 	{
-		return !(*this == o);
+		const simple_iterator& self = static_cast<const Derived&>(*this);
+		return self != o;
+	}
+
+	bool
+	operator!=(const ll_list<Defn>::const_iterator& o) const ILIAS_NET2_NOTHROW
+	{
+		const simple_iterator& self = static_cast<const Derived&>(*this);
+		return self != o;
+	}
+
+	bool
+	operator!=(const ll_list<Defn>::reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	{
+		const simple_iterator& self = static_cast<const Derived&>(*this);
+		return self != o;
+	}
+
+	bool
+	operator!=(const ll_list<Defn>::const_reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	{
+		const simple_iterator& self = static_cast<const Derived&>(*this);
+		return self != o;
 	}
 };
 
@@ -1795,6 +1816,9 @@ public:
 		return *this;
 	}
 #endif
+
+	using iterator_resolver<value_type, iterator>::operator==;
+	using iterator_resolver<value_type, iterator>::operator!=;
 };
 
 template<typename Defn>
@@ -1875,6 +1899,9 @@ public:
 		return *this;
 	}
 #endif
+
+	using iterator_resolver<value_type, reverse_iterator>::operator==;
+	using iterator_resolver<value_type, reverse_iterator>::operator!=;
 };
 
 template<typename Defn>
@@ -1979,6 +2006,9 @@ public:
 		return *this;
 	}
 #endif
+
+	using iterator_resolver<const value_type, const_iterator>::operator==;
+	using iterator_resolver<const value_type, const_iterator>::operator!=;
 };
 
 template<typename Defn>
@@ -2089,6 +2119,9 @@ public:
 		return *this;
 	}
 #endif
+
+	using iterator_resolver<const value_type, const_reverse_iterator>::operator==;
+	using iterator_resolver<const value_type, const_reverse_iterator>::operator!=;
 };
 
 
