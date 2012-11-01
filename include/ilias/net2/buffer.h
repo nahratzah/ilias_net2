@@ -786,6 +786,34 @@ public:
 		this->drain(nullptr, len);
 	}
 
+	/*
+	 * Append the memory in value directly to the buffer.
+	 * Intended if your type is contiguous and contains data in the proper byte order already.
+	 *
+	 * Note: severely discouraged for non-POD types!
+	 */
+	template<typename T>
+	void
+	append_literal(const T& value) throw (std::bad_alloc)
+	{
+		this->append(reinterpret_cast<const void*>(&value), sizeof(value));
+	}
+
+	/*
+	 * Drain info the memory of value directly from the buffer.
+	 * Intended if your type is contiguous and will deal with the byte order in the buffer.
+	 *
+	 * Note: severely discouraged for non-POD types!
+	 */
+	template<typename T>
+	RVALUE(T)
+	drain_literal() throw (std::out_of_range)
+	{
+		T rv;
+		this->drain(reinterpret_cast<void*>(&rv), sizeof(rv));
+		return MOVE(rv);
+	}
+
 private:
 	buffer& subrange_adapter(buffer& result, size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range);
 
@@ -848,6 +876,38 @@ public:
 	size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
 
 	/*
+	 * Visit each range in the buffer with the visitor.
+	 *
+	 * The visitor will be called with f(const void*, size_type).
+	 */
+	template<typename Functor>
+	void
+	visit(Functor f) const
+	{
+		for (list_type::const_iterator i = this->m_list.begin(); i != this->m_list.end(); ++i) {
+			const void* p = i->second.data();
+			f(p, i->second.length());
+		}
+	}
+
+	/*
+	 * Visit each range in the buffer with the visitor, stopping after len bytes have been visited.
+	 *
+	 * The visitor will be called with f(const void*, size_type).
+	 */
+	template<typename Functor>
+	void
+	visit(Functor f, size_type len) const
+	{
+		for (list_type::const_iterator i = this->m_list.begin(); i != this->m_list.end() && len > 0; ++i) {
+			const void* p = i->second.data();
+			size_type vlen = std::min(i->second.length(), len);
+			f(p, vlen);
+			len -= vlen;
+		}
+	}
+
+	/*
 	 * Fill io vectors with data contained in buffer.
 	 */
 	template<typename IovecOutIter>
@@ -857,13 +917,34 @@ public:
 		/*
 		 * Capturing this, since gcc 4.6.2 attempts to use non-static set_iov_{base,len} for some off reason.
 		 */
-		return std::transform(this->m_list.begin(), this->m_list.end(), iter,
-		    [this](list_type::const_reference r) -> buffer::iovec {
+		this->visit([&iter, this](const void *p, size_type len) {
 			buffer::iovec rv;
-			set_iov_base(rv, r.second.data());
-			set_iov_len(rv, r.second.length());
-			return rv;
+			set_iov_base(rv, const_cast<void*>(p));
+			set_iov_len(rv, len);
+			*iter++ = rv;
 		});
+		return iter;
+	}
+
+	/*
+	 * Fill io vectors with data contained in buffer.
+	 *
+	 * Stops after len bytes have been visited.
+	 */
+	template<typename IovecOutIter>
+	IovecOutIter
+	peek(IovecOutIter iter, size_type len) const
+	{
+		/*
+		 * Capturing this, since gcc 4.6.2 attempts to use non-static set_iov_{base,len} for some off reason.
+		 */
+		this->visit([&iter, this](const void* p, size_type len) {
+			buffer::iovec rv;
+			set_iov_base(rv, const_cast<void*>(p));
+			set_iov_len(rv, len);
+			*iter++ = rv;
+		}, len);
+		return iter;
 	}
 };
 
