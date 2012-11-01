@@ -42,6 +42,9 @@ class ILIAS_NET2_EXPORT buffer
 public:
 	typedef uintptr_t size_type;
 
+	/* Indicator of invalid offset. */
+	static const size_type npos = std::numeric_limits<size_type>::max();
+
 #if WIN32
 	typedef _WSABUF iovec;
 
@@ -816,6 +819,9 @@ public:
 	{
 		return (this->cmp(o) >= 0);
 	}
+
+	/* Try to find a string in the buffer, starting at offset. */
+	size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
 };
 
 

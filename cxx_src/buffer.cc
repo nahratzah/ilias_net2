@@ -15,7 +15,10 @@
  */
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/types.h>
+#include <array>
 #include <cstring>
+#include <cstdint>
+#include <limits>
 
 namespace ilias {
 
@@ -408,6 +411,210 @@ buffer::cmp(const buffer& o) const ILIAS_NET2_NOTHROW
 
 	/* Return 0 if both are of equal length. */
 	return (i == i_end ? -1 : 0) + (j == j_end ? 1 : 0);
+}
+
+
+namespace find_string_detail {
+
+
+class histogram
+{
+public:
+	typedef std::array<int, 1 << std::numeric_limits<std::uint8_t>::digits> array_type;
+
+private:
+	array_type m_data;
+	std::size_t m_zeroes;
+
+public:
+	histogram() ILIAS_NET2_NOTHROW :
+		m_data(),
+		m_zeroes(0)
+	{
+		/* Zero all data. */
+		std::for_each(this->m_data.begin(), this->m_data.end(), [](array_type::reference i) {
+			i = 0;
+		});
+	}
+
+	histogram(const std::uint8_t* data, std::size_t len, int delta) ILIAS_NET2_NOTHROW :
+		m_data(),
+		m_zeroes(0)
+	{
+		/* Zero all data. */
+		std::for_each(this->m_data.begin(), this->m_data.end(), [](array_type::reference i) {
+			i = 0;
+		});
+		/* Apply argument data. */
+		std::for_each(data, data + len, [this, delta](std::uint8_t idx) {
+			this->apply(idx, delta);
+		});
+	}
+
+	bool
+	all_zeroes() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_zeroes == this->m_data.size());
+	}
+
+	void
+	apply(std::uint8_t idx, int delta) ILIAS_NET2_NOTHROW
+	{
+		array_type::reference datum = this->m_data[idx];
+		if (datum == 0)
+			--m_zeroes;
+		datum += delta;
+		if (datum == 0)
+			++m_zeroes;
+	}
+};
+
+/* Low level memory comparison function. */
+template<typename Iter>
+inline bool
+compare(const void* data, buffer::size_type len, Iter i, buffer::size_type i_off) ILIAS_NET2_NOTHROW
+{
+	/* Compare all memory. */
+	while (len > 0) {
+		const void* i_data = i->second.data(i_off);
+		const buffer::size_type cmplen = std::min(i->second.length() - i_off, len);
+
+		/* Compare memory. */
+		if (memcmp(data, i_data, cmplen) != 0)
+			return false;
+
+		/* Update data, len for next iteration. */
+		data = reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(data) + cmplen);
+		len -= cmplen;
+
+		/* Update iterator. */
+		i_off = 0;
+		++i;
+	}
+
+	/* Loop end triggered, data is the same. */
+	return true;
+}
+
+template<typename Iter>
+class iter_off
+{
+public:
+	typedef buffer::size_type size_type;
+
+private:
+	Iter iter;
+	histogram& hist;
+	size_type off;
+	const int delta;
+
+public:
+	iter_off(const Iter& self, histogram& hist, int delta, buffer::size_type off = 0) ILIAS_NET2_NOTHROW :
+		iter(self),
+		hist(hist),
+		off(off),
+		delta(delta)
+	{
+		assert(off < iter->second.length());
+		return;
+	}
+
+	iter_off&
+	operator++() ILIAS_NET2_NOTHROW
+	{
+		/* Read data that is being move over. */
+		const std::uint8_t passed = *reinterpret_cast<const std::uint8_t*>(iter->second.data(off++));
+
+		/* Update histogram. */
+		hist.apply(passed, delta);
+
+		/* Skip to next iterator. */
+		if (off == iter->second.length()) {
+			++iter;
+			off = 0;
+		}
+
+		return *this;
+	}
+
+	iter_off&
+	operator+=(size_type d) ILIAS_NET2_NOTHROW
+	{
+		while (d-- > 0)
+			++(*this);
+		return *this;
+	}
+
+	bool
+	at_end(const Iter& end_iter) const ILIAS_NET2_NOTHROW
+	{
+		return iter == end_iter;
+	}
+
+	size_type
+	bufpos() const ILIAS_NET2_NOTHROW
+	{
+		return this->iter->first + this->off;
+	}
+
+	size_type
+	rel_off() const ILIAS_NET2_NOTHROW
+	{
+		return this->off;
+	}
+
+	const Iter&
+	get_iter() const ILIAS_NET2_NOTHROW
+	{
+		return this->iter;
+	}
+};
+
+
+} /* namespace ilias::find_string_detail */
+
+buffer::size_type
+buffer::find_string(const void* data, buffer::size_type len, buffer::size_type buf_off) const ILIAS_NET2_NOTHROW
+{
+	using namespace ilias::find_string_detail;
+
+	/* Handle requests that do not fit in this buffer. */
+	{
+		const size_type l = this->size();
+		if (buf_off > l || len > l - buf_off)
+			return buffer::npos;
+		if (len == 0)
+			return buf_off;
+	}
+
+	/* Initialize histogram. */
+	histogram hist(reinterpret_cast<const std::uint8_t*>(data), len, -1);
+
+	/* Create iterators describing the actual range of segments in which to look. */
+	const list_type::const_iterator end = this->m_list.end();
+	const list_type::const_iterator begin = this->find_offset(buf_off);
+	assert(begin != end);
+
+	/* Create histogram iterators. */
+	iter_off<list_type::const_iterator> head(this->m_list.begin(), hist,  1, buf_off - begin->first);
+	iter_off<list_type::const_iterator> tail(this->m_list.begin(), hist, -1, buf_off - begin->first);
+
+	/* Move the head iterator forward, so [tail, head) describes len bytes. */
+	head += len;
+
+	for (;;) {
+		/* Test if the data is the same. */
+		if (hist.all_zeroes() && compare(data, len, tail.get_iter(), tail.rel_off()))
+			return tail.bufpos();
+
+		/* Test if we exhausted the buffer. */
+		if (head.at_end(end))
+			return buffer::npos;	/* Failed to find data. */
+
+		/* Skip forward to next element. */
+		++head;
+		++tail;
+	}
 }
 
 
