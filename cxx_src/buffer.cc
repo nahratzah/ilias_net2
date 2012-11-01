@@ -302,5 +302,46 @@ buffer::mark_sensitive() ILIAS_NET2_NOTHROW
 	});
 }
 
+/*
+ * Implementation of buffer::subrange().
+ *
+ * Takes an empty buffer and fills it with the range described by off, len.
+ * Implementation exists so there won't be an interface boundary for rvalues.
+ */
+buffer&
+buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_type len) const
+{
+	if (len == 0)
+		return result;
+
+	/* Find where the subrange starts and ends. */
+	list_type::const_iterator b = this->find_offset(off);
+	list_type::const_iterator e = this->find_offset(off + len - 1);
+	if (e != this->m_list.end())
+		++e;
+	if (b == e)
+		return result;
+
+	/* Copy all entries that make up the new buffer. */
+	result.m_list.reserve(e - b);
+	std::for_each(b, e, [&result](list_type::const_reference r) {
+		result.m_list.emplace_back(r);
+	});
+
+	/* Drain from begin. */
+	result.m_list.front().second.drain(off - result.m_list.front().first);
+	result.m_list.front().first = off;
+
+	/* Truncate trailing bytes. */
+	result.m_list.back().second.truncate(off + len - result.m_list.back().first);
+
+	/* Fix offsets. */
+	std::for_each(result.m_list.begin(), result.m_list.end(), [off](list_type::reference r) {
+		r.first -= off;
+	});
+
+	return result;
+}
+
 
 } /* namespace ilias */

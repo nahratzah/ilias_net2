@@ -741,6 +741,18 @@ public:
 	{
 		this->drain(nullptr, len);
 	}
+
+private:
+	buffer& subrange_adapter(buffer& result, size_type off, size_type len) const;
+
+public:
+	RVALUE_REF(buffer)
+	subrange(size_type off, size_type len) const
+	{
+		buffer result;
+		subrange_adapter(result, off, len);
+		return MOVE(result);
+	}
 };
 
 
