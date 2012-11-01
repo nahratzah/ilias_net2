@@ -91,6 +91,20 @@ buffer::~buffer() ILIAS_NET2_NOTHROW
 	return;
 }
 
+buffer::size_type
+buffer::size() const ILIAS_NET2_NOTHROW
+{
+	if (this->m_list.empty())
+		return 0;
+
+	list_type::const_reference back = this->m_list.back();
+	return back.first + back.second.length();
+}
+
+/*
+ * Nothrow implace_back with correct offset.
+ * Must be called with vector having sufficient spare capacity.
+ */
 inline void
 buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 {
@@ -107,6 +121,10 @@ buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 }
 
 #if HAS_RVALUE_REF
+/*
+ * Nothrow implace_back with correct offset.
+ * Must be called with vector having sufficient spare capacity.
+ */
 inline void
 buffer::push_back(buffer::segment_ref&& sr) ILIAS_NET2_NOTHROW
 {

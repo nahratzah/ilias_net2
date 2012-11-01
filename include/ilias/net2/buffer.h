@@ -666,15 +666,7 @@ public:
 	}
 
 	/* Return the size (in bytes) of this buffer. */
-	size_type
-	size() const ILIAS_NET2_NOTHROW
-	{
-		if (this->empty())
-			return 0;
-
-		list_type::const_reference back = this->m_list.back();
-		return back.first + back.second.length();
-	}
+	size_type size() const ILIAS_NET2_NOTHROW;
 
 	/* Return the number of segments in this buffer. */
 	size_type
