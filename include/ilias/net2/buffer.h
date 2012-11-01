@@ -557,6 +557,14 @@ private:
 
 			copy_memory(dst, this->m_segment->data(this->m_off), len);
 		}
+
+		void*
+		data(size_type off = 0) const ILIAS_NET2_NOTHROW
+		{
+			return ((off > this->m_len || !this->m_segment) ?
+			    nullptr :
+			    this->m_segment->data(this->m_off + off));
+		}
 	};
 
 	/* The type of the segment list. */
@@ -564,8 +572,20 @@ private:
 
 	/* The list of segments. */
 	list_type m_list;
+	/* Reserved space in m_list for prepare/commit entries. */
+	size_type m_reserve;
 
-private:
+	/*
+	 * Ensure the list can hold extra segments without violating the reserve guarantee.
+	 */
+	void
+	reserve_immediate(size_type extra) throw (std::bad_alloc)
+	{
+		const size_type required = this->m_list.size() + this->m_reserve + extra;
+		if (this->m_list.capacity() < required)
+			this->m_list.reserve(required);
+	}
+
 	/*
 	 * Append segment.
 	 * Will attempt to merge the segment with its predecessor.
@@ -639,7 +659,8 @@ private:
 public:
 	/* Default constructor. */
 	buffer() ILIAS_NET2_NOTHROW :
-		m_list()
+		m_list(),
+		m_reserve(0)
 	{
 		return;
 	}
@@ -650,7 +671,8 @@ public:
 #if HAS_RVALUE_REF
 	/* Move constructor. */
 	buffer(buffer&& rhs) ILIAS_NET2_NOTHROW :
-		m_list(std::move(rhs.m_list))
+		m_list(std::move(rhs.m_list)),
+		m_reserve(0)
 	{
 		return;
 	}
@@ -683,6 +705,8 @@ public:
 	buffer&
 	operator= (buffer&& o) ILIAS_NET2_NOTHROW
 	{
+		assert(this->m_reserve == 0);
+
 		this->m_list = std::move(o.m_list);
 		return *this;
 	}
@@ -704,6 +728,7 @@ public:
 	void
 	swap(buffer& o) ILIAS_NET2_NOTHROW
 	{
+		assert(this->m_reserve == 0 && o.m_reserve == 0);
 		this->m_list.swap(o.m_list);
 	}
 
@@ -745,6 +770,51 @@ public:
 		buffer result;
 		subrange_adapter(result, off, len);
 		return MOVE(result);
+	}
+
+	/*
+	 * Buffer comparison.
+	 *
+	 * Returns -1 if this is lexicographically before o.
+	 * Returns  1 if this is lexicographically after  o.
+	 * Returns  0 if the two buffers are identical.
+	 */
+	int cmp(const buffer& o) const ILIAS_NET2_NOTHROW;
+
+	bool
+	operator== (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) == 0);
+	}
+
+	bool
+	operator!= (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) != 0);
+	}
+
+	bool
+	operator< (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) < 0);
+	}
+
+	bool
+	operator> (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) > 0);
+	}
+
+	bool
+	operator<= (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) <= 0);
+	}
+
+	bool
+	operator>= (const buffer& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this->cmp(o) >= 0);
 	}
 };
 

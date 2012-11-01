@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/buffer.h>
 #include <ilias/net2/types.h>
+#include <cstring>
 
 namespace ilias {
 
@@ -81,7 +82,8 @@ buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
 
 
 buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
-	m_list(rhs.m_list)
+	m_list(rhs.m_list),
+	m_reserve(0)
 {
 	return;
 }
@@ -108,6 +110,8 @@ buffer::size() const ILIAS_NET2_NOTHROW
 inline void
 buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 {
+	assert(this->m_list.capacity() - this->m_list.size() > this->m_reserve);
+
 	size_type off = 0;
 
 	if (!this->m_list.empty()) {
@@ -118,6 +122,8 @@ buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 	}
 
 	this->m_list.emplace_back(off, sr);
+
+	assert(this->m_list.capacity() - this->m_list.size() >= this->m_reserve);
 }
 
 #if HAS_RVALUE_REF
@@ -128,6 +134,8 @@ buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 inline void
 buffer::push_back(buffer::segment_ref&& sr) ILIAS_NET2_NOTHROW
 {
+	assert(this->m_list.capacity() - this->m_list.size() > this->m_reserve);
+
 	size_type off = 0;
 
 	if (!this->m_list.empty()) {
@@ -138,6 +146,8 @@ buffer::push_back(buffer::segment_ref&& sr) ILIAS_NET2_NOTHROW
 	}
 
 	this->m_list.emplace_back(off, MOVE(sr));
+
+	assert(this->m_list.capacity() - this->m_list.size() >= this->m_reserve);
 }
 #endif
 
@@ -179,7 +189,10 @@ buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
 buffer&
 buffer::operator= (const buffer& o) throw (std::bad_alloc)
 {
-	this->m_list = o.m_list;
+	assert(this->m_reserve == 0);
+
+	list_type copy = o.m_list;
+	this->m_list.swap(copy);
 	return *this;
 }
 
@@ -187,8 +200,7 @@ buffer&
 buffer::operator+= (const buffer& o) throw (std::bad_alloc)
 {
 	/* Reserve space in advance. */
-	if (this->m_list.capacity() < this->m_list.size() + o.m_list.size())
-		this->m_list.reserve(this->m_list.size() + o.m_list.size());
+	this->reserve_immediate(o.m_list.size());
 
 	std::for_each(o.m_list.begin(), o.m_list.end(), [this](list_type::const_reference sr) {
 		this->push_back(sr.second);
@@ -341,7 +353,7 @@ buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_typ
 	++e;
 
 	/* Copy all entries that make up the new buffer. */
-	result.m_list.reserve(e - b);
+	result.reserve_immediate(e - b);
 	std::for_each(b, e, [&result](list_type::const_reference r) {
 		result.m_list.emplace_back(r);
 	});
@@ -359,6 +371,43 @@ buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_typ
 	});
 
 	return result;
+}
+
+int
+buffer::cmp(const buffer& o) const ILIAS_NET2_NOTHROW
+{
+	list_type::const_iterator i = this->m_list.begin(), j = o.m_list.begin();
+	const list_type::const_iterator i_end = this->m_list.end(), j_end = o.m_list.end();
+
+	size_type i_off = 0, j_off = 0;
+	while (i != i_end && j != j_end) {
+		/* Calculate which data we can compare right now. */
+		void* i_data = i->second.data(i_off);
+		void* j_data = j->second.data(j_off);
+		const size_type len = std::min(i->second.length(), j->second.length());
+
+		/* Comparison of data. */
+		const int c = std::memcmp(i_data, j_data, len);
+		if (c != 0)
+			return c;
+
+		/* Increment data pointers. */
+		i_off += len;
+		j_off += len;
+
+		/* Skip to next iterator position. */
+		if (i_off == i->second.length()) {
+			i_off = 0;
+			++i;
+		}
+		if (j_off == j->second.length()) {
+			j_off = 0;
+			++j;
+		}
+	}
+
+	/* Return 0 if both are of equal length. */
+	return (i == i_end ? -1 : 0) + (j == j_end ? 1 : 0);
 }
 
 
