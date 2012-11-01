@@ -100,7 +100,6 @@ list (APPEND cluster_headers
 list (APPEND srcs
 	src/acceptor.c
 	src/bitset.c
-	src/buffer.c
 	src/carver.c
 	src/signed_carver.c
 	src/datapipe.c
@@ -140,6 +139,8 @@ list (APPEND cluster_srcs
 
 list (APPEND cxx_srcs
 	cxx_src/acceptor.cc
+	cxx_src/buffer.cc
+	cxx_src/bufcopy.cc
 	cxx_src/connection.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc

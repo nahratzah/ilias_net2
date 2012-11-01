@@ -14,221 +14,293 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/buffer.h>
+#include <ilias/net2/types.h>
 
 namespace ilias {
 
 
-void
-buffer::segment::copyout(void* dst, size_type len) const
-{
-	if (!this->contig())
-		throw std::invalid_argument("buffer::segment needs specialized implementation of copyout");
-	if (this->len() < len)
-		throw std::invalid_argument("buffer::segment::copyout: len too large");
+/*
+ * Buffer segment pool.
+ *
+ * The pool creates elements aligned to at least 64 bytes.
+ * The pool will select an optimum size to contain entries between 256 byte and 8 kilobyte.
+ * The mem_segment will be offset such that the first data byte starts at the specified alignment.
+ */
+const std::size_t buffer::mem_segment::m_pool_align = (pool::default_align > 64 ? pool::default_align : std::size_t(64));
+const std::size_t buffer::mem_segment::m_pool_overhead = pool::round_up(sizeof(mem_segment), pool::default_align);
+const std::size_t buffer::mem_segment::m_pool_offset = m_pool_align - ((m_pool_overhead - 1) % m_pool_align + 1);
+pool buffer::mem_segment::m_pool(
+    pool::recommend_size(buffer::mem_segment::m_pool_overhead + 256,
+	buffer::mem_segment::m_pool_overhead + 8192,
+	m_pool_align, m_pool_offset),
+    m_pool_align,
+    m_pool_offset);
 
-	memcpy(dst, this->at(0), len);
+
+buffer::segment_ref::~segment_ref() ILIAS_NET2_NOTHROW
+{
+	return;
 }
 
 bool
-buffer::segment::grow(size_type off, const void* data, size_type len) ILIAS_NET2_NOTHROW
+buffer::segment_ref::grow(const void* data, size_type datalen, bool sensitive) ILIAS_NET2_NOTHROW
 {
-	return false;
-}
-
-
-static std::atomic<size_t> pagesize;
-
-static inline size_t
-get_pagesize() ILIAS_NET2_NOTHROW
-{
-	size_t rv = pagesize.load(memory_order_relaxed);
-	if (rv == 0) {
-		rv = sysconf(_SC_PAGESIZE);
-		assert((rv & (rv - 1)) == 0);	/* Ensure pagesize is a power of 2. */
-		pagesize.store(rv, memory_order_relaxed);
-	}
-	return rv;
-}
-
-static size_t
-alloc_max_idx() ILIAS_NET2_NOTHROW
-{
-	const size_t pgsz = get_pagesize();
-	if (pgsz < 256)
-		return 0;
-	return MIN(pgsz / 256, 8) - 1;
-}
-
-static size_t
-alloc_in_size() ILIAS_NET2_NOTHROW
-{
-	const size_t pgsz = get_pagesize();
-	const size_t maxidx = alloc_max_idx();
-	if (maxidx == 0)
-		return 0;
-	return pgsz / maxidx;
-}
-
-struct membase {
-	LL_ENTRY(membase) q;
-	std::atomic<unsigned int> bitmap;
-};
-
-LL_HEAD(membase_q_type, membase);
-static membase_q_type membase_q = LL_HEAD_INITIALIZER(membase_q);
-
-void*
-alloc_mem_primary(size_t& len) ILIAS_NET2_NOTHROW
-{
-	std::tuple<void*, size_t> result;
-
-	/* Large allocation. */
-	if (len > alloc_in_size()) {
-		const size_t pgsz = get_pagesize();
-		len = (len + pgsz - 1) & ~(pgsz - 1);
-		void* ptr = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
-		return (ptr == MAP_FAILED ? nullptr : ptr);
-	}
-
-	/* Small allocation using a freelist. */
-	membase* mb = reinterpret_cast<membase*>(ll_pop_front(&membase_q, 1));
-	if (!mb) {
-		mb = mmap(nullptr, get_pagesize(), PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
-		if (mb == MAP_FAILED)
-			return nullptr;
-
-		LL_INIT_ENTRY(&mb->q);
-		mb->bitmap.store(0x0U, memory_order_relaxed);
-	}
-
-	/* Allocate index. */
-	size_t idx;
-	for (idx = 0;
-	    mb->bitmap.fetch_or(0x1U << idx, memory_order_acquire) & (0x1U << idx);
-	    ++idx);
-	assert(idx < alloc_max_idx());
-
-	/* Push element back on the queue. */
-	if (idx + 1 < alloc_max_idx())
-		ll_insert_head(&membase_q, &mb->q, 0);
-
-	len = alloc_in_size();
-	return idx_to_pointer(mb, idx);
-}
-
-static void
-free_mem_primary(void* addr)
-{
-}
-
-static void
-free_mem_secondary(void* addr, size_t sz)
-{
-}
-
-
-class buffer::mem_segment :
-	public buffer::segment
-{
-private:
-	std::atomic<size_t> m_capacity;
-	std::atomic<size_t> m_len;
-
-public:
-	mem_segment() = delete;
-	mem_segment(const mem_segment&) = delete;
-	mem_segment& operator= (const mem_segment) = delete;
-	bool operator== (const mem_segment&) const = delete;
-
-	mem_segment(size_type alloc_size) ILIAS_NET2_NOTHROW :
-		buffer::segment(),
-		m_maxsize(alloc_size - sizeof(*this)),
-		m_len(0)
-	{
-		return;
-	}
-
-	~mem_segment() ILIAS_NET2_NOTHROW;
-
-	static operator delete(void* ptr) ILIAS_NET2_NOTHROW
-	{
-		free_mem_primary(ptr);
-	}
-
-	static operator delete[](void*) ILIAS_NET2_NOTHROW = delete;
-
-	size_type
-	capacity() const ILIAS_NET2_NOTHROW
-	{
-		return this->m_capacity.load(memory_order_acquire);
-	}
-
-	bool
-	extend_capacity(size_type new_capacity) ILIAS_NET2_NOTHROW
-	{
-		return (new_capacity <= this->m_capacity.load(memory_order_acquire));
-	}
-
-	void*
-	address(size_type off = 0) const ILIAS_NET2_NOTHROW
-	{
-		return reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(this) + sizeof(*this) + off);
-	}
-
-	const void* at(size_type) const;
-	bool contig() const ILIAS_NET2_NOTHROW;
-	size_type len() const ILIAS_NET2_NOTHROW;
-
-	bool grow(size_type, const void*, size_type) ILIAS_NET2_NOTHROW;
-};
-
-
-buffer::mem_segment::~mem_segment() ILIAS_NET2_NOTHROW
-{
-	free_mem_secondary(this, sizeof(*this) + this->m_capacity);
-}
-
-buffer::segment::size_type
-buffer::mem_segment::len() const ILIAS_NET2_NOTHROW
-{
-	return this->m_len;
-}
-
-const void*
-buffer::mem_segment::at(size_type off) const
-{
-	if (off > this->m_len)
-		throw std::invalid_argument("off");
-
-	return address(off);
-}
-
-bool
-buffer::mem_segment::grow(size_type off, const void* data, size_type datalen) ILIAS_NET2_NOTHROW
-{
-	/* Protect against overflow. */
-	if (off + datalen < off)
+	if (!this->m_segment)
 		return false;
 
-	/* Try to extend capacity. */
-	if (!extend_capacity(off + datalen))
+	void* ptr = this->m_segment->allocate_at(std::nothrow, this->m_off + this->m_len, datalen);
+	if (!ptr)
 		return false;
 
-	/* Claim storage. */
-	auto len = this->m_len.load(memory_order_relaxed);
-	do {
-		if (off < len)
-			return false;
-	} while (!this->m_len.compare_exchange_weak(len, off + datalen, memory_order_acquire, memory_order_relaxed));
-	/* Copy data (safe since no other thread will access the new area). */
-	memcpy(address(off), data, datalen);
-}
-
-bool
-buffer::mem_segment::contig() const ILIAS_NET2_NOTHROW
-{
+	if (sensitive)
+		this->mark_sensitive();
+	this->m_len += datalen;
+	copy_memory(ptr, data, datalen);
 	return true;
 }
 
+void
+buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
+{
+	/* Retrieve data we want to hang on to. */
+	void*const ptr = ms;
+	const size_type sz = ms->alloc_size();
+	const bool sensitive = ms->m_sensitive.load(std::memory_order_relaxed);
 
+	/* Destroy segment. */
+	ms->~mem_segment();
+
+	/* If the segment contained sensitive data, wipe it. */
+	if (sensitive)
+		net2_secure_zero(ptr, sz);
+
+	/* Free memory to pool. */
+	bool ok = m_pool.deallocate_bytes(std::nothrow, ptr, sz);
+	assert(ok);
 }
+
+
+buffer::buffer(const buffer::buffer& rhs) :
+	m_list(rhs.m_list)
+{
+	return;
+}
+
+buffer::~buffer() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+void
+buffer::push_back(const buffer::segment_ref& sr)
+{
+	size_type off = 0;
+
+	if (!this->m_list.empty()) {
+		list_type::reference b = this->m_list.back();
+		if (b.second.merge(sr))
+			return;
+		off = b.first + b.second.length();
+	}
+
+	this->m_list.emplace_back(off, sr);
+}
+
+#if HAS_RVALUE_REF
+void
+buffer::push_back(buffer::segment_ref&& sr)
+{
+	size_type off = 0;
+
+	if (!this->m_list.empty()) {
+		list_type::reference b = this->m_list.back();
+		if (b.second.merge(sr))
+			return;
+		off = b.first + b.second.length();
+	}
+
+	this->m_list.emplace_back(off, MOVE(sr));
+}
+#endif
+
+RVALUE(buffer::list_type::iterator)
+buffer::find_offset(buffer::size_type offset) ILIAS_NET2_NOTHROW
+{
+	typedef list_type::const_reference const_ref;
+	typedef list_type::iterator iter;
+
+	/* Find the last entry with its offset less than sought after offset. */
+	iter i = binsearch_lowerbound(this->m_list.begin(), this->m_list.end(), [offset](const_ref lhs) {
+		return (lhs.first <= offset);
+	});
+
+	/* The above will return the last valid entry of the list if no entry applies. */
+	if (i->first + i->second.length() <= offset)
+		++i;
+
+	return MOVE(i);
+}
+RVALUE(buffer::list_type::const_iterator)
+buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
+{
+	typedef list_type::const_reference const_ref;
+	typedef list_type::const_iterator iter;
+
+	/* Find the last entry with its offset less than sought after offset. */
+	iter i = binsearch_lowerbound(this->m_list.begin(), this->m_list.end(), [offset](const_ref lhs) {
+		return (lhs.first <= offset);
+	});
+
+	/* The above will return the last valid entry of the list if no entry applies. */
+	if (i->first + i->second.length() <= offset)
+		++i;
+
+	return MOVE(i);
+}
+
+buffer&
+buffer::operator= (const buffer& o)
+{
+	this->m_list = o.m_list;
+	return *this;
+}
+
+buffer&
+buffer::operator+= (const buffer& o)
+{
+	/* Reserve space in advance. */
+	if (this->m_list.capacity() < this->m_list.size() + o.m_list.size())
+		this->m_list.reserve(this->m_list.size() + o.m_list.size());
+
+	std::for_each(o.m_list.begin(), o.m_list.end(), [this](list_type::const_reference sr) {
+		this->push_back(sr.second);
+	});
+	return *this;
+}
+
+void
+buffer::clear() ILIAS_NET2_NOTHROW
+{
+	this->m_list.clear();
+}
+
+void
+buffer::drain(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
+{
+	/* Algorithm below cannot deal with len=0, so handle that now. */
+	if (len == 0)
+		return;
+
+	/* Find last entry starting at/after len. */
+	list_type::iterator nw_start = this->find_offset(len);
+
+	if (out) {
+		/* Copy all contents up to nw_start. */
+		for (list_type::const_iterator i = this->m_list.begin(); i != nw_start; ++i) {
+			const size_type cplen = i->second.length();
+			assert(len >= i->first + cplen);
+			i->second.copyout(out, cplen);
+			out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
+		}
+
+		/* Copy part of nw_start that will be drained. */
+		if (nw_start != this->m_list.end()) {
+			const size_type cplen = len - nw_start->first;
+			nw_start->second.copyout(out, cplen);
+			out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
+		}
+	}
+
+	/*
+	 * If no such entry exists, simply clear the list.
+	 * XXX maybe throw an exception instead?
+	 */
+	if (nw_start == this->m_list.end()) {
+		this->m_list.clear();
+		return;
+	}
+
+	/* Drain what needs to be drained from first entry. */
+	nw_start->second.drain(len - nw_start->first);
+	nw_start->first = len;
+
+	/* Move list elements to head, subtracting drained bytes from offset. */
+	std::transform(nw_start, this->m_list.end(), this->m_list.begin(),
+	    [len](list_type::reference sr) -> RVALUE(list_type::value_type) {
+		return MOVE(list_type::value_type(sr.first - len, MOVE(sr.second)));
+	});
+
+	/* Truncate list. */
+	this->m_list.resize(nw_start + 1 - this->m_list.begin());
+}
+
+void
+buffer::truncate(buffer::size_type len) ILIAS_NET2_NOTHROW
+{
+	/* Algorithm below cannot deal with len=0, so handle that now. */
+	if (len == 0) {
+		this->clear();
+		return;
+	}
+
+	/* Find last entry starting at/after len. */
+	list_type::iterator nw_fin = this->find_offset(len - 1);
+	/*
+	 * If no such entry exists, no change is required.
+	 * XXX maybe throw an exception since this->size() < len?
+	 */
+	if (nw_fin == this->m_list.end())
+		return;
+
+	/* Truncate last entry that remains on the list. */
+	nw_fin->second.truncate(len - nw_fin->first);
+	/* Remove everything after nw_fin. */
+	this->m_list.resize(++nw_fin - this->m_list.begin());
+}
+
+void
+buffer::prepend(const buffer& o)
+{
+	const size_type offset = o.size();
+	const size_type oldlen = this->m_list.size();
+
+	this->m_list.resize(oldlen + o.m_list.size());
+
+	/* Move existing entries back. */
+	std::transform(this->m_list.rend() - oldlen, this->m_list.rend(), this->m_list.rend(),
+	    [offset](list_type::reference r) -> RVALUE(list_type::value_type) {
+		return MOVE(list_type::value_type(r.first + offset, MOVE(r.second)));
+	});
+
+	/* Copy existing entries to the front. */
+	std::transform(o.m_list.begin(), o.m_list.end(), this->m_list.begin(),
+	    [](list_type::const_reference r) -> list_type::const_reference {
+		return r;
+	});
+}
+
+void
+buffer::append(const void* addr, buffer::size_type len, bool sensitive)
+{
+	if (!this->empty() && this->m_list.back().second.grow(addr, len)) {
+		if (sensitive)
+			this->m_list.back().second.mark_sensitive();
+		return;
+	}
+
+	this->m_list.emplace_back(this->size(), MOVE(segment_ref(addr, len, sensitive)));
+}
+
+/*
+ * Mark the entire buffer as sensitive.
+ */
+void
+buffer::mark_sensitive() ILIAS_NET2_NOTHROW
+{
+	std::for_each(this->m_list.begin(), this->m_list.end(), [](list_type::reference r) {
+		r.second.mark_sensitive();
+	});
+}
+
+
+} /* namespace ilias */
