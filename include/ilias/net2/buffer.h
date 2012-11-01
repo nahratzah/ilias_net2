@@ -570,13 +570,13 @@ private:
 	 * Append segment.
 	 * Will attempt to merge the segment with its predecessor.
 	 */
-	ILIAS_NET2_LOCAL void push_back(const segment_ref& sr);
+	void push_back(const segment_ref& sr) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
 	/*
 	 * Append segment.
 	 * Will attempt to merge the segment with its predecessor.
 	 */
-	ILIAS_NET2_LOCAL void push_back(segment_ref&& sr);
+	void push_back(segment_ref&& sr) ILIAS_NET2_NOTHROW;
 #endif
 
 	/*
@@ -645,7 +645,7 @@ public:
 	}
 
 	/* Copy constructor. */
-	buffer(const buffer& rhs);
+	buffer(const buffer& rhs) throw (std::bad_alloc);
 
 #if HAS_RVALUE_REF
 	/* Move constructor. */
@@ -684,7 +684,7 @@ public:
 	}
 
 	/* Assignment. */
-	buffer& operator= (const buffer& o);
+	buffer& operator= (const buffer& o) throw (std::bad_alloc);
 
 #if HAS_RVALUE_REF
 	/* Move assignment. */
@@ -697,11 +697,11 @@ public:
 #endif
 
 	/* Append a buffer. */
-	buffer& operator+= (const buffer& o);
+	buffer& operator+= (const buffer& o) throw (std::bad_alloc);
 
 	/* Create a buffer that is this buffer and another buffer concatenated. */
 	RVALUE(buffer)
-	operator+ (const buffer& o) const
+	operator+ (const buffer& o) const throw (std::bad_alloc)
 	{
 		buffer copy = *this;
 		copy += o;
@@ -725,29 +725,30 @@ public:
 	/* Clear the buffer. */
 	void clear() ILIAS_NET2_NOTHROW;
 	/* Drain bytes from the buffer into supplied void* buffer. */
-	void drain(void*, size_type) ILIAS_NET2_NOTHROW;
+	void drain(void*, size_type) throw (std::out_of_range);
 	/* Truncate the buffer to the given size. */
-	void truncate(size_type) ILIAS_NET2_NOTHROW;
+	void truncate(size_type) throw (std::out_of_range);
 	/* Prepend a buffer (this is an expensive operation). */
-	void prepend(const buffer& o);
+	void prepend(const buffer& o) throw (std::bad_alloc);
 	/* Append data to the buffer.  Set the boolean to true if this data is sensitive. */
-	void append(const void*, size_type, bool = false);
+	void append(const void*, size_type, bool = false) throw (std::bad_alloc);
 	/* Mark the entire buffer as containing sensitive data. */
 	void mark_sensitive() ILIAS_NET2_NOTHROW;
 
 	/* Remove the first len bytes from this buffer. */
 	void
-	drain(size_type len) ILIAS_NET2_NOTHROW
+	drain(size_type len) throw (std::out_of_range)
 	{
 		this->drain(nullptr, len);
 	}
 
 private:
-	buffer& subrange_adapter(buffer& result, size_type off, size_type len) const;
+	buffer& subrange_adapter(buffer& result, size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range);
 
 public:
+	/* Return a buffer with the range described by off, len. */
 	RVALUE_REF(buffer)
-	subrange(size_type off, size_type len) const
+	subrange(size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range)
 	{
 		buffer result;
 		subrange_adapter(result, off, len);

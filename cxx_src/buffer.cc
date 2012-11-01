@@ -80,7 +80,7 @@ buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
 }
 
 
-buffer::buffer(const buffer& rhs) :
+buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
 	m_list(rhs.m_list)
 {
 	return;
@@ -91,8 +91,8 @@ buffer::~buffer() ILIAS_NET2_NOTHROW
 	return;
 }
 
-void
-buffer::push_back(const buffer::segment_ref& sr)
+inline void
+buffer::push_back(const buffer::segment_ref& sr) ILIAS_NET2_NOTHROW
 {
 	size_type off = 0;
 
@@ -107,8 +107,8 @@ buffer::push_back(const buffer::segment_ref& sr)
 }
 
 #if HAS_RVALUE_REF
-void
-buffer::push_back(buffer::segment_ref&& sr)
+inline void
+buffer::push_back(buffer::segment_ref&& sr) ILIAS_NET2_NOTHROW
 {
 	size_type off = 0;
 
@@ -159,14 +159,14 @@ buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
 }
 
 buffer&
-buffer::operator= (const buffer& o)
+buffer::operator= (const buffer& o) throw (std::bad_alloc)
 {
 	this->m_list = o.m_list;
 	return *this;
 }
 
 buffer&
-buffer::operator+= (const buffer& o)
+buffer::operator+= (const buffer& o) throw (std::bad_alloc)
 {
 	/* Reserve space in advance. */
 	if (this->m_list.capacity() < this->m_list.size() + o.m_list.size())
@@ -185,11 +185,14 @@ buffer::clear() ILIAS_NET2_NOTHROW
 }
 
 void
-buffer::drain(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
+buffer::drain(void* out, buffer::size_type len) throw (std::out_of_range)
 {
 	/* Algorithm below cannot deal with len=0, so handle that now. */
 	if (len == 0)
 		return;
+
+	if (len > this->size())
+		throw std::out_of_range("drain len exceeds buffer length");
 
 	/* Find last entry starting at/after len. */
 	list_type::iterator nw_start = this->find_offset(len);
@@ -213,7 +216,6 @@ buffer::drain(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
 
 	/*
 	 * If no such entry exists, simply clear the list.
-	 * XXX maybe throw an exception instead?
 	 */
 	if (nw_start == this->m_list.end()) {
 		this->m_list.clear();
@@ -235,7 +237,7 @@ buffer::drain(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
 }
 
 void
-buffer::truncate(buffer::size_type len) ILIAS_NET2_NOTHROW
+buffer::truncate(buffer::size_type len) throw (std::out_of_range)
 {
 	/* Algorithm below cannot deal with len=0, so handle that now. */
 	if (len == 0) {
@@ -246,11 +248,10 @@ buffer::truncate(buffer::size_type len) ILIAS_NET2_NOTHROW
 	/* Find last entry starting at/after len. */
 	list_type::iterator nw_fin = this->find_offset(len - 1);
 	/*
-	 * If no such entry exists, no change is required.
-	 * XXX maybe throw an exception since this->size() < len?
+	 * If no such entry exists, len is larger than this->size().
 	 */
 	if (nw_fin == this->m_list.end())
-		return;
+		throw std::out_of_range("truncate len exceeds buffer length");
 
 	/* Truncate last entry that remains on the list. */
 	nw_fin->second.truncate(len - nw_fin->first);
@@ -259,7 +260,7 @@ buffer::truncate(buffer::size_type len) ILIAS_NET2_NOTHROW
 }
 
 void
-buffer::prepend(const buffer& o)
+buffer::prepend(const buffer& o) throw (std::bad_alloc)
 {
 	const size_type offset = o.size();
 	const size_type oldlen = this->m_list.size();
@@ -280,7 +281,7 @@ buffer::prepend(const buffer& o)
 }
 
 void
-buffer::append(const void* addr, buffer::size_type len, bool sensitive)
+buffer::append(const void* addr, buffer::size_type len, bool sensitive) throw (std::bad_alloc)
 {
 	if (!this->empty() && this->m_list.back().second.grow(addr, len)) {
 		if (sensitive)
@@ -309,7 +310,7 @@ buffer::mark_sensitive() ILIAS_NET2_NOTHROW
  * Implementation exists so there won't be an interface boundary for rvalues.
  */
 buffer&
-buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_type len) const
+buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_type len) const throw (std::bad_alloc, std::out_of_range)
 {
 	if (len == 0)
 		return result;
@@ -317,10 +318,9 @@ buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_typ
 	/* Find where the subrange starts and ends. */
 	list_type::const_iterator b = this->find_offset(off);
 	list_type::const_iterator e = this->find_offset(off + len - 1);
-	if (e != this->m_list.end())
-		++e;
-	if (b == e)
-		return result;
+	if (e == this->m_list.end())
+		throw std::out_of_range("off + len exceeds buffer length");
+	++e;
 
 	/* Copy all entries that make up the new buffer. */
 	result.m_list.reserve(e - b);
