@@ -54,10 +54,22 @@ public:
 		return v.len;
 	}
 
+	static void
+	set_iov_len(iovec& v, std::size_t len) ILIAS_NET2_NOTHROW
+	{
+		v.len = len;
+	}
+
 	static void*
 	iov_base(const iovec& v) ILIAS_NET2_NOTHROW
 	{
 		return v.buf;
+	}
+
+	static void
+	set_iov_base(iovec& v, void* addr) ILIAS_NET2_NOTHROW
+	{
+		v.buf = addr;
 	}
 #else
 	typedef ::iovec iovec;
@@ -68,10 +80,22 @@ public:
 		return v.iov_len;
 	}
 
+	static void
+	set_iov_len(iovec& v, std::size_t len) ILIAS_NET2_NOTHROW
+	{
+		v.iov_len = len;
+	}
+
 	static void*
 	iov_base(const iovec& v) ILIAS_NET2_NOTHROW
 	{
 		return v.iov_base;
+	}
+
+	static void
+	set_iov_base(iovec& v, void* addr) ILIAS_NET2_NOTHROW
+	{
+		v.iov_base = addr;
 	}
 #endif
 
@@ -822,6 +846,25 @@ public:
 
 	/* Try to find a string in the buffer, starting at offset. */
 	size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
+
+	/*
+	 * Fill io vectors with data contained in buffer.
+	 */
+	template<typename IovecOutIter>
+	IovecOutIter
+	peek(IovecOutIter iter) const
+	{
+		/*
+		 * Capturing this, since gcc 4.6.2 attempts to use non-static set_iov_{base,len} for some off reason.
+		 */
+		return std::transform(this->m_list.begin(), this->m_list.end(), iter,
+		    [this](list_type::const_reference r) -> buffer::iovec {
+			buffer::iovec rv;
+			set_iov_base(rv, r.second.data());
+			set_iov_len(rv, r.second.length());
+			return rv;
+		});
+	}
 };
 
 
