@@ -113,7 +113,6 @@ list (APPEND srcs
 	src/udp_connection.c
 	src/context.c
 	src/context_xchange.c
-	src/cp.c
 	src/encdec_ctx.c
 	src/enc.c
 	src/hash.c
@@ -142,6 +141,7 @@ list (APPEND cxx_srcs
 	cxx_src/buffer.cc
 	cxx_src/bufcopy.cc
 	cxx_src/connection.cc
+	cxx_src/cp.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc
 	cxx_src/pool.cc
@@ -344,12 +344,6 @@ macro(net2type srclist n2tfile cfile hfile localprefix exportprefix hguard)
 	list (APPEND ${srclist} "${cfile}" "${hfile}")
 endmacro(net2type)
 
-net2type(srcs "types/ctypes.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/src/ctypes.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_EXPORT"
-    "ILIAS_NET2_CTYPES_H")
 net2type(srcs "types/packet.n2t"
     "${CMAKE_CURRENT_BINARY_DIR}/packet.c"
     "${CMAKE_CURRENT_BINARY_DIR}/packet.h"
@@ -398,10 +392,6 @@ net2type(srcs "types/signature.n2t"
     "static"
     "ILIAS_NET2_LOCAL"
     "ILIAS_NET2_SIGNATURE_H")
-# Add headers generated above, that are to be published.
-list (APPEND headers
-	"${CMAKE_CURRENT_BINARY_DIR}/include/ilias/net2/ctypes.h"
-	)
 
 
 if (USE_EMBEDDED_EV)
