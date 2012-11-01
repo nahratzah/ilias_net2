@@ -80,7 +80,7 @@ buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
 }
 
 
-buffer::buffer(const buffer::buffer& rhs) :
+buffer::buffer(const buffer& rhs) :
 	m_list(rhs.m_list)
 {
 	return;
