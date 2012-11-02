@@ -119,7 +119,6 @@ list (APPEND srcs
 	src/memory.c
 	src/obj_manager.c
 	src/obj_window.c
-	src/poetry.c
 	src/promise.c
 	src/protocol.c
 	src/semaphore.c
@@ -144,6 +143,7 @@ list (APPEND cxx_srcs
 	cxx_src/hash.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc
+	cxx_src/poetry.cc
 	cxx_src/pool.cc
 	cxx_src/workq.cc
 	)

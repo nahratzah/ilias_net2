@@ -17,17 +17,18 @@
 #define ILIAS_NET2_POETRY_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <sys/types.h>
-#include <stdint.h>
+#include <cstdint>
+#include <string>
 
-ILIAS_NET2__begin_cdecl
+namespace ilias {
 
 
 ILIAS_NET2_LOCAL
-extern const char *poetry_txts[];
+extern const std::string poetry_txts[];
 ILIAS_NET2_LOCAL
-extern const size_t poetry_sz;
+extern const std::size_t poetry_sz;
 
 
-ILIAS_NET2__end_cdecl
+} /* namespace ilias */
+
 #endif /* ILIAS_NET2_POETRY_H */

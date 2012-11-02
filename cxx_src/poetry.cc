@@ -15,8 +15,21 @@
  */
 #include <ilias/net2/poetry.h>
 
+
+/*
+ * The poetry section in the library is because the protocol needs padding
+ * during negotiation.  Since any kind of data will do, we'll put in some
+ * quotes etc.  It's so much more interesting than binary data or binary 0.
+ *
+ * Hopefully, it'll brighten the day of the poor engineer debugging the
+ * protocol, by reading it.
+ */
+
+namespace ilias {
+
+
 ILIAS_NET2_LOCAL
-const char *poetry_txts[] = {
+const std::string poetry_txts[] = {
 	"Secrecy and security aren't the same, "
 	"even though it may seem that way. "
 	"Only bad security relies on secrecy; "
@@ -41,4 +54,7 @@ const char *poetry_txts[] = {
 };
 
 ILIAS_NET2_LOCAL
-const size_t poetry_sz = sizeof(poetry_txts) / sizeof(poetry_txts[0]);
+const std::size_t poetry_sz = sizeof(poetry_txts) / sizeof(poetry_txts[0]);
+
+
+} /* namespace ilias */
