@@ -627,4 +627,31 @@ buffer::copyout(void* dst, buffer::size_type len) const throw (std::out_of_range
 }
 
 
+buffer::prepare::prepare(buffer& b, buffer::size_type len) :
+	prepare_bufref(b),
+	m_segment(segment_ref::reserve_tag(), (b.m_list.empty() ? nullptr : &b.m_list.back().second), len)
+{
+	if (len == 0)
+		throw std::invalid_argument("attempt to reserve 0 bytes");
+}
+
+void
+buffer::prepare::commit() ILIAS_NET2_NOTHROW
+{
+	if (!this->valid())
+		throw std::logic_error("commit on invalid prepare");
+
+	buffer& b = *this->release();
+	b.push_back(MOVE(this->m_segment));
+	this->m_segment = MOVE(segment_ref());
+}
+
+void
+buffer::prepare::reset() ILIAS_NET2_NOTHROW
+{
+	this->release();
+	this->m_segment = MOVE(segment_ref());
+}
+
+
 } /* namespace ilias */

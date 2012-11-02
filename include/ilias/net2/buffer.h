@@ -503,13 +503,36 @@ private:
 		explicit segment_ref(const void* data, size_type len, bool sensitive) :
 			m_segment(mem_segment::create(len)),
 			m_off(0),
-			m_len(0)
+			m_len(len)
 		{
 			if (sensitive)
 				this->m_segment->mark_sensitive();
 
 			void*const dst = this->m_segment->allocate(len);
+			this->m_off = reinterpret_cast<uintptr_t>(dst) -
+			    reinterpret_cast<uintptr_t>(this->m_segment->data());
 			copy_memory(dst, data, len);
+		}
+
+		struct reserve_tag {};
+
+		/* Create a segment with reserved memory. */
+		segment_ref(const reserve_tag&, const segment_ref* opt_sibling, size_type len) :
+			m_segment(),
+			m_off(0),
+			m_len(len)
+		{
+			void* data;
+
+			if (opt_sibling && (data = opt_sibling->m_segment->allocate(std::nothrow, len)))
+				this->m_segment = opt_sibling->m_segment;
+			else {
+				this->m_segment = mem_segment::create(len);
+				data = this->m_segment->allocate(len);
+			}
+
+			this->m_off = reinterpret_cast<uintptr_t>(data) -
+			    reinterpret_cast<uintptr_t>(this->m_segment->data());
 		}
 
 		~segment_ref() ILIAS_NET2_NOTHROW;
@@ -588,7 +611,7 @@ private:
 		void*
 		data(size_type off = 0) const ILIAS_NET2_NOTHROW
 		{
-			return ((off > this->m_len || !this->m_segment) ?
+			return ((off >= this->m_len || !this->m_segment) ?
 			    nullptr :
 			    this->m_segment->data(this->m_off + off));
 		}
@@ -953,6 +976,13 @@ public:
 
 	/* Copy len bytes from buffer to output. */
 	void copyout(void*, size_type) const throw (std::out_of_range);
+
+private:
+	class prepare_bufref;
+
+public:
+	/* Prepared buffer insert. */
+	class prepare;
 };
 
 
@@ -961,6 +991,147 @@ buffer::mem_segment_free::operator()(buffer::mem_segment* ms) const ILIAS_NET2_N
 {
 	mem_segment::free(ms);
 }
+
+
+class buffer::prepare_bufref
+{
+private:
+	buffer* m_buf;
+
+public:
+	prepare_bufref() ILIAS_NET2_NOTHROW :
+		m_buf(nullptr)
+	{
+		/* Empty body. */
+	}
+
+	prepare_bufref(buffer& b) :
+		m_buf(&b)
+	{
+		b.reserve_immediate(1);
+		++b.m_reserve;
+	}
+
+#if HAS_RVALUE_REF
+	prepare_bufref(prepare_bufref&& o) ILIAS_NET2_NOTHROW :
+		m_buf(nullptr)
+	{
+		this->swap(o);
+	}
+#endif
+
+	~prepare_bufref() ILIAS_NET2_NOTHROW
+	{
+		this->release();
+	}
+
+	buffer*
+	release() ILIAS_NET2_NOTHROW
+	{
+		buffer* orig = this->m_buf;
+		if (this->m_buf) {
+			--this->m_buf->m_reserve;
+			this->m_buf = nullptr;
+		}
+		return orig;
+	}
+
+	buffer*
+	get_buffer() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_buf;
+	}
+
+	void
+	swap(prepare_bufref& o) ILIAS_NET2_NOTHROW
+	{
+		using std::swap;
+		swap(this->m_buf, o.m_buf);
+	}
+
+
+#if HAS_DELETED_FN
+	prepare_bufref(const prepare_bufref&) = delete;
+	prepare_bufref& operator=(const prepare_bufref&) = delete;
+#else
+private:
+	prepare_bufref(const prepare_bufref&);
+	prepare_bufref& operator=(const prepare_bufref&);
+#endif
+};
+
+class buffer::prepare :
+	private buffer::prepare_bufref
+{
+private:
+	segment_ref m_segment;
+
+public:
+	prepare() ILIAS_NET2_NOTHROW :
+		prepare_bufref(),
+		m_segment()
+	{
+		/* Empty body. */
+	}
+
+	prepare(buffer& b, size_type len);
+
+#if HAS_RVALUE_REF
+	prepare(prepare&& p) ILIAS_NET2_NOTHROW :
+		prepare_bufref(std::move(p)),
+		m_segment(std::move(p.m_segment))
+	{
+		/* Empty body. */
+	}
+#endif
+
+	/*
+	 * Return the address of memory at offset.
+	 * Will return nullptr if off falls outside of the range.
+	 */
+	void*
+	addr(size_type off = 0) const ILIAS_NET2_NOTHROW
+	{
+		return this->m_segment.data(off);
+	}
+
+	/* Returns the size of the reserved area. */
+	size_type
+	size() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_segment.length();
+	}
+
+	/* Test if this prepare is active (i.e. it can be commited). */
+	bool
+	valid() const ILIAS_NET2_NOTHROW
+	{
+		return (this->get_buffer() != nullptr);
+	}
+
+	/*
+	 * Mark the in-progress buffer as sensitive.
+	 * Silently ignored if the prepare isn't valid.
+	 */
+	void
+	mark_sensitive() ILIAS_NET2_NOTHROW
+	{
+		this->m_segment.mark_sensitive();
+	}
+
+	/*
+	 * Commit prepared state to buffer.
+	 * This operation will always place the data at the rear of the buffer.
+	 * Calling commit() on an prepare that isn't valid will yield undefined
+	 * behaviour (it may assert or it may corrupt the buffer).
+	 */
+	void commit() ILIAS_NET2_NOTHROW;
+
+	/*
+	 * Cancel the prepare.
+	 */
+	void reset() ILIAS_NET2_NOTHROW;
+};
 
 
 } /* namespace ilias */
