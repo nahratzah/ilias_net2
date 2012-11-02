@@ -84,7 +84,7 @@ private:
 	/* Mask the high byte we want to swap. */
 	static constexpr T high_mask = (mask_byte << (t_digits - byte_digits - B * byte_digits));
 	/* Mask for the bits we do nothing with. */
-	static constexpr T not_mask = ~(low_mask | high_mask);
+	static constexpr T not_mask = T(~(low_mask | high_mask));
 
 	/* Calculate how far both parts need to be shifted. */
 	static constexpr unsigned int distance = t_digits - byte_digits - 2 * byte_digits * B;
