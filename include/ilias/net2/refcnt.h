@@ -124,6 +124,13 @@ protected:
 		refcount_base& self = o;
 		return (self.load(std::memory_order_relaxed) == 1);
 	}
+
+	friend bool
+	refcnt_is_zero(const Derived& o) ILIAS_NET2_NOTHROW
+	{
+		refcount_base& self = o;
+		return (self.load(std::memory_order_relaxed) == 0);
+	}
 };
 
 template<typename Type>
