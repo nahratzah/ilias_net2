@@ -899,6 +899,10 @@ public:
 	void
 	visit(Functor f, size_type len) const
 	{
+		/* Check if we can fulfill the request. */
+		if (len > this->size())
+			throw std::out_of_range("len argument exceeds buffer length");
+
 		for (list_type::const_iterator i = this->m_list.begin(); i != this->m_list.end() && len > 0; ++i) {
 			const void* p = i->second.data();
 			size_type vlen = std::min(i->second.length(), len);
@@ -946,6 +950,9 @@ public:
 		}, len);
 		return iter;
 	}
+
+	/* Copy len bytes from buffer to output. */
+	void copyout(void*, size_type) const throw (std::out_of_range);
 };
 
 

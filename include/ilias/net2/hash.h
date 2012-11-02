@@ -17,45 +17,67 @@
 #define ILIAS_NET2_HASH_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <ilias/net2/buffer.h>
-#include <sys/types.h>
-#include <stdint.h>
+#include <cstdint>
+#include <string>
+#include <memory>
 
-ILIAS_NET2__begin_cdecl
-
-
-struct net2_hash_ctx;
-
-extern ILIAS_NET2_EXPORT const int net2_hashmax;
-
-ILIAS_NET2_EXPORT
-size_t			 net2_hash_gethashlen(int);
-ILIAS_NET2_EXPORT
-size_t			 net2_hash_getkeylen(int);
-ILIAS_NET2_EXPORT
-const char		*net2_hash_getname(int);
-ILIAS_NET2_EXPORT
-int			 net2_hash_findname(const char *);
-
-ILIAS_NET2_EXPORT
-struct net2_hash_ctx	*net2_hashctx_new(int, const void*, size_t);
-ILIAS_NET2_EXPORT
-void			 net2_hashctx_free(struct net2_hash_ctx*);
-ILIAS_NET2_EXPORT
-int			 net2_hashctx_update(struct net2_hash_ctx*,
-			    const void*, size_t);
-ILIAS_NET2_EXPORT
-int			 net2_hashctx_updatebuf(struct net2_hash_ctx*,
-			    const struct net2_buffer*);
-ILIAS_NET2_EXPORT
-struct net2_buffer	*net2_hashctx_final(struct net2_hash_ctx*);
-ILIAS_NET2_EXPORT
-struct net2_buffer	*net2_hashctx_finalfree(struct net2_hash_ctx*);
-
-ILIAS_NET2_EXPORT
-struct net2_buffer	*net2_hashctx_hashbuf(int, const void*, size_t,
-			    const struct net2_buffer*);
+namespace ilias {
 
 
-ILIAS_NET2__end_cdecl
+class buffer; /* From ilias/net2/buffer.h */
+
+/* Interface to hash functions. */
+class ILIAS_NET2_EXPORT hash_ctx
+{
+public:
+	typedef std::size_t size_type;
+
+	const size_type hashlen;
+	const size_type keylen;
+	const std::string name;
+
+	hash_ctx(const std::string& name, size_type hashlen, size_type keylen) :
+		hashlen(hashlen),
+		keylen(keylen),
+		name(name)
+	{
+		/* Empty body. */
+	}
+
+	virtual ~hash_ctx() ILIAS_NET2_NOTHROW;
+
+	virtual void update(const buffer&) = 0;
+	virtual RVALUE(buffer) final() = 0;
+};
+
+class ILIAS_NET2_EXPORT hash_ctx_factory
+{
+public:
+	typedef hash_ctx::size_type size_type;
+
+	const size_type hashlen;
+	const size_type keylen;
+	const std::string name;
+
+	hash_ctx_factory(const std::string& name, size_type hashlen, size_type keylen) :
+		hashlen(hashlen),
+		keylen(keylen),
+		name(name)
+	{
+		/* Empty body. */
+	}
+
+	virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
+	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const = 0;
+
+	/*
+	 * Short-cut for full hash context handling.
+	 * Called with key, data.
+	 */
+	virtual RVALUE(buffer) run(const buffer&, const buffer&) const;
+};
+
+
+} /* namespace ilias */
+
 #endif /* ILIAS_NET2_HASH_H */

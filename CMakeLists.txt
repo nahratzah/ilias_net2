@@ -115,7 +115,6 @@ list (APPEND srcs
 	src/context_xchange.c
 	src/encdec_ctx.c
 	src/enc.c
-	src/hash.c
 	src/init.c
 	src/memory.c
 	src/obj_manager.c
@@ -142,6 +141,7 @@ list (APPEND cxx_srcs
 	cxx_src/bufcopy.cc
 	cxx_src/connection.cc
 	cxx_src/cp.cc
+	cxx_src/hash.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc
 	cxx_src/pool.cc

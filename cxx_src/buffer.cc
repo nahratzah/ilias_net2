@@ -617,5 +617,14 @@ buffer::find_string(const void* data, buffer::size_type len, buffer::size_type b
 	}
 }
 
+void
+buffer::copyout(void* dst, buffer::size_type len) const throw (std::out_of_range)
+{
+	visit([&dst](const void* p, size_type l) {
+		copy_memory(dst, p, l);
+		dst = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(dst) + l);
+	}, len);
+}
+
 
 } /* namespace ilias */
