@@ -68,7 +68,12 @@ host_endian(const T& v) ILIAS_NET2_NOTHROW
 	return v;
 }
 #else
-/* Assuming little endian. */
+/*
+ * Assuming little endian.
+ *
+ * Clang is actually pretty awesome here: it notices that the entire thing with templates
+ * is simply a bswap operation, so it reduces it to a single instruction.
+ */
 
 template<typename T, int B = 0, bool Stop = 2 * B + 1 >= sizeof(T)>
 struct endian_helper
