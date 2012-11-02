@@ -127,36 +127,39 @@ hash_sha512::update(const buffer& b)
 RVALUE(buffer)
 hash_sha256::final()
 {
-	uint8_t data[SHA256_DIGEST_LENGTH];
+	buffer rv;
+	buffer::prepare prep(rv, SHA256_DIGEST_LENGTH);
+	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
 
 	SHA256Final(data, &ctx);
 
-	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	prep.commit();
 	return MOVE(rv);
 }
 
 RVALUE(buffer)
 hash_sha384::final()
 {
-	uint8_t data[SHA384_DIGEST_LENGTH];
+	buffer rv;
+	buffer::prepare prep(rv, SHA384_DIGEST_LENGTH);
+	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
 
 	SHA384Final(data, &ctx);
 
-	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	prep.commit();
 	return MOVE(rv);
 }
 
 RVALUE(buffer)
 hash_sha512::final()
 {
-	uint8_t data[SHA512_DIGEST_LENGTH];
+	buffer rv;
+	buffer::prepare prep(rv, SHA512_DIGEST_LENGTH);
+	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
 
 	SHA512Final(data, &ctx);
 
-	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	prep.commit();
 	return MOVE(rv);
 }
 
@@ -366,7 +369,9 @@ RVALUE(buffer)
 hash_openssl_evp::final()
 {
 	unsigned int result_len = this->hashlen;
-	uint8_t* out = reinterpret_cast<uint8_t*>(alloca(result_len));
+	buffer rv;
+	buffer::prepare prep(rv, result_len);
+	uint8_t* out = reinterpret_cast<uint8_t*>(prep.data());
 
 #if (OPENSSL_VERSION_NUMBER < 0x01000000)
 	/* Prior to openssl 1.0.0, the HMAC_{Init_ex,Update,Final} returned void. */
@@ -379,8 +384,7 @@ hash_openssl_evp::final()
 	if (result_len != this->hashlen)
 		throw std::runtime_error("result hashlen differs from expected hashlen");
 
-	buffer rv;
-	rv.append(out, result_len);
+	prep.commit();
 	return MOVE(rv);
 }
 
