@@ -635,6 +635,11 @@ buffer::prepare::prepare(buffer& b, buffer::size_type len) :
 		throw std::invalid_argument("attempt to reserve 0 bytes");
 }
 
+buffer::prepare::~prepare() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
 void
 buffer::prepare::commit() ILIAS_NET2_NOTHROW
 {

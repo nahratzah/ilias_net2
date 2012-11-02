@@ -1085,12 +1085,14 @@ public:
 	}
 #endif
 
+	~prepare() ILIAS_NET2_NOTHROW;
+
 	/*
 	 * Return the address of memory at offset.
 	 * Will return nullptr if off falls outside of the range.
 	 */
 	void*
-	addr(size_type off = 0) const ILIAS_NET2_NOTHROW
+	data(size_type off = 0) const ILIAS_NET2_NOTHROW
 	{
 		return this->m_segment.data(off);
 	}
