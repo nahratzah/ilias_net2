@@ -17,7 +17,6 @@
 #define ILIAS_NET2_CP_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <ilias/net2/types.h>
 #include <ilias/net2/buffer.h>
 #include <cstdint>
 #include <string>
@@ -55,7 +54,7 @@ struct cp_encdec
 namespace endian_detail {
 
 
-#ifdef BIG_ENDIAN
+#ifdef IS_BIG_ENDIAN
 template<typename T>
 T
 big_endian(const T& v) ILIAS_NET2_NOTHROW
@@ -75,7 +74,7 @@ template<typename T, int B = 0, bool Stop = 2 * B + 1 >= sizeof(T)>
 struct endian_helper
 {
 private:
-	static constexpr unsigned int byte_digits = std::numeric_limits<uint8_t>::digits;
+	static constexpr unsigned int byte_digits = std::numeric_limits<std::uint8_t>::digits;
 	static constexpr unsigned int t_digits = std::numeric_limits<T>::digits;
 	/* Mask the lowest byte in T. */
 	static constexpr T mask_byte = ((T(1) << byte_digits) - 1);
@@ -91,7 +90,7 @@ private:
 	static constexpr unsigned int distance = t_digits - byte_digits - 2 * byte_digits * B;
 
 	/* Flip the byte B in T from byte order. */
-	static constexpr T
+	static T
 	flip(T v) ILIAS_NET2_NOTHROW
 	{
 		return ((v & low_mask) << distance) | ((v & high_mask) >> distance) | (v & not_mask);
@@ -99,7 +98,7 @@ private:
 
 public:
 	/* Recursively flip the byte order in T. */
-	static constexpr T
+	static T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return endian_helper<T, B + 1>::flip_endian(flip(v));
@@ -111,7 +110,7 @@ struct endian_helper<T, B, true>
 {
 public:
 	/* Byte B cannot be flipped, therefore this is the identity operation. */
-	static constexpr T
+	static T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return v;
@@ -119,13 +118,13 @@ public:
 };
 
 template<typename T>
-T
+inline T
 big_endian(const T& v)
 {
 	return endian_helper<T>::flip_endian(v);
 }
 template<typename T>
-T
+inline T
 host_endian(const T& v)
 {
 	return endian_helper<T>::flip_endian(v);
