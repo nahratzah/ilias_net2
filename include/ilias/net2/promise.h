@@ -525,7 +525,7 @@ public:
 	/* Set the value of the promise, using value_type constructor. */
 	template<typename... Args>
 	bool
-	set_value(Args&&... args)
+	set(Args&&... args)
 	{
 		state*const s = this->get_state();
 		if (!s)
