@@ -119,7 +119,6 @@ list (APPEND srcs
 	src/memory.c
 	src/obj_manager.c
 	src/obj_window.c
-	src/promise.c
 	src/protocol.c
 	src/semaphore.c
 	src/sign.c
