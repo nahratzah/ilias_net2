@@ -76,7 +76,7 @@ buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
 
 	/* If the segment contained sensitive data, wipe it. */
 	if (sensitive)
-		net2_secure_zero(ptr, sz);
+		zero_memory(ptr, sz);
 
 	/* Free memory to pool. */
 	bool ok = m_pool.deallocate_bytes(std::nothrow, ptr, sz);
