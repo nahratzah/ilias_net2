@@ -77,11 +77,25 @@ protected:
 		public refcount_base<basic_state>
 	{
 	private:
-		enum ready_state_t {
-			NIL,
-			ASSIGNING,
-			DONE
-		};
+		/*
+		 * ready_state_t is actually an enum, but it seems at least
+		 * clang-3.1 doesn't generate atomic instructions for
+		 * std::atomic<ready_state_t> (it calls an external function
+		 * instead).
+		 *
+		 * To help the compiler a bit, we use an int instead.
+		 *
+		 * enum ready_state_t {
+		 *	NIL,
+		 *	ASSIGNING,
+		 *	DONE
+		 * };
+		 */
+
+		typedef int ready_state_t;
+		static const ready_state_t NIL = 17;
+		static const ready_state_t ASSIGNING = 19;
+		static const ready_state_t DONE = 23;
 
 		std::exception_ptr m_except;
 		std::atomic<ready_state_t> m_ready;
