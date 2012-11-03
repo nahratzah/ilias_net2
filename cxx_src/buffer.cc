@@ -217,6 +217,30 @@ buffer::clear() ILIAS_NET2_NOTHROW
 	this->m_list.clear();
 }
 
+/* Only called by buffer::drain. */
+inline buffer::list_type::iterator
+buffer::drain_internal(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
+{
+	buffer::list_type::iterator i = this->m_list.begin();
+
+	/* Copy entire buffers. */
+	while (i->second.length() >= len) {
+		const size_type cplen = i->second.copyout(out);
+
+		out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
+		len -= cplen;
+		++i;
+	}
+
+	/* Copy last, partial buffer. */
+	if (len > 0) {
+		assert(i != this->m_list.end());
+		i->second.copyout(out, len);
+	}
+
+	return i;
+}
+
 void
 buffer::drain(void* out, buffer::size_type len) throw (std::out_of_range)
 {
@@ -228,30 +252,13 @@ buffer::drain(void* out, buffer::size_type len) throw (std::out_of_range)
 		throw std::out_of_range("drain len exceeds buffer length");
 
 	/* Find last entry starting at/after len. */
-	list_type::iterator nw_start = this->find_offset(len);
-
-	if (out) {
-		/* Copy all contents up to nw_start. */
-		for (list_type::const_iterator i = this->m_list.begin(); i != nw_start; ++i) {
-			const size_type cplen = i->second.length();
-			assert(len >= i->first + cplen);
-			i->second.copyout(out, cplen);
-			out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
-		}
-
-		/* Copy part of nw_start that will be drained. */
-		if (nw_start != this->m_list.end()) {
-			const size_type cplen = len - nw_start->first;
-			nw_start->second.copyout(out, cplen);
-			out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
-		}
-	}
+	list_type::iterator nw_start = (out ? this->drain_internal(out, len) : this->find_offset(len));
 
 	/*
 	 * If no such entry exists, simply clear the list.
 	 */
 	if (nw_start == this->m_list.end()) {
-		this->m_list.clear();
+		this->clear();
 		return;
 	}
 

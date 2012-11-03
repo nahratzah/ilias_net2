@@ -613,6 +613,13 @@ private:
 			copy_memory(dst, this->m_segment->data(this->m_off), len);
 		}
 
+		size_type
+		copyout(void* dst) const ILIAS_NET2_NOTHROW
+		{
+			copy_memory(dst, this->m_segment->data(this->m_off), this->m_len);
+			return this->m_len;
+		}
+
 		void*
 		data(size_type off = 0) const ILIAS_NET2_NOTHROW
 		{
@@ -794,6 +801,14 @@ public:
 		lhs.swap(rhs);
 	}
 
+private:
+	/*
+	 * Performs copyout and returns the iterator to the end of the drained region.
+	 * Internal use only, will (probably) be inlined only.
+	 */
+	ILIAS_NET2_LOCAL list_type::iterator drain_internal(void*, size_type) ILIAS_NET2_NOTHROW;
+
+public:
 	/* Clear the buffer. */
 	void clear() ILIAS_NET2_NOTHROW;
 	/* Drain bytes from the buffer into supplied void* buffer. */
