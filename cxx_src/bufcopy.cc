@@ -19,7 +19,7 @@
 
 
 namespace ilias {
-namespace memcpy_detail {
+namespace {
 
 
 using std::uintptr_t;
@@ -153,7 +153,7 @@ prefetch_r(const T* addr)
  */
 template<typename T>
 inline void
-prefetch_w(const T* addr)
+prefetch_w(T* addr)
 {
 #if defined(__GNUC__) || defined(__clang__)
 	__builtin_prefetch(addr, 1, 0);
@@ -259,12 +259,83 @@ cp(void*const dst0, const void*const src0, const size_t len0) ILIAS_NET2_NOTHROW
 }
 
 
-} /* namespace ilias::memcpy_detail */
+} /* namespace ilias::[unnamed namespace] */
+
 
 void
 buffer::copy_memory(void* dst, const void* src, size_type len) ILIAS_NET2_NOTHROW
 {
-	memcpy_detail::cp(dst, src, len);
+	cp(dst, src, len);
+}
+
+
+void
+buffer::zero_memory(void* dst, size_type len0) ILIAS_NET2_NOTHROW
+{
+	std::uintptr_t addr = int_addr(dst);
+	size_type len = len0;
+
+	/* Zero non-aligned memory per byte, until we reach alignment. */
+	if (addr & ADDR_MASK) {
+		prefetch_w(reinterpret_cast<void*>(apply_addr_mask(dst)));
+
+		/* Byte pointer at which we are zeroing. */
+		std::uint8_t* byte = reinterpret_cast<std::uint8_t*>(addr);
+		/* Length of bytes to be zeroed. */
+		size_type i = std::min(len, ADDR_MASK - (addr & ADDR_MASK));
+		len -= i;
+
+		while (i-- > 0)
+			*byte++ = 0;
+		addr = int_addr(byte);
+	}
+
+	/* Invariant check. */
+	assert(addr + len == int_addr(dst) + len0);
+	assert((addr & ADDR_MASK) == 0 || len == 0);
+
+	/* Zero aligned memory per word. */
+	if (len >= BYTES) {
+		/* Word pointer at which we are zeroing. */
+		word_t* word = reinterpret_cast<word_t*>(addr);
+		/* # of words to be zeroed. */
+		size_type i = len / BYTES;
+		len %= BYTES;
+
+		while (i-- > 0) {
+			prefetch_w(word);
+			*word++ = 0;
+		}
+		addr = int_addr(word);
+	}
+
+	/* Invariant check. */
+	assert(addr + len == int_addr(dst) + len0);
+	assert((addr & ADDR_MASK) == 0 || len == 0);
+	assert(len < BYTES);
+
+	/* Zero any remaining bytes. */
+	if (len > 0) {
+		std::uint8_t* byte = reinterpret_cast<std::uint8_t*>(addr);
+		prefetch_w(byte);
+
+		size_type i = len;
+		while (i-- > 0)
+			*byte++ = 0;
+		addr = int_addr(byte);
+	}
+
+	/* Invariant check. */
+	assert(addr + len == int_addr(dst) + len0);
+	assert(len == 0);
+
+	/* Post-condition check. */
+#ifndef NDEBUG
+	for (std::uint8_t* p = reinterpret_cast<std::uint8_t*>(dst);
+	    p != reinterpret_cast<uint8_t*>(dst) + len0;
+	    ++p)
+		assert(*p == 0);
+#endif
 }
 
 

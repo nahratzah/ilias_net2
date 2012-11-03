@@ -104,6 +104,11 @@ public:
 	 */
 	static void copy_memory(void*, const void*, size_type) ILIAS_NET2_NOTHROW;
 
+	/*
+	 * A bzero that attempts not to pollute the CPU cache.
+	 */
+	static void zero_memory(void*, size_type) ILIAS_NET2_NOTHROW;
+
 private:
 	class mem_segment;
 
