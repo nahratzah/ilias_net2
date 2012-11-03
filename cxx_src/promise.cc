@@ -20,170 +20,84 @@
 namespace ilias {
 
 
+basic_future::basic_future(basic_state* s) :
+	m_state(s)
+{
+	if (!s)
+		uninitialized_promise::throw_me();
+}
+
+bool
+basic_future::ready() const ILIAS_NET2_NOTHROW
+{
+	basic_state*const s = this->get_state();
+	return (s && s->ready());
+}
+
+bool
+basic_future::has_exception() const ILIAS_NET2_NOTHROW
+{
+	basic_state*const s = this->get_state();
+	return (s && s->has_exception());
+}
+
+
+basic_promise::~basic_promise() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+
+basic_promise::basic_state::~basic_state() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+
+namespace {
+
+/*
+ * Pre-allocated broken promise, so we can destroy without throwing an exception.
+ */
+const ILIAS_NET2_LOCAL std::exception_ptr unref = std::make_exception_ptr(broken_promise());
+
+} /* namespace ilias::<unnamed> */
+
 void
-do_promise_deref_exception(struct net2_promise *p, int fin, uint32_t err)
-    throw (promise_deref_error)
+basic_promise::mark_unreferenced::operator()(basic_state* s) const ILIAS_NET2_NOTHROW
 {
-	if (p == NULL)
-		throw promise_deref_noinit_error();
-
-	switch (fin) {
-	case NET2_PROM_FIN_UNFINISHED:
-		throw promise_unfinished();
-	case NET2_PROM_FIN_OK:
-		return;
-	case NET2_PROM_FIN_CANCEL:
-		throw promise_canceled();
-	case NET2_PROM_FIN_ERROR:
-		throw promise_finerr_error(err);
-	case NET2_PROM_FIN_UNREF:
-		throw promise_unref_error();
-	case NET2_PROM_FIN_FAIL:
-		throw promise_fail_error();
-	default:
-		throw promise_deref_error();	/* Don't have anything more specific. */
-	}
-
-	/* UNREACHABLE */
-	assert(0);
+	s->set_exception(unref);
+	refcnt_release(*s);
 }
+
+
+broken_promise::broken_promise() :
+	std::runtime_error("broken promise: destroyed without setting a value")
+{
+	return;
+}
+
+broken_promise::~broken_promise() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
 
 void
-do_promise_fin_exception(struct net2_promise *p, int err)
-    throw (std::bad_alloc, std::invalid_argument, promise_fin_error)
+uninitialized_promise::throw_me()
 {
-	if (p == NULL)
-		throw promise_fin_noinit_error();
-
-	switch (err) {
-	case EINVAL:
-		if (!net2_promise_is_finished(p))
-			throw std::invalid_argument("promise finalization");
-		throw promise_fin_twice_error();
-	case ENOMEM:
-		throw std::bad_alloc();
-	}
+	throw uninitialized_promise();
 }
 
-
-promise_error::~promise_error() ILIAS_NET2_NOTHROW
+uninitialized_promise::uninitialized_promise() :
+	std::logic_error("uninitialized promise")
 {
 	return;
 }
-const char*
-promise_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise error";
-}
 
-promise_noinit_error::~promise_noinit_error() ILIAS_NET2_NOTHROW
+uninitialized_promise::~uninitialized_promise() ILIAS_NET2_NOTHROW
 {
 	return;
-}
-const char*
-promise_noinit_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise uninitalized";
-}
-
-promise_deref_error::~promise_deref_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_deref_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise null dereference";
-}
-
-promise_deref_noinit_error::~promise_deref_noinit_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_deref_noinit_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise unreferenced without initialization";
-}
-
-promise_canceled::~promise_canceled() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_canceled::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise canceled";
-}
-
-promise_unfinished::~promise_unfinished() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_unfinished::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise unfinished";
-}
-
-promise_finerr_error::~promise_finerr_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_finerr_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise completed with error";
-}
-
-promise_unref_error::~promise_unref_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_unref_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise unreferenced before completion";
-}
-
-promise_fail_error::~promise_fail_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_fail_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise failed to execute";
-}
-
-promise_fin_error::~promise_fin_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_fin_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise assign finish error";
-}
-
-promise_fin_twice_error::~promise_fin_twice_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_fin_twice_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise already finished";
-}
-
-promise_fin_noinit_error::~promise_fin_noinit_error() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-const char*
-promise_fin_noinit_error::what() const ILIAS_NET2_NOTHROW
-{
-	return "ilias::promise uninitialized while setting final state";
 }
 
 
