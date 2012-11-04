@@ -57,6 +57,13 @@ public:
 	}
 #endif
 
+	template<typename U>
+	workq_int_pointer(const workq_int_pointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_acquire(*this->m_ptr))) :
+		m_ptr(nullptr)
+	{
+		this->reset(o.get());
+	}
+
 	workq_int_pointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_acquire(*this->m_ptr))) :
 		m_ptr(nullptr)
 	{
@@ -171,6 +178,14 @@ public:
 	}
 #endif
 
+	template<typename U>
+	workq_int_pointer&
+	operator=(const workq_int_pointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
+	{
+		this->reset(o.get());
+		return *this;
+	}
+
 	workq_int_pointer&
 	operator=(pointer p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
 	{
@@ -267,13 +282,25 @@ public:
 
 	/* Assign and lock job. */
 	bool
-	lock(job& j, bool acquire_ref = true) ILIAS_NET2_NOTHROW
+	lock(const workq_int_pointer<job>& j) ILIAS_NET2_NOTHROW
 	{
 		assert(!this->locked());
 
-		this->m_ptr.reset(&j, acquire_ref);
+		this->m_ptr = j;
 		return this->lock();
 	}
+
+#if HAS_RVALUE_REF
+	/* Assign and lock job. */
+	bool
+	lock(workq_int_pointer<job>&& j) ILIAS_NET2_NOTHROW
+	{
+		assert(!this->locked());
+
+		this->m_ptr = std::move(j);
+		return this->lock();
+	}
+#endif
 
 	const workq_int_pointer<job>&
 	get() const ILIAS_NET2_NOTHROW
@@ -315,8 +342,9 @@ public:
 	unlock() ILIAS_NET2_NOTHROW
 	{
 		assert(this->m_locked);
-		this->m_ptr->clear_running();
+		this->m_ptr->clear_running(MOVE(this->m_ptr));
 		this->m_ptr.reset();
+		this->m_locked = false;
 	}
 
 	RVALUE(workq_int_pointer<job>)
@@ -356,10 +384,7 @@ workq::get_runnable_job() ILIAS_NET2_NOTHROW
 	runq_list::unlink_wait j;
 
 	while ((j = this->runq.pop_front_nowait())) {
-		/* Move ownership (int refcnt) from list to pointer. */
-		const workq_int_pointer<job> ptr(j.get(), false);
-
-		if (rj.lock(*ptr))
+		if (rj.lock(j.get()))
 			return std::move(rj);
 
 		j.release();
@@ -369,14 +394,25 @@ workq::get_runnable_job() ILIAS_NET2_NOTHROW
 }
 
 void
-workq::job::clear_running() ILIAS_NET2_NOTHROW
+workq::job::clear_running(const workq_int_pointer<job>& ptr) ILIAS_NET2_NOTHROW
 {
+	assert(this == ptr.get());	/* Ensure this pointer is owned. */
+
 	const auto old = this->m_state.fetch_and(~STATE_RUNNING, std::memory_order_release);
 	assert(old & STATE_RUNNING);
-	if (old & STATE_ACTIVE) {
-		if (this->get_workq().runq.push_back(*this))
-			workq_int_acquire(*this);
-	}
+	if (old & STATE_ACTIVE)
+		this->get_workq().runq.push_back(ptr);
+}
+
+void
+workq::job::clear_running(workq_int_pointer<job>&& ptr) ILIAS_NET2_NOTHROW
+{
+	assert(this == ptr.get());	/* Ensure this pointer is owned. */
+
+	const auto old = this->m_state.fetch_and(~STATE_RUNNING, std::memory_order_release);
+	assert(old & STATE_RUNNING);
+	if (old & STATE_ACTIVE)
+		this->get_workq().runq.push_back(std::move(ptr));
 }
 
 workq::job::~job() ILIAS_NET2_NOTHROW
@@ -411,8 +447,12 @@ workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 void
 workq::coroutine_job::workq_service_coroutines::activate(coroutine_job& cj, runnable_job& rj) ILIAS_NET2_NOTHROW
 {
+	/* XXX implement cast. */
 	workq_int_pointer<job> p = rj.release();
-	const bool enqueue = this->m_coroutines.push_back(cj);
+	workq_int_pointer<coroutine_job> cj_ptr(&cj);
+	assert(cj_ptr.get() == p.get());
+
+	const bool enqueue = this->m_coroutines.push_back(cj_ptr);
 	assert(enqueue);
 	p.release();
 }
@@ -424,7 +464,7 @@ workq::coroutine_job::workq_service_coroutines::get_coroutine() ILIAS_NET2_NOTHR
 
 	for (coroutine_list::iterator cr_iter = this->m_coroutines.begin();
 	    cr_iter != this->m_coroutines.end();
-	    cr_iter = this->unlink_coroutine(MOVE(cr_iter))) {
+	    cr_iter = this->m_coroutines.erase(cr_iter)) {
 		rv.second = cr_iter->m_idx.fetch_add(1, std::memory_order_acquire);
 		if (rv.second < cr_iter->fn.size()) {
 			rv.first = &*cr_iter;
@@ -435,33 +475,20 @@ workq::coroutine_job::workq_service_coroutines::get_coroutine() ILIAS_NET2_NOTHR
 	return MOVE(rv);
 }
 
-/*
- * Ensures the co-routine pointed to by the iterator is removed from the list and
- * returns its successor.
- */
-RVALUE(workq::coroutine_job::workq_service_coroutines::coroutine_list::iterator)
-workq::coroutine_job::workq_service_coroutines::unlink_coroutine(
-    RVALUE_REF(workq::coroutine_job::workq_service_coroutines::coroutine_list::iterator) cr_iter) ILIAS_NET2_NOTHROW
+void
+workq::coroutine_job::workq_service_coroutines::push_coroutine(const workq_int_pointer<workq::coroutine_job>& crj) ILIAS_NET2_NOTHROW
 {
-	return this->m_coroutines.erase_and_dispose(cr_iter, [](coroutine_job* j) {
-		workq_int_release(*j);
-	});
+	const bool ok = this->m_coroutines.push_back(crj);
+	assert(ok);
 }
-
-/*
- * Unlinks the coroutine from the list of runnable co-routines.
- * Returns pointer with ownership on success, nullptr on failure.
- */
-RVALUE(workq_int_pointer<workq::coroutine_job>)
-workq::coroutine_job::workq_service_coroutines::unlink_coroutine(workq::coroutine_job& crj) ILIAS_NET2_NOTHROW
+#if HAS_RVALUE_REF
+void
+workq::coroutine_job::workq_service_coroutines::push_coroutine(workq_int_pointer<workq::coroutine_job>&& crj) ILIAS_NET2_NOTHROW
 {
-	workq_int_pointer<coroutine_job> ptr = nullptr;
-	coroutine_list::iterator cr_iter = this->m_coroutines.iterator_to(crj);
-	this->m_coroutines.erase_and_dispose(cr_iter, [&ptr](coroutine_job* j) {
-		ptr.reset(j, false);
-	});
-	return MOVE(ptr);
+	const bool ok = this->m_coroutines.push_back(std::move(crj));
+	assert(ok);
 }
+#endif
 
 bool
 workq::coroutine_job::workq_service_coroutines::run_coroutine() ILIAS_NET2_NOTHROW
@@ -480,13 +507,27 @@ workq::coroutine_job::workq_service_coroutines::run_coroutine() ILIAS_NET2_NOTHR
 	assert(rel > 0);
 	if (rel == 1) {
 		/* Unlink from co-routine list. */
-		this->m_coroutines.erase(this->m_coroutines.iterator_to(*crj.first));
+		{
+			coroutine_list::iterator i = this->m_coroutines.iterator_to(*crj.first);
+			this->m_coroutines.erase(i);
+		}
 		/* Clear running bit. */
-		crj.first->clear_running();
+		crj.first->clear_running(crj.first);
 	}
 
 	/* We ran a co-routine. */
 	return true;
+}
+
+
+bool
+workq_service::do_work() ILIAS_NET2_NOTHROW
+{
+	if (this->run_coroutine())
+		return true;
+
+	/* No work was done. */
+	return false;
 }
 
 

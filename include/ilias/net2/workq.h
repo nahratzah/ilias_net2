@@ -76,6 +76,26 @@ protected:
 	}
 };
 
+class identity_comparable
+{
+protected:
+	identity_comparable() ILIAS_NET2_NOTHROW { /* Empty body. */ }
+	identity_comparable(const identity_comparable&) ILIAS_NET2_NOTHROW { /* Empty body. */ }
+
+public:
+	bool
+	operator==(const identity_comparable& o) const ILIAS_NET2_NOTHROW
+	{
+		return (this == &o);
+	}
+
+	bool
+	operator!=(const identity_comparable& o) const ILIAS_NET2_NOTHROW
+	{
+		return !(this == &o);
+	}
+};
+
 } /* namespace ilias::<unnamed> */
 
 
@@ -89,10 +109,46 @@ protected:
 template<typename Type> class workq_int_pointer;
 
 
+namespace {
+
+
+template<typename Type>
+struct workq_int_refcnt_acquire
+{
+	RVALUE(workq_int_pointer<Type>)
+	operator()(Type* p) const ILIAS_NET2_NOTHROW
+	{
+		return MOVE(workq_int_pointer<Type>(p, false));
+	}
+};
+template<typename Type>
+struct workq_int_refcnt_release
+{
+	Type*
+	operator()(const workq_int_pointer<Type>& p) const ILIAS_NET2_NOTHROW
+	{
+		workq_int_pointer<Type> clone = p;
+		return clone.release();
+	}
+
+#if HAS_RVALUE_REF
+	Type*
+	operator()(workq_int_pointer<Type>&& p) const ILIAS_NET2_NOTHROW
+	{
+		return p.release();
+	}
+#endif
+};
+
+
+}
+
+
 class ILIAS_NET2_EXPORT workq :
 	public ll_base_hook<wq_runq_tag>,
 	public workq_int_refcnt,
-	public refcount_base<workq>
+	public refcount_base<workq>,
+	public identity_comparable
 {
 friend class workq_service;	/* Needs access to coroutine_job, job. */
 
@@ -102,7 +158,10 @@ private:
 	class coroutine_job;
 	class runnable_job;
 
-	typedef ll_list<ll_base<job, wq_runq_tag> > runq_list;
+	typedef ll_smartptr_list<workq_int_pointer<job>,
+	    ll_base<job, wq_runq_tag>,
+	    workq_int_refcnt_acquire<job>,
+	    workq_int_refcnt_release<job> > runq_list;
 
 	const refpointer<workq_service> wqs;
 	runq_list runq;
@@ -125,7 +184,8 @@ private:
 
 class ILIAS_NET2_EXPORT workq::job :
 	public ll_base_hook<wq_runq_tag>,
-	public workq_int_refcnt
+	public workq_int_refcnt,
+	public identity_comparable
 {
 friend class workq::runnable_job;
 
@@ -149,7 +209,10 @@ protected:
 		/* Empty body. */
 	}
 
-	void clear_running() ILIAS_NET2_NOTHROW;
+	void clear_running(const workq_int_pointer<job>&) ILIAS_NET2_NOTHROW;
+#if HAS_RVALUE_REF
+	void clear_running(workq_int_pointer<job>&&) ILIAS_NET2_NOTHROW;
+#endif
 
 public:
 	virtual ~job() ILIAS_NET2_NOTHROW;
@@ -207,7 +270,10 @@ class ILIAS_NET2_LOCAL workq::coroutine_job::workq_service_coroutines
 friend class workq::coroutine_job;
 
 private:
-	typedef ll_list<ll_base<workq::coroutine_job, wq_coroutine_tag> > coroutine_list;
+	typedef ll_smartptr_list<workq_int_pointer<coroutine_job>,
+	    ll_base<coroutine_job, wq_coroutine_tag>,
+	    workq_int_refcnt_acquire<coroutine_job>,
+	    workq_int_refcnt_release<coroutine_job> > coroutine_list;
 
 	/* Active co-routines. */
 	coroutine_list m_coroutines;
@@ -215,16 +281,10 @@ private:
 	void activate(coroutine_job&, runnable_job&) ILIAS_NET2_NOTHROW;
 	std::pair<workq_int_pointer<coroutine_job>, fn_list::size_type> get_coroutine() ILIAS_NET2_NOTHROW;
 
-	inline void
-	push_coroutine(coroutine_job& crj) ILIAS_NET2_NOTHROW
-	{
-		workq_int_acquire(crj);
-		const bool ok = this->m_coroutines.push_back(crj);
-		assert(ok);
-	}
-
-	RVALUE(coroutine_list::iterator) unlink_coroutine(RVALUE_REF(coroutine_list::iterator)) ILIAS_NET2_NOTHROW;
-	RVALUE(workq_int_pointer<coroutine_job>) unlink_coroutine(coroutine_job&) ILIAS_NET2_NOTHROW;
+	void push_coroutine(const workq_int_pointer<coroutine_job>&) ILIAS_NET2_NOTHROW;
+#if HAS_RVALUE_REF
+	void push_coroutine(workq_int_pointer<coroutine_job>&&) ILIAS_NET2_NOTHROW;
+#endif
 
 protected:
 	workq_service_coroutines() ILIAS_NET2_NOTHROW
@@ -249,7 +309,8 @@ protected:
 
 class workq_service :
 	public refcount_base<workq_service>,
-	public workq::coroutine_job::workq_service_coroutines
+	public workq::coroutine_job::workq_service_coroutines,
+	public identity_comparable
 {
 public:
 	workq_service() ILIAS_NET2_NOTHROW
@@ -258,6 +319,9 @@ public:
 	}
 
 	void wakeup(std::size_t);	/* XXX stub. */
+
+private:
+	bool do_work() ILIAS_NET2_NOTHROW;
 };
 
 
