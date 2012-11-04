@@ -98,46 +98,44 @@ list (APPEND headers
 list (APPEND cluster_headers
 	)
 list (APPEND srcs
-	src/acceptor.c
-	src/bitset.c
-	src/carver.c
-	src/signed_carver.c
-	src/datapipe.c
-	src/cneg_stage1.c
-	src/cneg_key_xchange.c
-	src/conn_negotiator.c
-	src/conn_keys.c
-	src/connection.c
-	src/connstats.c
-	src/connwindow.c
-	src/udp_connection.c
-	src/context.c
-	src/context_xchange.c
-	src/encdec_ctx.c
-	src/enc.c
-	src/init.c
-	src/memory.c
-	src/obj_manager.c
-	src/obj_window.c
-	src/protocol.c
-	src/semaphore.c
-	src/sign.c
-	src/signset.c
-	src/sockdgram.c
-	src/stream_acceptor.c
-	src/types.c
-	src/tx_callback.c
-	src/workq.c
-	src/xchange.c
+	# src/acceptor.c
+	# src/bitset.c
+	# src/carver.c
+	# src/signed_carver.c
+	# src/datapipe.c
+	# src/cneg_stage1.c
+	# src/cneg_key_xchange.c
+	# src/conn_negotiator.c
+	# src/conn_keys.c
+	# src/connection.c
+	# src/connstats.c
+	# src/connwindow.c
+	# src/udp_connection.c
+	# src/context.c
+	# src/context_xchange.c
+	# src/encdec_ctx.c
+	# src/enc.c
+	# src/init.c
+	# src/memory.c
+	# src/obj_manager.c
+	# src/obj_window.c
+	# src/protocol.c
+	# src/semaphore.c
+	# src/sign.c
+	# src/signset.c
+	# src/sockdgram.c
+	# src/stream_acceptor.c
+	# src/types.c
+	# src/tx_callback.c
+	# src/workq.c
+	# src/xchange.c
 	)
 list (APPEND cluster_srcs
 	)
 
 list (APPEND cxx_srcs
-	cxx_src/acceptor.cc
 	cxx_src/buffer.cc
 	cxx_src/bufcopy.cc
-	cxx_src/connection.cc
 	cxx_src/cp.cc
 	cxx_src/hash.cc
 	cxx_src/ll.cc
@@ -195,50 +193,52 @@ check_cxx_source_compiles ("${STD_CONSTRUCTOR_TRAITS_CC}" HAS_CONSTRUCTOR_TRAITS
 # Test if hardware is big endian.
 test_big_endian (IS_BIG_ENDIAN)
 
-list (APPEND headers
-	include/ilias/net2/bsd_compat/error.h
-	include/ilias/net2/bsd_compat/clock.h
-	include/ilias/net2/bsd_compat/secure_random.h
-	include/ilias/net2/bsd_compat/minmax.h
-	include/ilias/net2/bsd_compat/endian.h
-	include/ilias/net2/bsd_compat/atomic.h
-	include/ilias/net2/bsd_compat/win32_atomic.h
-	include/ilias/net2/bsd_compat/spl_atomic.h
-	)
-list (APPEND srcs
-	src/error.c
-	src/clock.c
-	src/spl_atomic.c
-	)
-if (NOT HAS_SHA2)
-	list (APPEND headers include/ilias/net2/bsd_compat/sha2.h)
-	list (APPEND srcs src/sha2.c)
-endif (NOT HAS_SHA2)
-if (NOT HAS_ARC4RANDOM)
-	list (APPEND srcs src/secure_random.c)
-endif (NOT HAS_ARC4RANDOM)
-if (NOT HAVE_GETOPT_H)
-	list (APPEND headers include/ilias/net2/bsd_compat/getopt.h)
-	list (APPEND srcs src/getopt_long.c)
-endif (NOT HAVE_GETOPT_H)
-if (NOT HAVE_SYS_QUEUE_H)
-	list (APPEND headers include/ilias/net2/bsd_compat/queue.h)
-endif (NOT HAVE_SYS_QUEUE_H)
-if (NOT HAVE_SYS_TREE_H)
-	list (APPEND headers include/ilias/net2/bsd_compat/queue.h)
-endif (NOT HAVE_SYS_TREE_H)
+#list (APPEND headers
+#	include/ilias/net2/bsd_compat/error.h
+#	include/ilias/net2/bsd_compat/clock.h
+#	include/ilias/net2/bsd_compat/secure_random.h
+#	include/ilias/net2/bsd_compat/minmax.h
+#	include/ilias/net2/bsd_compat/endian.h
+#	include/ilias/net2/bsd_compat/atomic.h
+#	include/ilias/net2/bsd_compat/win32_atomic.h
+#	include/ilias/net2/bsd_compat/spl_atomic.h
+#	)
+#list (APPEND srcs
+#	src/error.c
+#	src/clock.c
+#	src/spl_atomic.c
+#	)
+#if (NOT HAS_SHA2)
+#	list (APPEND headers include/ilias/net2/bsd_compat/sha2.h)
+#	list (APPEND srcs src/sha2.c)
+#endif (NOT HAS_SHA2)
+#if (NOT HAS_ARC4RANDOM)
+#	list (APPEND srcs src/secure_random.c)
+#endif (NOT HAS_ARC4RANDOM)
+#if (NOT HAVE_GETOPT_H)
+#	list (APPEND headers include/ilias/net2/bsd_compat/getopt.h)
+#	list (APPEND srcs src/getopt_long.c)
+#endif (NOT HAVE_GETOPT_H)
+#if (NOT HAVE_SYS_QUEUE_H)
+#	list (APPEND headers include/ilias/net2/bsd_compat/queue.h)
+#endif (NOT HAVE_SYS_QUEUE_H)
+#if (NOT HAVE_SYS_TREE_H)
+#	list (APPEND headers include/ilias/net2/bsd_compat/queue.h)
+#endif (NOT HAVE_SYS_TREE_H)
 
 #
 # Workq-io and workq-timer code is different for windows.
 #
 if (WIN32)
 	list (APPEND srcs
-	    src/workq_io-win32.c
-	    src/workq_timer-win32.c)
+	    # src/workq_io-win32.c
+	    # src/workq_timer-win32.c
+	    )
 else (WIN32)
 	list (APPEND srcs
-	    src/workq_io-ev.c
-	    src/workq_timer-ev.c)
+	    # src/workq_io-ev.c
+	    # src/workq_timer-ev.c
+	    )
 endif (WIN32)
 
 #
@@ -343,54 +343,54 @@ macro(net2type srclist n2tfile cfile hfile localprefix exportprefix hguard)
 	list (APPEND ${srclist} "${cfile}" "${hfile}")
 endmacro(net2type)
 
-net2type(srcs "types/packet.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/packet.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/packet.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_PACKET_H")
-net2type(srcs "types/handshake.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/handshake.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/handshake.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_HANDSHAKE_H")
-net2type(srcs "types/exchange.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/exchange.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/exchange.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_EXCHANGE_H")
-net2type(srcs "types/carver_msg.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/carver_msg.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/carver_msg.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_CARVER_MSG_H")
-net2type(srcs "types/signed_carver_header.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_SIGNED_CARVER_HEADER_H")
-net2type(srcs "types/connwindow_cp.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_CONNWINDOW_CP_H")
-net2type(srcs "types/stream_packet.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/stream_packet.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/stream_packet.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_STREAM_PACKET_H")
-net2type(srcs "types/signature.n2t"
-    "${CMAKE_CURRENT_BINARY_DIR}/signature.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/signature.h"
-    "static"
-    "ILIAS_NET2_LOCAL"
-    "ILIAS_NET2_SIGNATURE_H")
+# net2type(srcs "types/packet.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/packet.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/packet.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_PACKET_H")
+# net2type(srcs "types/handshake.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/handshake.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/handshake.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_HANDSHAKE_H")
+# net2type(srcs "types/exchange.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/exchange.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/exchange.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_EXCHANGE_H")
+# net2type(srcs "types/carver_msg.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/carver_msg.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/carver_msg.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_CARVER_MSG_H")
+# net2type(srcs "types/signed_carver_header.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/signed_carver_header.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_SIGNED_CARVER_HEADER_H")
+# net2type(srcs "types/connwindow_cp.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/connwindow_cp.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_CONNWINDOW_CP_H")
+# net2type(srcs "types/stream_packet.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/stream_packet.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/stream_packet.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_STREAM_PACKET_H")
+# net2type(srcs "types/signature.n2t"
+#     "${CMAKE_CURRENT_BINARY_DIR}/signature.c"
+#     "${CMAKE_CURRENT_BINARY_DIR}/signature.h"
+#     "static"
+#     "ILIAS_NET2_LOCAL"
+#     "ILIAS_NET2_SIGNATURE_H")
 
 
 if (USE_EMBEDDED_EV)
@@ -411,26 +411,26 @@ include_directories (${OPENSSL_INCLUDE_DIR})
 
 add_definitions(-DQUEUE_MACRO_DEBUG)
 
-if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
-	list (APPEND srcs src/mutex-pthreads.c)
-	list (APPEND srcs src/thread-pthreads.c)
-	list (APPEND srcs src/event-pthreads.c)
-
-	add_definitions(-pthread)
-	include (CheckIncludeFiles)
-	include (CheckFunctionExists)
-	set (CMAKE_EXTRA_INCLUDE_FILES "pthread.h")
-	set (CMAKE_REQUIRED_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
-	check_include_files("pthread.h;pthread_np.h" HAVE_PTHREAD_NP_H)
-	check_function_exists (pthread_set_name_np HAS_PTHREAD_SET_NAME_NP)
-	check_type_size (pthread_spinlock_t PTHREAD_SPINLOCK)
-	mark_as_advanced (HAS_PTHREAD_SET_NAME_NP)
-endif (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
-if (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
-	list (APPEND srcs src/mutex-win32.c)
-	list (APPEND srcs src/thread-win32.c)
-	list (APPEND srcs src/event-win32.c)
-endif (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
+#if (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
+#	list (APPEND srcs src/mutex-pthreads.c)
+#	list (APPEND srcs src/thread-pthreads.c)
+#	list (APPEND srcs src/event-pthreads.c)
+#
+#	add_definitions(-pthread)
+#	include (CheckIncludeFiles)
+#	include (CheckFunctionExists)
+#	set (CMAKE_EXTRA_INCLUDE_FILES "pthread.h")
+#	set (CMAKE_REQUIRED_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
+#	check_include_files("pthread.h;pthread_np.h" HAVE_PTHREAD_NP_H)
+#	check_function_exists (pthread_set_name_np HAS_PTHREAD_SET_NAME_NP)
+#	check_type_size (pthread_spinlock_t PTHREAD_SPINLOCK)
+#	mark_as_advanced (HAS_PTHREAD_SET_NAME_NP)
+#endif (Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
+#if (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
+#	list (APPEND srcs src/mutex-win32.c)
+#	list (APPEND srcs src/thread-win32.c)
+#	list (APPEND srcs src/event-win32.c)
+#endif (Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
 
 
 list (APPEND EXTRA_LIBS)
