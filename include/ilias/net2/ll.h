@@ -1353,7 +1353,7 @@ public:
 		pointer disposable = nullptr;
 		if (this->erase_element(i))
 			disposable = i.get();
-		iterator rv = i;
+		reverse_iterator rv = i;
 		++rv;
 		if (disposable) {
 			i = reverse_iterator();
@@ -1399,7 +1399,7 @@ public:
 	pop_back_nowait()
 	{
 		unlink_wait w;
-		this->list::pop_back_nowait(w);
+		this->list::pop_back_nowait(w.m_ptr);
 		return std::move(w);
 	}
 
@@ -1408,7 +1408,7 @@ public:
 	{
 		if (!w)
 			throw std::invalid_argument("cannot insert empty unlink_wait");
-		this->list::push_front_nowait(std::move(w.m_ptr));
+		this->list::push_front_nowait(w.m_ptr);
 	}
 
 	void
@@ -1416,7 +1416,7 @@ public:
 	{
 		if (!w)
 			throw std::invalid_argument("cannot insert empty unlink_wait");
-		this->list::push_back_nowait(std::move(w.m_ptr));
+		this->list::push_back_nowait(w.m_ptr);
 	}
 #endif
 
@@ -1490,7 +1490,7 @@ public:
 	iterator_to(const_reference v) ILIAS_NET2_NOTHROW
 	{
 		const_iterator iter;
-		this->list::iter_to(iter, *definition_type::hook(&v));
+		this->list::iter_to(iter, const_cast<typename ll_detail::hook&>(*definition_type::hook(&v)));
 		return MOVE(iter);
 	}
 
@@ -2329,7 +2329,7 @@ public:
 
 #if HAS_RVALUE_REF
 		unlink_wait(impl_type&& impl) ILIAS_NET2_NOTHROW :
-			m_impl(impl)
+			m_impl(std::move(impl))
 		{
 			/* Empty body. */
 		}
@@ -2562,34 +2562,34 @@ public:
 	const_iterator
 	begin() const ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.begin());
+		return const_iterator(this->m_list.begin());
 	}
 	const_iterator
 	end() const ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.end());
+		return const_iterator(this->m_list.end());
 	}
 
 	reverse_iterator
 	rbegin() ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.rbegin());
+		return reverse_iterator(this->m_list.rbegin());
 	}
 	reverse_iterator
 	rend() ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.rend());
+		return reverse_iterator(this->m_list.rend());
 	}
 
 	const_reverse_iterator
 	rbegin() const ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.rbegin());
+		return const_reverse_iterator(this->m_list.rbegin());
 	}
 	const_reverse_iterator
 	rend() const ILIAS_NET2_NOTHROW
 	{
-		return iterator(this->m_list.rend());
+		return const_reverse_iterator(this->m_list.rend());
 	}
 
 	RVALUE(iterator)
