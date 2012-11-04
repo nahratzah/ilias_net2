@@ -23,6 +23,8 @@
 namespace ilias {
 
 
+const buffer::size_type buffer::npos = std::numeric_limits<size_type>::max();
+
 /*
  * Buffer segment pool.
  *

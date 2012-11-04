@@ -24,6 +24,7 @@
 #include <ilias/net2/refcnt.h>
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 #ifdef WIN32
 #include <WinSock2.h>
@@ -43,7 +44,7 @@ public:
 	typedef uintptr_t size_type;
 
 	/* Indicator of invalid offset. */
-	static const size_type npos = std::numeric_limits<size_type>::max();
+	static const size_type npos;
 
 #if WIN32
 	typedef _WSABUF iovec;
@@ -630,7 +631,7 @@ private:
 	};
 
 	/* The type of the segment list. */
-	typedef std::vector<std::pair<size_t, segment_ref> > list_type;
+	typedef std::vector<std::pair<size_type, segment_ref> > list_type;
 
 	/* The list of segments. */
 	list_type m_list;
@@ -862,7 +863,7 @@ private:
 
 public:
 	/* Return a buffer with the range described by off, len. */
-	RVALUE_REF(buffer)
+	RVALUE(buffer)
 	subrange(size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range)
 	{
 		buffer result;
