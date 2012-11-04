@@ -280,12 +280,7 @@ public:
 		return (this->m_value.load(std::memory_order_relaxed) != 0);
 	}
 
-	RVALUE(pointer_flag)
-	get() const ILIAS_NET2_NOTHROW
-	{
-		deref_lock<const ll_ptr> lck(*this, false);
-		return decode(lck.lock());
-	}
+	RVALUE(pointer_flag) get() const ILIAS_NET2_NOTHROW;
 
 	bool
 	get_flag() const ILIAS_NET2_NOTHROW
@@ -832,6 +827,13 @@ hook::hook(HEAD) ILIAS_NET2_NOTHROW :
 	assert(!this->m_pred.get_flag());
 	assert(!this->m_succ.get_flag());
 	assert(this->m_refcnt.load(std::memory_order_relaxed) == 2);
+}
+
+inline RVALUE(pointer_flag)
+ll_ptr::get() const ILIAS_NET2_NOTHROW
+{
+	deref_lock<const ll_ptr> lck(*this, false);
+	return decode(lck.lock());
 }
 
 inline RVALUE(pointer_flag)
