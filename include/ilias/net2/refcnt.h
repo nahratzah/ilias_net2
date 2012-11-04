@@ -171,6 +171,13 @@ public:
 	}
 #endif
 
+	template<typename U>
+	refpointer(const refpointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_acquire(*this->m_ptr))) :
+		m_ptr(nullptr)
+	{
+		this->reset(o.get());
+	}
+
 	refpointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_acquire(*this->m_ptr))) :
 		m_ptr(nullptr)
 	{
@@ -272,6 +279,14 @@ public:
 	}
 #endif
 
+	template<typename T>
+	refpointer&
+	operator=(const refpointer<T>& p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
+	{
+		this->reset(p.get());
+		return *this;
+	}
+
 	refpointer&
 	operator=(pointer p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(refcnt_release(*this->m_ptr)) && noexcept(refcnt_acquire(*this->m_ptr)))
 	{
@@ -337,6 +352,44 @@ public:
 		return this->get();
 	}
 };
+
+
+template<typename U, typename T>
+refpointer<U>
+static_pointer_cast(const refpointer<T>& ptr) ILIAS_NET2_NOTHROW
+{
+	return refpointer<U>(static_cast<typename refpointer<U>::pointer>(ptr.get()));
+}
+
+template<typename U, typename T>
+refpointer<U>
+static_pointer_cast(refpointer<T>&& ptr) ILIAS_NET2_NOTHROW
+{
+	return refpointer<U>(static_cast<typename refpointer<U>::pointer>(ptr.release()), false);
+}
+
+
+template<typename U, typename T>
+refpointer<U>
+dynamic_pointer_cast(const refpointer<T>& ptr) ILIAS_NET2_NOTHROW
+{
+	return refpointer<U>(dynamic_cast<typename refpointer<U>::pointer>(ptr.get()));
+}
+
+
+template<typename U, typename T>
+refpointer<U>
+const_pointer_cast(const refpointer<T>& ptr) ILIAS_NET2_NOTHROW
+{
+	return refpointer<U>(const_cast<typename refpointer<U>::pointer>(ptr.get()));
+}
+
+template<typename U, typename T>
+refpointer<U>
+const_pointer_cast(refpointer<T>&& ptr) ILIAS_NET2_NOTHROW
+{
+	return refpointer<U>(const_cast<typename refpointer<U>::pointer>(ptr.release()), false);
+}
 
 
 } /* namespace ilias */
