@@ -19,8 +19,10 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/ll.h>
 #include <ilias/net2/refcnt.h>
+#include <atomic>
 #include <functional>
 #include <utility>
+#include <vector>
 
 namespace ilias {
 
