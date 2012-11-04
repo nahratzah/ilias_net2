@@ -21,6 +21,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iterator>
+#include <stdexcept>
 #include <utility>
 #ifdef HAVE_TYPE_TRAITS
 #include <type_traits>
@@ -573,86 +574,25 @@ public:
 	RVALUE(pointer_flag) pred() const ILIAS_NET2_NOTHROW;
 	std::size_t succ_end_distance(const hook*) const ILIAS_NET2_NOTHROW;
 
-private:
 	bool unlink_nowait() const ILIAS_NET2_NOTHROW;
 	void unlink_wait(const hook&) const ILIAS_NET2_NOTHROW;
-
-public:
+	void unlink_wait_inslock(const hook&) ILIAS_NET2_NOTHROW;
 	bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
 
 private:
-	bool
-	insert_lock() const ILIAS_NET2_NOTHROW
-	{
-		pointer_flag expect(nullptr, false);
-		pointer_flag assign(nullptr, true);
-		if (!(*this)->m_succ.compare_exchange(expect, assign))
-			return false;
-
-		/* Wait until m_pred is cleared. */
-		while ((*this)->m_pred.is_set()) {
-			//SPINWAIT();
-		}
-		return true;
-	}
-
-	bool
-	insert_between(const hook_ptr& pred, const hook_ptr& succ) const ILIAS_NET2_NOTHROW
-	{
-		pointer_flag orig_pred = (*this)->m_pred.exchange(pred, false);
-		pointer_flag orig_succ = (*this)->m_succ.exchange(succ, true);
-		assert(orig_pred.first == nullptr && !orig_pred.second);
-		assert(orig_succ.first == nullptr && orig_succ.second);
-
-		/*
-		 * Ensure pred will not go away from under us.
-		 *
-		 * We use a conditional lock, to ensure pred will only lock
-		 * if it isn't deleted.
-		 */
-		ll_ptr::deref_lock<ll_ptr> pred_lck(pred->m_pred, false);
-		if (!pred_lck.lock_conditional(false)) {
-			(*this)->m_succ.exchange(MOVE(orig_succ));
-			(*this)->m_pred.exchange(MOVE(orig_pred));
-			return false;
-		}
-
-		/* Change successor in pred from succ to this. */
-		hook_ptr expect = succ;
-		if (!pred->m_succ.compare_exchange(expect, *this)) {
-			(*this)->m_succ.exchange(MOVE(orig_succ));
-			(*this)->m_pred.exchange(MOVE(orig_pred));
-			return false;
-		}
-
-		/*
-		 * No failure past this point.
-		 */
-
-		/* Clear newly insert bit. */
-		(*this)->m_succ.clear_flag();
-
-		/* We are linked, unlock predecessor. */
-		pred_lck.unlock();
-
-		/* Fix predessor of succ. */
-		succ.pred();
-
-		return true;
-	}
+	bool insert_lock() const ILIAS_NET2_NOTHROW;
+	bool insert_between(const hook_ptr&, const hook_ptr&) const ILIAS_NET2_NOTHROW;
 
 public:
+	void insert_after_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
+	void insert_before_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
+
 	bool
 	insert_after(const hook_ptr& pred) const ILIAS_NET2_NOTHROW
 	{
 		if (!this->insert_lock())
 			return false;
-
-		hook_ptr succ;
-		do {
-			succ = MOVE(pred.succ().first);
-		} while (!this->insert_between(pred, succ));
-
+		this->insert_after_locked(pred);
 		return true;
 	}
 
@@ -661,12 +601,7 @@ public:
 	{
 		if (!this->insert_lock())
 			return false;
-
-		hook_ptr pred;
-		do {
-			pred = MOVE(succ.pred().first);
-		} while (!this->insert_between(pred, succ));
-
+		this->insert_before_locked(succ);
 		return true;
 	}
 };
@@ -702,6 +637,11 @@ protected:
 	bool push_back(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
 	bool push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
 	simple_iterator& iter_to(simple_iterator&, hook&) const ILIAS_NET2_NOTHROW;
+
+	simple_iterator& pop_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	simple_iterator& pop_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	simple_iterator& push_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	simple_iterator& push_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
 
 public:
 	bool
@@ -865,6 +805,14 @@ public:
 		assert(this->listhead == &lst.m_head);
 		assert(this->element);
 		return this->element.unlink(lst.m_head);
+	}
+
+	void
+	unlink_wait() const ILIAS_NET2_NOTHROW
+	{
+		assert(this->listhead);
+		assert(this->element);
+		return this->element.unlink_wait(*this->listhead);
 	}
 };
 
@@ -1263,6 +1211,7 @@ public:
 	class const_iterator;
 	class reverse_iterator;
 	class const_reverse_iterator;
+	class unlink_wait;
 
 private:
 	/* Aspects of iterators, combined to create actual iterators. */
@@ -1381,13 +1330,14 @@ public:
 
 	template<typename Dispose>
 	RVALUE(iterator)
-	erase_and_dispose(const iterator& i, Dispose dispose)
+	erase_and_dispose(iterator& i, Dispose dispose)
 		/* XXX needs noexcept specification. */
 	{
 		pointer disposable = nullptr;
 		if (this->erase_element(i))
 			disposable = i.get();
-		iterator rv = i++;
+		iterator rv = i;
+		++rv;
 		if (disposable) {
 			i = iterator();
 			dispose(disposable);
@@ -1397,13 +1347,14 @@ public:
 
 	template<typename Dispose>
 	RVALUE(reverse_iterator)
-	erase_and_dispose(const reverse_iterator& i, Dispose dispose)
+	erase_and_dispose(reverse_iterator& i, Dispose dispose)
 		/* XXX needs noexcept specification. */
 	{
 		pointer disposable = nullptr;
 		if (this->erase_element(i))
 			disposable = i.get();
-		reverse_iterator rv = i++;
+		iterator rv = i;
+		++rv;
 		if (disposable) {
 			i = reverse_iterator();
 			dispose(disposable);
@@ -1434,6 +1385,40 @@ public:
 	{
 		return this->push_front_element(&v);
 	}
+
+#if HAS_RVALUE_REF
+	unlink_wait&&
+	pop_front_nowait()
+	{
+		unlink_wait w;
+		this->list::pop_front_nowait(w.m_ptr);
+		return std::move(w);
+	}
+
+	unlink_wait&&
+	pop_back_nowait()
+	{
+		unlink_wait w;
+		this->list::pop_back_nowait(w);
+		return std::move(w);
+	}
+
+	void
+	push_front(unlink_wait&& w)
+	{
+		if (!w)
+			throw std::invalid_argument("cannot insert empty unlink_wait");
+		this->list::push_front_nowait(std::move(w.m_ptr));
+	}
+
+	void
+	push_back(unlink_wait&& w)
+	{
+		if (!w)
+			throw std::invalid_argument("cannot insert empty unlink_wait");
+		this->list::push_back_nowait(std::move(w.m_ptr));
+	}
+#endif
 
 	void
 	remove(const value_type& v) ILIAS_NET2_NOTHROW
@@ -1497,7 +1482,7 @@ public:
 	iterator_to(reference v) ILIAS_NET2_NOTHROW
 	{
 		iterator iter;
-		this->list::iter_to(iter, v);
+		this->list::iter_to(iter, *definition_type::hook(&v));
 		return MOVE(iter);
 	}
 
@@ -1505,7 +1490,7 @@ public:
 	iterator_to(const_reference v) ILIAS_NET2_NOTHROW
 	{
 		const_iterator iter;
-		this->list::iter_to(iter, v);
+		this->list::iter_to(iter, *definition_type::hook(&v));
 		return MOVE(iter);
 	}
 
@@ -2122,6 +2107,102 @@ public:
 
 	using iterator_resolver<const value_type, const_reverse_iterator>::operator==;
 	using iterator_resolver<const value_type, const_reverse_iterator>::operator!=;
+};
+
+template<typename Defn>
+class ll_list<Defn>::unlink_wait
+{
+friend class ll_list<Defn>;
+
+private:
+	ll_detail::list::simple_iterator m_ptr;
+
+	unlink_wait(const ll_detail::list::simple_iterator& p) ILIAS_NET2_NOTHROW :
+		m_ptr(p)
+	{
+		/* Empty body. */
+	}
+
+#if HAS_RVALUE_REF
+	unlink_wait(ll_detail::list::simple_iterator&& p) ILIAS_NET2_NOTHROW :
+		m_ptr(p)
+	{
+		/* Empty body. */
+	}
+#endif
+
+public:
+	unlink_wait() ILIAS_NET2_NOTHROW :
+		m_ptr()
+	{
+		/* Empty body. */
+	}
+
+#if HAS_RVALUE_REF
+	unlink_wait(unlink_wait&& o) ILIAS_NET2_NOTHROW :
+		m_ptr(std::move(o.m_ptr))
+	{
+		/* Empty body. */
+	}
+#endif
+
+	~unlink_wait() ILIAS_NET2_NOTHROW
+	{
+		this->release();
+	}
+
+#if HAS_RVALUE_REF
+	unlink_wait&
+	operator=(unlink_wait&& o) ILIAS_NET2_NOTHROW
+	{
+		this->release();
+		this->m_ptr = std::move(o.m_ptr);
+		return *this;
+	}
+#endif
+
+	pointer
+	get() const ILIAS_NET2_NOTHROW
+	{
+		return Defn::node(this->m_ptr.get_internal().get());
+	}
+
+	reference
+	operator*() const ILIAS_NET2_NOTHROW
+	{
+		return *this->get();
+	}
+
+	pointer
+	operator->() const ILIAS_NET2_NOTHROW
+	{
+		return this->get();
+	}
+
+	pointer
+	release() ILIAS_NET2_NOTHROW
+	{
+		if (this->get())
+			this->m_ptr.unlink_wait();
+		pointer p = this->get();
+		this->m_ptr = MOVE(simple_iterator());
+		return p;
+	}
+
+	explicit operator bool() const ILIAS_NET2_NOTHROW
+	{
+		return this->get();
+	}
+
+
+#if HAS_DELETED_FN
+	unlink_wait(const unlink_wait&) = delete;
+	unlink_wait& operator=(const unlink_wait&) = delete;
+#else
+private:
+	unlink_wait(const unlink_wait&);
+	unlink_wait& operator=(const unlink_wait&);
+#endif
 };
 
 

@@ -119,6 +119,26 @@ hook_ptr::unlink_wait(const hook& list_head) const ILIAS_NET2_NOTHROW
 	(*this)->m_pred.exchange(clear);
 }
 
+void
+hook_ptr::unlink_wait_inslock(const hook& list_head) ILIAS_NET2_NOTHROW
+{
+	for (hook_ptr s = MOVE(this->succ().first);
+	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1 && s != &list_head;
+	    s = MOVE(s.succ().first)) {
+		if (s->m_pred.get_ptr() == *this)
+			s.pred(); /* Fix predecessor. */
+	}
+
+	while ((*this)->m_refcnt.load(std::memory_order_relaxed) > 1) {
+		//SPINWAIT();
+	}
+
+	const pointer_flag lck(hook_ptr(), true);
+	(*this)->m_succ.exchange(lck);
+	const pointer_flag clear(hook_ptr(), false);
+	(*this)->m_pred.exchange(clear);
+}
+
 bool
 hook_ptr::unlink(const hook& list_head) const ILIAS_NET2_NOTHROW
 {
@@ -126,6 +146,84 @@ hook_ptr::unlink(const hook& list_head) const ILIAS_NET2_NOTHROW
 		return false;
 	this->unlink_wait(list_head);
 	return true;
+}
+
+bool
+hook_ptr::insert_lock() const ILIAS_NET2_NOTHROW
+{
+	pointer_flag expect(nullptr, false);
+	pointer_flag assign(nullptr, false);
+	if (!(*this)->m_succ.compare_exchange(expect, assign))
+		return false;
+
+	/* Wait until m_pred is cleared. */
+	while ((*this)->m_pred.is_set()) {
+		// SPINWAIT()
+	}
+	return true;
+}
+
+bool
+hook_ptr::insert_between(const hook_ptr& pred, const hook_ptr& succ) const ILIAS_NET2_NOTHROW
+{
+	pointer_flag orig_pred = (*this)->m_pred.exchange(pred, false);
+	pointer_flag orig_succ = (*this)->m_succ.exchange(succ, true);
+	assert(orig_pred.first == nullptr && !orig_pred.second);
+	assert(orig_succ.first == nullptr && orig_succ.second);
+
+	/*
+	 * Ensure pred will not go away from under us.
+	 *
+	 * We use a conditional lock, to ensure pred will only lock
+	 * if it isn't deleted.
+	 */
+	ll_ptr::deref_lock<ll_ptr> pred_lck(pred->m_pred, false);
+	if (!pred_lck.lock_conditional(false)) {
+		(*this)->m_succ.exchange(MOVE(orig_succ));
+		(*this)->m_pred.exchange(MOVE(orig_pred));
+		return false;
+	}
+
+	/* Change successor in pred from succ to this. */
+	hook_ptr expect = succ;
+	if (!pred->m_succ.compare_exchange(expect, *this)) {
+		(*this)->m_succ.exchange(MOVE(orig_succ));
+		(*this)->m_pred.exchange(MOVE(orig_pred));
+		return false;
+	}
+
+	/*
+	 * No failure past this point.
+	 */
+
+	/* Clear newly insert bit. */
+	(*this)->m_succ.clear_flag();
+
+	/* We are linked, unlock predecessor. */
+	pred_lck.unlock();
+
+	/* Fix predessor of succ. */
+	succ.pred();
+
+	return true;
+}
+
+void
+hook_ptr::insert_after_locked(const hook_ptr& pred) const ILIAS_NET2_NOTHROW
+{
+	hook_ptr succ;
+	do {
+		succ = MOVE(pred.succ().first);
+	} while (!this->insert_between(pred, succ));
+}
+
+void
+hook_ptr::insert_before_locked(const hook_ptr& succ) const ILIAS_NET2_NOTHROW
+{
+	hook_ptr pred;
+	do {
+		pred = MOVE(succ.pred().first);
+	} while (!this->insert_between(pred, succ));
 }
 
 list::simple_iterator&
@@ -186,6 +284,56 @@ bool
 list::push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW
 {
 	return hp.insert_after(hook_ptr(&this->m_head));
+}
+
+list::simple_iterator&
+list::pop_front_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
+{
+	hook_ptr head = &this->m_head;
+	for (hook_ptr i = MOVE(head.succ().first); i != &this->m_head; i = MOVE(i.succ().first)) {
+		if (i.unlink_nowait()) {
+			v.reset(MOVE(head), MOVE(i));
+			return v;
+		}
+	}
+
+	v.reset(MOVE(head));
+	return v;
+}
+
+list::simple_iterator&
+list::pop_back_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
+{
+	hook_ptr head = &this->m_head;
+	for (hook_ptr i = MOVE(head.pred().first); i != &this->m_head; i = MOVE(i.pred().first)) {
+		if (i.unlink_nowait()) {
+			v.reset(MOVE(head), MOVE(i));
+			return v;
+		}
+	}
+
+	v.reset(MOVE(head));
+	return v;
+}
+
+list::simple_iterator&
+list::push_back_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
+{
+	hook_ptr head = &this->m_head;
+	hp.element.unlink_wait_inslock(*hp.listhead);
+	hp.element.insert_before_locked(head);
+	hp.listhead = head;
+	return hp;
+}
+
+list::simple_iterator&
+list::push_front_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
+{
+	hook_ptr head = &this->m_head;
+	hp.element.unlink_wait_inslock(*hp.listhead);
+	hp.element.insert_after_locked(head);
+	hp.listhead = head;
+	return hp;
 }
 
 list::simple_iterator&
