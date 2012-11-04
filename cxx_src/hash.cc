@@ -373,7 +373,7 @@ hash_openssl_evp::final()
 
 #if (OPENSSL_VERSION_NUMBER < 0x01000000)
 	/* Prior to openssl 1.0.0, the HMAC_{Init_ex,Update,Final} returned void. */
-	HMAC_Final(&this->ctx, out, result_len);
+	HMAC_Final(&this->ctx, out, &result_len);
 #else
 	if (!HMAC_Final(&this->ctx, out, &result_len))
 		throw std::exception();
