@@ -16,9 +16,7 @@
 #include <ilias/net2/hash.h>
 #include <ilias/net2/buffer.h>
 
-#ifdef HAS_SHA2
 #include <sha2.h>
-#endif
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
