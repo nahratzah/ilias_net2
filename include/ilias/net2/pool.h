@@ -16,8 +16,6 @@
 #ifndef ILIAS_NET2_POOL_H
 #define ILIAS_NET2_POOL_H
 
-#ifdef __cplusplus
-
 #include <ilias/net2/ilias_net2_export.h>
 #include <algorithm>
 #include <cstdint>
@@ -318,8 +316,7 @@ public:
 	};
 };
 
-} /* namespace ilias */
 
-#endif /* __cplusplus */
+} /* namespace ilias */
 
 #endif /* ILIAS_NET2_POOL_H */
