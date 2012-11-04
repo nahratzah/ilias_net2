@@ -13,6 +13,7 @@
 #include <Windows.h>
 #include <NTSecAPI.h>
 #else
+#include <unistd.h>
 #include <sys/mman.h>
 #endif
 
