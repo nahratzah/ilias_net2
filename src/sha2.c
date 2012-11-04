@@ -313,7 +313,7 @@ SHA256Init(SHA2_CTX *context)
 	j++;								    \
 } while(0)
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA256Transform(uint32_t state[8], const uint8_t data[SHA256_BLOCK_LENGTH])
 {
 	uint32_t	a, b, c, d, e, f, g, h, s0, s1;
@@ -602,7 +602,7 @@ SHA512Init(SHA2_CTX *context)
 	j++;								    \
 } while(0)
 
-BSD_COMPAT_EXPORT(void)
+ILIAS_NET2_LOCAL void
 SHA512Transform(uint64_t state[8], const uint8_t data[SHA512_BLOCK_LENGTH])
 {
 	uint64_t	a, b, c, d, e, f, g, h, s0, s1;
