@@ -1507,7 +1507,7 @@ public:
 	{
 		pointer p;
 		while ((p = this->pop_front()))
-			dispose(*p);
+			dispose(p);
 	}
 };
 
@@ -2203,6 +2203,406 @@ private:
 	unlink_wait(const unlink_wait&);
 	unlink_wait& operator=(const unlink_wait&);
 #endif
+};
+
+
+/*
+ * Smart pointer list.
+ *
+ * Elements on the list will be referenced using 'value_type* p = Release(elem)',
+ * elements removed from the list will be released using 'SmartPtr p = Acquire(elem)'.
+ * I.e. the smart pointer will give up its ownership using Release, while it will
+ * steal ownership using Acquire.
+ */
+template<typename SmartPtr, typename Defn, typename Acquire, typename Release>
+class ll_smartptr_list
+{
+private:
+	typedef ll_list<Defn> list_type;
+
+public:
+	typedef typename list_type::value_type value_type;
+	typedef typename list_type::reference reference;
+	typedef typename list_type::const_reference const_reference;
+	typedef SmartPtr pointer;
+
+private:
+	template<typename IterImpl>
+	class iter_adapter :
+		public IterImpl
+	{
+	public:
+		typedef ll_smartptr_list::pointer pointer;
+
+		iter_adapter() ILIAS_NET2_NOTHROW {};
+
+		iter_adapter(const iter_adapter& i) ILIAS_NET2_NOTHROW :
+			IterImpl(i)
+		{
+			/* Empty body. */
+		}
+
+#if HAS_RVALUE_REF
+		iter_adapter(iter_adapter&& i) ILIAS_NET2_NOTHROW :
+			IterImpl(std::move(i))
+		{
+			/* Empty body. */
+		}
+#endif
+
+		iter_adapter(const IterImpl& i) ILIAS_NET2_NOTHROW :
+			IterImpl(i)
+		{
+			/* Empty body. */
+		}
+
+#if HAS_RVALUE_REF
+		iter_adapter(IterImpl&& i) ILIAS_NET2_NOTHROW :
+			IterImpl(std::move(i))
+		{
+			/* Empty body. */
+		}
+#endif
+
+		iter_adapter&
+		operator=(const iter_adapter& i) ILIAS_NET2_NOTHROW
+		{
+			this->IterImpl::operator=(i);
+			return *this;
+		}
+
+		iter_adapter&
+		operator=(iter_adapter&& i) ILIAS_NET2_NOTHROW
+		{
+			this->IterImpl::operator=(std::move(i));
+			return *this;
+		}
+
+		template<typename OImpl>
+		iter_adapter&
+		operator=(const iter_adapter<OImpl>& i) ILIAS_NET2_NOTHROW
+		{
+			this->IterImpl::operator=(i);
+			return *this;
+		}
+
+		template<typename OImpl>
+		iter_adapter&
+		operator=(iter_adapter<OImpl>&& i) ILIAS_NET2_NOTHROW
+		{
+			this->IterImpl::operator=(std::move(i));
+			return *this;
+		}
+
+		pointer
+		get() const ILIAS_NET2_NOTHROW
+		{
+			return this->IterImpl::get();
+		}
+	};
+
+public:
+	typedef iter_adapter<typename list_type::iterator> iterator;
+	typedef iter_adapter<typename list_type::const_iterator> const_iterator;
+	typedef iter_adapter<typename list_type::reverse_iterator> reverse_iterator;
+	typedef iter_adapter<typename list_type::const_reverse_iterator> const_reverse_iterator;
+
+	class unlink_wait
+	{
+	friend void ll_smartptr_list::push_front(unlink_wait&&);
+	friend void ll_smartptr_list::push_back(unlink_wait&&);
+
+	public:
+		typedef ll_smartptr_list::pointer pointer;
+		typedef ll_smartptr_list::reference reference;
+
+	private:
+		typedef typename list_type::unlink_wait impl_type;
+
+		impl_type m_impl;
+
+	public:
+		unlink_wait() ILIAS_NET2_NOTHROW
+		{
+			/* Empty body. */
+		}
+
+#if HAS_RVALUE_REF
+		unlink_wait(impl_type&& impl) ILIAS_NET2_NOTHROW :
+			m_impl(impl)
+		{
+			/* Empty body. */
+		}
+#endif
+
+		~unlink_wait() ILIAS_NET2_NOTHROW
+		{
+			this->release();
+		}
+
+#if HAS_RVALUE_REF
+		unlink_wait&
+		operator=(unlink_wait&& w) ILIAS_NET2_NOTHROW
+		{
+			this->m_impl = std::move(w.m_impl);
+			return *this;
+		}
+#endif
+
+		pointer
+		get() const ILIAS_NET2_NOTHROW
+		{
+			return this->m_impl.get();
+		}
+
+		reference
+		operator*() const ILIAS_NET2_NOTHROW
+		{
+			return this->m_impl.operator*();
+		}
+
+		value_type*
+		operator->() const ILIAS_NET2_NOTHROW
+		{
+			return this->m_impl.operator->();
+		}
+
+		pointer
+		release() ILIAS_NET2_NOTHROW
+		{
+			value_type* p = this->m_impl.release();
+			return (p ? acquire(p) : nullptr);
+		}
+	};
+
+private:
+	list_type m_list;
+
+	static RVALUE(pointer)
+	acquire(typename list_type::pointer p) ILIAS_NET2_NOTHROW
+	{
+		Acquire impl;
+		SmartPtr rv = impl(p);
+		return MOVE(rv);
+	}
+
+	static typename list_type::pointer
+	release(const pointer& p) ILIAS_NET2_NOTHROW
+	{
+		Release impl;
+		typename list_type::pointer rv = impl(p);
+		return rv;
+	}
+
+#if HAS_RVALUE_REF
+	static typename list_type::pointer
+	release(pointer&& p) ILIAS_NET2_NOTHROW
+	{
+		Release impl;
+		typename list_type::pointer rv = impl(std::move(p));
+		return rv;
+	}
+#endif
+
+public:
+	constexpr ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
+
+	~ll_smartptr_list() ILIAS_NET2_NOTHROW
+	{
+		this->clear();
+	}
+
+	pointer
+	pop_front() ILIAS_NET2_NOTHROW
+	{
+		return acquire(this->m_list.pop_front());
+	}
+
+	pointer
+	pop_back() ILIAS_NET2_NOTHROW
+	{
+		return acquire(this->m_list.pop_back());
+	}
+
+	bool
+	push_back(const pointer& p)
+	{
+		typename list_type::pointer lp = release(p);
+		bool rv = this->m_list.push_back_element(lp);
+		if (!rv)
+			acquire(lp);
+		return rv;
+	}
+
+	bool
+	push_back(pointer&& p)
+	{
+		typename list_type::pointer lp = release(p);
+		bool rv = this->m_list.push_back_element(lp);
+		if (!rv)
+			p = acquire(lp);
+		return rv;
+	}
+
+#if HAS_RVALUE_REF
+	unlink_wait&&
+	pop_front_nowait()
+	{
+		return std::move(unlink_wait(this->m_list.pop_front_nowait()));
+	}
+
+	unlink_wait&&
+	pop_back_nowait()
+	{
+		return std::move(unlink_wait(this->m_list.pop_back_nowait()));
+	}
+
+	void
+	push_front(unlink_wait&& w)
+	{
+		this->m_list.push_front(std::move(w.m_impl));
+	}
+
+	void
+	push_back(unlink_wait&& w)
+	{
+		this->m_list.push_back(std::move(w.m_impl));
+	}
+#endif
+
+	RVALUE(iterator)
+	erase(iterator& i) ILIAS_NET2_NOTHROW
+	{
+		return this->erase_and_dispose(i, [](const pointer&) {});
+	}
+
+	template<typename Disposer>
+	RVALUE(iterator)
+	erase_and_dispose(iterator& i, Disposer disposer)
+	{
+		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+		return MOVE(rv);
+	}
+
+	RVALUE(reverse_iterator)
+	erase(reverse_iterator& i) ILIAS_NET2_NOTHROW
+	{
+		return this->erase_and_dispose(i, [](const pointer&) {});
+	}
+
+	template<typename Disposer>
+	RVALUE(reverse_iterator)
+	erase_and_dispose(reverse_iterator& i, Disposer disposer)
+	{
+		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+		return MOVE(rv);
+	}
+
+	void
+	remove(const value_type& v) ILIAS_NET2_NOTHROW
+	{
+		this->remove_and_dispose(v, [](const pointer&) {});
+	}
+
+	template<typename Disposer>
+	void
+	remove_and_dispose(const value_type& v, Disposer disposer)
+	{
+		this->m_list.remove_and_dispose(v, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+	}
+
+	template<typename Predicate>
+	void
+	remove_if(Predicate p)
+	{
+		this->remove_and_dispose_if(p, [](const pointer&) {});
+	}
+
+	template<typename Predicate, typename Disposer>
+	void
+	remove_and_dispose_if(Predicate p, Disposer disposer)
+	{
+		this->m_list.remove_and_dispose_if(p, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+	}
+
+	void
+	clear() ILIAS_NET2_NOTHROW
+	{
+		this->clear_and_dispose([](const pointer&) {});
+	}
+
+	template<typename Disposer>
+	void
+	clear_and_dispose(Disposer disposer)
+	{
+		this->m_list.clear_and_dispose([this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+	}
+
+	iterator
+	begin() ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.begin());
+	}
+	iterator
+	end() ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.end());
+	}
+
+	const_iterator
+	begin() const ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.begin());
+	}
+	const_iterator
+	end() const ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.end());
+	}
+
+	reverse_iterator
+	rbegin() ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.rbegin());
+	}
+	reverse_iterator
+	rend() ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.rend());
+	}
+
+	const_reverse_iterator
+	rbegin() const ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.rbegin());
+	}
+	const_reverse_iterator
+	rend() const ILIAS_NET2_NOTHROW
+	{
+		return iterator(this->m_list.rend());
+	}
+
+	RVALUE(iterator)
+	iterator_to(reference v)
+	{
+		return MOVE(iterator(this->m_list.iterator_to(v)));
+	}
+
+	RVALUE(const_iterator)
+	iterator_to(const_reference v)
+	{
+		return MOVE(const_iterator(this->m_list.iterator_to(v)));
+	}
 };
 
 
