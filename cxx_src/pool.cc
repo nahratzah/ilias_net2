@@ -195,7 +195,7 @@ private:
 
 	/* Limits of value type. */
 	typedef std::numeric_limits<value_type> limits;
-	static const std::size_t digits = limits::digits;
+	static constexpr std::size_t digits = limits::digits;
 
 	static constexpr bool
 	do_end(std::size_t begin, std::size_t end) ILIAS_NET2_NOTHROW
@@ -295,7 +295,7 @@ public:
 /*
  * Abstraction of OS dependant routines.
  */
-class pool::osdep
+class ILIAS_NET2_LOCAL pool::osdep
 {
 private:
 #ifdef WIN32
@@ -437,7 +437,7 @@ public:
 /*
  * Tracking of allocation data.
  */
-class pool::page :
+class ILIAS_NET2_LOCAL pool::page :
 	private ll_base_hook<>
 {
 friend class ll_base<page>;
@@ -465,7 +465,13 @@ private:
 	};
 
 	typedef std::atomic<uintptr_t> entry_type;
-	static const std::size_t bitmap_bits = std::numeric_limits<atomic_type<entry_type>::type>::digits;
+
+	static constexpr std::size_t
+	bitmap_bits() ILIAS_NET2_NOTHROW
+	{
+		/* XXX a function, because a static constexpr value results in linker failure... */
+		return std::numeric_limits<atomic_type<entry_type>::type>::digits;
+	}
 
 	static constexpr std::size_t
 	entries_offset()
@@ -476,7 +482,7 @@ private:
 	static constexpr std::size_t
 	bitmap_space(std::size_t n_entries)
 	{
-		return (n_entries + bitmap_bits - 1) / bitmap_bits;
+		return (n_entries + bitmap_bits() - 1) / bitmap_bits();
 	}
 
 public:
@@ -615,13 +621,13 @@ private:
 		const u_type one = 1;
 
 		assert(first >= 0);
-		assert(last <= bitmap_bits);
+		assert(last <= bitmap_bits());
 		assert(first <= last);
 
 		if (first == last)
 			return 0;
 
-		const u_type last_mask = (std::numeric_limits<u_type>::max() >> (bitmap_bits - last));
+		const u_type last_mask = (std::numeric_limits<u_type>::max() >> (bitmap_bits() - last));
 		const u_type first_mask = (one << first);
 		return (first_mask & last_mask);
 	}
@@ -677,27 +683,27 @@ private:
 		if (count == 0)
 			return;
 
-		entry_type*const arr = this->bitmap() + (idx / bitmap_bits);
-		const auto off = idx % bitmap_bits;
+		entry_type*const arr = this->bitmap() + (idx / bitmap_bits());
+		const auto off = idx % bitmap_bits();
 		const auto last = (off + count);
 
 		/* Mark the first entry_type bits for allocation. */
-		const auto first_mask = mask(off, std::min(bitmap_bits, last));
+		const auto first_mask = mask(off, std::min(bitmap_bits(), last));
 		const auto orig = (arr[0].fetch_and(~first_mask, std::memory_order_relaxed) & first_mask);
 		assert(orig == first_mask);
 		/* Test if this is one of those allocations that fits in a single entry. */
-		if (last <= bitmap_bits)
+		if (last <= bitmap_bits())
 			return;
 
 		/* Mark intermediate bits for allocation. */
-		for (std::size_t i = 1; i < (last - 1) / bitmap_bits; ++i) {
+		for (std::size_t i = 1; i < (last - 1) / bitmap_bits(); ++i) {
 			auto prev = arr[i].exchange(0, std::memory_order_relaxed);
 			assert(~prev == 0);
 		}
 
 		/* Mark final bits for allocation. */
-		const std::size_t last_idx = (last - 1) / bitmap_bits;
-		const auto last_mask = mask(0, (last - 1) % bitmap_bits + 1);
+		const std::size_t last_idx = (last - 1) / bitmap_bits();
+		const auto last_mask = mask(0, (last - 1) % bitmap_bits() + 1);
 		const auto last_orig = arr[last_idx].fetch_or(last_mask, std::memory_order_relaxed) & last_mask;
 		assert(last_orig == last_mask);
 
