@@ -35,7 +35,7 @@
  */
 
 #include <string.h>
-#include <ilias/net2/bsd_compat/sha2.h>
+#include "sha2.h"
 
 /*
  * UNROLLED TRANSFORM LOOP NOTE:

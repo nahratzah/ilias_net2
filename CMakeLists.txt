@@ -11,6 +11,14 @@ add_definitions (-D_REENTRANT -D_GNU_SOURCE)
 
 
 #
+# Set xcode to use llvm with libc++, so we can actually compile all this c++11 code.
+#
+set(CMAKE_XCODE_ATTRIBUTE_GCC_VERSION "com.apple.compilers.llvm.clang.1_0")
+set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LANGUAGE_STANDARD "c++0x")
+set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++")
+
+
+#
 # Special options.
 #
 option (USE_EMBEDDED_EV "Use embedded libev library instead of system library." ON)
@@ -41,6 +49,10 @@ if (STD_CXX11)
 	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 elseif (STD_CXX0X)
 	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+endif ()
+check_cxx_compiler_flag("${CMAKE_CXX_FLAGS} -stdlib=libc++" STDLIB_LIBCXX)
+if (STDLIB_LIBCXX)
+	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif ()
 
 
@@ -208,10 +220,10 @@ test_big_endian (IS_BIG_ENDIAN)
 #	src/clock.c
 #	src/spl_atomic.c
 #	)
-#if (NOT HAS_SHA2)
-#	list (APPEND headers include/ilias/net2/bsd_compat/sha2.h)
-#	list (APPEND srcs src/sha2.c)
-#endif (NOT HAS_SHA2)
+if (NOT HAS_SHA2)
+	file (COPY compat/sha2.h DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/include)
+	list (APPEND srcs src/sha2.c)
+endif (NOT HAS_SHA2)
 #if (NOT HAS_ARC4RANDOM)
 #	list (APPEND srcs src/secure_random.c)
 #endif (NOT HAS_ARC4RANDOM)
