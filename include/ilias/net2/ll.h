@@ -2373,6 +2373,11 @@ public:
 			value_type* p = this->m_impl.release();
 			return (p ? acquire(p) : nullptr);
 		}
+
+		explicit operator bool() const ILIAS_NET2_NOTHROW
+		{
+			return bool(this->m_impl);
+		}
 	};
 
 private:
