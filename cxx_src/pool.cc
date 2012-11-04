@@ -121,9 +121,9 @@ public:
 	atomic_or_undo(atomic_type& atom, const value_type& mask, const std::memory_order& order, const std::memory_order& rollback) ILIAS_NET2_NOTHROW :
 		m_atom(atom),
 		m_commit(false),
+		m_rollback(rollback),
 		mask(mask),
-		orig((mask == 0 ? value_type(0) : atom.fetch_or(mask, order) & mask)),
-		m_rollback(rollback)
+		orig((mask == 0 ? value_type(0) : atom.fetch_or(mask, order) & mask))
 	{
 		return;
 	}
@@ -132,9 +132,9 @@ public:
 	atomic_or_undo(atomic_or_undo&& o) ILIAS_NET2_NOTHROW :
 		m_atom(o.m_atom),
 		m_commit(o.m_commit),
+		m_rollback(o.m_rollback),
 		mask(o.mask),
-		orig(o.orig),
-		m_rollback(o.m_rollback)
+		orig(o.orig)
 	{
 		/* Rollback is now our responsibility, mark o as commited to prevent rollback. */
 		o.m_commit = true;
