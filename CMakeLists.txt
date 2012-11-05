@@ -13,9 +13,11 @@ add_definitions (-D_REENTRANT -D_GNU_SOURCE)
 #
 # Set xcode to use llvm with libc++, so we can actually compile all this c++11 code.
 #
-set(CMAKE_XCODE_ATTRIBUTE_GCC_VERSION "com.apple.compilers.llvm.clang.1_0")
-set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LANGUAGE_STANDARD "c++0x")
-set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++")
+if (APPLE)
+	set(CMAKE_XCODE_ATTRIBUTE_GCC_VERSION "com.apple.compilers.llvm.clang.1_0")
+	set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LANGUAGE_STANDARD "c++0x")
+	set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++")
+endif (APPLE)
 
 
 #
@@ -50,10 +52,12 @@ if (STD_CXX11)
 elseif (STD_CXX0X)
 	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
 endif ()
-check_cxx_compiler_flag("${CMAKE_CXX_FLAGS} -stdlib=libc++" STDLIB_LIBCXX)
-if (STDLIB_LIBCXX)
-	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-endif ()
+if (APPLE)
+	check_cxx_compiler_flag("${CMAKE_CXX_FLAGS} -stdlib=libc++" STDLIB_LIBCXX)
+	if (STDLIB_LIBCXX)
+		set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+	endif ()
+endif (APPLE)
 
 
 # Include necessary submodules
@@ -149,13 +153,32 @@ list (APPEND cxx_srcs
 	cxx_src/buffer.cc
 	cxx_src/bufcopy.cc
 	cxx_src/cp.cc
-	cxx_src/hash.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc
 	cxx_src/poetry.cc
 	cxx_src/pool.cc
 	cxx_src/workq.cc
 	)
+
+#
+# Select platform dependant crypto.
+#
+if (APPLE)
+	# Common Crypto framework from apple.
+	list (APPEND cxx_srcs
+		cxx_src/hash-apple.cc
+		)
+elseif (WIN32)
+	# Windows Crypto framework.
+	list (APPEND cxx_srcs
+		cxx_src/hash-win32.cc
+		)
+else ()
+	# Assuming you'll have openssl.
+	list (APPEND cxx_srcs
+		cxx_src/hash-openssl.cc
+		)
+endif ()
 
 #
 # Enable BSD compatibility.

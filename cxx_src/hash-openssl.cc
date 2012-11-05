@@ -19,54 +19,8 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 
-#if __APPLE__
-#include <CommonCrypto/CommonDigest.h>
-#endif
-
 
 namespace ilias {
-
-
-#if __APPLE__
-class ILIAS_NET2_LOCAL hash_sha256 :
-	public hash_ctx
-{
-private:
-	CC_SHA256_CTX ctx;
-
-public:
-	hash_sha256() :
-		hash_ctx("SHA256", CC_SHA256_DIGEST_LENGTH, 0)
-	{
-		int rv = CC_SHA256_Init(&this->ctx);
-		assert(rv == 1);	/* Documentation says so... */
-	}
-
-	virtual void
-	update(const buffer& b)
-	{
-		b.visit([this](const void* addr, buffer::size_type len) {
-			int rv = CC_SHA256_Update(&this->ctx, addr, len);
-			assert(rv == 1); /* Documentation says so... */
-		});
-	}
-
-	virtual RVALUE(buffer)
-	final()
-	{
-		buffer rv;
-		buffer::prepare prep(rv, SHA256_DIGEST_LENGTH);
-		uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
-
-		int result = CC_SHA256_Final(data, &this->ctx);
-		assert(result == 1);	/* Documentation says so... */
-
-		prep.commit();
-		return MOVE(rv);
-	}
-};
-#endif /* __APPLE */
-
 
 
 hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
