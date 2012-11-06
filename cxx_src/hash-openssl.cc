@@ -15,9 +15,9 @@
  */
 #include <ilias/net2/hash.h>
 #include <ilias/net2/buffer.h>
-#include <sha2.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/sha.h>
 
 
 namespace ilias {
@@ -47,13 +47,13 @@ class ILIAS_NET2_LOCAL hash_sha256 :
 	public hash_ctx
 {
 private:
-	SHA2_CTX ctx;
+	SHA256_CTX ctx;
 
 public:
 	hash_sha256() :
 		hash_ctx("SHA256", SHA256_DIGEST_LENGTH, 0)
 	{
-		SHA256Init(&ctx);
+		SHA256_Init(&ctx);
 	}
 
 	virtual void update(const buffer&);
@@ -64,13 +64,13 @@ class ILIAS_NET2_LOCAL hash_sha384 :
 	public hash_ctx
 {
 private:
-	SHA2_CTX ctx;
+	SHA512_CTX ctx;
 
 public:
 	hash_sha384() :
 		hash_ctx("SHA384", SHA384_DIGEST_LENGTH, 0)
 	{
-		SHA384Init(&ctx);
+		SHA384_Init(&ctx);
 	}
 
 	virtual void update(const buffer&);
@@ -81,13 +81,13 @@ class ILIAS_NET2_LOCAL hash_sha512 :
 	public hash_ctx
 {
 private:
-	SHA2_CTX ctx;
+	SHA512_CTX ctx;
 
 public:
 	hash_sha512() :
 		hash_ctx("SHA512", SHA512_DIGEST_LENGTH, 0)
 	{
-		SHA512Init(&ctx);
+		SHA512_Init(&ctx);
 	}
 
 	virtual void update(const buffer&);
@@ -99,7 +99,7 @@ void
 hash_sha256::update(const buffer& b)
 {
 	b.visit([this](const void* p, buffer::size_type l) {
-		SHA256Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+		SHA256_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
 	});
 }
 
@@ -107,7 +107,7 @@ void
 hash_sha384::update(const buffer& b)
 {
 	b.visit([this](const void* p, buffer::size_type l) {
-		SHA384Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+		SHA384_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
 	});
 }
 
@@ -115,7 +115,7 @@ void
 hash_sha512::update(const buffer& b)
 {
 	b.visit([this](const void* p, buffer::size_type l) {
-		SHA512Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+		SHA512_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
 	});
 }
 
@@ -125,10 +125,7 @@ hash_sha256::final()
 {
 	buffer rv;
 	buffer::prepare prep(rv, SHA256_DIGEST_LENGTH);
-	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
-
-	SHA256Final(data, &ctx);
-
+	SHA256_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
 	return MOVE(rv);
 }
@@ -138,10 +135,7 @@ hash_sha384::final()
 {
 	buffer rv;
 	buffer::prepare prep(rv, SHA384_DIGEST_LENGTH);
-	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
-
-	SHA384Final(data, &ctx);
-
+	SHA384_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
 	return MOVE(rv);
 }
@@ -151,10 +145,7 @@ hash_sha512::final()
 {
 	buffer rv;
 	buffer::prepare prep(rv, SHA512_DIGEST_LENGTH);
-	uint8_t* data = reinterpret_cast<uint8_t*>(prep.data());
-
-	SHA512Final(data, &ctx);
-
+	SHA512_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
 	return MOVE(rv);
 }
@@ -256,17 +247,17 @@ hash_sha256_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA256_DIGEST_LENGTH];
-	SHA2_CTX ctx;
-
-	SHA256Init(&ctx);
-	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA256Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
-	});
-	SHA256Final(data, &ctx);
-
 	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	buffer::prepare prep(rv, SHA256_DIGEST_LENGTH);
+	SHA256_CTX ctx;
+
+	SHA256_Init(&ctx);
+	b.visit([&ctx](const void* p, buffer::size_type l) {
+		SHA256_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+	SHA256_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
+
+	prep.commit();
 	return MOVE(rv);
 }
 
@@ -276,17 +267,17 @@ hash_sha384_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA384_DIGEST_LENGTH];
-	SHA2_CTX ctx;
-
-	SHA384Init(&ctx);
-	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA384Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
-	});
-	SHA384Final(data, &ctx);
-
 	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	buffer::prepare prep(rv, SHA384_DIGEST_LENGTH);
+	SHA512_CTX ctx;
+
+	SHA384_Init(&ctx);
+	b.visit([&ctx](const void* p, buffer::size_type l) {
+		SHA384_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+	SHA384_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
+
+	prep.commit();
 	return MOVE(rv);
 }
 
@@ -296,17 +287,17 @@ hash_sha512_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA512_DIGEST_LENGTH];
-	SHA2_CTX ctx;
-
-	SHA512Init(&ctx);
-	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA512Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
-	});
-	SHA512Final(data, &ctx);
-
 	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	buffer::prepare prep(rv, SHA512_DIGEST_LENGTH);
+	SHA512_CTX ctx;
+
+	SHA512_Init(&ctx);
+	b.visit([&ctx](const void* p, buffer::size_type l) {
+		SHA512_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+	SHA512_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
+
+	prep.commit();
 	return MOVE(rv);
 }
 
