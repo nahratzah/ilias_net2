@@ -196,12 +196,17 @@ private:
 
 	/* Limits of value type. */
 	typedef std::numeric_limits<value_type> limits;
-	static constexpr std::size_t digits = limits::digits;
+
+	static constexpr std::size_t
+	digits()
+	{
+		return limits::digits;
+	}
 
 	static constexpr bool
 	do_end(std::size_t begin, std::size_t end) ILIAS_NET2_NOTHROW
 	{
-		return (end - pool::round_down(begin, digits) <= digits);
+		return (end - pool::round_down(begin, digits()) <= digits());
 	}
 	template<typename U>
 	static constexpr const U&
@@ -229,15 +234,15 @@ public:
 		m_succes(false),
 		m_commit(false),
 		m_rollback(rollback),
-		m_begin(&atomics[begin / digits]),
+		m_begin(&atomics[begin / digits()]),
 				/* round_down(begin, digits) / digits */
-		m_end(&atomics[(end + digits - 1) / digits]),
+		m_end(&atomics[(end + digits() - 1) / digits()]),
 				/* round_up(end, digits) / digits */
 		m_begin_undo(*this->m_begin,
-		    mask(begin % digits, std::min(end - pool::round_down(begin, digits), digits)),
+		    mask(begin % digits(), std::min(end - pool::round_down(begin, digits()), digits())),
 		    order, rollback),
 		m_end_undo(*this->m_end,
-		    do_end(begin, end, mask(0, end % digits), value_type(0)),
+		    do_end(begin, end, mask(0, end % digits()), value_type(0)),
 		    order, rollback)
 	{
 		/* The in-between entries assume succes unless proven to fail, so switch m_succes. */
