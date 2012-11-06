@@ -420,6 +420,7 @@ workq::job::clear_running(const workq_int_pointer<job>& ptr) ILIAS_NET2_NOTHROW
 		this->get_workq().runq.push_back(ptr);
 }
 
+#if HAS_RVALUE_REF
 void
 workq::job::clear_running(workq_int_pointer<job>&& ptr) ILIAS_NET2_NOTHROW
 {
@@ -430,6 +431,7 @@ workq::job::clear_running(workq_int_pointer<job>&& ptr) ILIAS_NET2_NOTHROW
 	if (old & STATE_ACTIVE)
 		this->get_workq().runq.push_back(std::move(ptr));
 }
+#endif
 
 workq::job::~job() ILIAS_NET2_NOTHROW
 {
