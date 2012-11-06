@@ -439,12 +439,22 @@ workq::job::~job() ILIAS_NET2_NOTHROW
 }
 
 
+workq::single_job::~single_job() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
 void
 workq::single_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW
 {
 	this->fn();
 }
 
+
+workq::coroutine_job::~coroutine_job() ILIAS_NET2_NOTHROW
+{
+	return;
+}
 
 void
 workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW

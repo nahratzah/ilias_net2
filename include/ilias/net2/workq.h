@@ -245,6 +245,10 @@ class ILIAS_NET2_LOCAL workq::single_job :
 private:
 	std::function<void()> fn;
 
+public:
+	virtual ~single_job() ILIAS_NET2_NOTHROW;
+
+private:
 	virtual void do_run(runnable_job&) ILIAS_NET2_NOTHROW;
 };
 
@@ -254,6 +258,9 @@ class ILIAS_NET2_LOCAL workq::coroutine_job :
 	public ll_base_hook<wq_coroutine_tag>
 {
 friend class workq_service;	/* Grant access to class workq_service_coroutines. */
+
+public:
+	~coroutine_job() ILIAS_NET2_NOTHROW;
 
 private:
 	class workq_service_coroutines;
