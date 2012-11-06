@@ -271,7 +271,7 @@ public:
 	hook*
 	get_ptr() const ILIAS_NET2_NOTHROW
 	{
-		return decode_ptr(this->m_value.load(std::memory_order_relaxed) & FLAG);
+		return decode_ptr(this->m_value.load(std::memory_order_relaxed) & ~FLAG);
 	}
 
 	bool
@@ -818,9 +818,11 @@ hook::hook(HEAD) ILIAS_NET2_NOTHROW :
 	m_succ(),
 	m_refcnt(0)
 {
-	hook_ptr self(this);
-	m_pred.exchange(self);
-	m_succ.exchange(self);
+	{
+		hook_ptr self(this);
+		this->m_pred.exchange(self);
+		this->m_succ.exchange(self);
+	}
 
 	assert(this->m_pred.get_ptr() == this);
 	assert(this->m_succ.get_ptr() == this);
