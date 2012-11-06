@@ -572,7 +572,7 @@ if (BUILD_TESTING)
 
 	# Buffer tests.
 	add_executable (test_buffer
-		test/buffer.c
+		test/buffer.cc
 		)
 	target_link_libraries (test_buffer ilias_net2
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})

@@ -741,6 +741,13 @@ public:
 	}
 #endif
 
+	buffer(const void* data, size_type len) :
+		m_list(),
+		m_reserve()
+	{
+		this->append(data, len);
+	}
+
 	~buffer() ILIAS_NET2_NOTHROW;
 
 	/* Test if the buffer is empty. */
