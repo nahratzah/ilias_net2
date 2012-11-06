@@ -280,6 +280,22 @@ public:
 			this->unlock();
 	}
 
+	runnable_job&
+	operator=(runnable_job&& rj) ILIAS_NET2_NOTHROW
+	{
+		assert(!this->m_locked);
+		this->m_ptr = std::move(rj.m_ptr);
+		this->m_locked = std::move(rj.m_locked);
+		rj.m_locked = false;
+		return *this;
+	}
+
+	void
+	run() ILIAS_NET2_NOTHROW
+	{
+		this->m_ptr->do_run(*this);
+	}
+
 	/* Assign and lock job. */
 	bool
 	lock(const workq_int_pointer<job>& j) ILIAS_NET2_NOTHROW
@@ -521,13 +537,46 @@ workq::coroutine_job::workq_service_coroutines::run_coroutine() ILIAS_NET2_NOTHR
 
 
 bool
-workq_service::do_work() ILIAS_NET2_NOTHROW
+workq::workq_service_workq::run_workq() ILIAS_NET2_NOTHROW
 {
-	if (this->run_coroutine())
-		return true;
+	/* Find a runnable workq. */
+	runnable_job j;
+	for (;;) {
+		workq_list::unlink_wait wq;
+		wq = this->m_workqs.pop_front_nowait();
+		if (!wq)
+			return false;
 
-	/* No work was done. */
-	return false;
+		j = wq->get_runnable_job();
+		if (j.get()) {
+			this->m_workqs.push_back(MOVE(wq));
+			break;
+		}
+	}
+
+	j.run();
+	return true;
+}
+
+
+void
+workq_service::wakeup(std::size_t) ILIAS_NET2_NOTHROW
+{
+	/* STUB */
+}
+
+bool
+workq_service::do_work(std::size_t n) ILIAS_NET2_NOTHROW
+{
+	std::size_t work_done = 0;
+
+	while (work_done < n && this->run_coroutine())
+		++work_done;
+	while (work_done < n && this->run_workq())
+		++work_done;
+
+	/* Return true if work was done. */
+	return (work_done > 0);
 }
 
 

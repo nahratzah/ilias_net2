@@ -159,6 +159,7 @@ private:
 	class single_job;
 	class coroutine_job;
 	class runnable_job;
+	class workq_service_workq;
 
 	typedef ll_smartptr_list<workq_int_pointer<job>,
 	    ll_base<job, wq_runq_tag>,
@@ -309,9 +310,44 @@ protected:
 };
 
 
-class workq_service :
+class ILIAS_NET2_LOCAL workq::workq_service_workq
+{
+friend class workq;
+
+private:
+	typedef ll_smartptr_list<workq_int_pointer<workq>,
+	    ll_base<workq, wq_runq_tag>,
+	    workq_int_refcnt_acquire<workq>,
+	    workq_int_refcnt_release<workq> > workq_list;
+
+	/* Active workqs. */
+	workq_list m_workqs;
+
+protected:
+	workq_service_workq() ILIAS_NET2_NOTHROW
+	{
+		/* Empty body. */
+	}
+
+	~workq_service_workq() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
+
+	/*
+	 * Attempt to run a single workq.
+	 *
+	 * Returns true if it ran a workq.
+	 * Returns false if the list is empty.
+	 */
+	bool run_workq() ILIAS_NET2_NOTHROW;
+};
+
+
+class ILIAS_NET2_EXPORT workq_service :
 	public refcount_base<workq_service>,
 	public workq::coroutine_job::workq_service_coroutines,
+	public workq::workq_service_workq,
 	public identity_comparable
 {
 public:
@@ -320,10 +356,10 @@ public:
 		/* Empty body. */
 	}
 
-	void wakeup(std::size_t);	/* XXX stub. */
+	void wakeup(std::size_t) ILIAS_NET2_NOTHROW;	/* XXX stub. */
 
 private:
-	bool do_work() ILIAS_NET2_NOTHROW;
+	bool do_work(std::size_t) ILIAS_NET2_NOTHROW;
 };
 
 
