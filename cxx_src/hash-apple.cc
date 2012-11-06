@@ -16,6 +16,7 @@
 #include <ilias/net2/hash.h>
 #include <ilias/net2/buffer.h>
 #include <CommonCrypto/CommonDigest.h>
+#include <CommonCrypto/CommonHMAC.h>
 
 
 namespace ilias {
@@ -63,7 +64,7 @@ class ILIAS_NET2_LOCAL hash_sha384 :
 	public hash_ctx
 {
 private:
-	CC_SHA384_CTX ctx;
+	CC_SHA512_CTX ctx;
 
 public:
 	hash_sha384() :
@@ -164,7 +165,7 @@ class ILIAS_NET2_LOCAL hash_sha256_factory :
 {
 public:
 	hash_sha256_factory() :
-		hash_ctx_factory("SHA256", SHA256_DIGEST_LENGTH, 0)
+		hash_ctx_factory("SHA256", CC_SHA256_DIGEST_LENGTH, 0)
 	{
 		/* Empty body. */
 	}
@@ -179,7 +180,7 @@ class ILIAS_NET2_LOCAL hash_sha384_factory :
 {
 public:
 	hash_sha384_factory() :
-		hash_ctx_factory("SHA384", SHA384_DIGEST_LENGTH, 0)
+		hash_ctx_factory("SHA384", CC_SHA384_DIGEST_LENGTH, 0)
 	{
 		/* Empty body. */
 	}
@@ -194,7 +195,7 @@ class ILIAS_NET2_LOCAL hash_sha512_factory :
 {
 public:
 	hash_sha512_factory() :
-		hash_ctx_factory("SHA512", SHA512_DIGEST_LENGTH, 0)
+		hash_ctx_factory("SHA512", CC_SHA512_DIGEST_LENGTH, 0)
 	{
 		/* Empty body. */
 	}
@@ -255,17 +256,16 @@ hash_sha256_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA256_DIGEST_LENGTH];
-	SHA2_CTX ctx;
-
-	SHA256Init(&ctx);
-	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA256Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
-	});
-	SHA256Final(data, &ctx);
-
+	CC_SHA256_CTX ctx;
 	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	buffer::prepare prep(rv, CC_SHA256_DIGEST_LENGTH);
+
+	CC_SHA256_Init(&ctx);
+	b.visit([&ctx](const void* p, buffer::size_type l) {
+		CC_SHA256_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+	CC_SHA256_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
+	prep.commit();
 	return MOVE(rv);
 }
 
@@ -275,17 +275,16 @@ hash_sha384_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA384_DIGEST_LENGTH];
-	SHA2_CTX ctx;
-
-	SHA384Init(&ctx);
-	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA384Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
-	});
-	SHA384Final(data, &ctx);
-
+	CC_SHA512_CTX ctx;
 	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
+	buffer::prepare prep(rv, CC_SHA384_DIGEST_LENGTH);
+
+	CC_SHA384_Init(&ctx);
+	b.visit([&ctx](const void* p, buffer::size_type l) {
+		CC_SHA384_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+	CC_SHA384_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
+	prep.commit();
 	return MOVE(rv);
 }
 
@@ -295,105 +294,69 @@ hash_sha512_factory::run(const buffer& key, const buffer& b) const
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
 
-	uint8_t data[SHA512_DIGEST_LENGTH];
-	SHA2_CTX ctx;
+	CC_SHA512_CTX ctx;
+	buffer rv;
+	buffer::prepare prep(rv, CC_SHA512_DIGEST_LENGTH);
 
-	SHA512Init(&ctx);
+	CC_SHA512_Init(&ctx);
 	b.visit([&ctx](const void* p, buffer::size_type l) {
-		SHA512Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
+		CC_SHA512_Update(&ctx, reinterpret_cast<const uint8_t*>(p), l);
 	});
-	SHA512Final(data, &ctx);
-
-	buffer rv;
-	rv.append(reinterpret_cast<const void*>(&data[0]), sizeof(data));
-	return MOVE(rv);
-}
-
-
-class ILIAS_NET2_LOCAL hash_openssl_evp :
-	public hash_ctx
-{
-private:
-	HMAC_CTX ctx;
-
-public:
-	hash_openssl_evp(const EVP_MD* evp, const std::string& name, size_type hashlen, size_type keylen, const void* key);
-
-	virtual ~hash_openssl_evp() ILIAS_NET2_NOTHROW;
-	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
-};
-
-
-hash_openssl_evp::hash_openssl_evp(const EVP_MD* evp, const std::string& name, size_type hashlen, size_type keylen, const void* key) :
-	hash_ctx(name, hashlen, keylen)
-{
-	HMAC_CTX_init(&ctx);
-
-#if (OPENSSL_VERSION_NUMBER < 0x01000000)
-	/* Prior to openssl 1.0.0, the HMAC_{Init_ex,Update,Final} returned void. */
-	HMAC_Init_ex(&this->ctx, key, keylen, evp, NULL);
-#else
-	if (!HMAC_Init_ex(&this->ctx, key, keylen, evp, NULL)) {
-		HMAC_CTX_cleanup(&this->ctx);
-		throw std::exception();
-	}
-#endif
-}
-
-hash_openssl_evp::~hash_openssl_evp() ILIAS_NET2_NOTHROW
-{
-	HMAC_CTX_cleanup(&this->ctx);
-}
-
-void
-hash_openssl_evp::update(const buffer& b)
-{
-	b.visit([this](const void* p, buffer::size_type l) {
-#if (OPENSSL_VERSION_NUMBER < 0x01000000)
-		/* Prior to openssl 1.0.0, the HMAC_{Init_ex,Update,Final} returned void. */
-		HMAC_Update(&this->ctx, reinterpret_cast<const uint8_t*>(p), l);
-#else
-		if (!HMAC_Update(&this->ctx, reinterpret_cast<const uint8_t*>(p), l))
-			throw std::exception();
-#endif
-	});
-}
-
-RVALUE(buffer)
-hash_openssl_evp::final()
-{
-	unsigned int result_len = this->hashlen;
-	buffer rv;
-	buffer::prepare prep(rv, result_len);
-	uint8_t* out = reinterpret_cast<uint8_t*>(prep.data());
-
-#if (OPENSSL_VERSION_NUMBER < 0x01000000)
-	/* Prior to openssl 1.0.0, the HMAC_{Init_ex,Update,Final} returned void. */
-	HMAC_Final(&this->ctx, out, &result_len);
-#else
-	if (!HMAC_Final(&this->ctx, out, &result_len))
-		throw std::exception();
-#endif
-
-	if (result_len != this->hashlen)
-		throw std::runtime_error("result hashlen differs from expected hashlen");
-
+	CC_SHA512_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
 	return MOVE(rv);
 }
 
 
-class ILIAS_NET2_LOCAL hash_evp_factory :
+class ILIAS_NET2_LOCAL hash_cc_hmac :
+	public hash_ctx
+{
+private:
+	CCHmacContext ctx;
+
+public:
+	hash_cc_hmac(CCHmacAlgorithm alg, const std::string& name, size_type hashlen, size_type keylen, const void* key);
+
+	virtual void update(const buffer&);
+	virtual RVALUE(buffer) final();
+};
+
+
+hash_cc_hmac::hash_cc_hmac(CCHmacAlgorithm alg, const std::string& name, size_type hashlen, size_type keylen, const void* key) :
+	hash_ctx(name, hashlen, keylen)
+{
+	CCHmacInit(&ctx, alg, key, keylen);
+}
+
+void
+hash_cc_hmac::update(const buffer& b)
+{
+	b.visit([this](const void* p, buffer::size_type l) {
+		CCHmacUpdate(&this->ctx, reinterpret_cast<const uint8_t*>(p), l);
+	});
+}
+
+RVALUE(buffer)
+hash_cc_hmac::final()
+{
+	buffer rv;
+	buffer::prepare prep(rv, this->hashlen);
+	CCHmacFinal(&this->ctx, prep.data());
+	prep.commit();
+	return MOVE(rv);
+}
+
+
+class ILIAS_NET2_LOCAL hash_cc_hmac_factory :
 	public hash_ctx_factory
 {
 private:
-	const EVP_MD* (*const evp_fn)();
+	const CCHmacAlgorithm alg;
 
 public:
-	hash_evp_factory(const EVP_MD*(*evp_fn)(), const std::string& name, size_type hashlen, size_type keylen) ILIAS_NET2_NOTHROW :
+	hash_cc_hmac_factory(CCHmacAlgorithm alg, const std::string& name, size_type hashlen, size_type keylen) ILIAS_NET2_NOTHROW :
 		hash_ctx_factory(name, hashlen, keylen),
-		evp_fn(evp_fn)
+		alg(alg)
 	{
 		/* Empty body. */
 	}
@@ -402,12 +365,8 @@ public:
 };
 
 std::unique_ptr<hash_ctx>
-hash_evp_factory::instantiate(const buffer& key) const
+hash_cc_hmac_factory::instantiate(const buffer& key) const
 {
-	const EVP_MD* evp = (*this->evp_fn)();
-	if (!evp)
-		throw std::bad_alloc();
-
 	if (key.empty())
 		throw std::invalid_argument("key required");
 	if (key.size() != this->keylen)
@@ -416,7 +375,7 @@ hash_evp_factory::instantiate(const buffer& key) const
 	void* keybuf = alloca(this->keylen);
 	key.copyout(keybuf, this->keylen);
 
-	return MOVE(std::unique_ptr<hash_ctx>(new hash_openssl_evp(evp, this->name, this->hashlen, this->keylen, keybuf)));
+	return MOVE(std::unique_ptr<hash_ctx>(new hash_cc_hmac(this->alg, this->name, this->hashlen, this->keylen, keybuf)));
 }
 
 
@@ -427,9 +386,9 @@ ILIAS_NET2_LOCAL hash_sha256_factory sha256;
 ILIAS_NET2_LOCAL hash_sha384_factory sha384;
 ILIAS_NET2_LOCAL hash_sha512_factory sha512;
 
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha256(EVP_sha256, "HMAC-SHA256", SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha384(EVP_sha384, "HMAC-SHA384", SHA384_DIGEST_LENGTH, SHA384_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha512(EVP_sha512, "HMAC-SHA512", SHA512_DIGEST_LENGTH, SHA512_DIGEST_LENGTH);
+ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha256(kCCHmacAlgSHA256, "HMAC-SHA256", CC_SHA256_DIGEST_LENGTH, CC_SHA256_DIGEST_LENGTH);
+ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha384(kCCHmacAlgSHA384, "HMAC-SHA384", CC_SHA384_DIGEST_LENGTH, CC_SHA384_DIGEST_LENGTH);
+ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha512(kCCHmacAlgSHA512, "HMAC-SHA512", CC_SHA512_DIGEST_LENGTH, CC_SHA512_DIGEST_LENGTH);
 
 
 } /* namespace hash */
