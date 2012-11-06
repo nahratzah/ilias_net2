@@ -2221,14 +2221,42 @@ private:
 template<typename SmartPtr, typename Defn, typename Acquire, typename Release>
 class ll_smartptr_list
 {
+public:
+	typedef SmartPtr pointer;
+
 private:
 	typedef ll_list<Defn> list_type;
+
+	static RVALUE(pointer)
+	acquire(typename list_type::pointer p) ILIAS_NET2_NOTHROW
+	{
+		Acquire impl;
+		SmartPtr rv = impl(p);
+		return MOVE(rv);
+	}
+
+	static typename list_type::pointer
+	release(const pointer& p) ILIAS_NET2_NOTHROW
+	{
+		Release impl;
+		typename list_type::pointer rv = impl(p);
+		return rv;
+	}
+
+#if HAS_RVALUE_REF
+	static typename list_type::pointer
+	release(pointer&& p) ILIAS_NET2_NOTHROW
+	{
+		Release impl;
+		typename list_type::pointer rv = impl(std::move(p));
+		return rv;
+	}
+#endif
 
 public:
 	typedef typename list_type::value_type value_type;
 	typedef typename list_type::reference reference;
 	typedef typename list_type::const_reference const_reference;
-	typedef SmartPtr pointer;
 
 private:
 	template<typename IterImpl>
@@ -2386,32 +2414,6 @@ public:
 
 private:
 	list_type m_list;
-
-	static RVALUE(pointer)
-	acquire(typename list_type::pointer p) ILIAS_NET2_NOTHROW
-	{
-		Acquire impl;
-		SmartPtr rv = impl(p);
-		return MOVE(rv);
-	}
-
-	static typename list_type::pointer
-	release(const pointer& p) ILIAS_NET2_NOTHROW
-	{
-		Release impl;
-		typename list_type::pointer rv = impl(p);
-		return rv;
-	}
-
-#if HAS_RVALUE_REF
-	static typename list_type::pointer
-	release(pointer&& p) ILIAS_NET2_NOTHROW
-	{
-		Release impl;
-		typename list_type::pointer rv = impl(std::move(p));
-		return rv;
-	}
-#endif
 
 public:
 	constexpr ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
