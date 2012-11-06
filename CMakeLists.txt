@@ -175,9 +175,12 @@ elseif (WIN32)
 		)
 else ()
 	# Assuming you'll have openssl.
+	find_package (OpenSSL REQUIRED)
 	list (APPEND cxx_srcs
 		cxx_src/hash-openssl.cc
 		)
+	include_directories (${OPENSSL_INCLUDE_DIR})
+	list (APPEND EXTRA_LIBS ${OPENSSL_LIBRARIES})
 endif ()
 
 #
@@ -305,17 +308,6 @@ endif (${WITH_EXUDE})
 #
 add_subdirectory (tools)
 
-# On windows, use contrib openssl binaries.
-set (TESTS_PATH $ENV{PATH})
-mark_as_advanced (TESTS_PATH)
-if (WIN32)
-	set (OPENSSL_ROOT_DIR "${PROJECT_SOURCE_DIR}/contrib/openssl-win32" CACHE PATH "Path to OpenSSL.")
-	file (TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/contrib/openssl-win32/lib" OpenSSL_NATIVE_LIBPATH)
-	mark_as_advanced(OpenSSL_NATIVE_LIBPATH)
-	set (TESTS_PATH "${TESTS_PATH};${OpenSSL_NATIVE_LIBPATH}")
-endif (WIN32)
-
-find_package (OpenSSL REQUIRED)
 find_package (Threads)
 if (NOT USE_EMBEDDED_EV)
 	find_package (Ev REQUIRED)
@@ -437,7 +429,6 @@ endif (USE_EMBEDDED_EV)
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
-include_directories (${OPENSSL_INCLUDE_DIR})
 
 add_definitions(-DQUEUE_MACRO_DEBUG)
 
@@ -544,7 +535,7 @@ add_library (ilias_net2 SHARED
 	${cluster_headers}
 	${cxx_srcs}
 	)
-target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXTRA_LIBS})
+target_link_libraries (ilias_net2 ${EV_LIBRARIES} ${EXTRA_LIBS})
 if (Threads_FOUND)
 	target_link_libraries (ilias_net2 ${CMAKE_THREAD_LIBS_INIT})
 endif (Threads_FOUND)
