@@ -367,7 +367,7 @@ class ILIAS_NET2_EXPORT workq_service :
 	public refcount_base<workq_service>,
 	public identity_comparable
 {
-friend void workq::coroutine_job::do_run(runnable_job&);
+friend void workq::coroutine_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW;
 
 private:
 	workq::coroutine_job::workq_service_coroutines m_coroutines_srv;
