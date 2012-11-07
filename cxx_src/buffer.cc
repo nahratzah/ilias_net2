@@ -276,13 +276,21 @@ buffer::drain(void* out, buffer::size_type len) throw (std::out_of_range)
 	nw_start->first = len;
 
 	/* Move list elements to head, subtracting drained bytes from offset. */
-	std::transform(nw_start, this->m_list.end(), this->m_list.begin(),
-	    [len](list_type::reference sr) -> list_type::value_type {
-		return list_type::value_type(sr.first - len, MOVE(sr.second));
-	});
+	const bool do_move = (nw_start != this->m_list.begin());
+	if (do_move) {
+		std::transform(nw_start, this->m_list.end(), this->m_list.begin(),
+		    [len](list_type::reference sr) -> list_type::value_type {
+			return list_type::value_type(sr.first - len, MOVE(sr.second));
+		});
+	} else {
+		std::for_each(nw_start, this->m_list.end(),
+		    [len](list_type::reference sr) {
+			sr.first -= len;
+		});
+	}
 
 	/* Truncate list. */
-	this->m_list.resize(nw_start + 1 - this->m_list.begin());
+	this->m_list.resize(this->m_list.end() - nw_start);
 }
 
 void
