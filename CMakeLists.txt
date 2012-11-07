@@ -71,6 +71,7 @@ list (APPEND headers
 	include/ilias/net2/ll.h
 	include/ilias/net2/acceptor.h
 	include/ilias/net2/bitset.h
+	include/ilias/net2/booltest.h
 	include/ilias/net2/buffer.h
 	include/ilias/net2/carver.h
 	include/ilias/net2/signed_carver.h
