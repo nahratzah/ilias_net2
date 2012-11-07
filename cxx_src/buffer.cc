@@ -338,7 +338,7 @@ buffer::append(const void* addr, buffer::size_type len, bool sensitive) throw (s
 		return;
 	}
 
-	this->m_list.emplace_back(this->size(), MOVE(segment_ref(addr, len, sensitive)));
+	this->m_list.emplace_back(this->size(), segment_ref(addr, len, sensitive));
 }
 
 /*
