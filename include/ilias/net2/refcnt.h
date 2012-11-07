@@ -401,6 +401,27 @@ const_pointer_cast(refpointer<T>&& ptr) ILIAS_NET2_NOTHROW
 }
 
 
+template<typename Type>
+struct refpointer_acquire
+{
+	refpointer<Type>
+	operator()(Type* p) const ILIAS_NET2_NOTHROW
+	{
+		return refpointer<Type>(p, false);
+	}
+};
+
+template<typename Type>
+struct refpointer_release
+{
+	Type*
+	operator()(refpointer<Type> p) const ILIAS_NET2_NOTHROW
+	{
+		return p.release();
+	}
+};
+
+
 } /* namespace ilias */
 
 

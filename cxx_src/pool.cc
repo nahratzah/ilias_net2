@@ -465,7 +465,8 @@ public:
  * Tracking of allocation data.
  */
 class ILIAS_NET2_LOCAL pool::page :
-	private ll_base_hook<>
+	private ll_base_hook<>,
+	public refcount_base<pool::page>
 {
 friend class ll_base<page>;
 

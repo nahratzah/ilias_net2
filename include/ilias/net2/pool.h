@@ -43,7 +43,10 @@ public:
 private:
 	class osdep;
 	class page;
-	typedef ll_list< ll_base<page> > ll_list_type;
+	typedef ll_list<refpointer<page>,
+	    ll_base<page>,
+	    refpointer_acquire<page>,
+	    refpointer_release<page> > ll_list_type;
 
 public:
 	/* Helper functions. */
@@ -86,7 +89,7 @@ private:
 	ILIAS_NET2_LOCAL void dealloc_page(page*);
 
 	struct deleter_type;
-	typedef std::unique_ptr<page, deleter_type> page_ptr;
+	typedef std::refpointer<page, deleter_type> page_ptr;
 
 	ILIAS_NET2_LOCAL page_ptr alloc_page();
 	ILIAS_NET2_LOCAL page_ptr pop_page();
