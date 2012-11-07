@@ -18,6 +18,10 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 
+namespace ilias {
+namespace {
+
+
 #if !HAS_EXPL_OP_BOOL
 class bool_test_base
 {
@@ -85,5 +89,8 @@ public:
 protected:
 	~bool_test() ILIAS_NET2_NOTHROW {}
 };
+
+
+}} /* namespace ilias::<unnamed> */
 
 #endif /* ILIAS_NET2_BOOLTEST_H */
