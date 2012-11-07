@@ -51,22 +51,46 @@ fifo_merge(word_t& in, word_t& next, const word_t& merge, size_t bytes)
 {
 	const uintptr_t bits = BPP * bytes;
 
+#ifndef NDEBUG
+	char expect[3 * BYTES];
+
+	for (unsigned int i = 0; i < BYTES; ++i) {
+		expect[i] = reinterpret_cast<const char*>(&in)[i];
+		expect[i + BYTES] = reinterpret_cast<const char*>(&next)[i];
+	}
+	for (unsigned int i = 0; i < BYTES; ++i)
+		expect[i + 2 * BYTES - bytes] = reinterpret_cast<const char*>(&merge)[i];
+#endif
+
 	const word_t out = in;
 	in = next;
-	if (bytes == 0) {
+	if (bytes == 0)
 		next = merge;
-		return out;
-	}
-	next = 0;
+	else {
+		next = 0;
 
 #ifdef IS_BIG_ENDIAN
-	assert((in & mask(BITS, bits)) == in);
-	in |= merge >> (BITS - bits);
-	next = merge << bits;
+		assert((in & mask(BITS, bits)) == in);
+		in |= merge >> (BITS - bits);
+		next = merge << bits;
 #else /* Little endian. */
-	assert((in & mask(BITS - bits)) == in);
-	in |= merge << (BITS - bits);
-	next = merge >> bits;
+		assert((in & mask(BITS - bits)) == in);
+		in |= merge << (BITS - bits);
+		next = merge >> bits;
+#endif
+	}
+
+#ifndef NDEBUG
+	char result[3 * BYTES];
+
+	for (unsigned int i = 0; i < BYTES; ++i) {
+		result[i] = reinterpret_cast<const char*>(&out)[i];
+		result[i + BYTES] = reinterpret_cast<const char*>(&in)[i];
+		result[i + 2 * BYTES] = reinterpret_cast<const char*>(&next)[i];
+	}
+
+	for (unsigned int i = 0; i < 3 * BYTES - bytes; ++i)
+		assert(expect[i] == result[i]);
 #endif
 
 	return out;
@@ -245,7 +269,7 @@ cp(void*const dst0, const void*const src0, const size_t len0) ILIAS_NET2_NOTHROW
 		*reinterpret_cast<word_t*>(dst) = fifo_merge(in, next, src[1], shift);
 		dst += BYTES;
 	}
-	assert(out_len &= ADDR_MASK);
+	out_len %= BYTES;
 	assert(memcmp(dst0, src0, len0 - out_len) == 0);
 
 	/* Copy remaining (unaligned length) bytes to dst. */
