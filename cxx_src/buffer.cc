@@ -311,15 +311,18 @@ buffer::truncate(buffer::size_type len) throw (std::out_of_range)
 void
 buffer::prepend(const buffer& o) throw (std::bad_alloc)
 {
+	if (o.empty())
+		return;
+
 	const size_type offset = o.size();
 	const size_type oldlen = this->m_list.size();
 
 	this->m_list.resize(oldlen + o.m_list.size());
 
 	/* Move existing entries back. */
-	std::transform(this->m_list.rend() - oldlen, this->m_list.rend(), this->m_list.rend(),
+	std::transform(this->m_list.rend() - oldlen, this->m_list.rend(), this->m_list.rbegin(),
 	    [offset](list_type::reference r) -> list_type::value_type {
-		return MOVE(list_type::value_type(r.first + offset, MOVE(r.second)));
+		return list_type::value_type(r.first + offset, MOVE(r.second));
 	});
 
 	/* Copy existing entries to the front. */
