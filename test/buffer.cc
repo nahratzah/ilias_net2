@@ -134,13 +134,13 @@ test_search()
 	buf.append(abba + 2, strlen(abba + 2));
 
 	ilias::buffer::size_type off = buf.find_string("abba", 4);
-	assert(off == abba - data);
+	assert(off == ilias::buffer::size_type(abba - data));
 
 	off = buf.find_string("XCOM", 4, off);
-	assert(off == xcom - data);
+	assert(off == ilias::buffer::size_type(xcom - data));
 
 	off = buf.find_string("abba", 4, off);
-	assert(off == abba2 - data);
+	assert(off == ilias::buffer::size_type(abba2 - data));
 
 	off = buf.find_string("ZZZ", 3);
 	assert(off == ilias::buffer::npos);
