@@ -54,7 +54,7 @@ public:
 	virtual ~hash_ctx() ILIAS_NET2_NOTHROW;
 
 	virtual void update(const buffer&) = 0;
-	virtual RVALUE(buffer) final() = 0;
+	virtual buffer final() = 0;
 };
 
 class ILIAS_NET2_EXPORT hash_ctx_factory
@@ -81,7 +81,7 @@ public:
 	 * Short-cut for full hash context handling.
 	 * Called with key, data.
 	 */
-	virtual RVALUE(buffer) run(const buffer&, const buffer&) const;
+	virtual buffer run(const buffer&, const buffer&) const;
 };
 
 

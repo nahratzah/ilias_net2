@@ -617,7 +617,7 @@ private:
 	}
 
 	template<typename T>
-	static RVALUE(T)
+	static T
 	invert_bits(const T& v, const unsigned int& log2_max)
 	{
 		T rv = v;

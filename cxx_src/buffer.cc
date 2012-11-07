@@ -277,8 +277,8 @@ buffer::drain(void* out, buffer::size_type len) throw (std::out_of_range)
 
 	/* Move list elements to head, subtracting drained bytes from offset. */
 	std::transform(nw_start, this->m_list.end(), this->m_list.begin(),
-	    [len](list_type::reference sr) -> RVALUE(list_type::value_type) {
-		return MOVE(list_type::value_type(sr.first - len, MOVE(sr.second)));
+	    [len](list_type::reference sr) -> list_type::value_type {
+		return list_type::value_type(sr.first - len, MOVE(sr.second));
 	});
 
 	/* Truncate list. */
@@ -318,7 +318,7 @@ buffer::prepend(const buffer& o) throw (std::bad_alloc)
 
 	/* Move existing entries back. */
 	std::transform(this->m_list.rend() - oldlen, this->m_list.rend(), this->m_list.rend(),
-	    [offset](list_type::reference r) -> RVALUE(list_type::value_type) {
+	    [offset](list_type::reference r) -> list_type::value_type {
 		return MOVE(list_type::value_type(r.first + offset, MOVE(r.second)));
 	});
 

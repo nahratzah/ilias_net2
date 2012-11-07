@@ -126,7 +126,7 @@ namespace {
 template<typename Type>
 struct workq_int_refcnt_acquire
 {
-	RVALUE(workq_int_pointer<Type>)
+	workq_int_pointer<Type>
 	operator()(Type* p) const ILIAS_NET2_NOTHROW
 	{
 		return MOVE(workq_int_pointer<Type>(p, false));

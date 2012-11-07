@@ -28,7 +28,7 @@ hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
 	return;
 }
 
-RVALUE(buffer)
+buffer
 hash_ctx_factory::run(const buffer& key, const buffer& data) const
 {
 	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
@@ -57,7 +57,7 @@ public:
 	}
 
 	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
+	virtual buffer final();
 };
 
 class ILIAS_NET2_LOCAL hash_sha384 :
@@ -74,7 +74,7 @@ public:
 	}
 
 	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
+	virtual buffer final();
 };
 
 class ILIAS_NET2_LOCAL hash_sha512 :
@@ -91,7 +91,7 @@ public:
 	}
 
 	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
+	virtual buffer final();
 };
 
 
@@ -120,7 +120,7 @@ hash_sha512::update(const buffer& b)
 }
 
 
-RVALUE(buffer)
+buffer
 hash_sha256::final()
 {
 	buffer rv;
@@ -133,7 +133,7 @@ hash_sha256::final()
 	return MOVE(rv);
 }
 
-RVALUE(buffer)
+buffer
 hash_sha384::final()
 {
 	buffer rv;
@@ -146,7 +146,7 @@ hash_sha384::final()
 	return MOVE(rv);
 }
 
-RVALUE(buffer)
+buffer
 hash_sha512::final()
 {
 	buffer rv;
@@ -172,7 +172,7 @@ public:
 
 	virtual ~hash_sha256_factory() ILIAS_NET2_NOTHROW;
 	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual RVALUE(buffer) run(const buffer&, const buffer&) const;
+	virtual buffer run(const buffer&, const buffer&) const;
 };
 
 class ILIAS_NET2_LOCAL hash_sha384_factory :
@@ -187,7 +187,7 @@ public:
 
 	virtual ~hash_sha384_factory() ILIAS_NET2_NOTHROW;
 	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual RVALUE(buffer) run(const buffer&, const buffer&) const;
+	virtual buffer run(const buffer&, const buffer&) const;
 };
 
 class ILIAS_NET2_LOCAL hash_sha512_factory :
@@ -202,7 +202,7 @@ public:
 
 	virtual ~hash_sha512_factory() ILIAS_NET2_NOTHROW;
 	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual RVALUE(buffer) run(const buffer&, const buffer&) const;
+	virtual buffer run(const buffer&, const buffer&) const;
 };
 
 
@@ -250,7 +250,7 @@ hash_sha512_factory::instantiate(const buffer& key) const
 }
 
 
-RVALUE(buffer)
+buffer
 hash_sha256_factory::run(const buffer& key, const buffer& b) const
 {
 	if (!key.empty())
@@ -269,7 +269,7 @@ hash_sha256_factory::run(const buffer& key, const buffer& b) const
 	return MOVE(rv);
 }
 
-RVALUE(buffer)
+buffer
 hash_sha384_factory::run(const buffer& key, const buffer& b) const
 {
 	if (!key.empty())
@@ -288,7 +288,7 @@ hash_sha384_factory::run(const buffer& key, const buffer& b) const
 	return MOVE(rv);
 }
 
-RVALUE(buffer)
+buffer
 hash_sha512_factory::run(const buffer& key, const buffer& b) const
 {
 	if (!key.empty())
@@ -318,7 +318,7 @@ public:
 	hash_cc_hmac(CCHmacAlgorithm alg, const std::string& name, size_type hashlen, size_type keylen, const void* key);
 
 	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
+	virtual buffer final();
 };
 
 
@@ -336,7 +336,7 @@ hash_cc_hmac::update(const buffer& b)
 	});
 }
 
-RVALUE(buffer)
+buffer
 hash_cc_hmac::final()
 {
 	buffer rv;

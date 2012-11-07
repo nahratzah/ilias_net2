@@ -59,7 +59,7 @@ cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string&
 	out.append(reinterpret_cast<const void*>(&pad[0]), buf_padding_length(len));
 }
 template<>
-RVALUE(std::string)
+std::string
 cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace buf_encode;
@@ -102,7 +102,7 @@ cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value)
 	out.append(reinterpret_cast<const void*>(&pad[0]), buf_padding_length(len));
 }
 template<>
-RVALUE(buffer)
+buffer
 cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace buf_encode;

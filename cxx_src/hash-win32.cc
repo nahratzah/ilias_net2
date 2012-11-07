@@ -32,7 +32,7 @@ hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
 	return;
 }
 
-RVALUE(buffer)
+buffer
 hash_ctx_factory::run(const buffer& key, const buffer& data) const
 {
 	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
@@ -235,7 +235,7 @@ public:
 	virtual ~bcrypt_hash() ILIAS_NET2_NOTHROW;
 
 	virtual void update(const buffer&);
-	virtual RVALUE(buffer) final();
+	virtual buffer final();
 };
 
 
@@ -256,7 +256,7 @@ bcrypt_hash::update(const buffer& b)
 	});
 }
 
-RVALUE(buffer)
+buffer
 bcrypt_hash::final()
 {
 	buffer rv;

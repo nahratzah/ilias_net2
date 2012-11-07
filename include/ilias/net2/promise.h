@@ -537,11 +537,11 @@ private:
 		return (bs ? static_cast<state*>(bs) : nullptr);
 	}
 
-	static RVALUE(refpointer<state>)
+	static refpointer<state>
 	create_state() throw (std::bad_alloc)
 	{
 		refpointer<state> p(new state());
-		return MOVE(p);
+		return p;
 	}
 
 public:
@@ -605,7 +605,7 @@ public:
 	}
 #endif
 
-	RVALUE(future<Result>)
+	future<Result>
 	get_future() const
 	{
 		return future<Result>(this->get_state());

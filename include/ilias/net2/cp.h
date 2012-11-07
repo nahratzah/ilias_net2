@@ -44,7 +44,7 @@ struct cp_encdec
 	typedef const value_type& const_reference;
 	typedef value_type* pointer;
 	typedef const value_type* const_pointer;
-	typedef RVALUE(value_type) result_type;
+	typedef value_type result_type;
 
 	static void encode(encdec_ctx&, buffer&, const_reference);
 	static result_type decode(encdec_ctx&, buffer&);
@@ -169,7 +169,7 @@ cp_encdec<std::uint8_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint8_
 	out.append_literal(value);
 }
 template<>
-inline RVALUE(std::uint8_t)
+inline std::uint8_t
 cp_encdec<std::uint8_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -186,7 +186,7 @@ cp_encdec<std::uint16_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint1
 	out.append_literal(big_endian(value));
 }
 template<>
-inline RVALUE(std::uint16_t)
+inline std::uint16_t
 cp_encdec<std::uint16_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -203,7 +203,7 @@ cp_encdec<std::uint32_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint3
 	out.append_literal(big_endian(value));
 }
 template<>
-inline RVALUE(std::uint32_t)
+inline std::uint32_t
 cp_encdec<std::uint32_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -220,7 +220,7 @@ cp_encdec<std::uint64_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint6
 	out.append_literal(big_endian(value));
 }
 template<>
-inline RVALUE(std::uint64_t)
+inline std::uint64_t
 cp_encdec<std::uint64_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -238,7 +238,7 @@ cp_encdec<std::int8_t>::encode(encdec_ctx& ectx, buffer& out, const std::int8_t&
 	cp_encdec<std::uint8_t>::encode(ectx, out, net_two_compl<std::uint8_t>(value));
 }
 template<>
-inline RVALUE(std::int8_t)
+inline std::int8_t
 cp_encdec<std::int8_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -255,7 +255,7 @@ cp_encdec<std::int16_t>::encode(encdec_ctx& ectx, buffer& out, const std::int16_
 	cp_encdec<std::uint16_t>::encode(ectx, out, net_two_compl<std::uint16_t>(value));
 }
 template<>
-inline RVALUE(std::int16_t)
+inline std::int16_t
 cp_encdec<std::int16_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -272,7 +272,7 @@ cp_encdec<std::int32_t>::encode(encdec_ctx& ectx, buffer& out, const std::int32_
 	cp_encdec<std::uint32_t>::encode(ectx, out, net_two_compl<std::uint32_t>(value));
 }
 template<>
-inline RVALUE(std::int32_t)
+inline std::int32_t
 cp_encdec<std::int32_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -289,7 +289,7 @@ cp_encdec<std::int64_t>::encode(encdec_ctx& ectx, buffer& out, const std::int64_
 	cp_encdec<std::uint64_t>::encode(ectx, out, net_two_compl<std::uint64_t>(value));
 }
 template<>
-inline RVALUE(std::int64_t)
+inline std::int64_t
 cp_encdec<std::int64_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
@@ -301,14 +301,14 @@ template<>
 ILIAS_NET2_EXPORT void
 cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string& value);
 template<>
-ILIAS_NET2_EXPORT RVALUE(std::string)
+ILIAS_NET2_EXPORT std::string
 cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in);
 
 template<>
 ILIAS_NET2_EXPORT void
 cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value);
 template<>
-ILIAS_NET2_EXPORT RVALUE(buffer)
+ILIAS_NET2_EXPORT buffer
 cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in);
 
 extern template struct cp_encdec<std::string>;

@@ -2407,6 +2407,12 @@ public:
 		}
 
 #if HAS_RVALUE_REF
+		unlink_wait(unlink_wait&& o) ILIAS_NET2_NOTHROW :
+			m_impl(std::move(o.m_impl))
+		{
+			/* Empty body. */
+		}
+
 		unlink_wait(impl_type&& impl) ILIAS_NET2_NOTHROW :
 			m_impl(std::move(impl))
 		{
@@ -2458,6 +2464,16 @@ public:
 		{
 			return bool(this->m_impl);
 		}
+
+
+#if HAS_DELETED_FN
+		unlink_wait(const unlink_wait&) = delete;
+		unlink_wait& operator=(const unlink_wait&) = delete;
+#else
+	private:
+		unlink_wait(const unlink_wait&);
+		unlink_wait& operator=(const unlink_wait&);
+#endif
 	};
 
 private:
@@ -2504,16 +2520,16 @@ public:
 	}
 
 #if HAS_RVALUE_REF
-	unlink_wait&&
+	unlink_wait
 	pop_front_nowait()
 	{
-		return std::move(unlink_wait(this->m_list.pop_front_nowait()));
+		return unlink_wait(this->m_list.pop_front_nowait());
 	}
 
-	unlink_wait&&
+	unlink_wait
 	pop_back_nowait()
 	{
-		return std::move(unlink_wait(this->m_list.pop_back_nowait()));
+		return unlink_wait(this->m_list.pop_back_nowait());
 	}
 
 	void

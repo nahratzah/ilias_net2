@@ -365,7 +365,7 @@ public:
 		this->m_locked = false;
 	}
 
-	RVALUE(workq_int_pointer<job>)
+	workq_int_pointer<job>
 	release() ILIAS_NET2_NOTHROW
 	{
 		workq_int_pointer<job> rv;
