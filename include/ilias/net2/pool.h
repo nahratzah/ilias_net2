@@ -17,11 +17,12 @@
 #define ILIAS_NET2_POOL_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/ll.h>
+#include <ilias/net2/refcnt.h>
 #include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
-#include <ilias/net2/ll.h>
 
 
 #ifdef _MSC_VER
@@ -43,7 +44,7 @@ public:
 private:
 	class osdep;
 	class page;
-	typedef ll_list<refpointer<page>,
+	typedef ll_smartptr_list<refpointer<page>,
 	    ll_base<page>,
 	    refpointer_acquire<page>,
 	    refpointer_release<page> > ll_list_type;
@@ -73,26 +74,18 @@ public:
 	static CONSTEXPR_VALUE size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
 	static CONSTEXPR_VALUE size_type default_offset = 0;
 
-	pool(size_type size, size_type align = default_align, size_type offset = default_offset) :
-		align(align <= 0 ? 1 : align),
-		offset(offset % this->align),
-		size(round_up(size, this->align)),
-		head()
-	{
-		/* Empty body. */
-	}
+	pool(size_type, size_type = default_align, size_type = default_offset) ILIAS_NET2_NOTHROW;
+	~pool() ILIAS_NET2_NOTHROW;
 
 private:
 	inline size_type entries_per_page() const;
 
-	ILIAS_NET2_LOCAL void page_enqueue(page*);
 	ILIAS_NET2_LOCAL void dealloc_page(page*);
 
 	struct deleter_type;
-	typedef std::refpointer<page, deleter_type> page_ptr;
+	typedef refpointer<page> page_ptr;
 
 	ILIAS_NET2_LOCAL page_ptr alloc_page();
-	ILIAS_NET2_LOCAL page_ptr pop_page();
 	ILIAS_NET2_LOCAL page_ptr alloc_big_page(size_type);
 
 public:
@@ -180,6 +173,16 @@ private:
 
 public:
 	static size_type recommend_size(size_type min, size_type max, size_type align = default_align, size_type offset = default_offset) ILIAS_NET2_NOTHROW;
+
+
+#if HAS_DELETED_FN
+	pool(const pool&) = delete;
+	pool& operator=(const pool&) = delete;
+#else
+private:
+	pool(const pool&);
+	pool& operator=(const pool&);
+#endif
 };
 
 

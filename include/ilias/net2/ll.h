@@ -2500,6 +2500,26 @@ public:
 	}
 
 	bool
+	push_front(const pointer& p)
+	{
+		typename list_type::pointer lp = release(p);
+		bool rv = this->m_list.push_front_element(lp);
+		if (!rv)
+			acquire(lp);
+		return rv;
+	}
+
+	bool
+	push_front(pointer&& p)
+	{
+		typename list_type::pointer lp = release(p);
+		bool rv = this->m_list.push_front_element(lp);
+		if (!rv)
+			p = acquire(lp);
+		return rv;
+	}
+
+	bool
 	push_back(const pointer& p)
 	{
 		typename list_type::pointer lp = release(p);
@@ -2551,9 +2571,25 @@ public:
 		return this->erase_and_dispose(i, [](const pointer&) {});
 	}
 
+	iterator
+	erase(iterator&& i) ILIAS_NET2_NOTHROW
+	{
+		return this->erase_and_dispose(i, [](const pointer&) {});
+	}
+
 	template<typename Disposer>
 	iterator
 	erase_and_dispose(iterator& i, Disposer disposer)
+	{
+		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+		return rv;
+	}
+
+	template<typename Disposer>
+	iterator
+	erase_and_dispose(iterator&& i, Disposer disposer)
 	{
 		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
 			disposer(acquire(r));
@@ -2567,9 +2603,25 @@ public:
 		return this->erase_and_dispose(i, [](const pointer&) {});
 	}
 
+	reverse_iterator
+	erase(reverse_iterator&& i) ILIAS_NET2_NOTHROW
+	{
+		return this->erase_and_dispose(i, [](const pointer&) {});
+	}
+
 	template<typename Disposer>
 	reverse_iterator
 	erase_and_dispose(reverse_iterator& i, Disposer disposer)
+	{
+		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
+			disposer(acquire(r));
+		});
+		return rv;
+	}
+
+	template<typename Disposer>
+	reverse_iterator
+	erase_and_dispose(reverse_iterator&& i, Disposer disposer)
 	{
 		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
 			disposer(acquire(r));

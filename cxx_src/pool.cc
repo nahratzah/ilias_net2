@@ -180,6 +180,9 @@ public:
 	}
 };
 
+
+namespace {
+
 /*
  * Attempt to set all bits in range.
  *
@@ -317,6 +320,8 @@ public:
 		this->m_commit = true;
 	}
 };
+
+}; /* namespace ilias::<unnamed> */
 
 
 /*
@@ -461,12 +466,35 @@ public:
 };
 
 
+/* Pool page handler: puts page on queue or releases it after use. */
+struct ILIAS_NET2_LOCAL pool::deleter_type
+{
+private:
+	pool* m_pool;
+
+public:
+	CONSTEXPR deleter_type() :
+		m_pool(nullptr)
+	{
+		/* Empty body. */
+	}
+
+	deleter_type(pool& m_pool) :
+		m_pool(&m_pool)
+	{
+		/* Empty body. */
+	}
+
+	void operator()(page* p) const ILIAS_NET2_NOTHROW;
+};
+
+
 /*
  * Tracking of allocation data.
  */
 class ILIAS_NET2_LOCAL pool::page :
 	private ll_base_hook<>,
-	public refcount_base<pool::page>
+	public refcount_base<pool::page, pool::deleter_type>
 {
 friend class ll_base<page>;
 
@@ -764,14 +792,14 @@ private:
 
 public:
 	/* Constructor. */
-	page(page_type type, std::size_t alloclen, std::size_t n_entries, std::size_t entry_size,
-	    std::size_t align, std::size_t offset) ILIAS_NET2_NOTHROW :
+	page(pool& pl, page_type type, std::size_t alloclen, std::size_t n_entries) ILIAS_NET2_NOTHROW :
+		refcount_base(deleter_type(pl)),
 		type(type),
 		alloclen(alloclen),
 		n_entries(n_entries),
-		entry_size(round_up(entry_size, align)),
-		align(align),
-		offset(offset)
+		entry_size(pl.size),
+		align(pl.align),
+		offset(pl.offset)
 	{
 		const osdep& os = osdep::get();
 		assert(reinterpret_cast<uintptr_t>(static_cast<void*>(this)) % os.alloc_align() == 0);
@@ -851,6 +879,16 @@ public:
 	/* Change the number of entries in a big page. */
 	bool resize(void*, std::size_t, std::size_t) ILIAS_NET2_NOTHROW;
 };
+
+
+inline void
+pool::deleter_type::operator()(pool::page* p) const ILIAS_NET2_NOTHROW
+{
+	assert(this->m_pool != nullptr);
+	assert(p->empty() || p->type == page::BIG_PAGE);
+	if (p->empty())
+		this->m_pool->dealloc_page(p);
+}
 
 
 #ifdef WIN32
@@ -1208,50 +1246,18 @@ pool::page::resize(void* ptr, std::size_t old_n, std::size_t new_n) ILIAS_NET2_N
 }
 
 
-/* Pool page handler: puts page on queue or releases it after use. */
-struct pool::deleter_type
+pool::pool(pool::size_type size, pool::size_type align, pool::size_type offset) ILIAS_NET2_NOTHROW :
+	align(align <= 0 ? 1 : align),
+	offset(offset % this->align),
+	size(round_up(size, this->align)),
+	head()
 {
-private:
-	pool* m_pool;
+	/* Empty body. */
+}
 
-public:
-	CONSTEXPR deleter_type() :
-		m_pool(nullptr)
-	{
-		/* Empty body. */
-	}
-
-	CONSTEXPR deleter_type(pool& m_pool) :
-		m_pool(&m_pool)
-	{
-		/* Empty body. */
-	}
-
-	void
-	operator()(page* p) const
-	{
-		assert(this->m_pool != nullptr);
-
-		if (p->empty())
-			this->m_pool->dealloc_page(p);
-		else {
-			switch (p->type) {
-			case page::SHARED_PAGE:
-				this->m_pool->page_enqueue(p);
-				break;
-			case page::BIG_PAGE:
-				break;
-			}
-		}
-	}
-};
-
-
-void
-pool::page_enqueue(page* pg)
+pool::~pool() ILIAS_NET2_NOTHROW
 {
-	if (pg)
-		this->head.push_front(*pg);
+	return;
 }
 
 inline std::size_t
@@ -1263,7 +1269,7 @@ pool::entries_per_page() const
 ILIAS_NET2_LOCAL pool::page_ptr
 pool::alloc_page()
 {
-	page_ptr pp(nullptr, deleter_type(*this));
+	page_ptr pp;
 	const osdep& os = osdep::get();
 	const std::size_t pgsz = os.alloc_align();
 	const std::size_t n_entries = this->entries_per_page();
@@ -1276,14 +1282,12 @@ pool::alloc_page()
 		return pp;
 	}
 
-	page* p = nullptr;
 	try {
-		p = new (ptr) page(page::SHARED_PAGE, pgsz, n_entries, this->size, this->align, this->offset);
+		pp = new (ptr) page(*this, page::SHARED_PAGE, pgsz, n_entries);
 	} catch (...) {
 		os.vfree(ptr, pgsz);
 		throw;
 	}
-	pp.reset(p);
 	return pp;
 }
 
@@ -1301,7 +1305,7 @@ pool::dealloc_page(page* p)
 ILIAS_NET2_LOCAL pool::page_ptr
 pool::alloc_big_page(std::size_t n)
 {
-	page_ptr pp(nullptr, deleter_type(*this));
+	page_ptr pp;
 	const osdep& os = osdep::get();
 	const std::size_t alloc_sz = round_up(page::overhead(0, this->align, this->offset) + n * this->size, os.alloc_align());
 	const std::size_t pgsz = round_up(page::overhead(0, this->align, this->offset) + n * this->size, os.pagesize());
@@ -1316,7 +1320,7 @@ pool::alloc_big_page(std::size_t n)
 
 	page* p = nullptr;
 	try {
-		p = new (ptr) page(page::BIG_PAGE, alloc_sz, n, this->size, this->align, this->offset);
+		p = new (ptr) page(*this, page::BIG_PAGE, alloc_sz, n);
 	} catch (...) {
 		os.vfree(ptr, alloc_sz);
 		throw;
@@ -1326,10 +1330,6 @@ pool::alloc_big_page(std::size_t n)
 }
 
 
-#ifdef _MSC_VER
-#pragma warning( push )
-#pragma warning( disable: 4297 )	/* Warning about throw in noexcept function, is more for my sanity than for the compiler. */
-#endif
 void*
 pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 {
@@ -1345,16 +1345,8 @@ pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 	 */
 	for (ll_list_type::iterator i = this->head.begin(), end = this->head.end(); i != end; ++i) {
 		void* ptr = i->allocate(n);
-		if (ptr) {
-			try {
-				page_ptr pg(i.get(), deleter_type(*this));
-				this->head.erase(i);
-			} catch (...) {
-				i->deallocate(ptr, n);
-				throw;
-			}
+		if (ptr)
 			return ptr;
-		}
 	}
 
 	/*
@@ -1363,18 +1355,17 @@ pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 	 */
 	page_ptr pg = alloc_page();
 	void* ptr = pg->allocate(n);
+	if (ptr)
+		this->head.push_front(std::move(pg));
 	return ptr;
 }
-#ifdef _MSC_VER
-#pragma warning( pop )
-#endif
 
 
 bool
 pool::deallocate(std::nothrow_t, void* ptr, size_type n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
-	page_ptr pg(nullptr, deleter_type(*this));
+	page_ptr pg;
 
 	/*
 	 * Derive page from the pointer.
@@ -1404,8 +1395,22 @@ pool::deallocate(std::nothrow_t, void* ptr, size_type n) ILIAS_NET2_NOTHROW
 
 	switch (pg->type) {
 	case page::SHARED_PAGE:
-		if (n > 0 && !pg->deallocate(ptr, n))
-			return false;
+		if (n > 0) {
+			if (!pg->deallocate(ptr, n))
+				return false;
+
+			/*
+			 * If the page is empty and unreferenced, remove it from the list.
+			 *
+			 * Note that the page can be re-used while we are erasing it.
+			 * For this reason, we must always validate after removal if the
+			 * pg->empty() condition is still true.
+			 */
+			if (refcnt_is_solo(*pg) && pg->empty())
+				this->head.erase(this->head.iterator_to(*pg));
+			if (!pg->empty())
+				this->head.push_back(std::move(pg));
+		}
 		break;
 	case page::BIG_PAGE:
 		if (n > 0 && !pg->resize(ptr, n, 0))
@@ -1421,7 +1426,7 @@ bool
 pool::resize(std::nothrow_t, void* ptr, size_type old_n, size_type new_n) ILIAS_NET2_NOTHROW
 {
 	const osdep& os = osdep::get();
-	page_ptr pg(nullptr, deleter_type(*this));
+	page_ptr pg;
 
 	/*
 	 * Derive page from the pointer.
