@@ -163,7 +163,7 @@ buffer::push_back(buffer::segment_ref&& sr) ILIAS_NET2_NOTHROW
 }
 #endif
 
-RVALUE(buffer::list_type::iterator)
+buffer::list_type::iterator
 buffer::find_offset(buffer::size_type offset) ILIAS_NET2_NOTHROW
 {
 	typedef list_type::const_reference const_ref;
@@ -180,7 +180,7 @@ buffer::find_offset(buffer::size_type offset) ILIAS_NET2_NOTHROW
 
 	return MOVE(i);
 }
-RVALUE(buffer::list_type::const_iterator)
+buffer::list_type::const_iterator
 buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
 {
 	typedef list_type::const_reference const_ref;

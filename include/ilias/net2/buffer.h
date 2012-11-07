@@ -262,7 +262,7 @@ private:
 
 	public:
 		/* Create a new mem_segment that is able to hold at least sz bytes. */
-		static RVALUE(refpointer<mem_segment>)
+		static refpointer<mem_segment>
 		create(std::nothrow_t, size_type sz) ILIAS_NET2_NOTHROW
 		{
 			refpointer<mem_segment> ms;
@@ -270,17 +270,17 @@ private:
 			void* ptr = m_pool.allocate_bytes(std::nothrow, overhead() + sz);
 			if (ptr)
 				ms.reset(::new(ptr) mem_segment(sz));
-			return MOVE(ms);
+			return ms;
 		}
 
 		/* Create a new mem_segment that is able to hold at least sz bytes. */
-		static RVALUE(refpointer<mem_segment>)
+		static refpointer<mem_segment>
 		create(size_type sz) throw (std::bad_alloc)
 		{
 			refpointer<mem_segment> ptr = create(std::nothrow, sz);
 			if (!ptr)
 				throw std::bad_alloc();
-			return MOVE(ptr);
+			return ptr;
 		}
 
 	private:
@@ -673,7 +673,7 @@ private:
 	 * Find the last R for which pred(R, v) is true.
 	 */
 	template<typename Iter, typename Pred>
-	static RVALUE(Iter)
+	static Iter
 	binsearch_lowerbound(Iter begin, Iter end, const Pred& pred = std::less<typename Iter::value_type>())
 	{
 		/*
@@ -695,7 +695,7 @@ private:
 	 * Find the first R for which pred(R) is false.
 	 */
 	template<typename Iter, typename Pred>
-	static RVALUE(Iter)
+	static Iter
 	binsearch_upperbound(Iter begin, Iter end, const Pred& pred = std::less<typename Iter::value_type>())
 	{
 		/*
@@ -718,13 +718,13 @@ private:
 	 * Find the segment ref that contains the given offset.
 	 * Returns list.end() if no entry describes the offset.
 	 */
-	ILIAS_NET2_LOCAL RVALUE(list_type::iterator) find_offset(size_type) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL list_type::iterator find_offset(size_type) ILIAS_NET2_NOTHROW;
 
 	/*
 	 * Find the segment ref that contains the given offset.
 	 * Returns list.end() if no entry describes the offset.
 	 */
-	ILIAS_NET2_LOCAL RVALUE(list_type::const_iterator) find_offset(size_type) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL list_type::const_iterator find_offset(size_type) const ILIAS_NET2_NOTHROW;
 
 public:
 	/* Default constructor. */
@@ -793,7 +793,7 @@ public:
 	buffer& operator+= (const buffer& o) throw (std::bad_alloc);
 
 	/* Create a buffer that is this buffer and another buffer concatenated. */
-	RVALUE(buffer)
+	buffer
 	operator+ (const buffer& o) const throw (std::bad_alloc)
 	{
 		buffer copy = *this;
@@ -864,12 +864,12 @@ public:
 	 * Note: severely discouraged for non-POD types!
 	 */
 	template<typename T>
-	RVALUE(T)
+	T
 	drain_literal() throw (std::out_of_range)
 	{
 		T rv;
 		this->drain(reinterpret_cast<void*>(&rv), sizeof(rv));
-		return MOVE(rv);
+		return rv;
 	}
 
 private:
@@ -877,12 +877,12 @@ private:
 
 public:
 	/* Return a buffer with the range described by off, len. */
-	RVALUE(buffer)
+	buffer
 	subrange(size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range)
 	{
 		buffer result;
 		subrange_adapter(result, off, len);
-		return MOVE(result);
+		return result;
 	}
 
 	/*

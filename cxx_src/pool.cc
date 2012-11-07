@@ -509,7 +509,7 @@ private:
 	static CONSTEXPR std::size_t
 	bitmap_space(std::size_t n_entries)
 	{
-		return (n_entries + bitmap_bits() - 1) / bitmap_bits();
+		return ((n_entries + bitmap_bits() - 1) / bitmap_bits()) * sizeof(entry_type);
 	}
 
 public:
@@ -900,7 +900,7 @@ bool
 pool::osdep::vfree(void* ptr, std::size_t sz) const
 {
 	assert(reinterpret_cast<uintptr_t>(ptr) % this->alloc_align() == 0);
-	assert(sz % this->pagesize() == 0);
+	assert(sz % this->alloc_align() == 0);
 	assert(sz > 0);
 
 	/*
@@ -910,24 +910,42 @@ pool::osdep::vfree(void* ptr, std::size_t sz) const
 	 * to figure out the correct pointers to VirtualFree().
 	 */
 	while (sz > 0) {
-		MEMORY_BASIC_INFORMATION mem_info;
-		VirtualQuery(ptr, &mem_info, sizeof(mem_info));
+		void* ptr_i = ptr;
+		for (;;) {
+			MEMORY_BASIC_INFORMATION mem_info;
+			VirtualQuery(ptr_i, &mem_info, sizeof(mem_info));
 
-		if (mem_info.AllocationBase != ptr)
-			return false;
-		if (mem_info.RegionSize > sz)
-			return false;
-		switch (mem_info.State) {
-		case MEM_COMMIT:
-		case MEM_RESERVE:
-			break;
-		default:
-			return false;
+			/* Must describe memory at start of iterator. */
+			if (mem_info.BaseAddress != ptr_i)
+				return false;
+			/* Walked the entire memory range -> found a single allocation block. */
+			if (mem_info.AllocationBase != ptr)
+				break;	/* GUARD */
+			/* Found memory range must fit in sz. */
+			if (mem_info.RegionSize > sz - (reinterpret_cast<uintptr_t>(ptr_i) - reinterpret_cast<uintptr_t>(ptr)))
+				return false;
+			/* Found memory must be in reserved or commited state (since that is the only states we allocate). */
+			switch (mem_info.State) {
+			case MEM_COMMIT:
+			case MEM_RESERVE:
+				break;
+			default:
+				return false;
+			}
+
+			/* Prepare for next step in loop. */
+			ptr_i = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(ptr_i) + mem_info.RegionSize);
 		}
 
+		/* Paranoid check of above loop. */
+		assert(reinterpret_cast<uintptr_t>(ptr_i) - reinterpret_cast<uintptr_t>(ptr) <= sz);
+
+		/* Free single block found in the above loop. */
 		if (!VirtualFree(ptr, 0, MEM_RELEASE))
 			return false;
-		sz -= mem_info.RegionSize;
+		/* Set up for next block. */
+		sz -= reinterpret_cast<uintptr_t>(ptr_i) - reinterpret_cast<uintptr_t>(ptr);
+		ptr = ptr_i;
 	}
 	return true;
 }
@@ -1241,7 +1259,7 @@ pool::entries_per_page() const
 	return page::page_entries_max(this->size, this->align, this->offset);
 }
 
-ILIAS_NET2_LOCAL pool::page_ptr&&
+ILIAS_NET2_LOCAL pool::page_ptr
 pool::alloc_page()
 {
 	page_ptr pp(nullptr, deleter_type(*this));
@@ -1252,9 +1270,9 @@ pool::alloc_page()
 	void* ptr = os.valloc(pgsz);
 	if (ptr == nullptr)
 		return std::move(pp);
-	if (!os.commit_mem(ptr, page::overhead(n_entries, this->align, this->offset))) {
+	if (!os.commit_mem(ptr, round_up(page::overhead(n_entries, this->align, this->offset), os.pagesize()))) {
 		os.vfree(ptr, pgsz);
-		return std::move(pp);
+		return pp;
 	}
 
 	page* p = nullptr;
@@ -1265,7 +1283,7 @@ pool::alloc_page()
 		throw;
 	}
 	pp.reset(p);
-	return std::move(pp);
+	return pp;
 }
 
 ILIAS_NET2_LOCAL void
@@ -1279,7 +1297,7 @@ pool::dealloc_page(page* p)
 	assert(vfree_ok);
 }
 
-ILIAS_NET2_LOCAL pool::page_ptr&&
+ILIAS_NET2_LOCAL pool::page_ptr
 pool::alloc_big_page(std::size_t n)
 {
 	page_ptr pp(nullptr, deleter_type(*this));
@@ -1303,7 +1321,7 @@ pool::alloc_big_page(std::size_t n)
 		throw;
 	}
 	pp.reset(p);
-	return std::move(pp);
+	return pp;
 }
 
 

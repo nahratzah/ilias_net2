@@ -76,7 +76,7 @@ private:
 		return ((v & FLAG) == FLAG);
 	}
 
-	static RVALUE(pointer_flag) decode(internal_type, bool = true) ILIAS_NET2_NOTHROW;
+	static pointer_flag decode(internal_type, bool = true) ILIAS_NET2_NOTHROW;
 
 	static internal_type
 	encode(const hook* p, bool f)
@@ -234,9 +234,9 @@ public:
 			this->m_locked = false;
 		}
 
-		RVALUE(pointer_flag) unlock(RVALUE(pointer_flag)) ILIAS_NET2_NOTHROW;
+		pointer_flag unlock(const pointer_flag&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-		RVALUE(pointer_flag) unlock(const pointer_flag&) ILIAS_NET2_NOTHROW;
+		pointer_flag unlock(pointer_flag&&) ILIAS_NET2_NOTHROW;
 #endif
 
 		bool
@@ -287,7 +287,7 @@ public:
 		return (this->m_value.load(std::memory_order_relaxed) != 0);
 	}
 
-	RVALUE(pointer_flag) get() const ILIAS_NET2_NOTHROW;
+	pointer_flag get() const ILIAS_NET2_NOTHROW;
 
 	bool
 	get_flag() const ILIAS_NET2_NOTHROW
@@ -302,38 +302,38 @@ public:
 		assert(old & FLAG);
 	}
 
-	RVALUE(pointer_flag) exchange(RVALUE(hook_ptr)) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(const hook_ptr&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	RVALUE(pointer_flag) exchange(const hook_ptr&) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(hook_ptr&&) ILIAS_NET2_NOTHROW;
 #endif
 
-	RVALUE(pointer_flag) exchange(RVALUE(hook_ptr), bool) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(const hook_ptr&, bool) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	RVALUE(pointer_flag) exchange(const hook_ptr&, bool) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(hook_ptr&&, bool) ILIAS_NET2_NOTHROW;
 #endif
 
-	RVALUE(pointer_flag) exchange(RVALUE_CREF(pointer_flag)) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(const pointer_flag&) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	RVALUE(pointer_flag) exchange(const pointer_flag&) ILIAS_NET2_NOTHROW;
+	pointer_flag exchange(pointer_flag&&) ILIAS_NET2_NOTHROW;
 #endif
 
 private:
 	bool cas_internal(pointer_flag&, internal_type, deref_lock<ll_ptr>*) ILIAS_NET2_NOTHROW;
 
 public:
-	bool compare_exchange(pointer_flag&, RVALUE(pointer_flag), deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
-#if HAS_RVALUE_REF
 	bool compare_exchange(pointer_flag&, const pointer_flag&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
+#if HAS_RVALUE_REF
+	bool compare_exchange(pointer_flag&, pointer_flag&&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
 #endif
 
-	bool compare_exchange(hook_ptr&, RVALUE(hook_ptr), deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
-#if HAS_RVALUE_REF
 	bool compare_exchange(hook_ptr&, const hook_ptr&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
+#if HAS_RVALUE_REF
+	bool compare_exchange(hook_ptr&, hook_ptr&&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
 #endif
 
-	bool compare_exchange(pointer_flag&, RVALUE(hook_ptr), deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
+	bool compare_exchange(pointer_flag&, const hook_ptr&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
-	bool compare_exchange(pointer_flag&f, const hook_ptr&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
+	bool compare_exchange(pointer_flag&, hook_ptr&&, deref_lock<ll_ptr>* = nullptr) ILIAS_NET2_NOTHROW;
 #endif
 };
 
@@ -586,8 +586,8 @@ public:
 		return deleted(**this);
 	}
 
-	RVALUE(pointer_flag) succ() const ILIAS_NET2_NOTHROW;
-	RVALUE(pointer_flag) pred() const ILIAS_NET2_NOTHROW;
+	pointer_flag succ() const ILIAS_NET2_NOTHROW;
+	pointer_flag pred() const ILIAS_NET2_NOTHROW;
 	std::size_t succ_end_distance(const hook*) const ILIAS_NET2_NOTHROW;
 
 	bool unlink_nowait() const ILIAS_NET2_NOTHROW;
@@ -852,20 +852,18 @@ hook::hook(HEAD) ILIAS_NET2_NOTHROW :
 	assert(this->m_refcnt.load(std::memory_order_relaxed) == 2);
 }
 
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::get() const ILIAS_NET2_NOTHROW
 {
 	deref_lock<const ll_ptr> lck(*this, false);
-	pointer_flag pf = MOVE(decode(lck.lock()));
-	return MOVE(pf);
+	return decode(lck.lock());
 }
 
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::decode(ll_ptr::internal_type v, bool acquire) ILIAS_NET2_NOTHROW
 {
 	hook_ptr p(reinterpret_cast<hook*>(v & ~MASK), acquire);
-	pointer_flag pf(MOVE(p), v & FLAG);
-	return MOVE(pf);
+	return pointer_flag(MOVE(p), v & FLAG);
 }
 
 inline ll_ptr::internal_type
@@ -887,16 +885,15 @@ ll_ptr::~ll_ptr() ILIAS_NET2_NOTHROW
 	this->exchange(MOVE(hp_null));
 }
 
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::exchange(RVALUE(hook_ptr) p) ILIAS_NET2_NOTHROW
 {
 	deref_lock<ll_ptr> lck(*this, false);
 	bool f = decode_flag(lck.lock());
-	pointer_flag pf(MOVE(p), f);
-	return lck.unlock(MOVE(pf));
+	return lck.unlock(pointer_flag(MOVE(p), f));
 }
 #if HAS_RVALUE_REF
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::exchange(const hook_ptr& p) ILIAS_NET2_NOTHROW
 {
 	hook_ptr copy = p;
@@ -904,7 +901,7 @@ ll_ptr::exchange(const hook_ptr& p) ILIAS_NET2_NOTHROW
 }
 #endif
 
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::exchange(RVALUE(hook_ptr) p, bool f) ILIAS_NET2_NOTHROW
 {
 	pointer_flag pf(MOVE(p), f);
@@ -912,7 +909,7 @@ ll_ptr::exchange(RVALUE(hook_ptr) p, bool f) ILIAS_NET2_NOTHROW
 	return lck.unlock(MOVE(pf));
 }
 #if HAS_RVALUE_REF
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::exchange(const hook_ptr& p, bool f) ILIAS_NET2_NOTHROW
 {
 	hook_ptr copy = p;
@@ -920,21 +917,21 @@ ll_ptr::exchange(const hook_ptr& p, bool f) ILIAS_NET2_NOTHROW
 }
 #endif
 
-inline RVALUE(pointer_flag)
-ll_ptr::exchange(RVALUE_CREF(pointer_flag) pf) ILIAS_NET2_NOTHROW
-{
-	return this->exchange(MOVE(pf.first), pf.second);
-}
-#if HAS_RVALUE_REF
-inline RVALUE(pointer_flag)
+inline pointer_flag
 ll_ptr::exchange(const pointer_flag& pf) ILIAS_NET2_NOTHROW
 {
 	return this->exchange(pf.first, pf.second);
 }
+#if HAS_RVALUE_REF
+inline pointer_flag
+ll_ptr::exchange(pointer_flag&& pf) ILIAS_NET2_NOTHROW
+{
+	return this->exchange(std::move(pf.first), std::move(pf.second));
+}
 #endif
 
 template<typename LLPtr>
-RVALUE(pointer_flag)
+pointer_flag
 ll_ptr::deref_lock<LLPtr>::unlock(RVALUE(pointer_flag) pf) ILIAS_NET2_NOTHROW
 {
 	assert(this->m_locked);
@@ -947,7 +944,7 @@ ll_ptr::deref_lock<LLPtr>::unlock(RVALUE(pointer_flag) pf) ILIAS_NET2_NOTHROW
 }
 #if HAS_RVALUE_REF
 template<typename LLPtr>
-RVALUE(pointer_flag)
+pointer_flag
 ll_ptr::deref_lock<LLPtr>::unlock(const pointer_flag& pf) ILIAS_NET2_NOTHROW
 {
 	pointer_flag copy = pf;
@@ -1261,7 +1258,7 @@ public:
 		return definition_type::node(this->list::pop_back());
 	}
 
-	RVALUE(iterator)
+	iterator
 	begin() ILIAS_NET2_NOTHROW
 	{
 		iterator rv;
@@ -1269,7 +1266,7 @@ public:
 		return MOVE(rv);
 	}
 
-	RVALUE(iterator)
+	iterator
 	end() ILIAS_NET2_NOTHROW
 	{
 		iterator rv;
@@ -1277,23 +1274,35 @@ public:
 		return MOVE(rv);
 	}
 
-	RVALUE(const_iterator)
-	begin() const ILIAS_NET2_NOTHROW
+	const_iterator
+	cbegin() const ILIAS_NET2_NOTHROW
 	{
 		const_iterator rv;
 		this->ll_detail::list::first(rv);
 		return MOVE(rv);
 	}
 
-	RVALUE(const_iterator)
-	end() const ILIAS_NET2_NOTHROW
+	const_iterator
+	begin() const ILIAS_NET2_NOTHROW
+	{
+		return this->cbegin();
+	}
+
+	const_iterator
+	cend() const ILIAS_NET2_NOTHROW
 	{
 		const_iterator rv;
 		this->ll_detail::list::listhead(rv);
 		return MOVE(rv);
 	}
 
-	RVALUE(reverse_iterator)
+	const_iterator
+	end() const ILIAS_NET2_NOTHROW
+	{
+		return this->cend();
+	}
+
+	reverse_iterator
 	rbegin() ILIAS_NET2_NOTHROW
 	{
 		reverse_iterator rv;
@@ -1301,7 +1310,7 @@ public:
 		return MOVE(rv);
 	}
 
-	RVALUE(reverse_iterator)
+	reverse_iterator
 	rend() ILIAS_NET2_NOTHROW
 	{
 		reverse_iterator rv;
@@ -1309,20 +1318,32 @@ public:
 		return MOVE(rv);
 	}
 
-	RVALUE(const_reverse_iterator)
-	rbegin() const ILIAS_NET2_NOTHROW
+	const_reverse_iterator
+	crbegin() const ILIAS_NET2_NOTHROW
 	{
 		const_reverse_iterator rv;
 		this->ll_detail::list::last(rv);
 		return MOVE(rv);
 	}
 
-	RVALUE(const_reverse_iterator)
-	rend() const ILIAS_NET2_NOTHROW
+	const_reverse_iterator
+	rbegin() const ILIAS_NET2_NOTHROW
+	{
+		return this->crbegin();
+	}
+
+	const_reverse_iterator
+	crend() const ILIAS_NET2_NOTHROW
 	{
 		const_reverse_iterator rv;
 		this->ll_detail::list::listhead(rv);
 		return MOVE(rv);
+	}
+
+	const_reverse_iterator
+	rend() const ILIAS_NET2_NOTHROW
+	{
+		return  this->crend();
 	}
 
 	bool
@@ -1337,26 +1358,26 @@ public:
 		return i.simple_iterator::unlink(*this);
 	}
 
-	RVALUE(iterator)
+	iterator
 	erase(const iterator& i) ILIAS_NET2_NOTHROW
 	{
 		this->erase_element(i);
 		iterator rv = i;
 		++rv;
-		return MOVE(rv);
+		return rv;
 	}
 
-	RVALUE(iterator)
+	iterator
 	erase(const reverse_iterator& i) ILIAS_NET2_NOTHROW
 	{
 		this->erase_element(i);
 		iterator rv = i;
 		++rv;
-		return MOVE(rv);
+		return rv;
 	}
 
 	template<typename Dispose>
-	RVALUE(iterator)
+	iterator
 	erase_and_dispose(iterator& i, Dispose dispose)
 		/* XXX needs noexcept specification. */
 	{
@@ -1369,11 +1390,11 @@ public:
 			i = iterator();
 			dispose(disposable);
 		}
-		return MOVE(rv);
+		return rv;
 	}
 
 	template<typename Dispose>
-	RVALUE(reverse_iterator)
+	reverse_iterator
 	erase_and_dispose(reverse_iterator& i, Dispose dispose)
 		/* XXX needs noexcept specification. */
 	{
@@ -1386,7 +1407,7 @@ public:
 			i = reverse_iterator();
 			dispose(disposable);
 		}
-		return MOVE(rv);
+		return rv;
 	}
 
 	bool
@@ -1414,20 +1435,20 @@ public:
 	}
 
 #if HAS_RVALUE_REF
-	unlink_wait&&
+	unlink_wait
 	pop_front_nowait()
 	{
 		unlink_wait w;
 		this->list::pop_front_nowait(w.m_ptr);
-		return std::move(w);
+		return w;
 	}
 
-	unlink_wait&&
+	unlink_wait
 	pop_back_nowait()
 	{
 		unlink_wait w;
 		this->list::pop_back_nowait(w.m_ptr);
-		return std::move(w);
+		return w;
 	}
 
 	void
@@ -1505,20 +1526,20 @@ public:
 		}
 	}
 
-	RVALUE(iterator)
+	iterator
 	iterator_to(reference v) ILIAS_NET2_NOTHROW
 	{
 		iterator iter;
 		this->list::iter_to(iter, *definition_type::hook(&v));
-		return MOVE(iter);
+		return iter;
 	}
 
-	RVALUE(const_iterator)
+	const_iterator
 	iterator_to(const_reference v) ILIAS_NET2_NOTHROW
 	{
 		const_iterator iter;
 		this->list::iter_to(iter, const_cast<typename ll_detail::hook&>(*definition_type::hook(&v)));
-		return MOVE(iter);
+		return iter;
 	}
 
 	void
@@ -1673,12 +1694,12 @@ public:
 		return self;
 	}
 
-	RVALUE(Derived)
+	Derived
 	operator++(int) ILIAS_NET2_NOTHROW
 	{
 		Derived copy = static_cast<Derived&>(*this);
 		++copy;
-		return MOVE(copy);
+		return copy;
 	}
 
 	Derived&
@@ -1689,12 +1710,12 @@ public:
 		return self;
 	}
 
-	RVALUE(Derived)
+	Derived
 	operator--(int) ILIAS_NET2_NOTHROW
 	{
 		Derived copy = static_cast<Derived&>(*this);
 		--copy;
-		return MOVE(copy);
+		return copy;
 	}
 };
 
@@ -1731,12 +1752,12 @@ public:
 		return self;
 	}
 
-	RVALUE(Derived)
+	Derived
 	operator--(int) ILIAS_NET2_NOTHROW
 	{
 		Derived copy = static_cast<Derived&>(*this);
 		--copy;
-		return MOVE(copy);
+		return copy;
 	}
 
 	Derived&
@@ -1747,12 +1768,12 @@ public:
 		return self;
 	}
 
-	RVALUE(Derived)
+	Derived
 	operator++(int) ILIAS_NET2_NOTHROW
 	{
 		Derived copy = static_cast<Derived&>(*this);
 		++copy;
-		return MOVE(copy);
+		return copy;
 	}
 };
 
@@ -1876,7 +1897,7 @@ public:
 	}
 #endif
 
-	RVALUE(iterator)
+	iterator
 	base() const ILIAS_NET2_NOTHROW
 	{
 		return MOVE(iterator(*this));
@@ -2066,7 +2087,7 @@ public:
 	}
 #endif
 
-	RVALUE(const_iterator)
+	const_iterator
 	base() const ILIAS_NET2_NOTHROW
 	{
 		return MOVE(const_iterator(*this));
@@ -2252,7 +2273,7 @@ public:
 private:
 	typedef ll_list<Defn> list_type;
 
-	static RVALUE(pointer)
+	static pointer
 	acquire(typename list_type::pointer p) ILIAS_NET2_NOTHROW
 	{
 		Acquire impl;
@@ -2443,7 +2464,7 @@ private:
 	list_type m_list;
 
 public:
-	CONSTEXPR ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
+	ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
 
 	~ll_smartptr_list() ILIAS_NET2_NOTHROW
 	{
@@ -2508,36 +2529,36 @@ public:
 	}
 #endif
 
-	RVALUE(iterator)
+	iterator
 	erase(iterator& i) ILIAS_NET2_NOTHROW
 	{
 		return this->erase_and_dispose(i, [](const pointer&) {});
 	}
 
 	template<typename Disposer>
-	RVALUE(iterator)
+	iterator
 	erase_and_dispose(iterator& i, Disposer disposer)
 	{
 		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
 			disposer(acquire(r));
 		});
-		return MOVE(rv);
+		return rv;
 	}
 
-	RVALUE(reverse_iterator)
+	reverse_iterator
 	erase(reverse_iterator& i) ILIAS_NET2_NOTHROW
 	{
 		return this->erase_and_dispose(i, [](const pointer&) {});
 	}
 
 	template<typename Disposer>
-	RVALUE(reverse_iterator)
+	reverse_iterator
 	erase_and_dispose(reverse_iterator& i, Disposer disposer)
 	{
 		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
 			disposer(acquire(r));
 		});
-		return MOVE(rv);
+		return rv;
 	}
 
 	void
@@ -2630,16 +2651,16 @@ public:
 		return const_reverse_iterator(this->m_list.rend());
 	}
 
-	RVALUE(iterator)
+	iterator
 	iterator_to(reference v)
 	{
-		return MOVE(iterator(this->m_list.iterator_to(v)));
+		return iterator(this->m_list.iterator_to(v));
 	}
 
-	RVALUE(const_iterator)
+	const_iterator
 	iterator_to(const_reference v)
 	{
-		return MOVE(const_iterator(this->m_list.iterator_to(v)));
+		return const_iterator(this->m_list.iterator_to(v));
 	}
 };
 

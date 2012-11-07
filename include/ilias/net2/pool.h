@@ -88,9 +88,9 @@ private:
 	struct deleter_type;
 	typedef std::unique_ptr<page, deleter_type> page_ptr;
 
-	ILIAS_NET2_LOCAL page_ptr&& alloc_page();
-	ILIAS_NET2_LOCAL page_ptr&& pop_page();
-	ILIAS_NET2_LOCAL page_ptr&& alloc_big_page(size_type);
+	ILIAS_NET2_LOCAL page_ptr alloc_page();
+	ILIAS_NET2_LOCAL page_ptr pop_page();
+	ILIAS_NET2_LOCAL page_ptr alloc_big_page(size_type);
 
 public:
 	void* allocate(std::nothrow_t, size_type, void* = nullptr) ILIAS_NET2_NOTHROW;

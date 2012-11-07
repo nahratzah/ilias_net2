@@ -11,7 +11,7 @@ namespace ll_detail {
 
 
 /* Find the successor of this node. */
-RVALUE(pointer_flag)
+pointer_flag
 hook_ptr::succ() const ILIAS_NET2_NOTHROW
 {
 	pointer_flag s = (*this)->m_succ.get();
@@ -29,7 +29,7 @@ hook_ptr::succ() const ILIAS_NET2_NOTHROW
 }
 
 /* Find the predecessor of this node. */
-RVALUE(pointer_flag)
+pointer_flag
 hook_ptr::pred() const ILIAS_NET2_NOTHROW
 {
 	pointer_flag p = (*this)->m_pred.get();
@@ -157,7 +157,7 @@ bool
 hook_ptr::insert_lock() const ILIAS_NET2_NOTHROW
 {
 	pointer_flag expect(nullptr, false);
-	pointer_flag assign(nullptr, false);
+	pointer_flag assign(nullptr, true);
 	if (!(*this)->m_succ.compare_exchange(expect, assign))
 		return false;
 
