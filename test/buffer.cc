@@ -84,12 +84,7 @@ test_prepend()
 	post.append(post_string, std::strlen(post_string));
 
 	post.prepend(pre);
-	std::unique_ptr<char[]> tmp(new char[post.size()]);
-	post.copyout(tmp.get(), post.size());
-
-	const std::string expect = std::string(pre_string) + std::string(post_string);
-	assert(post.size() == expect.length());
-	assert(memcmp(tmp.get(), expect.c_str(), post.size()) == 0);
+	assert(buf_compare(post, std::string(pre_string) + std::string(post_string)));
 }
 
 void
@@ -103,12 +98,7 @@ test_append()
 	post.append(post_string, std::strlen(post_string));
 
 	pre += post;
-	std::unique_ptr<char[]> tmp(new char[pre.size()]);
-	pre.copyout(tmp.get(), pre.size());
-
-	const std::string expect = std::string(pre_string) + std::string(post_string);
-	assert(pre.size() == expect.length());
-	assert(memcmp(tmp.get(), expect.c_str(), post.size()) == 0);
+	assert(buf_compare(pre, std::string(pre_string) + std::string(post_string)));
 }
 
 void
@@ -127,11 +117,7 @@ test_copy()
 		copy = original;
 	}
 
-	const std::string expect = std::string(voodoo) + std::string(doll);
-	std::unique_ptr<char[]> tmp(new char[copy.size()]);
-	copy.copyout(tmp.get(), copy.size());
-	assert(expect.length() == copy.size());
-	assert(memcmp(expect.c_str(), tmp.get(), copy.size()) == 0);
+	assert(buf_compare(copy, std::string(voodoo) + std::string(doll)));
 }
 
 void
