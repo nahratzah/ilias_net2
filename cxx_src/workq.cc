@@ -373,7 +373,7 @@ public:
 			this->m_locked = false;
 			this->m_ptr.swap(rv);
 		}
-		return MOVE(rv);
+		return rv;
 	}
 
 
@@ -502,7 +502,7 @@ workq::coroutine_job::workq_service_coroutines::get_coroutine() ILIAS_NET2_NOTHR
 		}
 	}
 
-	return MOVE(rv);
+	return rv;
 }
 
 void

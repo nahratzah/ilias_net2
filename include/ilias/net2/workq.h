@@ -129,7 +129,7 @@ struct workq_int_refcnt_acquire
 	workq_int_pointer<Type>
 	operator()(Type* p) const ILIAS_NET2_NOTHROW
 	{
-		return MOVE(workq_int_pointer<Type>(p, false));
+		return workq_int_pointer<Type>(p, false);
 	}
 };
 template<typename Type>

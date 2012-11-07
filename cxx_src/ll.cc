@@ -16,7 +16,7 @@ hook_ptr::succ() const ILIAS_NET2_NOTHROW
 {
 	pointer_flag s = (*this)->m_succ.get();
 	if (!s.first)
-		return MOVE(s);
+		return s;
 
 	while (s.first.deleted()) {
 		hook_ptr ss = s.first->m_succ.get().first;
@@ -25,7 +25,7 @@ hook_ptr::succ() const ILIAS_NET2_NOTHROW
 		else
 			s = (*this)->m_succ.get();
 	}
-	return MOVE(s);
+	return s;
 }
 
 /* Find the predecessor of this node. */
@@ -34,7 +34,7 @@ hook_ptr::pred() const ILIAS_NET2_NOTHROW
 {
 	pointer_flag p = (*this)->m_pred.get();
 	if (!p.first)
-		return MOVE(p);
+		return p;
 
 	for (;;) {
 		/* Move forward until p is the direct successor of this. */
@@ -49,7 +49,7 @@ hook_ptr::pred() const ILIAS_NET2_NOTHROW
 
 		/* p is a direct successor and hopefully not deleted. */
 		if (!p.first.deleted())
-			return MOVE(p);
+			return p;
 
 		/* Move to predecessor of p, since p is deleted. */
 		hook_ptr pp = p.first->m_pred.get().first;

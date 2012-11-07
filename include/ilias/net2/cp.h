@@ -174,7 +174,7 @@ cp_encdec<std::uint8_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(in.drain_literal<uint8_t>());
+	return in.drain_literal<uint8_t>();
 }
 
 template<>
@@ -191,7 +191,7 @@ cp_encdec<std::uint16_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_endian(in.drain_literal<std::uint16_t>()));
+	return host_endian(in.drain_literal<std::uint16_t>());
 }
 
 template<>
@@ -208,7 +208,7 @@ cp_encdec<std::uint32_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_endian(in.drain_literal<std::uint32_t>()));
+	return host_endian(in.drain_literal<std::uint32_t>());
 }
 
 template<>
@@ -225,7 +225,7 @@ cp_encdec<std::uint64_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_endian(in.drain_literal<std::uint64_t>()));
+	return host_endian(in.drain_literal<std::uint64_t>());
 }
 
 
@@ -243,7 +243,7 @@ cp_encdec<std::int8_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_two_compl<std::uint8_t>(cp_encdec<std::uint8_t>::decode(ectx, in)));
+	return host_two_compl<std::uint8_t>(cp_encdec<std::uint8_t>::decode(ectx, in));
 }
 
 template<>
@@ -260,7 +260,7 @@ cp_encdec<std::int16_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_two_compl<std::uint16_t>(cp_encdec<std::uint16_t>::decode(ectx, in)));
+	return host_two_compl<std::uint16_t>(cp_encdec<std::uint16_t>::decode(ectx, in));
 }
 
 template<>
@@ -277,7 +277,7 @@ cp_encdec<std::int32_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_two_compl<std::uint32_t>(cp_encdec<std::uint32_t>::decode(ectx, in)));
+	return host_two_compl<std::uint32_t>(cp_encdec<std::uint32_t>::decode(ectx, in));
 }
 
 template<>
@@ -294,7 +294,7 @@ cp_encdec<std::int64_t>::decode(encdec_ctx& ectx, buffer& in)
 {
 	using namespace endian_detail;
 
-	return MOVE(host_two_compl<std::uint64_t>(cp_encdec<std::uint64_t>::decode(ectx, in)));
+	return host_two_compl<std::uint64_t>(cp_encdec<std::uint64_t>::decode(ectx, in));
 }
 
 template<>

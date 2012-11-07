@@ -178,7 +178,7 @@ buffer::find_offset(buffer::size_type offset) ILIAS_NET2_NOTHROW
 	if (i->first + i->second.length() <= offset)
 		++i;
 
-	return MOVE(i);
+	return i;
 }
 buffer::list_type::const_iterator
 buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
@@ -195,7 +195,7 @@ buffer::find_offset(buffer::size_type offset) const ILIAS_NET2_NOTHROW
 	if (i->first + i->second.length() <= offset)
 		++i;
 
-	return MOVE(i);
+	return i;
 }
 
 buffer&

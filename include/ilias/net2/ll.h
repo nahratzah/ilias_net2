@@ -1263,7 +1263,7 @@ public:
 	{
 		iterator rv;
 		this->ll_detail::list::first(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	iterator
@@ -1271,7 +1271,7 @@ public:
 	{
 		iterator rv;
 		this->ll_detail::list::listhead(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_iterator
@@ -1279,7 +1279,7 @@ public:
 	{
 		const_iterator rv;
 		this->ll_detail::list::first(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_iterator
@@ -1293,7 +1293,7 @@ public:
 	{
 		const_iterator rv;
 		this->ll_detail::list::listhead(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_iterator
@@ -1307,7 +1307,7 @@ public:
 	{
 		reverse_iterator rv;
 		this->ll_detail::list::last(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	reverse_iterator
@@ -1315,7 +1315,7 @@ public:
 	{
 		reverse_iterator rv;
 		this->ll_detail::list::listhead(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_reverse_iterator
@@ -1323,7 +1323,7 @@ public:
 	{
 		const_reverse_iterator rv;
 		this->ll_detail::list::last(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_reverse_iterator
@@ -1337,7 +1337,7 @@ public:
 	{
 		const_reverse_iterator rv;
 		this->ll_detail::list::listhead(rv);
-		return MOVE(rv);
+		return rv;
 	}
 
 	const_reverse_iterator
@@ -1900,7 +1900,7 @@ public:
 	iterator
 	base() const ILIAS_NET2_NOTHROW
 	{
-		return MOVE(iterator(*this));
+		return iterator(*this);
 	}
 
 	reverse_iterator&
@@ -2090,7 +2090,7 @@ public:
 	const_iterator
 	base() const ILIAS_NET2_NOTHROW
 	{
-		return MOVE(const_iterator(*this));
+		return const_iterator(*this);
 	}
 
 	const_reverse_iterator&
@@ -2278,7 +2278,7 @@ private:
 	{
 		Acquire impl;
 		SmartPtr rv = impl(p);
-		return MOVE(rv);
+		return rv;
 	}
 
 	static typename list_type::pointer

@@ -37,7 +37,7 @@ hash_ctx_factory::run(const buffer& key, const buffer& data) const
 {
 	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
 	instance->update(data);
-	return MOVE(instance->final());
+	return instance->final();
 }
 
 
@@ -278,7 +278,7 @@ bcrypt_hash::final()
 	this->m_hash.reset();
 	this->m_cache.deallocate(std::move(this->m_alg));
 
-	return MOVE(rv);
+	return rv;
 }
 
 bcrypt_hash::~bcrypt_hash() ILIAS_NET2_NOTHROW

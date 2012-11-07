@@ -33,7 +33,7 @@ hash_ctx_factory::run(const buffer& key, const buffer& data) const
 {
 	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
 	instance->update(data);
-	return MOVE(instance->final());
+	return instance->final();
 }
 
 
@@ -127,7 +127,7 @@ hash_sha256::final()
 	buffer::prepare prep(rv, SHA256_DIGEST_LENGTH);
 	SHA256_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 buffer
@@ -137,7 +137,7 @@ hash_sha384::final()
 	buffer::prepare prep(rv, SHA384_DIGEST_LENGTH);
 	SHA384_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 buffer
@@ -147,7 +147,7 @@ hash_sha512::final()
 	buffer::prepare prep(rv, SHA512_DIGEST_LENGTH);
 	SHA512_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 
@@ -258,7 +258,7 @@ hash_sha256_factory::run(const buffer& key, const buffer& b) const
 	SHA256_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 buffer
@@ -278,7 +278,7 @@ hash_sha384_factory::run(const buffer& key, const buffer& b) const
 	SHA384_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 buffer
@@ -298,7 +298,7 @@ hash_sha512_factory::run(const buffer& key, const buffer& b) const
 	SHA512_Final(reinterpret_cast<uint8_t*>(prep.data()), &ctx);
 
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 
@@ -372,7 +372,7 @@ hash_openssl_evp::final()
 		throw std::runtime_error("result hashlen differs from expected hashlen");
 
 	prep.commit();
-	return MOVE(rv);
+	return rv;
 }
 
 
@@ -408,7 +408,7 @@ hash_evp_factory::instantiate(const buffer& key) const
 	void* keybuf = alloca(this->keylen);
 	key.copyout(keybuf, this->keylen);
 
-	return MOVE(std::unique_ptr<hash_ctx>(new hash_openssl_evp(evp, this->name, this->hashlen, this->keylen, keybuf)));
+	return std::unique_ptr<hash_ctx>(new hash_openssl_evp(evp, this->name, this->hashlen, this->keylen, keybuf));
 }
 
 

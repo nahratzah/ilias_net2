@@ -689,7 +689,7 @@ private:
 			else
 				begin = MOVE_IF_NOEXCEPT(mid);
 		}
-		return MOVE(begin);
+		return begin;
 	}
 	/*
 	 * Find the first R for which pred(R) is false.
@@ -711,7 +711,7 @@ private:
 			else
 				end = MOVE_IF_NOEXCEPT(mid);
 		}
-		return MOVE(end);
+		return end;
 	}
 
 	/*
@@ -798,7 +798,7 @@ public:
 	{
 		buffer copy = *this;
 		copy += o;
-		return MOVE(copy);
+		return copy;
 	}
 
 	/* Swap the contents of two buffers. */

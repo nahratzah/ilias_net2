@@ -77,7 +77,7 @@ cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in)
 	/* Visitor doesn't drain, so we must do so here. */
 	in.drain(len + padding);
 
-	return MOVE(rv);
+	return rv;
 }
 
 template<>
@@ -115,7 +115,7 @@ cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in)
 	/* buffer::subrange doesn't drain, so we must do so here. */
 	in.drain(len + padding);
 
-	return MOVE(rv);
+	return rv;
 }
 
 template struct cp_encdec<std::string>;
