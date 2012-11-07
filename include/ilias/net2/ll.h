@@ -385,13 +385,13 @@ private:
 	hook* m_ptr;
 
 public:
-	CONSTEXPR hook_ptr() ILIAS_NET2_NOTHROW :
+	hook_ptr() ILIAS_NET2_NOTHROW :
 		m_ptr(nullptr)
 	{
 		/* Empty body. */
 	}
 
-	CONSTEXPR hook_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
+	hook_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
 		m_ptr(nullptr)
 	{
 		/* Empty body. */
