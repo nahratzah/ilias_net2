@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/buffer.h>
 #include <cstring>
+#include <cstdint>
 #include <limits>
 
 
@@ -33,13 +34,13 @@ typedef uintptr_t __attribute__((aligned(sizeof(uintptr_t)))) word_t;
 typedef uintptr_t word_t;
 #endif
 
-constexpr_value size_t BYTES = sizeof(word_t);
-constexpr_value size_t BPP = std::numeric_limits<word_t>::digits / BYTES;
-constexpr_value size_t BITS = BYTES * BPP;
-constexpr_value uintptr_t ADDR_MASK = (BYTES - 1);
-constexpr_value uintptr_t PREFETCH = 8 * BYTES;
+CONSTEXPR_VALUE size_t BYTES = sizeof(word_t);
+CONSTEXPR_VALUE size_t BPP = std::numeric_limits<word_t>::digits / BYTES;
+CONSTEXPR_VALUE size_t BITS = BYTES * BPP;
+CONSTEXPR_VALUE uintptr_t ADDR_MASK = (BYTES - 1);
+CONSTEXPR_VALUE uintptr_t PREFETCH = 8 * BYTES;
 
-inline constexpr word_t
+inline CONSTEXPR word_t
 mask(size_t high, size_t low = 0) ILIAS_NET2_NOTHROW
 {
 	return (high == BITS ? ~mask(low) : ((word_t(1) << high) - (word_t(1) << low)));
@@ -108,7 +109,7 @@ fifo_byte(word_t& in, word_t& next) ILIAS_NET2_NOTHROW
 #endif
 
 	assert(out == expect);
-	return out;
+	return uint8_t(out);
 }
 
 template<typename T>
@@ -118,7 +119,7 @@ int_addr(const T* ptr) ILIAS_NET2_NOTHROW
 	return reinterpret_cast<uintptr_t>(ptr);
 }
 
-inline constexpr uintptr_t
+inline CONSTEXPR uintptr_t
 apply_addr_mask(uintptr_t addr) ILIAS_NET2_NOTHROW
 {
 	return addr & ~ADDR_MASK;
@@ -141,7 +142,7 @@ prefetch_r(const T* addr)
 #if defined(__GNUC__) || defined(__clang__)
 	__builtin_prefetch(addr, 0, 0);
 #elif defined(_MSC_VER)
-	_mm_prefetch(addr, _MM_HINT_NTA);
+	_mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_NTA);
 #else
 	/* No prefetching. */
 #endif
@@ -158,7 +159,7 @@ prefetch_w(T* addr)
 #if defined(__GNUC__) || defined(__clang__)
 	__builtin_prefetch(addr, 1, 0);
 #elif defined(_MSC_VER)
-	_mm_prefetch(addr, _MM_HINT_NTA);
+	_mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_NTA);
 #else
 	/* No prefetching. */
 #endif

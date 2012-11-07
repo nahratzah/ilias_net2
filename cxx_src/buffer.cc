@@ -20,6 +20,13 @@
 #include <cstdint>
 #include <limits>
 
+
+#ifdef _MSC_VER
+#pragma warning( disable: 4290 )
+#pragma warning( disable: 4800 )
+#endif
+
+
 namespace ilias {
 
 
@@ -652,8 +659,7 @@ buffer::prepare::~prepare() ILIAS_NET2_NOTHROW
 void
 buffer::prepare::commit() ILIAS_NET2_NOTHROW
 {
-	if (!this->valid())
-		throw std::logic_error("commit on invalid prepare");
+	assert(!this->valid());
 
 	buffer& b = *this->release();
 	b.push_back(MOVE(this->m_segment));

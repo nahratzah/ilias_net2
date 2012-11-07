@@ -134,7 +134,8 @@
 #define HAS_DELETED_FN		0 /* Didn't spot it in the table. */
 #define HAS_RVALUE_REF		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
 #define HAS_NOEXCEPT		0 /* But throw() actually functions similar. */
-#define HAS_CONSTEXPR		0 /* I want this... */
+#define HAS_CONSTEXPR		0 /* Blech, MSVC claims I may not redefine constexpr while they don't implement it, idiots. */
+#define HAS_EXPL_OP_BOOL	0
 #endif
 
 /* Unknown compiler, assume it doesn't implement anything. */
@@ -157,6 +158,10 @@
 #ifndef HAS_CONSTEXPR
 /* We don't know if your compiler has constexpr keyword. */
 #define HAS_CONSTEXPR		0
+#endif
+#ifndef HAS_EXPL_OP_BOOL
+/* We don't know if your compiler supports 'explicit operator bool()'. */
+#define HAS_EXPL_OP_BOOL	0
 #endif
 
 #if HAS_RVALUE_REF && !defined(HAS_STD_MOVE)
@@ -188,10 +193,11 @@
 #endif
 
 #if HAS_CONSTEXPR
-#define constexpr_value		constexpr
+#define CONSTEXPR		constexpr
+#define CONSTEXPR_VALUE		constexpr
 #else
-#define constexpr		/* Unsupported. */
-#define constexpr_value		const
+#define CONSTEXPR		/* Unsupported. */
+#define CONSTEXPR_VALUE		const
 #endif
 
 #if HAS_NOEXCEPT
@@ -203,3 +209,10 @@
 #endif
 
 #define ILIAS_NET2_NOTHROW_CND_TEST(_x)	/* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
+
+
+/* Exclude whatever breaks this library on windows, due to too many definitions in <windows.h>. */
+#ifdef WIN32
+#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#define NOMINMAX			// Exclude min/max macros.
+#endif

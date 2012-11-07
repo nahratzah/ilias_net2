@@ -1,6 +1,3 @@
-#define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
-#define NOMINMAX			// Exclude min/max macros.
-
 #include "ilias/net2/pool.h"
 
 #include <atomic>
@@ -18,6 +15,11 @@
 #endif
 
 
+#ifdef _MSC_VER
+#pragma warning( disable: 4800 )
+#endif
+
+
 namespace ilias {
 namespace {
 
@@ -27,7 +29,7 @@ namespace {
 template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
 struct shift_repeat
 {
-	static constexpr T
+	static CONSTEXPR T
 	get(const T& v)
 	{
 		return shift_repeat<T, 2 * Shift>::get(v | (v << Shift));
@@ -36,7 +38,7 @@ struct shift_repeat
 template<typename T, size_t Shift>
 struct shift_repeat<T, Shift, true>
 {
-	static constexpr T
+	static CONSTEXPR T
 	get(const T& v)
 	{
 		return v;
@@ -49,8 +51,16 @@ struct shift_repeat<T, Shift, true>
 template<typename T, size_t P>
 struct mask
 {
-	static constexpr_value T value = shift_repeat<T, 2 * P>::get(((T(1) << P) - 1) << P);
+#if HAS_CONSTEXPR
+	static constexpr T value = shift_repeat<T, 2 * P>::get(((T(1) << P) - 1) << P);
+#else
+	static const T value;
+#endif
 };
+#if !HAS_CONSTEXPR
+template<typename T, size_t P>
+const T mask<T, P>::value = shift_repeat<T, 2 * P>::get(((T(1) << P) - 1) << P);
+#endif
 
 /*
  * Recursive invocation to find the log2 of a value.
@@ -58,7 +68,7 @@ struct mask
 template<typename T, size_t Shift, bool Stop = (Shift >= std::numeric_limits<T>::digits)>
 struct log_repeat
 {
-	static constexpr size_t
+	static CONSTEXPR size_t
 	get(const T& v)
 	{
 		return ((v & mask<T, Shift>::value) ? Shift : 0) +
@@ -68,7 +78,7 @@ struct log_repeat
 template<typename T, size_t Shift>
 struct log_repeat<T, Shift, true>
 {
-	static constexpr size_t
+	static CONSTEXPR size_t
 	get(const T&)
 	{
 		return 0;
@@ -77,16 +87,22 @@ struct log_repeat<T, Shift, true>
 
 } /* ilias::[unnamed namespace] */
 
+
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4267 )
+#endif
 /* Calculate the largest log2 where 2^result <= value. */
 template<typename T>
-static constexpr unsigned int
+static CONSTEXPR unsigned int
 log2_down(const T& value)
 {
 	return log_repeat<T, 1>::get(value);
 }
 /* Calculate the smallest log2 where 2^result >= value. */
 template<typename T>
-static constexpr unsigned int
+static CONSTEXPR unsigned int
 log2_up(const T& value)
 {
 	/*
@@ -95,6 +111,9 @@ log2_up(const T& value)
 	 */
 	return ((value & (value - 1)) != 0 ? 1 : 0) + log2_down(value);
 }
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 
 /* Allow undo of atomic_fetch_or operation. */
@@ -175,7 +194,8 @@ template<typename T>
 struct range_set;
 
 template<typename T>
-struct range_set< std::atomic<T> >
+struct range_set< std::atomic<T> > :
+	public bool_test< range_set< std::atomic<T> > >
 {
 public:
 	typedef T value_type;
@@ -197,19 +217,19 @@ private:
 	/* Limits of value type. */
 	typedef std::numeric_limits<value_type> limits;
 
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	digits()
 	{
 		return limits::digits;
 	}
 
-	static constexpr bool
+	static CONSTEXPR bool
 	do_end(std::size_t begin, std::size_t end) ILIAS_NET2_NOTHROW
 	{
 		return (end - pool::round_down(begin, digits()) <= digits());
 	}
 	template<typename U>
-	static constexpr const U&
+	static CONSTEXPR const U&
 	do_end(std::size_t begin, std::size_t end, const U& yes, const U& no) ILIAS_NET2_NOTHROW
 	{
 		return (do_end(begin, end) ? yes : no);
@@ -224,7 +244,8 @@ private:
 	}
 
 public:
-	explicit operator bool() const ILIAS_NET2_NOTHROW
+	bool
+	booltest() const ILIAS_NET2_NOTHROW
 	{
 		return this->m_succes;
 	}
@@ -472,20 +493,20 @@ private:
 
 	typedef std::atomic<uintptr_t> entry_type;
 
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	bitmap_bits() ILIAS_NET2_NOTHROW
 	{
 		/* XXX a function, because a static constexpr value results in linker failure... */
 		return std::numeric_limits<atomic_type<entry_type>::type>::digits;
 	}
 
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	entries_offset()
 	{
 		return round_up(sizeof(page), sizeof(entry_type));
 	}
 
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	bitmap_space(std::size_t n_entries)
 	{
 		return (n_entries + bitmap_bits() - 1) / bitmap_bits();
@@ -493,7 +514,7 @@ private:
 
 public:
 	/* Calculate which amount of space at the beginning of the allocation is used for keeping track. */
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	overhead(std::size_t n_entries, std::size_t align, std::size_t offset)
 	{
 		/*
@@ -543,7 +564,7 @@ public:
 
 private:
 	/* Calculate array size for bitmap. */
-	static constexpr std::size_t
+	static CONSTEXPR std::size_t
 	bitmap_maxidx(std::size_t n_entries)
 	{
 		return (bitmap_space(n_entries) / sizeof(entry_type));
@@ -808,7 +829,12 @@ public:
 		case BIG_PAGE:
 			return (this->n_entries == 0);
 			break;
+#ifdef _MSC_VER
+		default:
+			__assume(0);
+#endif
 		}
+		/* UNREACHABLE */
 	}
 
 	/* Allocate space for count contiguous entries. */
@@ -903,6 +929,7 @@ pool::osdep::vfree(void* ptr, std::size_t sz) const
 			return false;
 		sz -= mem_info.RegionSize;
 	}
+	return true;
 }
 
 /* Enable access to address range. */
@@ -913,7 +940,7 @@ pool::osdep::commit_mem(void* ptr, std::size_t sz) const
 	assert(sz % this->pagesize() == 0);
 	assert(sz > 0);
 
-	return (VirtualAlloc(ptr, sz, MEM_COMMIT, PAGE_READWRITE) != nullptr);
+	return VirtualAlloc(ptr, sz, MEM_COMMIT, PAGE_READWRITE);
 }
 
 /* Block access to address range and release the underlying memory. */
@@ -1169,13 +1196,13 @@ private:
 	pool* m_pool;
 
 public:
-	constexpr deleter_type() :
+	CONSTEXPR deleter_type() :
 		m_pool(nullptr)
 	{
 		/* Empty body. */
 	}
 
-	constexpr deleter_type(pool& m_pool) :
+	CONSTEXPR deleter_type(pool& m_pool) :
 		m_pool(&m_pool)
 	{
 		/* Empty body. */
@@ -1279,6 +1306,11 @@ pool::alloc_big_page(std::size_t n)
 	return std::move(pp);
 }
 
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4297 )	/* Warning about throw in noexcept function, is more for my sanity than for the compiler. */
+#endif
 void*
 pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 {
@@ -1314,6 +1346,10 @@ pool::allocate(std::nothrow_t, size_type n, void*) ILIAS_NET2_NOTHROW
 	void* ptr = pg->allocate(n);
 	return ptr;
 }
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
+
 
 bool
 pool::deallocate(std::nothrow_t, void* ptr, size_type n) ILIAS_NET2_NOTHROW
@@ -1397,7 +1433,7 @@ pool::resize(std::nothrow_t, void* ptr, size_type old_n, size_type new_n) ILIAS_
 	switch (pg->type) {
 	case page::SHARED_PAGE:
 		if (new_n > old_n)	/* Region is grown. */
-			return pg->allocate(ptr, old_n, new_n - old_n);
+			return (pg->allocate(ptr, old_n, new_n - old_n) != nullptr);
 		else if (new_n < old_n)	/* Region is shrunk. */
 			return pg->deallocate(ptr, new_n, old_n - new_n);
 		else

@@ -79,23 +79,23 @@ template<typename T, int B = 0, bool Stop = 2 * B + 1 >= sizeof(T)>
 struct endian_helper
 {
 private:
-	static constexpr unsigned int byte_digits = std::numeric_limits<std::uint8_t>::digits;
-	static constexpr unsigned int t_digits = std::numeric_limits<T>::digits;
+	static CONSTEXPR_VALUE unsigned int byte_digits = std::numeric_limits<std::uint8_t>::digits;
+	static CONSTEXPR_VALUE unsigned int t_digits = std::numeric_limits<T>::digits;
 	/* Mask the lowest byte in T. */
-	static constexpr T mask_byte = ((T(1) << byte_digits) - 1);
+	static CONSTEXPR_VALUE T mask_byte = ((T(1) << byte_digits) - 1);
 
 	/* Mask the low byte we want to swap. */
-	static constexpr T low_mask = (mask_byte << (B * byte_digits));
+	static CONSTEXPR_VALUE T low_mask = (mask_byte << (B * byte_digits));
 	/* Mask the high byte we want to swap. */
-	static constexpr T high_mask = (mask_byte << (t_digits - byte_digits - B * byte_digits));
+	static CONSTEXPR_VALUE T high_mask = (mask_byte << (t_digits - byte_digits - B * byte_digits));
 	/* Mask for the bits we do nothing with. */
-	static constexpr T not_mask = T(~(low_mask | high_mask));
+	static CONSTEXPR_VALUE T not_mask = T(~(low_mask | high_mask));
 
 	/* Calculate how far both parts need to be shifted. */
-	static constexpr unsigned int distance = t_digits - byte_digits - 2 * byte_digits * B;
+	static CONSTEXPR_VALUE unsigned int distance = t_digits - byte_digits - 2 * byte_digits * B;
 
 	/* Flip the byte B in T from byte order. */
-	static T
+	static CONSTEXPR T
 	flip(T v) ILIAS_NET2_NOTHROW
 	{
 		return ((v & low_mask) << distance) | ((v & high_mask) >> distance) | (v & not_mask);
@@ -103,7 +103,7 @@ private:
 
 public:
 	/* Recursively flip the byte order in T. */
-	static T
+	static CONSTEXPR T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return endian_helper<T, B + 1>::flip_endian(flip(v));
@@ -115,7 +115,7 @@ struct endian_helper<T, B, true>
 {
 public:
 	/* Byte B cannot be flipped, therefore this is the identity operation. */
-	static T
+	static CONSTEXPR T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return v;
@@ -123,13 +123,13 @@ public:
 };
 
 template<typename T>
-inline T
+inline CONSTEXPR T
 big_endian(const T& v)
 {
 	return endian_helper<T>::flip_endian(v);
 }
 template<typename T>
-inline T
+inline CONSTEXPR T
 host_endian(const T& v)
 {
 	return endian_helper<T>::flip_endian(v);
@@ -311,11 +311,8 @@ template<>
 ILIAS_NET2_EXPORT RVALUE(buffer)
 cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in);
 
-extern template void cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string& value);
-extern template RVALUE(std::string) cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in);
-
-extern template void cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value);
-extern template RVALUE(buffer) cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in);
+extern template struct cp_encdec<std::string>;
+extern template struct cp_encdec<buffer>;
 
 
 } /* namespace ilias */

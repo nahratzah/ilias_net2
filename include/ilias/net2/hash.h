@@ -21,6 +21,13 @@
 #include <string>
 #include <memory>
 
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
+#endif
+
+
 namespace ilias {
 
 
@@ -79,5 +86,11 @@ public:
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
+
 
 #endif /* ILIAS_NET2_HASH_H */

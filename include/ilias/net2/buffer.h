@@ -35,6 +35,13 @@
 #endif
 
 
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
+#pragma warning( disable: 4290 )
+#endif
+
+
 namespace ilias {
 
 
@@ -70,7 +77,7 @@ public:
 	static void
 	set_iov_base(iovec& v, void* addr) ILIAS_NET2_NOTHROW
 	{
-		v.buf = addr;
+		v.buf = reinterpret_cast<char*>(addr);
 	}
 #else
 	typedef ::iovec iovec;
@@ -247,7 +254,7 @@ private:
 
 		~mem_segment() ILIAS_NET2_NOTHROW
 		{
-			/* Empty body. */
+			return;
 		}
 
 		/* Destroy and deallocate mem_segment. */
@@ -416,7 +423,7 @@ private:
 		 * Throws std::bad_alloc on failure.
 		 */
 		void*
-		allocate_at(const size_type& offset, size_type sz) ILIAS_NET2_NOTHROW
+		allocate_at(const size_type& offset, size_type sz)
 		{
 			void* ptr = this->allocate_at(std::nothrow, offset, sz);
 			if (!ptr)
@@ -461,10 +468,10 @@ private:
 		mem_segment& operator=(const mem_segment&) = delete;
 #else
 	private:
-		static void* operator new(std::size_t);
-		static void* operator new(std::size_t, const std::nothrow_t&);
-		static void operator delete(void*);
-		static void operator delete(void*, const std::nothrow_t&);
+		static void* operator new(std::size_t) { std::terminate(); };
+		static void* operator new(std::size_t, const std::nothrow_t&) { std::terminate(); };
+		static void operator delete(void*) { std::terminate(); };
+		static void operator delete(void*, const std::nothrow_t&) { std::terminate(); };
 
 		mem_segment(const mem_segment&);
 		mem_segment& operator=(const mem_segment&);
@@ -1165,6 +1172,11 @@ public:
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 
 #endif /* ILIAS_NET2_BUFFER_H */

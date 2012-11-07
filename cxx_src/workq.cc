@@ -20,7 +20,8 @@ namespace ilias {
 
 
 template<typename Type>
-class workq_int_pointer
+class workq_int_pointer :
+	public bool_test<workq_int_pointer<Type> >
 {
 public:
 	typedef Type element_type;
@@ -220,7 +221,8 @@ public:
 		return !(*this == o);
 	}
 
-	explicit operator bool() const ILIAS_NET2_NOTHROW
+	bool
+	booltest() const ILIAS_NET2_NOTHROW
 	{
 		return this->get();
 	}
@@ -467,7 +469,7 @@ workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 	this->m_incomplete.store(sz, std::memory_order_acquire);
 
 	workq_service& wqs = this->get_workq_service();
-	wqs.activate(*this, rj);
+	wqs.m_coroutines_srv.activate(*this, rj);
 	wqs.wakeup(sz - 1);
 }
 
@@ -582,9 +584,9 @@ workq_service::do_work(std::size_t n) ILIAS_NET2_NOTHROW
 {
 	std::size_t work_done = 0;
 
-	while (work_done < n && this->run_coroutine())
+	while (work_done < n && this->m_coroutines_srv.run_coroutine())
 		++work_done;
-	while (work_done < n && this->run_workq())
+	while (work_done < n && this->m_workq_srv.run_workq())
 		++work_done;
 
 	/* Return true if work was done. */

@@ -17,6 +17,7 @@
 #define LL_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/booltest.h>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
@@ -25,6 +26,12 @@
 #include <utility>
 #ifdef HAVE_TYPE_TRAITS
 #include <type_traits>
+#endif
+
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
 #endif
 
 
@@ -63,10 +70,10 @@ private:
 		return reinterpret_cast<hook*>(v & ~MASK);
 	}
 
-	static constexpr bool
+	static CONSTEXPR bool
 	decode_flag(internal_type v) ILIAS_NET2_NOTHROW
 	{
-		return (v & FLAG);
+		return ((v & FLAG) == FLAG);
 	}
 
 	static RVALUE(pointer_flag) decode(internal_type, bool = true) ILIAS_NET2_NOTHROW;
@@ -271,7 +278,7 @@ public:
 	hook*
 	get_ptr() const ILIAS_NET2_NOTHROW
 	{
-		return decode_ptr(this->m_value.load(std::memory_order_relaxed) & ~FLAG);
+		return decode_ptr(this->m_value.load(std::memory_order_relaxed));
 	}
 
 	bool
@@ -368,7 +375,8 @@ private:
  * Low level pointer to node.
  * Points at the hook, derived pointer is required to cast to actual elements.
  */
-class ILIAS_NET2_LOCAL hook_ptr
+class ILIAS_NET2_LOCAL hook_ptr :
+	public bool_test<hook_ptr>
 {
 public:
 	typedef hook hook_type;
@@ -377,13 +385,13 @@ private:
 	hook* m_ptr;
 
 public:
-	constexpr hook_ptr() ILIAS_NET2_NOTHROW :
+	CONSTEXPR hook_ptr() ILIAS_NET2_NOTHROW :
 		m_ptr(nullptr)
 	{
 		/* Empty body. */
 	}
 
-	constexpr hook_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
+	CONSTEXPR hook_ptr(std::nullptr_t) ILIAS_NET2_NOTHROW :
 		m_ptr(nullptr)
 	{
 		/* Empty body. */
@@ -404,7 +412,7 @@ public:
 	}
 #endif
 
-	hook_ptr(hook* p, bool acquire = true) ILIAS_NET2_NOTHROW :
+	explicit hook_ptr(hook* p, bool acquire = true) ILIAS_NET2_NOTHROW :
 		m_ptr(p)
 	{
 		if (this->m_ptr && acquire)
@@ -440,6 +448,7 @@ public:
 		return *this;
 	}
 
+#if HAS_RVALUE_REF
 	hook_ptr&
 	operator=(hook_ptr&& o) ILIAS_NET2_NOTHROW
 	{
@@ -451,6 +460,7 @@ public:
 		o.m_ptr = nullptr;
 		return *this;
 	}
+#endif
 
 	bool
 	operator==(const hook_ptr& o) const ILIAS_NET2_NOTHROW
@@ -476,21 +486,32 @@ public:
 		return (this->m_ptr == nullptr);
 	}
 
-	template<typename Arg>
 	bool
-	operator!=(const Arg& o) const ILIAS_NET2_NOTHROW
+	operator!=(const hook_ptr& rhs) ILIAS_NET2_NOTHROW
 	{
-		return !(*this == o);
+		return !(*this == rhs);
 	}
 
-	template<typename Arg>
+	bool
+	operator!=(const hook* p) const ILIAS_NET2_NOTHROW
+	{
+		return !(*this == p);
+	}
+
 	friend bool
-	operator!=(const Arg& o, const hook_ptr& hp) ILIAS_NET2_NOTHROW
+	operator!=(const hook* p, const hook_ptr& hp) ILIAS_NET2_NOTHROW
 	{
-		return (hp != o);
+		return !(hp == p);
 	}
 
-	explicit operator bool() const ILIAS_NET2_NOTHROW
+	bool
+	operator!=(std::nullptr_t) const ILIAS_NET2_NOTHROW
+	{
+		return !(*this == nullptr);
+	}
+
+	bool
+	booltest() const ILIAS_NET2_NOTHROW
 	{
 		return (this->m_ptr != nullptr);
 	}
@@ -835,14 +856,16 @@ inline RVALUE(pointer_flag)
 ll_ptr::get() const ILIAS_NET2_NOTHROW
 {
 	deref_lock<const ll_ptr> lck(*this, false);
-	return decode(lck.lock());
+	pointer_flag pf = MOVE(decode(lck.lock()));
+	return MOVE(pf);
 }
 
 inline RVALUE(pointer_flag)
 ll_ptr::decode(ll_ptr::internal_type v, bool acquire) ILIAS_NET2_NOTHROW
 {
 	hook_ptr p(reinterpret_cast<hook*>(v & ~MASK), acquire);
-	return MOVE(pointer_flag(MOVE(p), v & FLAG));
+	pointer_flag pf(MOVE(p), v & FLAG);
+	return MOVE(pf);
 }
 
 inline ll_ptr::internal_type
@@ -1224,7 +1247,7 @@ private:
 	template<typename Derived> class iterator_backward_traverse;
 
 public:
-	constexpr ll_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
+	CONSTEXPR ll_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
 
 	pointer
 	pop_front()
@@ -1561,56 +1584,56 @@ public:
 	}
 
 	bool
-	operator==(const ll_list<Defn>::iterator& o) const ILIAS_NET2_NOTHROW
+	operator==(const typename ll_list<Defn>::iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self == o;
 	}
 
 	bool
-	operator==(const ll_list<Defn>::const_iterator& o) const ILIAS_NET2_NOTHROW
+	operator==(const typename ll_list<Defn>::const_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self == o;
 	}
 
 	bool
-	operator==(const ll_list<Defn>::reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	operator==(const typename ll_list<Defn>::reverse_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self == o;
 	}
 
 	bool
-	operator==(const ll_list<Defn>::const_reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	operator==(const typename ll_list<Defn>::const_reverse_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self == o;
 	}
 
 	bool
-	operator!=(const ll_list<Defn>::iterator& o) const ILIAS_NET2_NOTHROW
+	operator!=(const typename ll_list<Defn>::iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self != o;
 	}
 
 	bool
-	operator!=(const ll_list<Defn>::const_iterator& o) const ILIAS_NET2_NOTHROW
+	operator!=(const typename ll_list<Defn>::const_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self != o;
 	}
 
 	bool
-	operator!=(const ll_list<Defn>::reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	operator!=(const typename ll_list<Defn>::reverse_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self != o;
 	}
 
 	bool
-	operator!=(const ll_list<Defn>::const_reverse_iterator& o) const ILIAS_NET2_NOTHROW
+	operator!=(const typename ll_list<Defn>::const_reverse_iterator& o) const ILIAS_NET2_NOTHROW
 	{
 		const simple_iterator& self = static_cast<const Derived&>(*this);
 		return self != o;
@@ -2114,7 +2137,8 @@ public:
 };
 
 template<typename Defn>
-class ll_list<Defn>::unlink_wait
+class ll_list<Defn>::unlink_wait :
+	public bool_test<unlink_wait>
 {
 friend class ll_list<Defn>;
 
@@ -2193,7 +2217,8 @@ public:
 		return p;
 	}
 
-	explicit operator bool() const ILIAS_NET2_NOTHROW
+	bool
+	booltest() const ILIAS_NET2_NOTHROW
 	{
 		return this->get();
 	}
@@ -2264,7 +2289,7 @@ private:
 		public IterImpl
 	{
 	public:
-		typedef ll_smartptr_list::pointer pointer;
+		typedef typename ll_smartptr_list::pointer pointer;
 
 		iter_adapter() ILIAS_NET2_NOTHROW {};
 
@@ -2339,14 +2364,15 @@ public:
 	typedef iter_adapter<typename list_type::reverse_iterator> reverse_iterator;
 	typedef iter_adapter<typename list_type::const_reverse_iterator> const_reverse_iterator;
 
-	class unlink_wait
+	class unlink_wait :
+		public bool_test<unlink_wait>
 	{
 	friend void ll_smartptr_list::push_front(unlink_wait&&);
 	friend void ll_smartptr_list::push_back(unlink_wait&&);
 
 	public:
-		typedef ll_smartptr_list::pointer pointer;
-		typedef ll_smartptr_list::reference reference;
+		typedef typename ll_smartptr_list::pointer pointer;
+		typedef typename ll_smartptr_list::reference reference;
 
 	private:
 		typedef typename list_type::unlink_wait impl_type;
@@ -2406,7 +2432,8 @@ public:
 			return (p ? acquire(p) : nullptr);
 		}
 
-		explicit operator bool() const ILIAS_NET2_NOTHROW
+		bool
+		booltest() const ILIAS_NET2_NOTHROW
 		{
 			return bool(this->m_impl);
 		}
@@ -2416,7 +2443,7 @@ private:
 	list_type m_list;
 
 public:
-	constexpr ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
+	CONSTEXPR ll_smartptr_list() ILIAS_NET2_NOTHROW { /* Empty body. */ }
 
 	~ll_smartptr_list() ILIAS_NET2_NOTHROW
 	{
@@ -2618,6 +2645,11 @@ public:
 
 
 }
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 
 #endif /* LL_H */

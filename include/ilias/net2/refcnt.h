@@ -17,6 +17,7 @@
 #define ILIAS_NET2_REFCNT_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/booltest.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -25,6 +26,12 @@
 
 #ifdef HAS_CONSTRUCTOR_TRAITS
 #include <type_traits>
+#endif
+
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4800 )
 #endif
 
 
@@ -121,20 +128,21 @@ protected:
 	friend bool
 	refcnt_is_solo(const Derived& o) ILIAS_NET2_NOTHROW
 	{
-		refcount_base& self = o;
-		return (self.load(std::memory_order_relaxed) == 1);
+		const refcount_base& self = o;
+		return (self.m_refcount.load(std::memory_order_relaxed) == 1);
 	}
 
 	friend bool
 	refcnt_is_zero(const Derived& o) ILIAS_NET2_NOTHROW
 	{
-		refcount_base& self = o;
-		return (self.load(std::memory_order_relaxed) == 0);
+		const refcount_base& self = o;
+		return (self.m_refcount.load(std::memory_order_relaxed) == 0);
 	}
 };
 
 template<typename Type>
-class refpointer
+class refpointer :
+	public bool_test<refpointer<Type> >
 {
 public:
 	typedef Type element_type;
@@ -321,7 +329,8 @@ public:
 		return !(*this == o);
 	}
 
-	explicit operator bool() const ILIAS_NET2_NOTHROW
+	bool
+	booltest() const ILIAS_NET2_NOTHROW
 	{
 		return this->get();
 	}
@@ -393,6 +402,11 @@ const_pointer_cast(refpointer<T>&& ptr) ILIAS_NET2_NOTHROW
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 
 #endif /* ILIAS_NET2_REFCNT_H */

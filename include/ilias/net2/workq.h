@@ -17,12 +17,21 @@
 #define ILIAS_NET2_WORKQ_H
 
 #include <ilias/net2/ilias_net2_export.h>
+#include <ilias/net2/booltest.h>
 #include <ilias/net2/ll.h>
 #include <ilias/net2/refcnt.h>
 #include <atomic>
 #include <functional>
 #include <utility>
 #include <vector>
+
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
+#pragma warning( disable: 4275 )
+#endif
+
 
 namespace ilias {
 
@@ -262,6 +271,9 @@ friend class workq_service;	/* Grant access to class workq_service_coroutines. *
 public:
 	~coroutine_job() ILIAS_NET2_NOTHROW;
 
+protected:
+	using job::clear_running;
+
 private:
 	class workq_service_coroutines;
 
@@ -296,7 +308,7 @@ private:
 	void push_coroutine(workq_int_pointer<coroutine_job>&&) ILIAS_NET2_NOTHROW;
 #endif
 
-protected:
+public:
 	workq_service_coroutines() ILIAS_NET2_NOTHROW
 	{
 		/* Empty body. */
@@ -330,7 +342,7 @@ private:
 	/* Active workqs. */
 	workq_list m_workqs;
 
-protected:
+public:
 	workq_service_workq() ILIAS_NET2_NOTHROW
 	{
 		/* Empty body. */
@@ -353,10 +365,14 @@ protected:
 
 class ILIAS_NET2_EXPORT workq_service :
 	public refcount_base<workq_service>,
-	public workq::coroutine_job::workq_service_coroutines,
-	public workq::workq_service_workq,
 	public identity_comparable
 {
+friend void workq::coroutine_job::do_run(runnable_job&);
+
+private:
+	workq::coroutine_job::workq_service_coroutines m_coroutines_srv;
+	workq::workq_service_workq m_workq_srv;
+
 public:
 	workq_service() ILIAS_NET2_NOTHROW
 	{

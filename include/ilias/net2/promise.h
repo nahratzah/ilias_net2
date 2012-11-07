@@ -29,6 +29,15 @@
 #include <type_traits>	/* For combi promise templates. */
 #endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( once: 4275 )
+#pragma warning( disable: 4251 )
+#pragma warning( disable: 4290 )
+#endif
+
+
 namespace ilias {
 
 
@@ -101,7 +110,8 @@ protected:
 		std::atomic<ready_state_t> m_ready;
 
 	protected:
-		class state_lock
+		class state_lock :
+			public bool_test<state_lock>
 		{
 		private:
 			basic_state& self;
@@ -156,7 +166,8 @@ protected:
 				this->m_locked = false;
 			}
 
-			explicit operator bool() const ILIAS_NET2_NOTHROW
+			bool
+			booltest() const ILIAS_NET2_NOTHROW
 			{
 				return this->m_locked;
 			}
@@ -239,6 +250,7 @@ protected:
 		}
 #endif
 
+#if HAS_VARARG_TEMPLATES
 		template<typename Exception, typename... Args>
 		bool
 		emplace_exception(Args&&... args)
@@ -251,6 +263,7 @@ protected:
 			lck.commit();
 			return true;
 		}
+#endif
 
 
 #if HAS_DELETED_FN
@@ -301,7 +314,7 @@ public:
 	bool
 	valid() const ILIAS_NET2_NOTHROW
 	{
-		return this->get_state();
+		return (this->get_state() != nullptr);
 	}
 
 	bool
@@ -326,6 +339,7 @@ public:
 	}
 #endif
 
+#if HAS_VARARG_TEMPLATES
 	template<typename... Args>
 	bool
 	emplace_exception(Args&&... args)
@@ -336,6 +350,7 @@ public:
 
 		return s->emplace_exception(std::move(args)...);
 	}
+#endif
 
 
 #if HAS_DELETED_FN
@@ -392,7 +407,7 @@ public:
 	bool
 	valid() const ILIAS_NET2_NOTHROW
 	{
-		return this->get_state();
+		return (this->get_state() != nullptr);
 	}
 
 	bool ready() const ILIAS_NET2_NOTHROW;
@@ -444,6 +459,37 @@ private:
 				this->m_container.value.~result_type();
 		}
 
+		bool
+		assign(const result_type& v)
+		{
+			state_lock lck(*this);
+			if (!lck)
+				return false;
+
+			if (this->m_value_isset)
+				return false;
+
+			new (&this->m_container.m_value) result_type(v);
+			this->m_value_isset = true;
+		}
+
+#if HAS_RVALUE_REF
+		bool
+		assign(result_type&& v)
+		{
+			state_lock lck(*this);
+			if (!lck)
+				return false;
+
+			if (this->m_value_isset)
+				return false;
+
+			new (&this->m_container.m_value) result_type(std::move(v));
+			this->m_value_isset = true;
+		}
+#endif
+
+#if HAS_VARARG_TEMPLATES
 		template<typename... Args>
 		bool
 		assign(Args&&... args)
@@ -458,6 +504,7 @@ private:
 			new (&this->m_container.m_value) result_type(std::move(args)...);
 			this->m_value_isset = true;
 		}
+#endif
 
 		bool
 		has_value() const ILIAS_NET2_NOTHROW
@@ -522,6 +569,29 @@ public:
 	}
 #endif
 
+	/* Set the value of the promise, using value_type copy constructor. */
+	bool
+	set(const result_type& v)
+	{
+		state*const s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+
+		return s->assign(v);
+	}
+
+	/* Set the value of the promise, using value_type move constructor. */
+	bool
+	set(result_type&& v)
+	{
+		state*const s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+
+		return s->assign(std::move(v));
+	}
+
+#if HAS_VARARG_TEMPLATES
 	/* Set the value of the promise, using value_type constructor. */
 	template<typename... Args>
 	bool
@@ -533,6 +603,7 @@ public:
 
 		return s->assign(std::move(args)...);
 	}
+#endif
 
 	RVALUE(future<Result>)
 	get_future() const
@@ -636,5 +707,11 @@ public:
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
+
 
 #endif /* ILIAS_NET2_PROMISE_H */

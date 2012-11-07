@@ -23,6 +23,14 @@
 #include <stdexcept>
 #include <ilias/net2/ll.h>
 
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
+#pragma warning( disable: 4290 )
+#endif
+
+
 namespace ilias {
 
 
@@ -40,7 +48,7 @@ private:
 public:
 	/* Helper functions. */
 	template<typename T>
-	static constexpr T
+	static CONSTEXPR T
 	round_down(const T& v, const T& r)
 	{
 		return ((r & (r - 1)) == 0 ? (v & ~(r - 1)) : (v - v % r));
@@ -48,7 +56,7 @@ public:
 
 	/* Helper functions. */
 	template<typename T>
-	static constexpr T
+	static CONSTEXPR T
 	round_up(const T& v, const T& r)
 	{
 		return round_down(v + r - 1, r);
@@ -59,8 +67,8 @@ public:
 	const size_type size;
 	ll_list_type head;
 
-	static constexpr_value size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
-	static constexpr_value size_type default_offset = 0;
+	static CONSTEXPR_VALUE size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
+	static CONSTEXPR_VALUE size_type default_offset = 0;
 
 	pool(size_type size, size_type align = default_align, size_type offset = default_offset) :
 		align(align <= 0 ? 1 : align),
@@ -204,9 +212,6 @@ public:
 		/* Empty body. */
 	}
 
-	pool_allocator(const pool_allocator&) = delete;
-	pool_allocator& operator=(const pool_allocator&) = delete;
-
 	pointer
 	allocate(size_type n, void* hint = nullptr) throw (std::bad_alloc)
 	{
@@ -263,12 +268,14 @@ public:
 		return reinterpret_cast<const_pointer>(&reinterpret_cast<casted>(v));
 	}
 
+#if HAS_VARARG_TEMPLATES
 	template<typename U, typename... Args>
 	static void
 	construct(U* p, Args&&... args)
 	{
 		new(p) value_type(args...);
 	}
+#endif
 
 	static void
 	construct(pointer p, const_reference v)
@@ -288,6 +295,16 @@ public:
 	{
 		p->~value_type();
 	}
+
+
+#if HAS_DELETED_FN
+	pool_allocator(const pool_allocator&) = delete;
+	pool_allocator& operator=(const pool_allocator&) = delete;
+#else
+private:
+	pool_allocator(const pool_allocator&);
+	pool_allocator& operator=(const pool_allocator&);
+#endif
 };
 
 /*
@@ -306,17 +323,31 @@ public:
 	typedef pool::size_type size_type;
 	typedef pool::difference_type difference_type;
 
-	pool_allocator() = delete;
-	pool_allocator(const pool_allocator&) = delete;
-	pool_allocator& operator=(const pool_allocator&) = delete;
-
 	template<typename U, std::size_t U_Align = Align, std::size_t U_Offset = Offset>
 	struct rebind {
 		typedef pool_allocator<U, U_Align, U_Offset> other;
 	};
+
+
+#if HAS_DELETED_FN
+	pool_allocator() = delete;
+	pool_allocator(const pool_allocator&) = delete;
+	pool_allocator& operator=(const pool_allocator&) = delete;
+#else
+private:
+	pool_allocator();
+	pool_allocator(const pool_allocator&);
+	pool_allocator& operator=(const pool_allocator&);
+#endif
 };
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
+
 
 #endif /* ILIAS_NET2_POOL_H */

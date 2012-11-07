@@ -1,6 +1,11 @@
 #include <ilias/net2/ll.h>
 
 
+#ifdef _MSC_VER
+#pragma warning( disable: 4290 )
+#endif
+
+
 namespace ilias {
 namespace ll_detail {
 
@@ -229,7 +234,7 @@ hook_ptr::insert_before_locked(const hook_ptr& succ) const ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::first(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 {
-	hook_ptr headnode = const_cast<hook*>(&this->m_head);
+	hook_ptr headnode(const_cast<hook*>(&this->m_head));
 	hook_ptr element = headnode.succ().first;
 	v.reset(MOVE(headnode), MOVE(element));
 	return v;
@@ -238,7 +243,7 @@ list::first(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::last(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 {
-	hook_ptr headnode = const_cast<hook*>(&this->m_head);
+	hook_ptr headnode(const_cast<hook*>(&this->m_head));
 	hook_ptr element = headnode.pred().first;
 	v.reset(MOVE(headnode), MOVE(element));
 	return v;
@@ -247,7 +252,7 @@ list::last(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::listhead(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 {
-	hook_ptr headnode = const_cast<hook*>(&this->m_head);
+	hook_ptr headnode(const_cast<hook*>(&this->m_head));
 	v.reset(MOVE(headnode));
 	return v;
 }
@@ -255,7 +260,7 @@ list::listhead(list::simple_iterator& v) const ILIAS_NET2_NOTHROW
 hook*
 list::pop_front() ILIAS_NET2_NOTHROW
 {
-	hook_ptr i = &this->m_head;
+	hook_ptr i(&this->m_head);
 	for (i = MOVE(i.succ().first); i != &this->m_head; i = MOVE(i.succ().first)) {
 		if (i.unlink(this->m_head))
 			return i.get();
@@ -266,7 +271,7 @@ list::pop_front() ILIAS_NET2_NOTHROW
 hook*
 list::pop_back() ILIAS_NET2_NOTHROW
 {
-	hook_ptr i = &this->m_head;
+	hook_ptr i(&this->m_head);
 	for (i = MOVE(i.pred().first); i != &this->m_head; i = MOVE(i.pred().first)) {
 		if (i.unlink(this->m_head))
 			return i.get();
@@ -289,7 +294,7 @@ list::push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::pop_front_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
 {
-	hook_ptr head = &this->m_head;
+	hook_ptr head(&this->m_head);
 	for (hook_ptr i = MOVE(head.succ().first); i != &this->m_head; i = MOVE(i.succ().first)) {
 		if (i.unlink_nowait()) {
 			v.reset(MOVE(head), MOVE(i));
@@ -304,7 +309,7 @@ list::pop_front_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::pop_back_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
 {
-	hook_ptr head = &this->m_head;
+	hook_ptr head(&this->m_head);
 	for (hook_ptr i = MOVE(head.pred().first); i != &this->m_head; i = MOVE(i.pred().first)) {
 		if (i.unlink_nowait()) {
 			v.reset(MOVE(head), MOVE(i));
@@ -319,7 +324,7 @@ list::pop_back_nowait(list::simple_iterator& v) ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::push_back_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
 {
-	hook_ptr head = &this->m_head;
+	hook_ptr head(&this->m_head);
 	hp.element.unlink_wait_inslock(*hp.listhead);
 	hp.element.insert_before_locked(head);
 	hp.listhead = head;
@@ -329,7 +334,7 @@ list::push_back_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::push_front_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
 {
-	hook_ptr head = &this->m_head;
+	hook_ptr head(&this->m_head);
 	hp.element.unlink_wait_inslock(*hp.listhead);
 	hp.element.insert_after_locked(head);
 	hp.listhead = head;
@@ -339,8 +344,8 @@ list::push_front_nowait(list::simple_iterator& hp) ILIAS_NET2_NOTHROW
 list::simple_iterator&
 list::iter_to(list::simple_iterator& v, hook& h) const ILIAS_NET2_NOTHROW
 {
-	hook_ptr headnode = const_cast<hook*>(&this->m_head);
-	hook_ptr element = &h;
+	hook_ptr headnode(const_cast<hook*>(&this->m_head));
+	hook_ptr element(&h);
 	v.reset(MOVE(headnode), MOVE(element));
 	return v;
 }

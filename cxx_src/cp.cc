@@ -20,11 +20,11 @@
 namespace ilias {
 namespace buf_encode {
 
-static constexpr std::size_t buf_padding = 8;	/* ABI: Ensure strings and bufs always use a multiple of 8 bytes of space. */
+static CONSTEXPR_VALUE std::size_t buf_padding = 8;	/* ABI: Ensure strings and bufs always use a multiple of 8 bytes of space. */
 typedef std::uint32_t buf_len_indicator;	/* ABI: Type used to indicate buf/string length. */
 
 /* Calculate how much padding is required. */
-inline constexpr buf_len_indicator
+inline CONSTEXPR buf_len_indicator
 buf_padding_length(buf_len_indicator len)
 {
 	/*
@@ -44,7 +44,9 @@ cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string&
 {
 	using namespace buf_encode;
 
-	const buf_len_indicator len = value.length();
+	if (value.length() > std::numeric_limits<buf_len_indicator>::max())
+		throw std::length_error("string is too large to be encoded");
+	const buf_len_indicator len = buf_len_indicator(value.length());
 
 	char pad[buf_padding];
 	std::for_each(&pad[0], &pad[buf_padding], [](char& v) { v = '\0'; });
@@ -86,9 +88,8 @@ cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value)
 
 	/* Ensure this will fit. */
 	if (value.size() > std::numeric_limits<buf_len_indicator>::max())
-		throw std::domain_error("buffer is too large to be encoded");
-
-	const buf_len_indicator len = value.size();
+		throw std::length_error("buffer is too large to be encoded");
+	const buf_len_indicator len = buf_len_indicator(value.size());
 
 	char pad[buf_padding];
 	std::for_each(&pad[0], &pad[buf_padding], [](char& v) { v = '\0'; });
@@ -116,6 +117,9 @@ cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in)
 
 	return MOVE(rv);
 }
+
+template struct cp_encdec<std::string>;
+template struct cp_encdec<buffer>;
 
 
 } /* namespace ilias */
