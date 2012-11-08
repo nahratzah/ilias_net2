@@ -2509,15 +2509,17 @@ public:
 		return rv;
 	}
 
+#if HAS_RVALUE_REF
 	bool
 	push_front(pointer&& p)
 	{
-		typename list_type::pointer lp = release(p);
+		typename list_type::pointer lp = release(std::move(p));
 		bool rv = this->m_list.push_front_element(lp);
 		if (!rv)
 			p = acquire(lp);
 		return rv;
 	}
+#endif
 
 	bool
 	push_back(const pointer& p)
@@ -2529,15 +2531,17 @@ public:
 		return rv;
 	}
 
+#if HAS_RVALUE_REF
 	bool
 	push_back(pointer&& p)
 	{
-		typename list_type::pointer lp = release(p);
+		typename list_type::pointer lp = release(std::move(p));
 		bool rv = this->m_list.push_back_element(lp);
 		if (!rv)
 			p = acquire(lp);
 		return rv;
 	}
+#endif
 
 #if HAS_RVALUE_REF
 	unlink_wait
