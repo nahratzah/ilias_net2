@@ -100,7 +100,7 @@ public:
 	static void
 	set_iov_len(iovec& v, std::size_t len) throw (std::domain_error)
 	{
-		if (len > std::numeric_limits<decltype(v.len)>::max())
+		if (len > std::numeric_limits<decltype(v.iov_len)>::max())
 			throw std::domain_error("IOV len (WSABUF) truncation.");
 		v.iov_len = len;
 	}
