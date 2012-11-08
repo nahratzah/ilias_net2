@@ -22,12 +22,6 @@
 #include <memory>
 
 
-#ifdef _MSC_VER
-#pragma warning( push )
-#pragma warning( disable: 4251 )
-#endif
-
-
 namespace ilias {
 
 
@@ -43,14 +37,7 @@ public:
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx(std::string name, size_type hashlen, size_type keylen) :
-		hashlen(hashlen),
-		keylen(keylen),
-		name(std::move(name))
-	{
-		/* Empty body. */
-	}
-
+	hash_ctx(std::string, size_type, size_type);
 	virtual ~hash_ctx() ILIAS_NET2_NOTHROW;
 
 	virtual void update(const buffer&) = 0;
@@ -66,14 +53,7 @@ public:
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen) :
-		hashlen(hashlen),
-		keylen(keylen),
-		name(std::move(name))
-	{
-		/* Empty body. */
-	}
-
+	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen);
 	virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
 	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const = 0;
 
@@ -86,11 +66,6 @@ public:
 
 
 } /* namespace ilias */
-
-
-#ifdef _MSC_VER
-#pragma warning( pop )
-#endif
 
 
 #endif /* ILIAS_NET2_HASH_H */

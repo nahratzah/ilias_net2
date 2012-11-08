@@ -20,6 +20,19 @@
 namespace ilias {
 
 
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4251 )
+#endif
+
+
+hash_ctx::hash_ctx(std::string name, size_type hashlen, size_type keylen) :
+	hashlen(hashlen),
+	keylen(keylen),
+	name(std::move(name))
+{
+	/* Empty body. */
+}
 
 hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
 {
@@ -34,6 +47,14 @@ hash_ctx_factory::run(const buffer& key, const buffer& data) const
 	return instance->final();
 }
 
+
+hash_ctx_factory::hash_ctx_factory(std::string name, size_type hashlen, size_type keylen) :
+	hashlen(hashlen),
+	keylen(keylen),
+	name(std::move(name))
+{
+	/* Empty body. */
+}
 
 hash_ctx_factory::~hash_ctx_factory() ILIAS_NET2_NOTHROW
 {
