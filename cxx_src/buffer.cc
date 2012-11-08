@@ -451,12 +451,12 @@ public:
 
 private:
 	array_type m_data;
-	std::size_t m_zeroes;
+	unsigned int m_zeroes;
 
 public:
 	histogram() ILIAS_NET2_NOTHROW :
 		m_data(),
-		m_zeroes(0)
+		m_zeroes(this->m_data.size())
 	{
 		/* Zero all data. */
 		std::for_each(this->m_data.begin(), this->m_data.end(), [](array_type::reference i) {
@@ -466,7 +466,7 @@ public:
 
 	histogram(const std::uint8_t* data, std::size_t len, int delta) ILIAS_NET2_NOTHROW :
 		m_data(),
-		m_zeroes(0)
+		m_zeroes(this->m_data.size())
 	{
 		/* Zero all data. */
 		std::for_each(this->m_data.begin(), this->m_data.end(), [](array_type::reference i) {
@@ -623,8 +623,8 @@ buffer::find_string(const void* data, buffer::size_type len, buffer::size_type b
 	assert(begin != end);
 
 	/* Create histogram iterators. */
-	iter_off<list_type::const_iterator> head(this->m_list.begin(), hist,  1, buf_off - begin->first);
-	iter_off<list_type::const_iterator> tail(this->m_list.begin(), hist, -1, buf_off - begin->first);
+	iter_off<list_type::const_iterator> head(begin, hist,  1, buf_off - begin->first);
+	iter_off<list_type::const_iterator> tail(begin, hist, -1, buf_off - begin->first);
 
 	/* Move the head iterator forward, so [tail, head) describes len bytes. */
 	head += len;
