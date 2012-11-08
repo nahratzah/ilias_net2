@@ -63,9 +63,18 @@ public:
 	}
 
 	static void
-	set_iov_len(iovec& v, std::size_t len) ILIAS_NET2_NOTHROW
+	set_iov_len(iovec& v, std::size_t len) throw (std::domain_error)
 	{
+		if (len > std::numeric_limits<decltype(v.len)>::max())
+			throw std::domain_error("IOV len (WSABUF) truncation.");
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4267 )	/* Silence truncation error, since it is handled by exception above. */
+#endif
 		v.len = len;
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 	}
 
 	static void*
@@ -89,8 +98,10 @@ public:
 	}
 
 	static void
-	set_iov_len(iovec& v, std::size_t len) ILIAS_NET2_NOTHROW
+	set_iov_len(iovec& v, std::size_t len) throw (std::domain_error)
 	{
+		if (len > std::numeric_limits<decltype(v.len)>::max())
+			throw std::domain_error("IOV len (WSABUF) truncation.");
 		v.iov_len = len;
 	}
 

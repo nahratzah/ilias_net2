@@ -22,6 +22,7 @@
 #include <bcrypt.h>
 #include <array>
 #include <atomic>
+#include <limits>
 
 
 namespace ilias {
@@ -166,7 +167,7 @@ private:
 	};
 
 	typedef std::unique_ptr<void, hash_destructor> hash_handle;	/* BCRYPT_HANDLE_{HASH,HMAC} etc */
-	typedef std::pair<std::unique_ptr<uint8_t[]>, std::size_t> hash_storage;
+	typedef std::pair<std::unique_ptr<uint8_t[]>, unsigned long> hash_storage;
 
 	static hash_handle&&
 	create_hash_handle(const bcrypt_algorithm_cache::algorithm& alg, const hash_storage& store, const void* key, size_type keylen)
@@ -243,16 +244,34 @@ void
 bcrypt_hash::update(const buffer& b)
 {
 	b.visit([this](const void* p, buffer::size_type l) {
-		switch (BCryptHashData(this->m_hash.get(), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(p)), l, 0)) {
-		case STATUS_SUCCESS:
-			break;
-		case STATUS_INVALID_PARAMETER:
-			throw std::invalid_argument("BCryptHashData didn't like our arguments");
-		case STATUS_INVALID_HANDLE:
-			throw std::logic_error("BCrypt hash handle appears to be invalid");
-		default:
-			throw std::runtime_error("BCryptHashData returned undocumented status");
-		}
+		do {
+			/*
+			 * Probably exagerated: ensure that the actual length inserted in the crypto loop is not truncated.
+			 */
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4244 )
+#endif
+			const unsigned long crypt_len = std::min(l,
+			    buffer::size_type(1UL << (std::numeric_limits<unsigned long>::digits - 1)));
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
+
+			switch (BCryptHashData(this->m_hash.get(), const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(p)), crypt_len, 0)) {
+			case STATUS_SUCCESS:
+				break;
+			case STATUS_INVALID_PARAMETER:
+				throw std::invalid_argument("BCryptHashData didn't like our arguments");
+			case STATUS_INVALID_HANDLE:
+				throw std::logic_error("BCrypt hash handle appears to be invalid");
+			default:
+				throw std::runtime_error("BCryptHashData returned undocumented status");
+			}
+
+			p = reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(p) + crypt_len);
+			l -= crypt_len;
+		} while (l > 0);
 	});
 }
 

@@ -37,16 +37,16 @@ class buffer; /* From ilias/net2/buffer.h */
 class ILIAS_NET2_EXPORT hash_ctx
 {
 public:
-	typedef std::size_t size_type;
+	typedef std::uint32_t size_type;
 
 	const size_type hashlen;
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx(const std::string& name, size_type hashlen, size_type keylen) :
+	hash_ctx(std::string name, size_type hashlen, size_type keylen) :
 		hashlen(hashlen),
 		keylen(keylen),
-		name(name)
+		name(std::move(name))
 	{
 		/* Empty body. */
 	}
@@ -66,10 +66,10 @@ public:
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx_factory(const std::string& name, size_type hashlen, size_type keylen) :
+	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen) :
 		hashlen(hashlen),
 		keylen(keylen),
-		name(name)
+		name(std::move(name))
 	{
 		/* Empty body. */
 	}

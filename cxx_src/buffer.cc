@@ -454,6 +454,10 @@ private:
 	unsigned int m_zeroes;
 
 public:
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable: 4267 )	/* Prevent unsigned truncation warning in histogram::m_zeroes construction. */
+#endif
 	histogram() ILIAS_NET2_NOTHROW :
 		m_data(),
 		m_zeroes(this->m_data.size())
@@ -477,6 +481,9 @@ public:
 			this->apply(idx, delta);
 		});
 	}
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 	bool
 	all_zeroes() const ILIAS_NET2_NOTHROW
