@@ -23,26 +23,6 @@
 namespace ilias {
 
 
-hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-
-buffer
-hash_ctx_factory::run(const buffer& key, const buffer& data) const
-{
-	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
-	instance->update(data);
-	return instance->final();
-}
-
-
-hash_ctx_factory::~hash_ctx_factory() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-
-
 class ILIAS_NET2_LOCAL hash_sha256 :
 	public hash_ctx
 {

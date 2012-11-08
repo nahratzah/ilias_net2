@@ -154,6 +154,7 @@ list (APPEND cxx_srcs
 	cxx_src/buffer.cc
 	cxx_src/bufcopy.cc
 	cxx_src/cp.cc
+	cxx_src/hash.cc
 	cxx_src/ll.cc
 	cxx_src/promise.cc
 	cxx_src/poetry.cc

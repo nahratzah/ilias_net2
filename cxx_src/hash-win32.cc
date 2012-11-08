@@ -28,26 +28,6 @@
 namespace ilias {
 
 
-hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-
-buffer
-hash_ctx_factory::run(const buffer& key, const buffer& data) const
-{
-	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
-	instance->update(data);
-	return instance->final();
-}
-
-
-hash_ctx_factory::~hash_ctx_factory() ILIAS_NET2_NOTHROW
-{
-	return;
-}
-
-
 /*
  * Since the documentation already warns that BCryptOpenAlgorithmProvider()
  * is expensive and slow and recommends caching its values, this is a simple,
