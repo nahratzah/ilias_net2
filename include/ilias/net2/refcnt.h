@@ -92,7 +92,7 @@ protected:
 
 	~refcount_base() ILIAS_NET2_NOTHROW
 	{
-		assert(this->m_refcount.load(std::memory_order_acq_rel) == 0);
+		assert(this->m_refcount.load(std::memory_order_seq_cst) == 0);
 	}
 
 	refcount_base&
