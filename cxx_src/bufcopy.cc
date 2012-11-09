@@ -290,7 +290,10 @@ cp(void*const dst0, const void*const src0, const size_t len0) ILIAS_NET2_NOTHROW
 void
 buffer::copy_memory(void* dst, const void* src, size_type len) ILIAS_NET2_NOTHROW
 {
+#if 0	/* There's a bug here. */
 	cp(dst, src, len);
+#endif
+	std::memcpy(dst, src, len);
 }
 
 
