@@ -251,7 +251,7 @@ public:
 	virtual ~single_job() ILIAS_NET2_NOTHROW;
 
 private:
-	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW override;
+	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
 
@@ -276,7 +276,7 @@ private:
 	std::atomic<fn_list::size_type> m_idx;
 	std::atomic<fn_list::size_type> m_incomplete;
 
-	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW override;
+	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
 

@@ -115,6 +115,7 @@
 #define HAS_RVALUE_REF		__has_feature(cxx_rvalue_references)
 #define HAS_NOEXCEPT		__has_feature(cxx_noexcept)
 #define HAS_CONSTEXPR		__has_feature(cxx_constexpr)
+#define HAS_OVERRIDE		__has_feature(cxx_override_control)
 
 #elif defined(__GNUC__)
 /* Features of GNU compiler. */
@@ -126,6 +127,7 @@
 #define HAS_RVALUE_REF		ILIAS_NET2_gnuc_require(4, 3)
 #define HAS_NOEXCEPT		ILIAS_NET2_gnuc_require(4, 6)
 #define HAS_CONSTEXPR		ILIAS_NET2_gnuc_require(4, 6)
+#define HAS_OVERRIDE		ILIAS_NET2_gnuc_require(4, 7)
 
 #elif defined(_MSC_VER)
 /* Features of Microsoft compiler. */
@@ -136,6 +138,7 @@
 #define HAS_NOEXCEPT		0 /* But throw() actually functions similar. */
 #define HAS_CONSTEXPR		0 /* Blech, MSVC claims I may not redefine constexpr while they don't implement it, idiots. */
 #define HAS_EXPL_OP_BOOL	0
+#define HAS_OVERRIDE		(_MSC_VER >= 1600 /* Visual Studio 2010 (possibly earlier) */ )
 #endif
 
 /* Unknown compiler, assume it doesn't implement anything. */
@@ -162,6 +165,10 @@
 #ifndef HAS_EXPL_OP_BOOL
 /* We don't know if your compiler supports 'explicit operator bool()'. */
 #define HAS_EXPL_OP_BOOL	0
+#endif
+#ifndef HAS_OVERRIDE
+/* We don't know if your compiler supports override keyword. */
+#define HAS_OVERRIDE		0
 #endif
 
 #if HAS_RVALUE_REF && !defined(HAS_STD_MOVE)
@@ -198,6 +205,12 @@
 #else
 #define CONSTEXPR		/* Unsupported. */
 #define CONSTEXPR_VALUE		const
+#endif
+
+#if HAS_OVERRIDE
+#define OVERRIDE		override
+#else
+#define OVERRIDE		/* Unsupported. */
 #endif
 
 #if HAS_NOEXCEPT
