@@ -320,7 +320,7 @@ buffer
 hash_cc_hmac::final()
 {
 	buffer rv;
-	buffer::prepare prep(rv, this->hashlen);
+	buffer::prepare prep(rv, this->hashlen, true);
 	CCHmacFinal(&this->ctx, prep.data());
 	prep.commit();
 	return rv;

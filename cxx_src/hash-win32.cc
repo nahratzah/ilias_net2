@@ -297,9 +297,7 @@ buffer
 bcrypt_hash::final()
 {
 	buffer rv;
-	buffer::prepare prep(rv, this->hashlen);
-	if (this->keylen != 0)
-		prep.mark_sensitive();
+	buffer::prepare prep(rv, this->hashlen, (this->keylen != 0));
 	switch (BCryptFinishHash(this->m_hash.get(), reinterpret_cast<uint8_t*>(prep.data()), this->hashlen, 0)) {
 	case STATUS_SUCCESS:
 		break;

@@ -337,7 +337,7 @@ hash_openssl_evp::final()
 {
 	unsigned int result_len = this->hashlen;
 	buffer rv;
-	buffer::prepare prep(rv, result_len);
+	buffer::prepare prep(rv, result_len, true);
 	uint8_t* out = reinterpret_cast<uint8_t*>(prep.data());
 
 #if (OPENSSL_VERSION_NUMBER < 0x01000000)
