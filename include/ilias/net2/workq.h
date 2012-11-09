@@ -221,7 +221,7 @@ public:
 	virtual ~job() ILIAS_NET2_NOTHROW;
 
 private:
-	virtual void do_run(runnable_job&) ILIAS_NET2_NOTHROW = 0;
+	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW = 0;
 
 public:
 	workq&
@@ -249,7 +249,7 @@ public:
 	virtual ~single_job() ILIAS_NET2_NOTHROW;
 
 private:
-	virtual void do_run(runnable_job&) ILIAS_NET2_NOTHROW;
+	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW override;
 };
 
 
@@ -274,7 +274,7 @@ private:
 	std::atomic<fn_list::size_type> m_idx;
 	std::atomic<fn_list::size_type> m_incomplete;
 
-	virtual void do_run(runnable_job&) ILIAS_NET2_NOTHROW;
+	virtual std::size_t do_run(runnable_job&) ILIAS_NET2_NOTHROW override;
 };
 
 
@@ -316,7 +316,7 @@ public:
 	 * Returns true if it ran a co-routine.
 	 * Returns false if the list is empty.
 	 */
-	bool run_coroutine() ILIAS_NET2_NOTHROW;
+	bool run_coroutine(std::size_t&) ILIAS_NET2_NOTHROW;
 };
 
 
@@ -350,15 +350,16 @@ public:
 	 * Returns true if it ran a workq.
 	 * Returns false if the list is empty.
 	 */
-	bool run_workq() ILIAS_NET2_NOTHROW;
+	bool run_workq(std::size_t&) ILIAS_NET2_NOTHROW;
 };
 
 
 class ILIAS_NET2_EXPORT workq_service :
 	public refcount_base<workq_service>,
+	public workq_int_refcnt,
 	public identity_comparable
 {
-friend void workq::coroutine_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW;
+friend std::size_t workq::coroutine_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW;
 
 private:
 	workq::coroutine_job::workq_service_coroutines m_coroutines_srv;
@@ -370,10 +371,15 @@ public:
 		/* Empty body. */
 	}
 
-	void wakeup(std::size_t) ILIAS_NET2_NOTHROW;	/* XXX stub. */
-
 private:
 	bool do_work(std::size_t) ILIAS_NET2_NOTHROW;
+
+	void
+	wakeup(std::size_t) ILIAS_NET2_NOTHROW
+	{
+		/* XXX STUB */
+		assert(0);
+	}
 };
 
 

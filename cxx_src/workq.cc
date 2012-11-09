@@ -292,10 +292,10 @@ public:
 		return *this;
 	}
 
-	void
+	std::size_t
 	run() ILIAS_NET2_NOTHROW
 	{
-		this->m_ptr->do_run(*this);
+		return this->m_ptr->do_run(*this);
 	}
 
 	/* Assign and lock job. */
@@ -446,10 +446,11 @@ workq::single_job::~single_job() ILIAS_NET2_NOTHROW
 	return;
 }
 
-void
+std::size_t
 workq::single_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW
 {
 	this->fn();
+	return 1;
 }
 
 
@@ -458,7 +459,7 @@ workq::coroutine_job::~coroutine_job() ILIAS_NET2_NOTHROW
 	return;
 }
 
-void
+std::size_t
 workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 {
 	/* XXX reference counting in this function is suspect! */
@@ -471,6 +472,8 @@ workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 	workq_service& wqs = this->get_workq_service();
 	wqs.m_coroutines_srv.activate(*this, rj);
 	wqs.wakeup(sz - 1);
+
+	return 0;	/* We didn't execute any jobs, only changed the queueing of this job. */
 }
 
 
@@ -521,8 +524,11 @@ workq::coroutine_job::workq_service_coroutines::push_coroutine(workq_int_pointer
 #endif
 
 bool
-workq::coroutine_job::workq_service_coroutines::run_coroutine() ILIAS_NET2_NOTHROW
+workq::coroutine_job::workq_service_coroutines::run_coroutine(std::size_t& counter) ILIAS_NET2_NOTHROW
 {
+	if (counter == 0)
+		return false;
+
 	/* Find a runnable co-routine. */
 	std::pair<workq_int_pointer<coroutine_job>, fn_list::size_type> crj =
 	    this->get_coroutine();
@@ -546,13 +552,17 @@ workq::coroutine_job::workq_service_coroutines::run_coroutine() ILIAS_NET2_NOTHR
 	}
 
 	/* We ran a co-routine. */
+	--counter;
 	return true;
 }
 
 
 bool
-workq::workq_service_workq::run_workq() ILIAS_NET2_NOTHROW
+workq::workq_service_workq::run_workq(std::size_t& counter) ILIAS_NET2_NOTHROW
 {
+	if (counter == 0)
+		return false;
+
 	/* Find a runnable workq. */
 	runnable_job j;
 	for (;;) {
@@ -568,29 +578,26 @@ workq::workq_service_workq::run_workq() ILIAS_NET2_NOTHROW
 		}
 	}
 
-	j.run();
+	const std::size_t runcount = j.run();
+	counter -= std::min(counter, runcount);
 	return true;
 }
 
 
-void
-workq_service::wakeup(std::size_t) ILIAS_NET2_NOTHROW
-{
-	/* STUB */
-}
-
 bool
 workq_service::do_work(std::size_t n) ILIAS_NET2_NOTHROW
 {
-	std::size_t work_done = 0;
+	bool rv = false;
 
-	while (work_done < n && this->m_coroutines_srv.run_coroutine())
-		++work_done;
-	while (work_done < n && this->m_workq_srv.run_workq())
-		++work_done;
+	while (n > 0) {
+		if (this->m_coroutines_srv.run_coroutine(n))
+			rv = true;
+		else if (this->m_workq_srv.run_workq(n))
+			rv = true;
+	}
 
 	/* Return true if work was done. */
-	return (work_done > 0);
+	return rv;
 }
 
 
