@@ -109,10 +109,17 @@ void
 hook_ptr::unlink_wait(const hook& list_head) const ILIAS_NET2_NOTHROW
 {
 	for (hook_ptr s = MOVE(this->succ().first);
-	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1 && s != &list_head;
+	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1;
 	    s = MOVE(s.succ().first)) {
 		if (s->m_pred.get_ptr() == *this)
 			s.pred(); /* Fix predecessor. */
+
+		/*
+		 * Only after reaching the head, stop the search
+		 * (since the head may still point at *this via its predecessor pointer.
+		 */
+		if (s == &list_head)
+			break;
 	}
 
 	while ((*this)->m_refcnt.load(std::memory_order_relaxed) > 1) {
@@ -128,10 +135,17 @@ void
 hook_ptr::unlink_wait_inslock(const hook& list_head) ILIAS_NET2_NOTHROW
 {
 	for (hook_ptr s = MOVE(this->succ().first);
-	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1 && s != &list_head;
+	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1;
 	    s = MOVE(s.succ().first)) {
 		if (s->m_pred.get_ptr() == *this)
 			s.pred(); /* Fix predecessor. */
+
+		/*
+		 * Only after reaching the head, stop the search
+		 * (since the head may still point at *this via its predecessor pointer.
+		 */
+		if (s == &list_head)
+			break;
 	}
 
 	while ((*this)->m_refcnt.load(std::memory_order_relaxed) > 1) {
