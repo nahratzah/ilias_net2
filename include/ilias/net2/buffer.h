@@ -541,7 +541,7 @@ private:
 		struct reserve_tag {};
 
 		/* Create a segment with reserved memory. */
-		segment_ref(const reserve_tag&, const segment_ref* opt_sibling, size_type len) :
+		segment_ref(const reserve_tag&, const segment_ref* opt_sibling, size_type len, bool sensitive) :
 			m_segment(),
 			m_off(0),
 			m_len(len)
@@ -555,6 +555,8 @@ private:
 				data = this->m_segment->allocate(len);
 			}
 
+			if (sensitive)
+				this->m_segment->mark_sensitive();
 			this->m_off = reinterpret_cast<uintptr_t>(data) -
 			    reinterpret_cast<uintptr_t>(this->m_segment->data());
 		}
@@ -1120,7 +1122,7 @@ public:
 		/* Empty body. */
 	}
 
-	prepare(buffer& b, size_type len);
+	prepare(buffer& b, size_type len, bool sensitive = false);
 
 #if HAS_RVALUE_REF
 	prepare(prepare&& p) ILIAS_NET2_NOTHROW :

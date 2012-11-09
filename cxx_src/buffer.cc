@@ -661,9 +661,9 @@ buffer::copyout(void* dst, buffer::size_type len) const throw (std::out_of_range
 }
 
 
-buffer::prepare::prepare(buffer& b, buffer::size_type len) :
+buffer::prepare::prepare(buffer& b, buffer::size_type len, bool sensitive) :
 	prepare_bufref(b),
-	m_segment(segment_ref::reserve_tag(), (b.m_list.empty() ? nullptr : &b.m_list.back().second), len)
+	m_segment(segment_ref::reserve_tag(), (b.m_list.empty() ? nullptr : &b.m_list.back().second), len, sensitive)
 {
 	if (len == 0)
 		throw std::invalid_argument("attempt to reserve 0 bytes");
