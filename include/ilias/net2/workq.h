@@ -136,19 +136,10 @@ template<typename Type>
 struct workq_int_refcnt_release
 {
 	Type*
-	operator()(const workq_int_pointer<Type>& p) const ILIAS_NET2_NOTHROW
-	{
-		workq_int_pointer<Type> clone = p;
-		return clone.release();
-	}
-
-#if HAS_RVALUE_REF
-	Type*
-	operator()(workq_int_pointer<Type>&& p) const ILIAS_NET2_NOTHROW
+	operator()(workq_int_pointer<Type> p) const ILIAS_NET2_NOTHROW
 	{
 		return p.release();
 	}
-#endif
 };
 
 
