@@ -300,25 +300,13 @@ public:
 
 	/* Assign and lock job. */
 	bool
-	lock(const workq_int_pointer<job>& j) ILIAS_NET2_NOTHROW
+	lock(workq_int_pointer<job> j) ILIAS_NET2_NOTHROW
 	{
 		assert(!this->locked());
 
-		this->m_ptr = j;
+		this->m_ptr = MOVE(j);
 		return this->lock();
 	}
-
-#if HAS_RVALUE_REF
-	/* Assign and lock job. */
-	bool
-	lock(workq_int_pointer<job>&& j) ILIAS_NET2_NOTHROW
-	{
-		assert(!this->locked());
-
-		this->m_ptr = std::move(j);
-		return this->lock();
-	}
-#endif
 
 	const workq_int_pointer<job>&
 	get() const ILIAS_NET2_NOTHROW
@@ -344,9 +332,14 @@ public:
 		auto old = this->m_ptr->m_state.load(std::memory_order_relaxed);
 		auto set = old;
 		do {
+			/* Fail if the job is currently running or is not active. */
 			if ((old & job::STATE_RUNNING) || !(old & job::STATE_ACTIVE))
 				return false;
-			set = old | job::STATE_RUNNING;
+			/* Fail if the job is only allowed to run once and has already ran. */
+			if ((old & job::STATE_HAS_RUN) && (this->m_ptr->m_type & job::TYPE_ONCE))
+				return false;
+
+			set = old | job::STATE_RUNNING | job::STATE_HAS_RUN;
 			if (!(this->m_ptr->m_type & job::TYPE_PERSIST))
 				set &= ~job::STATE_ACTIVE;
 		} while (!this->m_ptr->m_state.compare_exchange_weak(old, set,
@@ -408,7 +401,7 @@ workq::get_runnable_job() ILIAS_NET2_NOTHROW
 		j.release();
 	}
 
-	return std::move(rj);
+	return rj;
 }
 
 void
@@ -416,9 +409,21 @@ workq::job::clear_running(const workq_int_pointer<job>& ptr) ILIAS_NET2_NOTHROW
 {
 	assert(this == ptr.get());	/* Ensure this pointer is owned. */
 
+	/* Clear the running bit. */
 	const auto old = this->m_state.fetch_and(~STATE_RUNNING, std::memory_order_release);
+	/*
+	 * Validate state: the job must have been running and,
+	 * since it actually has run at least now, it must have the HAS_RUN bit set.
+	 */
 	assert(old & STATE_RUNNING);
-	if (old & STATE_ACTIVE)
+	assert(old & STATE_HAS_RUN);
+
+	/*
+	 * Put job back on the runqueue if it is active.
+	 * Note that if the job has the TYPE_ONCE bit, we cannot run it again
+	 * therefore don't need to put it back on the runqueue either.
+	 */
+	if ((old & STATE_ACTIVE) && !(this->m_type & TYPE_ONCE))
 		this->get_workq().runq.push_back(ptr);
 }
 

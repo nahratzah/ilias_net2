@@ -200,8 +200,10 @@ protected:
 public:
 	static const int STATE_RUNNING = 0x0001;
 	static const int STATE_ACTIVE = 0x0002;
+	static const int STATE_HAS_RUN = 0x0004;
 
 	static const int TYPE_PERSIST = 0x0001;
+	static const int TYPE_ONCE = 0x0002;
 
 protected:
 	job(const refpointer<workq>& wq, int type) ILIAS_NET2_NOTHROW :
