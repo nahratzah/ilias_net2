@@ -9,7 +9,7 @@
 		if (!(x)) {						\
 			fprintf(stderr, "Test at %s:%d failed: %s\n",	\
 			    __FILE__, __LINE__, #x);			\
-			exit(1);					\
+			std::terminate();				\
 		}							\
 	} while (0)
 
