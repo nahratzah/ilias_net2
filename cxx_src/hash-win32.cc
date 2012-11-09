@@ -42,6 +42,12 @@ namespace ilias {
 class bcrypt_algorithm_cache
 {
 private:
+	static const unsigned long
+	m_flag_mask()
+	{
+		return ~BCRYPT_HASH_REUSABLE_FLAG;
+	}
+
 	struct bcrypt_hash_delete {
 		void
 		operator()(void* algorithm) ILIAS_NET2_NOTHROW
@@ -50,6 +56,11 @@ private:
 			assert(rv == STATUS_SUCCESS);
 		}
 	};
+
+	static const int NEED_INIT = 29;
+	static const int ACCEPT_REUSE = 31;
+	static const int NO_REUSE = 37;
+	static std::atomic<int> accept_reuse;
 
 public:
 	typedef std::unique_ptr<void, bcrypt_hash_delete> algorithm;
@@ -61,29 +72,53 @@ private:
 	const wchar_t*const m_algorithm;
 	const unsigned long m_flags;
 
-	algorithm&&
+	algorithm
 	create_new()
 	{
+		unsigned long fl = this->m_flags;
+		bool record = false;
+		switch (this->accept_reuse.load(std::memory_order_relaxed)) {
+		case ACCEPT_REUSE:
+			break;
+		case NO_REUSE:
+			fl &= ~BCRYPT_HASH_REUSABLE_FLAG;
+			break;
+		default:
+			record = true;
+		}
+
 		BCRYPT_ALG_HANDLE handle;
-		switch (BCryptOpenAlgorithmProvider(&handle, this->m_algorithm, NULL, m_flags)) {
+		NTSTATUS open_rv = BCryptOpenAlgorithmProvider(&handle, this->m_algorithm, NULL, fl);
+		switch (open_rv) {
 		case STATUS_SUCCESS:
+			/* Record that reuse is allowed. */
+			if (record)
+				this->accept_reuse.store(ACCEPT_REUSE, std::memory_order_relaxed);
 			break;
 		case STATUS_NOT_FOUND:
 			throw std::runtime_error("could not find implementation");
 		case STATUS_INVALID_PARAMETER:
+			if (record) {
+				fl &= ~BCRYPT_HASH_REUSABLE_FLAG;
+				open_rv = BCryptOpenAlgorithmProvider(&handle, this->m_algorithm, NULL, fl);
+				if (open_rv == STATUS_SUCCESS) {
+					this->accept_reuse.store(NO_REUSE, std::memory_order_relaxed);
+					break;
+				}
+			}
 			throw std::invalid_argument("invalid argument supplied to BCryptOpenAlgorithmProvider function");
 		case STATUS_NO_MEMORY:
 			throw std::bad_alloc();
 		default:
 			throw std::runtime_error("failed to initialize algorithm");
 		}
-		return std::move(algorithm(handle));
+		return algorithm(handle);
 	}
 
 public:
 	bcrypt_algorithm_cache(const wchar_t* alg_name, unsigned long flags) :
 		m_algorithm(alg_name),
-		m_flags(flags)
+		m_flags(flags | BCRYPT_HASH_REUSABLE_FLAG)
 	{
 		/* Initialize cache to empty state. */
 		for (cache_list::iterator i = this->m_cache.begin(); i != this->m_cache.end(); ++i)
@@ -96,7 +131,7 @@ public:
 			algorithm tmp(i->exchange(nullptr, std::memory_order_consume));
 	}
 
-	algorithm&&
+	algorithm
 	allocate()
 	{
 		for (cache_list::iterator i = this->m_cache.begin(); i != this->m_cache.end(); ++i) {
@@ -104,17 +139,19 @@ public:
 			if (rv != nullptr)
 				return std::move(algorithm(rv));
 		}
-		return std::move(create_new());
+		return create_new();
 	}
 
 	void
 	deallocate(algorithm&& v)
 	{
-		for (cache_list::iterator i = this->m_cache.begin(); i != this->m_cache.end(); ++i) {
-			BCRYPT_ALG_HANDLE expect = nullptr;
-			if (i->compare_exchange_strong(expect, v.get(), std::memory_order_release, std::memory_order_relaxed)) {
-				v.release();
-				return;
+		if (this->accept_reuse.load(std::memory_order_relaxed) == ACCEPT_REUSE) {
+			for (cache_list::iterator i = this->m_cache.begin(); i != this->m_cache.end(); ++i) {
+				BCRYPT_ALG_HANDLE expect = nullptr;
+				if (i->compare_exchange_strong(expect, v.get(), std::memory_order_release, std::memory_order_relaxed)) {
+					v.release();
+					return;
+				}
 			}
 		}
 		v.reset();
@@ -130,6 +167,8 @@ private:
 	bcrypt_algorithm_cache& operator=(const bcrypt_algorithm_cache&);
 #endif
 };
+
+std::atomic<int> bcrypt_algorithm_cache::accept_reuse = bcrypt_algorithm_cache::NEED_INIT;
 
 
 class ILIAS_NET2_LOCAL bcrypt_hash :
@@ -149,7 +188,7 @@ private:
 	typedef std::unique_ptr<void, hash_destructor> hash_handle;	/* BCRYPT_HANDLE_{HASH,HMAC} etc */
 	typedef std::pair<std::unique_ptr<uint8_t[]>, unsigned long> hash_storage;
 
-	static hash_handle&&
+	static hash_handle
 	create_hash_handle(const bcrypt_algorithm_cache::algorithm& alg, const hash_storage& store, const void* key, size_type keylen)
 	{
 		BCRYPT_HASH_HANDLE handle;
@@ -167,10 +206,10 @@ private:
 		default:
 			throw std::runtime_error("BCryptCreateHash returned undocumented error");
 		}
-		return std::move(hash_handle(handle));
+		return hash_handle(handle);
 	}
 
-	static hash_storage&&
+	static hash_storage
 	create_hash_storage(const bcrypt_algorithm_cache::algorithm& alg)
 	{
 		ULONG sz;
@@ -194,7 +233,7 @@ private:
 			throw std::invalid_argument("BCryptGetProperty(BCRYPT_OBJECT_LENGTH) used different length than expected");
 
 		std::unique_ptr<uint8_t[]> buffer((sz == 0 ? nullptr : new uint8_t[sz]));
-		return std::move(hash_storage(std::move(buffer), sz));
+		return hash_storage(std::move(buffer), sz);
 	}
 
 	bcrypt_algorithm_cache& m_cache;	/* Algorithm cache, to where succesfully expired hash algorithms go. */
@@ -205,12 +244,11 @@ private:
 public:
 	bcrypt_hash(bcrypt_algorithm_cache& cache, const std::string& name, size_type hashlen, const void* key, size_type keylen) :
 		hash_ctx(name, hashlen, keylen),
-		m_cache(cache),
-		m_alg(this->m_cache.allocate()),
-		m_hash_storage(create_hash_storage(this->m_alg)),
-		m_hash(create_hash_handle(this->m_alg, this->m_hash_storage, key, keylen))
+		m_cache(cache)
 	{
-		/* Empty body. */
+		this->m_alg = this->m_cache.allocate();
+		this->m_hash_storage = create_hash_storage(this->m_alg);
+		this->m_hash = create_hash_handle(this->m_alg, this->m_hash_storage, key, keylen);
 	}
 
 	virtual ~bcrypt_hash() ILIAS_NET2_NOTHROW;
@@ -318,7 +356,7 @@ bcrypt_hash_factory::instantiate(const buffer& key) const
 	void* k = alloca(key.size());
 	key.copyout(k, key.size());
 
-	return std::unique_ptr<hash_ctx>(new bcrypt_hash(this->m_cache, this->name, this->hashlen, k, this->keylen));
+	return std::unique_ptr<hash_ctx>(new bcrypt_hash(this->m_cache, this->name, this->hashlen, (key.empty() ? nullptr : k), this->keylen));
 }
 
 
@@ -329,21 +367,21 @@ ILIAS_NET2_EXPORT const hash_ctx_factory&
 sha256()
 {
 	static const bcrypt_hash_factory impl("SHA256", 256 / 8, 0,
-	    BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	    BCRYPT_SHA256_ALGORITHM, 0);
 	return impl;
 }
 ILIAS_NET2_EXPORT const hash_ctx_factory&
 sha384()
 {
 	static const bcrypt_hash_factory impl("SHA384", 384 / 8, 0,
-	    BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	    BCRYPT_SHA384_ALGORITHM, 0);
 	return impl;
 }
 ILIAS_NET2_EXPORT const hash_ctx_factory&
 sha512()
 {
 	static const bcrypt_hash_factory impl("SHA512", 512 / 8, 0,
-	    BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	    BCRYPT_SHA512_ALGORITHM, 0);
 	return impl;
 }
 
@@ -351,21 +389,21 @@ ILIAS_NET2_EXPORT const hash_ctx_factory&
 hmac_sha256()
 {
 	static const bcrypt_hash_factory impl("HMAC-SHA256", 256 / 8, 256 / 8,
-	    BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	    BCRYPT_SHA256_ALGORITHM, BCRYPT_ALG_HANDLE_HMAC_FLAG);
 	return impl;
 }
 ILIAS_NET2_EXPORT const hash_ctx_factory&
 hmac_sha384()
 {
 	static const bcrypt_hash_factory impl("HMAC-SHA384", 384 / 8, 384 / 8,
-	    BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	    BCRYPT_SHA384_ALGORITHM, BCRYPT_ALG_HANDLE_HMAC_FLAG);
 	return impl;
 }
 ILIAS_NET2_EXPORT const hash_ctx_factory&
 hmac_sha512()
 {
 	static const bcrypt_hash_factory impl("HMAC-SHA512", 512 / 8, 512 / 8,
-	    BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	    BCRYPT_SHA512_ALGORITHM, BCRYPT_ALG_HANDLE_HMAC_FLAG);
 	return impl;
 }
 
