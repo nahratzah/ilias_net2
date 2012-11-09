@@ -675,7 +675,7 @@ buffer::pullup() throw (std::bad_alloc)
 	segment_ref copy(segment_ref::reserve_tag(), nullptr, fullcopy_len, false);
 	void* copy_ptr = copy.data();
 	/* Copy entire buffer, including sensitive-data markers. */
-	std::for_each(this->m_list.begin(), this->m_list.end(), [&copy, &copy_ptr](list_type::const_reference s) {
+	std::for_each(this->m_list.begin(), this->m_list.end(), [this, &copy, &copy_ptr](list_type::const_reference s) {
 		if (s.second.is_sensitive())
 			copy.mark_sensitive();
 		copy_memory(copy_ptr, s.second.data(), s.second.length());
