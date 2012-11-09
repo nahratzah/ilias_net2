@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/buffer.h>
+#include "test.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -59,18 +60,18 @@ test_add()
 	const char* voodoo = "voodoo";
 	const char* doll = " doll";
 
-	assert(buf.size() == 0);
+	TEST(buf.size() == 0);
 
 	buf.append(voodoo, std::strlen(voodoo));
-	assert(buf.size() == std::strlen(voodoo));
+	TEST(buf.size() == std::strlen(voodoo));
 
 	buf.append(doll, std::strlen(doll));
-	assert(buf.size() == std::strlen(voodoo) + std::strlen(doll));
+	TEST(buf.size() == std::strlen(voodoo) + std::strlen(doll));
 
 	std::unique_ptr<char[]> tmp(new char[buf.size()]);
 	buf.copyout(tmp.get(), buf.size());
 	const std::string expect = std::string(voodoo) + std::string(doll);
-	assert(memcmp(tmp.get(), expect.c_str(), expect.length()) == 0);
+	TEST(memcmp(tmp.get(), expect.c_str(), expect.length()) == 0);
 }
 
 void
@@ -84,7 +85,7 @@ test_prepend()
 	post.append(post_string, std::strlen(post_string));
 
 	post.prepend(pre);
-	assert(buf_compare(post, std::string(pre_string) + std::string(post_string)));
+	TEST(buf_compare(post, std::string(pre_string) + std::string(post_string)));
 }
 
 void
@@ -98,7 +99,7 @@ test_append()
 	post.append(post_string, std::strlen(post_string));
 
 	pre += post;
-	assert(buf_compare(pre, std::string(pre_string) + std::string(post_string)));
+	TEST(buf_compare(pre, std::string(pre_string) + std::string(post_string)));
 }
 
 void
@@ -117,7 +118,7 @@ test_copy()
 		copy = original;
 	}
 
-	assert(buf_compare(copy, std::string(voodoo) + std::string(doll)));
+	TEST(buf_compare(copy, std::string(voodoo) + std::string(doll)));
 }
 
 void
@@ -134,16 +135,16 @@ test_search()
 	buf.append(abba + 2, strlen(abba + 2));
 
 	ilias::buffer::size_type off = buf.find_string("abba", 4);
-	assert(off == ilias::buffer::size_type(abba - data));
+	TEST(off == ilias::buffer::size_type(abba - data));
 
 	off = buf.find_string("XCOM", 4, off);
-	assert(off == ilias::buffer::size_type(xcom - data));
+	TEST(off == ilias::buffer::size_type(xcom - data));
 
 	off = buf.find_string("abba", 4, off);
-	assert(off == ilias::buffer::size_type(abba2 - data));
+	TEST(off == ilias::buffer::size_type(abba2 - data));
 
 	off = buf.find_string("ZZZ", 3);
-	assert(off == ilias::buffer::npos);
+	TEST(off == ilias::buffer::npos);
 }
 
 void
@@ -174,8 +175,8 @@ test_remove()
 			succes = false;
 		}
 
-		assert(succes == expect_succes);
-		assert(copy.size() == after_len);
+		TEST(succes == expect_succes);
+		TEST(copy.size() == after_len);
 	});
 }
 
@@ -186,7 +187,7 @@ test_truncate()
 	ilias::buffer buf(foobarbaz.c_str(), 6);
 	force_buffer_fork(buf);
 	buf.append(foobarbaz.c_str() + 6, foobarbaz.length() - 6);
-	assert(buf.size() == 9);
+	TEST(buf.size() == 9);
 
 	{
 		bool succes = true;
@@ -195,20 +196,20 @@ test_truncate()
 		} catch (const std::out_of_range&) {
 			succes = false;
 		}
-		assert(!succes);
+		TEST(!succes);
 	}
 
 	buf.truncate(7);
-	assert(buf_compare(buf, foobarbaz.substr(0, 7)));
+	TEST(buf_compare(buf, foobarbaz.substr(0, 7)));
 
 	buf.truncate(6);
-	assert(buf_compare(buf, foobarbaz.substr(0, 6)));
+	TEST(buf_compare(buf, foobarbaz.substr(0, 6)));
 
 	buf.truncate(3);
-	assert(buf_compare(buf, foobarbaz.substr(0, 3)));
+	TEST(buf_compare(buf, foobarbaz.substr(0, 3)));
 
 	buf.truncate(0);
-	assert(buf_compare(buf, foobarbaz.substr(0, 0)));
+	TEST(buf_compare(buf, foobarbaz.substr(0, 0)));
 }
 
 int

@@ -1,33 +1,16 @@
 #ifndef TEST__INIT_FINI
 #define TEST__INIT_FINI
 
-#include <stdio.h>
+#include <cstdio>
+#include <cstdlib>
 
-#ifdef NET2_USE_EXUDE_DEBUG
-#include <clog.h>
-#include <exude.h>
-#endif /* NET2_USE_EXUDE_DEBUG */
-
-static __inline void
-test_start()
-{
-#ifdef NET2_USE_EXUDE_DEBUG
-	fprintf(stderr, "Setting up exude...\n");
-	clog_init(1);
-	clog_set_mask((uint64_t)-1);
-	clog_set_flags(CLOG_F_ENABLE | CLOG_F_STDERR | CLOG_F_FUNC | CLOG_F_LINE | CLOG_F_DTIME);
-	exude_enable(EXUDE_DBG_ALWAYS);
-#else
-	fprintf(stderr, "Not using exude...\n");
-#endif /* NET2_USE_EXUDE_DEBUG */
-}
-
-static __inline void
-test_fini()
-{
-#ifdef NET2_USE_EXUDE_DEBUG
-	e_check_memory();
-#endif /* NET2_USE_EXUDE_DEBUG */
-}
+#define TEST(x)								\
+	do {								\
+		if (!(x)) {						\
+			fprintf(stderr, "Test at %s:%d failed: %s\n",	\
+			    __FILE__, __LINE__, #x);			\
+			exit(1);					\
+		}							\
+	} while (0)
 
 #endif /* TEST__INIT_FINI */
