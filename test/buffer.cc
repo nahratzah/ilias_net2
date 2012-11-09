@@ -107,6 +107,9 @@ test_copy()
 {
 	const char* voodoo = "voodoo";
 	const char* doll = " doll";
+	const char* dolls = "s";
+	const char* dang = " are dangerous";
+	const std::string expect = std::string(voodoo) + std::string(doll) + std::string(dolls) + std::string(dang);
 	ilias::buffer copy;
 
 	{
@@ -114,11 +117,15 @@ test_copy()
 		original.append(voodoo, strlen(voodoo));
 		force_buffer_fork(original);
 		original.append(doll, strlen(doll));
+		force_buffer_fork(original);
+		original.append(dolls, strlen(dolls));
+		force_buffer_fork(original);
+		original.append(dang, strlen(dang));
 
 		copy = original;
 	}
 
-	TEST(buf_compare(copy, std::string(voodoo) + std::string(doll)));
+	TEST(buf_compare(copy, expect));
 }
 
 void
