@@ -305,10 +305,6 @@ else (${WITH_EXUDE})
 	message (STATUS "exude build: disabled")
 endif (${WITH_EXUDE})
 
-#
-# Lex and yacc implementation required.
-#
-add_subdirectory (tools)
 
 find_package (Threads)
 if (NOT USE_EMBEDDED_EV)
