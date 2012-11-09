@@ -677,7 +677,7 @@ buffer::prepare::~prepare() ILIAS_NET2_NOTHROW
 void
 buffer::prepare::commit() ILIAS_NET2_NOTHROW
 {
-	assert(!this->valid());
+	assert(this->valid());
 
 	buffer& b = *this->release();
 	b.push_back(MOVE(this->m_segment));
