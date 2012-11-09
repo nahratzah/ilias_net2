@@ -2587,7 +2587,7 @@ public:
 	erase_and_dispose(iterator& i, Disposer disposer)
 	{
 		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 		return rv;
 	}
@@ -2597,7 +2597,7 @@ public:
 	erase_and_dispose(iterator&& i, Disposer disposer)
 	{
 		iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 		return rv;
 	}
@@ -2619,7 +2619,7 @@ public:
 	erase_and_dispose(reverse_iterator& i, Disposer disposer)
 	{
 		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 		return rv;
 	}
@@ -2629,7 +2629,7 @@ public:
 	erase_and_dispose(reverse_iterator&& i, Disposer disposer)
 	{
 		reverse_iterator rv = this->m_list.erase_and_dispose(i, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 		return rv;
 	}
@@ -2645,7 +2645,7 @@ public:
 	remove_and_dispose(const value_type& v, Disposer disposer)
 	{
 		this->m_list.remove_and_dispose(v, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 	}
 
@@ -2661,7 +2661,7 @@ public:
 	remove_and_dispose_if(Predicate p, Disposer disposer)
 	{
 		this->m_list.remove_and_dispose_if(p, [this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 	}
 
@@ -2676,7 +2676,7 @@ public:
 	clear_and_dispose(Disposer disposer)
 	{
 		this->m_list.clear_and_dispose([this, &disposer](typename list_type::pointer r) {
-			disposer(acquire(r));
+			disposer(ll_smartptr_list::acquire(r));
 		});
 	}
 
