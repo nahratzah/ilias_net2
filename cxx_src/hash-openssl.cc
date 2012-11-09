@@ -395,16 +395,43 @@ hash_evp_factory::instantiate(const buffer& key) const
 namespace hash {
 
 
-ILIAS_NET2_LOCAL hash_sha256_factory sha256;
-ILIAS_NET2_LOCAL hash_sha384_factory sha384;
-ILIAS_NET2_LOCAL hash_sha512_factory sha512;
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha256()
+{
+	static const hash_sha256_factory impl;
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha384()
+{
+	static const hash_sha384_factory impl;
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha512()
+{
+	static const hash_sha512_factory impl;
+	return impl;
+}
 
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha256(EVP_sha256, "HMAC-SHA256", SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha384(EVP_sha384, "HMAC-SHA384", SHA384_DIGEST_LENGTH, SHA384_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_evp_factory hmac_sha512(EVP_sha512, "HMAC-SHA512", SHA512_DIGEST_LENGTH, SHA512_DIGEST_LENGTH);
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha256()
+{
+	static const hash_evp_factory impl(EVP_sha256, "HMAC-SHA256", SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha384()
+{
+	static const hash_evp_factory impl(EVP_sha384, "HMAC-SHA384", SHA384_DIGEST_LENGTH, SHA384_DIGEST_LENGTH);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha512()
+{
+	static const hash_evp_factory impl(EVP_sha512, "HMAC-SHA512", SHA512_DIGEST_LENGTH, SHA512_DIGEST_LENGTH);
+	return impl;
+}
 
 
-} /* namespace hash */
-
-
-} /* namespace ilias */
+}} /* namespace ilias::hash */

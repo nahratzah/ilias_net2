@@ -362,16 +362,43 @@ hash_cc_hmac_factory::instantiate(const buffer& key) const
 namespace hash {
 
 
-ILIAS_NET2_LOCAL hash_sha256_factory sha256;
-ILIAS_NET2_LOCAL hash_sha384_factory sha384;
-ILIAS_NET2_LOCAL hash_sha512_factory sha512;
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha256()
+{
+	static const hash_sha256_factory impl;
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha384()
+{
+	static const hash_sha384_factory impl;
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha512()
+{
+	static const hash_sha512_factory impl;
+	return impl;
+}
 
-ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha256(kCCHmacAlgSHA256, "HMAC-SHA256", CC_SHA256_DIGEST_LENGTH, CC_SHA256_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha384(kCCHmacAlgSHA384, "HMAC-SHA384", CC_SHA384_DIGEST_LENGTH, CC_SHA384_DIGEST_LENGTH);
-ILIAS_NET2_LOCAL hash_cc_hmac_factory hmac_sha512(kCCHmacAlgSHA512, "HMAC-SHA512", CC_SHA512_DIGEST_LENGTH, CC_SHA512_DIGEST_LENGTH);
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha256()
+{
+	static const hash_cc_hmac_factory impl(kCCHmacAlgSHA256, "HMAC-SHA256", CC_SHA256_DIGEST_LENGTH, CC_SHA256_DIGEST_LENGTH);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha384()
+{
+	static const hash_cc_hmac_factory impl(kCCHmacAlgSHA384, "HMAC-SHA384", CC_SHA384_DIGEST_LENGTH, CC_SHA384_DIGEST_LENGTH);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha512()
+{
+	static const hash_cc_hmac_factory impl(kCCHmacAlgSHA512, "HMAC-SHA512", CC_SHA512_DIGEST_LENGTH, CC_SHA512_DIGEST_LENGTH);
+	return impl;
+}
 
 
-} /* namespace hash */
-
-
-} /* namespace ilias */
+}} /* namespace ilias::hash */

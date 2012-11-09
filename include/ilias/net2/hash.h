@@ -65,7 +65,19 @@ public:
 };
 
 
-} /* namespace ilias */
+namespace hash {
+
+
+ILIAS_NET2_EXPORT const hash_ctx_factory& sha256();
+ILIAS_NET2_EXPORT const hash_ctx_factory& sha384();
+ILIAS_NET2_EXPORT const hash_ctx_factory& sha512();
+
+ILIAS_NET2_EXPORT const hash_ctx_factory& hmac_sha256();
+ILIAS_NET2_EXPORT const hash_ctx_factory& hmac_sha384();
+ILIAS_NET2_EXPORT const hash_ctx_factory& hmac_sha512();
+
+
+}} /* namespace ilias::hash */
 
 
 #endif /* ILIAS_NET2_HASH_H */

@@ -325,16 +325,49 @@ bcrypt_hash_factory::instantiate(const buffer& key) const
 namespace hash {
 
 
-ILIAS_NET2_LOCAL bcrypt_hash_factory sha256("SHA256", 256 / 8, 0, BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
-ILIAS_NET2_LOCAL bcrypt_hash_factory sha384("SHA384", 384 / 8, 0, BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
-ILIAS_NET2_LOCAL bcrypt_hash_factory sha512("SHA512", 512 / 8, 0, BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha256()
+{
+	static const bcrypt_hash_factory impl("SHA256", 256 / 8, 0,
+	    BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha384()
+{
+	static const bcrypt_hash_factory impl("SHA384", 384 / 8, 0,
+	    BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+sha512()
+{
+	static const bcrypt_hash_factory impl("SHA512", 512 / 8, 0,
+	    BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG);
+	return impl;
+}
 
-ILIAS_NET2_LOCAL bcrypt_hash_factory hmac_sha256("HMAC-SHA256", 256 / 8, 256 / 8, BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
-ILIAS_NET2_LOCAL bcrypt_hash_factory hmac_sha384("HMAC-SHA384", 384 / 8, 384 / 8, BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
-ILIAS_NET2_LOCAL bcrypt_hash_factory hmac_sha512("HMAC-SHA512", 512 / 8, 512 / 8, BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha256()
+{
+	static const bcrypt_hash_factory impl("HMAC-SHA256", 256 / 8, 256 / 8,
+	    BCRYPT_SHA256_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha384()
+{
+	static const bcrypt_hash_factory impl("HMAC-SHA384", 384 / 8, 384 / 8,
+	    BCRYPT_SHA384_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	return impl;
+}
+ILIAS_NET2_EXPORT const hash_ctx_factory&
+hmac_sha512()
+{
+	static const bcrypt_hash_factory impl("HMAC-SHA512", 512 / 8, 512 / 8,
+	    BCRYPT_SHA512_ALGORITHM, BCRYPT_HASH_REUSABLE_FLAG | BCRYPT_ALG_HANDLE_HMAC_FLAG);
+	return impl;
+}
 
 
-} /* namespace hash */
-
-
-} /* namespace ilias */
+}} /* namespace ilias::hash */
