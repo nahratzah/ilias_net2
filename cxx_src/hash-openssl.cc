@@ -142,8 +142,8 @@ public:
 	}
 
 	virtual ~hash_sha256_factory() ILIAS_NET2_NOTHROW;
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual buffer run(const buffer&, const buffer&) const;
+	virtual std::unique_ptr<hash_ctx> instantiate(buffer) const;
+	virtual buffer run(buffer, const buffer&) const;
 };
 
 class ILIAS_NET2_LOCAL hash_sha384_factory :
@@ -157,8 +157,8 @@ public:
 	}
 
 	virtual ~hash_sha384_factory() ILIAS_NET2_NOTHROW;
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual buffer run(const buffer&, const buffer&) const;
+	virtual std::unique_ptr<hash_ctx> instantiate(buffer) const;
+	virtual buffer run(buffer, const buffer&) const;
 };
 
 class ILIAS_NET2_LOCAL hash_sha512_factory :
@@ -172,8 +172,8 @@ public:
 	}
 
 	virtual ~hash_sha512_factory() ILIAS_NET2_NOTHROW;
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
-	virtual buffer run(const buffer&, const buffer&) const;
+	virtual std::unique_ptr<hash_ctx> instantiate(buffer) const;
+	virtual buffer run(buffer, const buffer&) const;
 };
 
 
@@ -194,7 +194,7 @@ hash_sha512_factory::~hash_sha512_factory() ILIAS_NET2_NOTHROW
 
 
 std::unique_ptr<hash_ctx>
-hash_sha256_factory::instantiate(const buffer& key) const
+hash_sha256_factory::instantiate(buffer key) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -203,7 +203,7 @@ hash_sha256_factory::instantiate(const buffer& key) const
 }
 
 std::unique_ptr<hash_ctx>
-hash_sha384_factory::instantiate(const buffer& key) const
+hash_sha384_factory::instantiate(buffer key) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -212,7 +212,7 @@ hash_sha384_factory::instantiate(const buffer& key) const
 }
 
 std::unique_ptr<hash_ctx>
-hash_sha512_factory::instantiate(const buffer& key) const
+hash_sha512_factory::instantiate(buffer key) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -222,7 +222,7 @@ hash_sha512_factory::instantiate(const buffer& key) const
 
 
 buffer
-hash_sha256_factory::run(const buffer& key, const buffer& b) const
+hash_sha256_factory::run(buffer key, const buffer& b) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -242,7 +242,7 @@ hash_sha256_factory::run(const buffer& key, const buffer& b) const
 }
 
 buffer
-hash_sha384_factory::run(const buffer& key, const buffer& b) const
+hash_sha384_factory::run(buffer key, const buffer& b) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -262,7 +262,7 @@ hash_sha384_factory::run(const buffer& key, const buffer& b) const
 }
 
 buffer
-hash_sha512_factory::run(const buffer& key, const buffer& b) const
+hash_sha512_factory::run(buffer key, const buffer& b) const
 {
 	if (!key.empty())
 		throw std::invalid_argument("expected empty key buffer for un-keyed hash");
@@ -370,11 +370,11 @@ public:
 		/* Empty body. */
 	}
 
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
+	virtual std::unique_ptr<hash_ctx> instantiate(buffer) const;
 };
 
 std::unique_ptr<hash_ctx>
-hash_evp_factory::instantiate(const buffer& key) const
+hash_evp_factory::instantiate(buffer key) const
 {
 	const EVP_MD* evp = (*this->evp_fn)();
 	if (!evp)
@@ -385,10 +385,7 @@ hash_evp_factory::instantiate(const buffer& key) const
 	if (key.size() != this->keylen)
 		throw std::invalid_argument("invalid key length");
 
-	void* keybuf = alloca(this->keylen);
-	key.copyout(keybuf, this->keylen);
-
-	return std::unique_ptr<hash_ctx>(new hash_openssl_evp(evp, this->name, this->hashlen, this->keylen, keybuf));
+	return std::unique_ptr<hash_ctx>(new hash_openssl_evp(evp, this->name, this->hashlen, this->keylen, key.pullup()));
 }
 
 

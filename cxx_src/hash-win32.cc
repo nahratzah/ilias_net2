@@ -337,7 +337,7 @@ public:
 	}
 
 	virtual ~bcrypt_hash_factory() ILIAS_NET2_NOTHROW;
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const;
+	virtual std::unique_ptr<hash_ctx> instantiate(buffer) const;
 };
 
 
@@ -347,14 +347,12 @@ bcrypt_hash_factory::~bcrypt_hash_factory() ILIAS_NET2_NOTHROW
 }
 
 std::unique_ptr<hash_ctx>
-bcrypt_hash_factory::instantiate(const buffer& key) const
+bcrypt_hash_factory::instantiate(buffer key) const
 {
 	if (key.size() != this->keylen)
 		throw std::invalid_argument(this->name + ": invalid key for hash");
-	void* k = alloca(key.size());
-	key.copyout(k, key.size());
 
-	return std::unique_ptr<hash_ctx>(new bcrypt_hash(this->m_cache, this->name, this->hashlen, (key.empty() ? nullptr : k), this->keylen));
+	return std::unique_ptr<hash_ctx>(new bcrypt_hash(this->m_cache, this->name, this->hashlen, key.pullup(), this->keylen));
 }
 
 

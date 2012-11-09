@@ -40,7 +40,7 @@ hash_ctx::~hash_ctx() ILIAS_NET2_NOTHROW
 }
 
 buffer
-hash_ctx_factory::run(const buffer& key, const buffer& data) const
+hash_ctx_factory::run(buffer key, const buffer& data) const
 {
 	std::unique_ptr<hash_ctx> instance = this->instantiate(key);
 	instance->update(data);

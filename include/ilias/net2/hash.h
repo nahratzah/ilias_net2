@@ -57,13 +57,13 @@ public:
 
 	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen);
 	virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
-	virtual hash_ctx_ptr instantiate(const buffer&) const = 0;
+	virtual hash_ctx_ptr instantiate(buffer) const = 0;
 
 	/*
 	 * Short-cut for full hash context handling.
 	 * Called with key, data.
 	 */
-	virtual buffer run(const buffer& key, const buffer& data) const;
+	virtual buffer run(buffer key, const buffer& data) const;
 };
 
 
