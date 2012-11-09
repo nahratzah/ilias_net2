@@ -94,7 +94,6 @@ list (APPEND headers
 	include/ilias/net2/mutex.h
 	include/ilias/net2/obj_manager.h
 	include/ilias/net2/obj_window.h
-	include/ilias/net2/poetry.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/protocol.h
 	include/ilias/net2/pool.h
@@ -111,6 +110,9 @@ list (APPEND headers
 	include/ilias/net2/workq_timer.h
 	include/ilias/net2/workq_io.h
 	include/ilias/net2/xchange.h
+	)
+list (APPEND internal_headers
+	internal/poetry.h
 	)
 list (APPEND cluster_headers
 	)
@@ -427,6 +429,7 @@ endif (USE_EMBEDDED_EV)
 include_directories (${CMAKE_CURRENT_BINARY_DIR})
 include_directories ("${PROJECT_SOURCE_DIR}/include")
 include_directories ("${CMAKE_CURRENT_BINARY_DIR}/include")
+include_directories ("${PROJECT_SOURCE_DIR}/internal")
 
 add_definitions(-DQUEUE_MACRO_DEBUG)
 
@@ -528,6 +531,7 @@ add_library (ilias_net2 SHARED
 	${srcs}
 	${cluster_srcs}
 	${headers}
+	${internal_headers}
 	${cluster_headers}
 	${cxx_srcs}
 	)
