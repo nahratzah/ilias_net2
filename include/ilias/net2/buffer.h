@@ -463,6 +463,13 @@ private:
 			this->m_sensitive.store(true, std::memory_order_relaxed);
 		}
 
+		/* Test if this segment contains sensitive information. */
+		bool
+		is_sensitive() ILIAS_NET2_NOTHROW
+		{
+			return this->m_sensitive.load(std::memory_order_relaxed);
+		}
+
 
 		/*
 		 * Prevent construction of this class.
@@ -568,6 +575,12 @@ private:
 		{
 			if (this->m_segment)
 				this->m_segment->mark_sensitive();
+		}
+
+		bool
+		is_sensitive() const ILIAS_NET2_NOTHROW
+		{
+			return (this->m_segment && this->m_segment->is_sensitive());
 		}
 
 		size_type
@@ -1024,6 +1037,14 @@ public:
 
 	/* Copy len bytes from buffer to output. */
 	void copyout(void*, size_type) const throw (std::out_of_range);
+
+	/*
+	 * Pull up the entire buffer into a single segment,
+	 * returning a pointer to the data.
+	 *
+	 * This operation does not modify the buffer, it only re-arranges information.
+	 */
+	const void* pullup() throw (std::bad_alloc);
 
 private:
 	class prepare_bufref;

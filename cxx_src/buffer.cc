@@ -660,6 +660,33 @@ buffer::copyout(void* dst, buffer::size_type len) const throw (std::out_of_range
 	}, len);
 }
 
+const void*
+buffer::pullup() throw (std::bad_alloc)
+{
+	/* Empty buffers return a nullptr. */
+	if (this->empty())
+		return nullptr;
+	/* If the buffer is already pulled up, nothing needs to be done. */
+	if (this->m_list.size() == 1)
+		return this->m_list.front().second.data();
+
+	/* Create new segment to copy entire buffer. */
+	const size_type fullcopy_len = this->size();
+	segment_ref copy(segment_ref::reserve_tag(), nullptr, fullcopy_len, false);
+	void* copy_ptr = copy.data();
+	/* Copy entire buffer, including sensitive-data markers. */
+	std::for_each(this->m_list.begin(), this->m_list.end(), [&copy, &copy_ptr](list_type::const_reference s) {
+		if (s.second.is_sensitive())
+			copy.mark_sensitive();
+		copy_memory(copy_ptr, s.second.data(), s.second.length());
+		copy_ptr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(copy_ptr) + s.second.length());
+	});
+	/* Make the new segment the only one in the list. */
+	this->m_list.front().second = std::move(copy);
+	this->m_list.resize(1);
+	return this->m_list.front().second.data();
+}
+
 
 buffer::prepare::prepare(buffer& b, buffer::size_type len, bool sensitive) :
 	prepare_bufref(b),
