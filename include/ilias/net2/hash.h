@@ -44,6 +44,8 @@ public:
 	virtual buffer final() = 0;
 };
 
+typedef std::unique_ptr<hash_ctx> hash_ctx_ptr;
+
 class ILIAS_NET2_EXPORT hash_ctx_factory
 {
 public:
@@ -55,13 +57,13 @@ public:
 
 	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen);
 	virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
-	virtual std::unique_ptr<hash_ctx> instantiate(const buffer&) const = 0;
+	virtual hash_ctx_ptr instantiate(const buffer&) const = 0;
 
 	/*
 	 * Short-cut for full hash context handling.
 	 * Called with key, data.
 	 */
-	virtual buffer run(const buffer&, const buffer&) const;
+	virtual buffer run(const buffer& key, const buffer& data) const;
 };
 
 

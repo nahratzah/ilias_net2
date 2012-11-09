@@ -570,6 +570,18 @@ if (BUILD_TESTING)
 	add_test(NAME test_buffer COMMAND test_buffer)
 	set_tests_properties (test_buffer PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
+	# Hash tests.
+	add_executable (test_hash
+		test/hash.cc
+		)
+	target_link_libraries (test_hash ilias_net2
+	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	add_test(NAME test_hash COMMAND test_hash)
+	set_tests_properties (test_hash PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+
+
+
+
 	# Carver tests.
 	add_executable (test_carver
 		test/carver.c
@@ -587,15 +599,6 @@ if (BUILD_TESTING)
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
 	set_tests_properties (test_encdec_ctypes PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
-
-	# Hash tests.
-	add_executable (test_hash
-		test/hash.c
-		)
-	target_link_libraries (test_hash ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_hash COMMAND test_hash)
-	set_tests_properties (test_hash PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Signature tests.
 	add_executable (test_sign
