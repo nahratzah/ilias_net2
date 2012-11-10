@@ -233,7 +233,7 @@ buffer::drain_internal(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
 	buffer::list_type::iterator i = this->m_list.begin();
 
 	/* Copy entire buffers. */
-	while (i->second.length() >= len) {
+	while (i != this->m_list.end() && i->second.length() <= len) {
 		const size_type cplen = i->second.copyout(out);
 
 		out = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(out) + cplen);
@@ -244,6 +244,7 @@ buffer::drain_internal(void* out, buffer::size_type len) ILIAS_NET2_NOTHROW
 	/* Copy last, partial buffer. */
 	if (len > 0) {
 		assert(i != this->m_list.end());
+		assert(i->second.length() >= len);
 		i->second.copyout(out, len);
 	}
 
