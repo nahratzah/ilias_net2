@@ -1078,7 +1078,7 @@ template<typename Type, ll_member_hook Type::*MemberPtr> class ll_member;
 template<typename Type, typename Tag = void> class ll_base;
 
 
-class ILIAS_NET2_EXPORT ll_member_hook
+class ILIAS_NET2_LOCAL ll_member_hook
 {
 template<typename Type, ll_member_hook Type::*MemberPtr> friend class ll_member;
 friend struct ll_detail::hook_offset<ll_member_hook>;
@@ -1107,7 +1107,7 @@ public:
 };
 
 template<typename Tag>
-class ILIAS_NET2_EXPORT ll_base_hook
+class ILIAS_NET2_LOCAL ll_base_hook
 {
 template<typename Type, typename TTag> friend class ll_base;
 friend struct ll_detail::hook_offset<ll_base_hook<Tag> >;
@@ -2692,14 +2692,24 @@ public:
 	}
 
 	const_iterator
-	begin() const ILIAS_NET2_NOTHROW
+	cbegin() const ILIAS_NET2_NOTHROW
 	{
 		return const_iterator(this->m_list.begin());
 	}
 	const_iterator
-	end() const ILIAS_NET2_NOTHROW
+	begin() const ILIAS_NET2_NOTHROW
+	{
+		return this->cbegin();
+	}
+	const_iterator
+	cend() const ILIAS_NET2_NOTHROW
 	{
 		return const_iterator(this->m_list.end());
+	}
+	const_iterator
+	end() const ILIAS_NET2_NOTHROW
+	{
+		return this->cend();
 	}
 
 	reverse_iterator
@@ -2714,14 +2724,24 @@ public:
 	}
 
 	const_reverse_iterator
-	rbegin() const ILIAS_NET2_NOTHROW
+	crbegin() const ILIAS_NET2_NOTHROW
 	{
 		return const_reverse_iterator(this->m_list.rbegin());
 	}
 	const_reverse_iterator
-	rend() const ILIAS_NET2_NOTHROW
+	rbegin() const ILIAS_NET2_NOTHROW
+	{
+		return this->crbegin();
+	}
+	const_reverse_iterator
+	crend() const ILIAS_NET2_NOTHROW
 	{
 		return const_reverse_iterator(this->m_list.rend());
+	}
+	const_reverse_iterator
+	rend() const ILIAS_NET2_NOTHROW
+	{
+		return this->crend();
 	}
 
 	iterator
