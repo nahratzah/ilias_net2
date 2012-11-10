@@ -32,7 +32,7 @@ namespace ilias {
  * If for any reason, the transmission is cancelled or fails, the
  * net2_encdec_ctx is rolled back.
  */
-class ILIAS_NET2_EXPORT encdec_ctx {
+class encdec_ctx {
 public:
 	encdec_ctx() ILIAS_NET2_NOTHROW
 	{

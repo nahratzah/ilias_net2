@@ -38,7 +38,6 @@ buf_padding_length(buf_len_indicator len)
 
 } /* namespace ilias::buf_encode */
 
-template<>
 void
 cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string& value)
 {
@@ -58,7 +57,6 @@ cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string&
 	/* Pad until the combination is a multiple of buf_padding. */
 	out.append(reinterpret_cast<const void*>(&pad[0]), buf_padding_length(len));
 }
-template<>
 std::string
 cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in)
 {
@@ -72,7 +70,7 @@ cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in)
 	in.visit([&rv](const void* p, buffer::size_type l) {
 		const char* b = reinterpret_cast<const char*>(p);
 		rv.append(b, l);
-	});
+	}, len);
 
 	/* Visitor doesn't drain, so we must do so here. */
 	in.drain(len + padding);
@@ -80,7 +78,6 @@ cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in)
 	return rv;
 }
 
-template<>
 void
 cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value)
 {
@@ -101,7 +98,6 @@ cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value)
 	/* Pad until the combination is a multiple of buf_padding. */
 	out.append(reinterpret_cast<const void*>(&pad[0]), buf_padding_length(len));
 }
-template<>
 buffer
 cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in)
 {
@@ -117,9 +113,6 @@ cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in)
 
 	return rv;
 }
-
-template struct cp_encdec<std::string>;
-template struct cp_encdec<buffer>;
 
 
 } /* namespace ilias */

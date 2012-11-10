@@ -35,20 +35,15 @@ class encdec_ctx;
  * Interface for encoding/decoding.
  *
  * Can be specialized and/or implemented by types.
+ * Must implement:
+ *
+ * template<> struct cp_encdec<MyType>
+ * {
+ *	static void encode(encdec_ctx&, buffer&, const MyType&);
+ *	static MyType decode(encdec_ctx&, buffer&);
+ * };
  */
-template<typename T>
-struct cp_encdec
-{
-	typedef T value_type;
-	typedef value_type& reference;
-	typedef const value_type& const_reference;
-	typedef value_type* pointer;
-	typedef const value_type* const_pointer;
-	typedef value_type result_type;
-
-	static void encode(encdec_ctx&, buffer&, const_reference);
-	static result_type decode(encdec_ctx&, buffer&);
-};
+template<typename T> struct cp_encdec;
 
 
 namespace endian_detail {
@@ -56,13 +51,13 @@ namespace endian_detail {
 
 #ifdef IS_BIG_ENDIAN
 template<typename T>
-T
+inline T
 big_endian(const T& v) ILIAS_NET2_NOTHROW
 {
 	return v;
 }
 template<typename T>
-T
+inline T
 host_endian(const T& v) ILIAS_NET2_NOTHROW
 {
 	return v;
@@ -95,7 +90,7 @@ private:
 	static CONSTEXPR_VALUE unsigned int distance = t_digits - byte_digits - 2 * byte_digits * B;
 
 	/* Flip the byte B in T from byte order. */
-	static CONSTEXPR T
+	static inline CONSTEXPR T
 	flip(T v) ILIAS_NET2_NOTHROW
 	{
 		return ((v & low_mask) << distance) | ((v & high_mask) >> distance) | (v & not_mask);
@@ -103,7 +98,7 @@ private:
 
 public:
 	/* Recursively flip the byte order in T. */
-	static CONSTEXPR T
+	static inline CONSTEXPR T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return endian_helper<T, B + 1>::flip_endian(flip(v));
@@ -115,7 +110,7 @@ struct endian_helper<T, B, true>
 {
 public:
 	/* Byte B cannot be flipped, therefore this is the identity operation. */
-	static CONSTEXPR T
+	static inline CONSTEXPR T
 	flip_endian(T v) ILIAS_NET2_NOTHROW
 	{
 		return v;
@@ -144,13 +139,13 @@ host_endian(const T& v)
 
 /* Encode signed value v as two's complement value. */
 template<typename T>
-typename std::make_unsigned<T>::type
+inline typename std::make_unsigned<T>::type
 net_two_compl(const typename std::make_signed<T>::type& v)
 {
 	return reinterpret_cast<const typename std::make_unsigned<T>::type&>(v);
 }
 template<typename T>
-typename std::make_signed<T>::type
+inline typename std::make_signed<T>::type
 host_two_compl(const typename std::make_unsigned<T>::type& v)
 {
 	return reinterpret_cast<const typename std::make_signed<T>::type&>(v);
@@ -161,158 +156,171 @@ host_two_compl(const typename std::make_unsigned<T>::type& v)
 
 
 template<>
-inline void
-cp_encdec<std::uint8_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint8_t& value)
+struct cp_encdec<std::uint8_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::uint8_t& value)
+	{
+		using namespace endian_detail;
 
-	out.append_literal(value);
-}
+		out.append_literal(value);
+	}
+	static std::uint8_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return in.drain_literal<uint8_t>();
+	}
+};
+
 template<>
-inline std::uint8_t
-cp_encdec<std::uint8_t>::decode(encdec_ctx& ectx, buffer& in)
+struct cp_encdec<std::uint16_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::uint16_t& value)
+	{
+		using namespace endian_detail;
 
-	return in.drain_literal<uint8_t>();
-}
+		out.append_literal(big_endian(value));
+	}
+	static std::uint16_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_endian(in.drain_literal<std::uint16_t>());
+	}
+};
 
 template<>
-inline void
-cp_encdec<std::uint16_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint16_t& value)
+struct cp_encdec<std::uint32_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::uint32_t& value)
+	{
+		using namespace endian_detail;
 
-	out.append_literal(big_endian(value));
-}
+		out.append_literal(big_endian(value));
+	}
+	static std::uint32_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_endian(in.drain_literal<std::uint32_t>());
+	}
+};
+
 template<>
-inline std::uint16_t
-cp_encdec<std::uint16_t>::decode(encdec_ctx& ectx, buffer& in)
+struct cp_encdec<std::uint64_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::uint64_t& value)
+	{
+		using namespace endian_detail;
 
-	return host_endian(in.drain_literal<std::uint16_t>());
-}
+		out.append_literal(big_endian(value));
+	}
+	static std::uint64_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_endian(in.drain_literal<std::uint64_t>());
+	}
+};
+
 
 template<>
-inline void
-cp_encdec<std::uint32_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint32_t& value)
+struct cp_encdec<std::int8_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::int8_t& value)
+	{
+		using namespace endian_detail;
 
-	out.append_literal(big_endian(value));
-}
+		cp_encdec<std::uint8_t>::encode(ectx, out, net_two_compl<std::uint8_t>(value));
+	}
+	static std::int8_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_two_compl<std::uint8_t>(cp_encdec<std::uint8_t>::decode(ectx, in));
+	}
+};
+
 template<>
-inline std::uint32_t
-cp_encdec<std::uint32_t>::decode(encdec_ctx& ectx, buffer& in)
+struct cp_encdec<std::int16_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::int16_t& value)
+	{
+		using namespace endian_detail;
 
-	return host_endian(in.drain_literal<std::uint32_t>());
-}
+		cp_encdec<std::uint16_t>::encode(ectx, out, net_two_compl<std::uint16_t>(value));
+	}
+	static std::int16_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_two_compl<std::uint16_t>(cp_encdec<std::uint16_t>::decode(ectx, in));
+	}
+};
 
 template<>
-inline void
-cp_encdec<std::uint64_t>::encode(encdec_ctx& ectx, buffer& out, const std::uint64_t& value)
+struct cp_encdec<std::int32_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::int32_t& value)
+	{
+		using namespace endian_detail;
 
-	out.append_literal(big_endian(value));
-}
+		cp_encdec<std::uint32_t>::encode(ectx, out, net_two_compl<std::uint32_t>(value));
+	}
+	static std::int32_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
+
+		return host_two_compl<std::uint32_t>(cp_encdec<std::uint32_t>::decode(ectx, in));
+	}
+};
+
 template<>
-inline std::uint64_t
-cp_encdec<std::uint64_t>::decode(encdec_ctx& ectx, buffer& in)
+struct cp_encdec<std::int64_t>
 {
-	using namespace endian_detail;
+	static void
+	encode(encdec_ctx& ectx, buffer& out, const std::int64_t& value)
+	{
+		using namespace endian_detail;
 
-	return host_endian(in.drain_literal<std::uint64_t>());
-}
+		cp_encdec<std::uint64_t>::encode(ectx, out, net_two_compl<std::uint64_t>(value));
+	}
+	static std::int64_t
+	decode(encdec_ctx& ectx, buffer& in)
+	{
+		using namespace endian_detail;
 
+		return host_two_compl<std::uint64_t>(cp_encdec<std::uint64_t>::decode(ectx, in));
+	}
+};
 
 template<>
-inline void
-cp_encdec<std::int8_t>::encode(encdec_ctx& ectx, buffer& out, const std::int8_t& value)
+struct cp_encdec<std::string>
 {
-	using namespace endian_detail;
+	static ILIAS_NET2_EXPORT void encode(encdec_ctx&, buffer&, const std::string&);
+	static ILIAS_NET2_EXPORT std::string decode(encdec_ctx&, buffer&);
+};
 
-	cp_encdec<std::uint8_t>::encode(ectx, out, net_two_compl<std::uint8_t>(value));
-}
 template<>
-inline std::int8_t
-cp_encdec<std::int8_t>::decode(encdec_ctx& ectx, buffer& in)
+struct cp_encdec<buffer>
 {
-	using namespace endian_detail;
-
-	return host_two_compl<std::uint8_t>(cp_encdec<std::uint8_t>::decode(ectx, in));
-}
-
-template<>
-inline void
-cp_encdec<std::int16_t>::encode(encdec_ctx& ectx, buffer& out, const std::int16_t& value)
-{
-	using namespace endian_detail;
-
-	cp_encdec<std::uint16_t>::encode(ectx, out, net_two_compl<std::uint16_t>(value));
-}
-template<>
-inline std::int16_t
-cp_encdec<std::int16_t>::decode(encdec_ctx& ectx, buffer& in)
-{
-	using namespace endian_detail;
-
-	return host_two_compl<std::uint16_t>(cp_encdec<std::uint16_t>::decode(ectx, in));
-}
-
-template<>
-inline void
-cp_encdec<std::int32_t>::encode(encdec_ctx& ectx, buffer& out, const std::int32_t& value)
-{
-	using namespace endian_detail;
-
-	cp_encdec<std::uint32_t>::encode(ectx, out, net_two_compl<std::uint32_t>(value));
-}
-template<>
-inline std::int32_t
-cp_encdec<std::int32_t>::decode(encdec_ctx& ectx, buffer& in)
-{
-	using namespace endian_detail;
-
-	return host_two_compl<std::uint32_t>(cp_encdec<std::uint32_t>::decode(ectx, in));
-}
-
-template<>
-inline void
-cp_encdec<std::int64_t>::encode(encdec_ctx& ectx, buffer& out, const std::int64_t& value)
-{
-	using namespace endian_detail;
-
-	cp_encdec<std::uint64_t>::encode(ectx, out, net_two_compl<std::uint64_t>(value));
-}
-template<>
-inline std::int64_t
-cp_encdec<std::int64_t>::decode(encdec_ctx& ectx, buffer& in)
-{
-	using namespace endian_detail;
-
-	return host_two_compl<std::uint64_t>(cp_encdec<std::uint64_t>::decode(ectx, in));
-}
-
-template<>
-ILIAS_NET2_EXPORT void
-cp_encdec<std::string>::encode(encdec_ctx& ectx, buffer& out, const std::string& value);
-template<>
-ILIAS_NET2_EXPORT std::string
-cp_encdec<std::string>::decode(encdec_ctx& ectx, buffer& in);
-
-template<>
-ILIAS_NET2_EXPORT void
-cp_encdec<buffer>::encode(encdec_ctx& ectx, buffer& out, const buffer& value);
-template<>
-ILIAS_NET2_EXPORT buffer
-cp_encdec<buffer>::decode(encdec_ctx& ectx, buffer& in);
-
-extern template struct cp_encdec<std::string>;
-extern template struct cp_encdec<buffer>;
+	static ILIAS_NET2_EXPORT void encode(encdec_ctx&, buffer&, const buffer&);
+	static ILIAS_NET2_EXPORT buffer decode(encdec_ctx&, buffer&);
+};
 
 
 } /* namespace ilias */
