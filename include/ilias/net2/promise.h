@@ -110,7 +110,7 @@ protected:
 		std::atomic<ready_state_t> m_ready;
 
 	protected:
-		class state_lock :
+		class ILIAS_NET2_LOCAL state_lock :
 			public bool_test<state_lock>
 		{
 		private:
