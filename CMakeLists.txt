@@ -570,6 +570,15 @@ if (BUILD_TESTING)
 	add_test(NAME test_buffer COMMAND test_buffer)
 	set_tests_properties (test_buffer PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
+	# Encoding/decoding tests.
+	add_executable (test_encdec_ctypes
+		test/encdec_ctypes.cc
+		)
+	target_link_libraries (test_encdec_ctypes ilias_net2
+	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
+	set_tests_properties (test_encdec_ctypes PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+
 	# Hash tests.
 	add_executable (test_hash
 		test/hash.cc
@@ -590,15 +599,6 @@ if (BUILD_TESTING)
 	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 	add_test(NAME test_carver COMMAND test_carver)
 	set_tests_properties (test_carver PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
-
-	# Encoding/decoding tests.
-	add_executable (test_encdec_ctypes
-		test/encdec_ctypes.c
-		)
-	target_link_libraries (test_encdec_ctypes ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_encdec_ctypes COMMAND test_encdec_ctypes)
-	set_tests_properties (test_encdec_ctypes PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
 	# Signature tests.
 	add_executable (test_sign

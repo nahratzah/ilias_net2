@@ -17,10 +17,8 @@
 #define ILIAS_NET2_ENCDEC_CTX_H
 
 #include <ilias/net2/ilias_net2_export.h>
-#include <ilias/net2/types.h>
-#include <ilias/net2/protocol.h>
 
-ILIAS_NET2__begin_cdecl
+namespace ilias {
 
 
 /*
@@ -34,43 +32,15 @@ ILIAS_NET2__begin_cdecl
  * If for any reason, the transmission is cancelled or fails, the
  * net2_encdec_ctx is rolled back.
  */
-struct net2_encdec_ctx {
-	struct net2_pvlist	 ed_proto;	/* Protocol list. */
-	struct net2_objmanager	*ed_objman;	/* Object manager. */
+class ILIAS_NET2_EXPORT encdec_ctx {
+public:
+	encdec_ctx() ILIAS_NET2_NOTHROW
+	{
+		return;
+	}
 };
 
-struct net2_acceptor_socket;	/* From ilias/net2/acceptor.h */
-struct net2_connection;		/* From ilias/net2/connection.h */
-struct net2_objmanager;		/* From ilias/net2/obj_manager.h */
 
-ILIAS_NET2_EXPORT
-int	 net2_encdec_ctx_init(struct net2_encdec_ctx*, struct net2_pvlist*,
-			    struct net2_objmanager*);
-ILIAS_NET2_EXPORT
-int	 net2_encdec_ctx_copy(struct net2_encdec_ctx*,
-	    const struct net2_encdec_ctx*);
-ILIAS_NET2_EXPORT
-void	 net2_encdec_ctx_rollback(struct net2_encdec_ctx*);
-ILIAS_NET2_EXPORT
-void	 net2_encdec_ctx_deinit(struct net2_encdec_ctx*);
-ILIAS_NET2_EXPORT
-int	 net2_encdec_ctx_newaccsocket(struct net2_encdec_ctx*,
-	    struct net2_acceptor_socket*);
-ILIAS_NET2_EXPORT
-int	 net2_encdec_ctx_newobjman(struct net2_encdec_ctx*,
-	    struct net2_objmanager*);
+} /* namespace ilias */
 
-
-extern ILIAS_NET2_LOCAL struct net2_encdec_ctx net2_encdec_proto0;
-
-/* Returns the protocol version from this context. */
-static __inline int
-net2_encdec_ctx_p2v(struct net2_encdec_ctx *ctx, const struct net2_protocol *p,
-    net2_protocol_t *v)
-{
-	return net2_pvlist_get(&ctx->ed_proto, p, v);
-}
-
-
-ILIAS_NET2__end_cdecl
 #endif /* ILIAS_NET2_ENCDEC_CTX_H */
