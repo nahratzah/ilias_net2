@@ -370,9 +370,11 @@ buffer::mark_sensitive() ILIAS_NET2_NOTHROW
  * Takes an empty buffer and fills it with the range described by off, len.
  * Implementation exists so there won't be an interface boundary for rvalues.
  */
-buffer&
-buffer::subrange_adapter(buffer& result, buffer::size_type off, buffer::size_type len) const throw (std::bad_alloc, std::out_of_range)
+buffer
+buffer::subrange(buffer::size_type off, buffer::size_type len) const throw (std::bad_alloc, std::out_of_range)
 {
+	buffer result;
+
 	if (len == 0)
 		return result;
 

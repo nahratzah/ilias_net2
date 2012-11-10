@@ -45,13 +45,13 @@
 namespace ilias {
 
 
-class ILIAS_NET2_EXPORT buffer
+class ILIAS_NET2_LOCAL buffer
 {
 public:
 	typedef uintptr_t size_type;
 
 	/* Indicator of invalid offset. */
-	static const size_type npos;
+	static ILIAS_NET2_EXPORT const size_type npos;
 
 #if WIN32
 	typedef _WSABUF iovec;
@@ -121,18 +121,18 @@ public:
 	/*
 	 * A memcpy that attempts not to pollute the CPU cache.
 	 */
-	static void copy_memory(void*, const void*, size_type) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_EXPORT void copy_memory(void*, const void*, size_type) ILIAS_NET2_NOTHROW;
 
 	/*
 	 * A bzero that attempts not to pollute the CPU cache.
 	 */
-	static void zero_memory(void*, size_type) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_EXPORT void zero_memory(void*, size_type) ILIAS_NET2_NOTHROW;
 
 private:
 	class mem_segment;
 
 	/* Helper for mem_segment destruction. */
-	class mem_segment_free
+	class ILIAS_NET2_LOCAL mem_segment_free
 	{
 	public:
 		void operator()(mem_segment* ms) const ILIAS_NET2_NOTHROW;
@@ -147,7 +147,7 @@ private:
 	 * Buffer uses these to write once to memory held in a segment, then sharing it with
 	 * other buffers.  When the buffer is extended, it will try to extend the segment.
 	 */
-	class mem_segment :
+	class ILIAS_NET2_LOCAL mem_segment :
 		public refcount_base<mem_segment, mem_segment_free>
 	{
 	friend class buffer::mem_segment_free;
@@ -497,7 +497,7 @@ private:
 	};
 
 	/* Segment reference, manages shared ownership of a segment. */
-	class segment_ref
+	class ILIAS_NET2_LOCAL segment_ref
 	{
 	private:
 		refpointer<mem_segment> m_segment;
@@ -568,7 +568,7 @@ private:
 			    reinterpret_cast<uintptr_t>(this->m_segment->data());
 		}
 
-		~segment_ref() ILIAS_NET2_NOTHROW;
+		ILIAS_NET2_EXPORT ~segment_ref() ILIAS_NET2_NOTHROW;
 
 		void
 		mark_sensitive() ILIAS_NET2_NOTHROW
@@ -686,13 +686,13 @@ private:
 	 * Append segment.
 	 * Will attempt to merge the segment with its predecessor.
 	 */
-	void push_back(const segment_ref& sr) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void push_back(const segment_ref& sr) ILIAS_NET2_NOTHROW;
 #if HAS_RVALUE_REF
 	/*
 	 * Append segment.
 	 * Will attempt to merge the segment with its predecessor.
 	 */
-	void push_back(segment_ref&& sr) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void push_back(segment_ref&& sr) ILIAS_NET2_NOTHROW;
 #endif
 
 	/*
@@ -762,7 +762,7 @@ public:
 	}
 
 	/* Copy constructor. */
-	buffer(const buffer& rhs) throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT buffer(const buffer& rhs) throw (std::bad_alloc);
 
 #if HAS_RVALUE_REF
 	/* Move constructor. */
@@ -781,7 +781,7 @@ public:
 		this->append(data, len);
 	}
 
-	~buffer() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT ~buffer() ILIAS_NET2_NOTHROW;
 
 	/* Test if the buffer is empty. */
 	bool
@@ -791,7 +791,7 @@ public:
 	}
 
 	/* Return the size (in bytes) of this buffer. */
-	size_type size() const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT size_type size() const ILIAS_NET2_NOTHROW;
 
 	/* Return the number of segments in this buffer. */
 	size_type
@@ -801,7 +801,7 @@ public:
 	}
 
 	/* Assignment. */
-	buffer& operator= (const buffer& o) throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT buffer& operator= (const buffer& o) throw (std::bad_alloc);
 
 #if HAS_RVALUE_REF
 	/* Move assignment. */
@@ -816,7 +816,7 @@ public:
 #endif
 
 	/* Append a buffer. */
-	buffer& operator+= (const buffer& o) throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT buffer& operator+= (const buffer& o) throw (std::bad_alloc);
 
 	/* Create a buffer that is this buffer and another buffer concatenated. */
 	buffer
@@ -851,17 +851,17 @@ private:
 
 public:
 	/* Clear the buffer. */
-	void clear() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void clear() ILIAS_NET2_NOTHROW;
 	/* Drain bytes from the buffer into supplied void* buffer. */
-	void drain(void*, size_type) throw (std::out_of_range);
+	ILIAS_NET2_EXPORT void drain(void*, size_type) throw (std::out_of_range);
 	/* Truncate the buffer to the given size. */
-	void truncate(size_type) throw (std::out_of_range);
+	ILIAS_NET2_EXPORT void truncate(size_type) throw (std::out_of_range);
 	/* Prepend a buffer (this is an expensive operation). */
-	void prepend(const buffer& o) throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT void prepend(const buffer& o) throw (std::bad_alloc);
 	/* Append data to the buffer.  Set the boolean to true if this data is sensitive. */
-	void append(const void*, size_type, bool = false) throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT void append(const void*, size_type, bool = false) throw (std::bad_alloc);
 	/* Mark the entire buffer as containing sensitive data. */
-	void mark_sensitive() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void mark_sensitive() ILIAS_NET2_NOTHROW;
 
 	/* Remove the first len bytes from this buffer. */
 	void
@@ -898,18 +898,8 @@ public:
 		return rv;
 	}
 
-private:
-	buffer& subrange_adapter(buffer& result, size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range);
-
-public:
 	/* Return a buffer with the range described by off, len. */
-	buffer
-	subrange(size_type off, size_type len) const throw (std::bad_alloc, std::out_of_range)
-	{
-		buffer result;
-		subrange_adapter(result, off, len);
-		return result;
-	}
+	ILIAS_NET2_EXPORT buffer subrange(size_type, size_type) const throw (std::bad_alloc, std::out_of_range);
 
 	/*
 	 * Buffer comparison.
@@ -918,7 +908,7 @@ public:
 	 * Returns  1 if this is lexicographically after  o.
 	 * Returns  0 if the two buffers are identical.
 	 */
-	int cmp(const buffer& o) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT int cmp(const buffer& o) const ILIAS_NET2_NOTHROW;
 
 	bool
 	operator== (const buffer& o) const ILIAS_NET2_NOTHROW
@@ -957,7 +947,7 @@ public:
 	}
 
 	/* Try to find a string in the buffer, starting at offset. */
-	size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
 
 	/*
 	 * Visit each range in the buffer with the visitor.
@@ -1036,7 +1026,7 @@ public:
 	}
 
 	/* Copy len bytes from buffer to output. */
-	void copyout(void*, size_type) const throw (std::out_of_range);
+	ILIAS_NET2_EXPORT void copyout(void*, size_type) const throw (std::out_of_range);
 
 	/*
 	 * Pull up the entire buffer into a single segment,
@@ -1044,7 +1034,7 @@ public:
 	 *
 	 * This operation does not modify the buffer, it only re-arranges information.
 	 */
-	const void* pullup() throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT const void* pullup() throw (std::bad_alloc);
 
 private:
 	class prepare_bufref;
@@ -1062,7 +1052,7 @@ buffer::mem_segment_free::operator()(buffer::mem_segment* ms) const ILIAS_NET2_N
 }
 
 
-class buffer::prepare_bufref
+class ILIAS_NET2_LOCAL buffer::prepare_bufref
 {
 private:
 	buffer* m_buf;
@@ -1129,7 +1119,7 @@ private:
 #endif
 };
 
-class buffer::prepare :
+class ILIAS_NET2_LOCAL buffer::prepare :
 	private buffer::prepare_bufref
 {
 private:
@@ -1143,7 +1133,7 @@ public:
 		/* Empty body. */
 	}
 
-	prepare(buffer& b, size_type len, bool sensitive = false);
+	ILIAS_NET2_EXPORT prepare(buffer& b, size_type len, bool sensitive = false);
 
 #if HAS_RVALUE_REF
 	prepare(prepare&& p) ILIAS_NET2_NOTHROW :
@@ -1154,7 +1144,7 @@ public:
 	}
 #endif
 
-	~prepare() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT ~prepare() ILIAS_NET2_NOTHROW;
 
 	/*
 	 * Return the address of memory at offset.
@@ -1196,12 +1186,12 @@ public:
 	 * Calling commit() on an prepare that isn't valid will yield undefined
 	 * behaviour (it may assert or it may corrupt the buffer).
 	 */
-	void commit() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void commit() ILIAS_NET2_NOTHROW;
 
 	/*
 	 * Cancel the prepare.
 	 */
-	void reset() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void reset() ILIAS_NET2_NOTHROW;
 };
 
 
