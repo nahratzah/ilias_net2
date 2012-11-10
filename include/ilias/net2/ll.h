@@ -51,7 +51,7 @@ typedef std::pair<hook_ptr, bool> pointer_flag;
 /*
  * Type of predecessor and successor pointers.
  */
-class ll_ptr
+class ILIAS_NET2_LOCAL ll_ptr
 {
 public:
 	typedef std::uintptr_t internal_type;
@@ -168,7 +168,7 @@ private:
 
 public:
 	template<typename LLPtr>
-	class deref_lock
+	class ILIAS_NET2_LOCAL deref_lock
 	{
 	private:
 		LLPtr& m_self;
@@ -339,7 +339,7 @@ public:
 };
 
 
-class hook
+class ILIAS_NET2_LOCAL hook
 {
 friend class hook_ptr;
 friend class list;
@@ -587,22 +587,22 @@ public:
 		return deleted(**this);
 	}
 
-	pointer_flag succ() const ILIAS_NET2_NOTHROW;
-	pointer_flag pred() const ILIAS_NET2_NOTHROW;
-	std::size_t succ_end_distance(const hook*) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT pointer_flag succ() const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT pointer_flag pred() const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT std::size_t succ_end_distance(const hook*) const ILIAS_NET2_NOTHROW;
 
-	bool unlink_nowait() const ILIAS_NET2_NOTHROW;
-	void unlink_wait(const hook&) const ILIAS_NET2_NOTHROW;
-	void unlink_wait_inslock(const hook&) ILIAS_NET2_NOTHROW;
-	bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool unlink_nowait() const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void unlink_wait(const hook&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void unlink_wait_inslock(const hook&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
 
 private:
 	bool insert_lock() const ILIAS_NET2_NOTHROW;
 	bool insert_between(const hook_ptr&, const hook_ptr&) const ILIAS_NET2_NOTHROW;
 
 public:
-	void insert_after_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
-	void insert_before_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void insert_after_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void insert_before_locked(const hook_ptr&) const ILIAS_NET2_NOTHROW;
 
 	bool
 	insert_after(const hook_ptr& pred) const ILIAS_NET2_NOTHROW
@@ -624,7 +624,7 @@ public:
 };
 
 /* Base list implementation. */
-class ILIAS_NET2_EXPORT list
+class ILIAS_NET2_LOCAL list
 {
 public:
 	class simple_iterator;
@@ -646,19 +646,19 @@ protected:
 	 * The stable interface ensures multiple compilers with different features
 	 * will operate correct with the interface.
 	 */
-	simple_iterator& first(simple_iterator&) const ILIAS_NET2_NOTHROW;
-	simple_iterator& last(simple_iterator&) const ILIAS_NET2_NOTHROW;
-	simple_iterator& listhead(simple_iterator&) const ILIAS_NET2_NOTHROW;
-	hook* pop_front() ILIAS_NET2_NOTHROW;
-	hook* pop_back() ILIAS_NET2_NOTHROW;
-	bool push_back(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
-	bool push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
-	simple_iterator& iter_to(simple_iterator&, hook&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& first(simple_iterator&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& last(simple_iterator&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& listhead(simple_iterator&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT hook* pop_front() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT hook* pop_back() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool push_back(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool push_front(const hook_ptr& hp) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& iter_to(simple_iterator&, hook&) const ILIAS_NET2_NOTHROW;
 
-	simple_iterator& pop_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
-	simple_iterator& pop_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
-	simple_iterator& push_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
-	simple_iterator& push_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& pop_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& pop_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& push_front_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT simple_iterator& push_back_nowait(simple_iterator&) ILIAS_NET2_NOTHROW;
 
 public:
 	bool
@@ -677,7 +677,7 @@ private:
 #endif
 };
 
-class ILIAS_NET2_EXPORT list::simple_iterator
+class ILIAS_NET2_LOCAL list::simple_iterator
 {
 friend class list;
 
@@ -760,8 +760,8 @@ private:
 #endif
 
 public:
-	void step_forward() ILIAS_NET2_NOTHROW;
-	void step_backward() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void step_forward() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void step_backward() ILIAS_NET2_NOTHROW;
 
 	const hook_ptr&
 	get_internal() const ILIAS_NET2_NOTHROW
@@ -1078,7 +1078,7 @@ template<typename Type, ll_member_hook Type::*MemberPtr> class ll_member;
 template<typename Type, typename Tag = void> class ll_base;
 
 
-class ll_member_hook
+class ILIAS_NET2_EXPORT ll_member_hook
 {
 template<typename Type, ll_member_hook Type::*MemberPtr> friend class ll_member;
 friend struct ll_detail::hook_offset<ll_member_hook>;
@@ -1107,7 +1107,7 @@ public:
 };
 
 template<typename Tag>
-class ll_base_hook
+class ILIAS_NET2_EXPORT ll_base_hook
 {
 template<typename Type, typename TTag> friend class ll_base;
 friend struct ll_detail::hook_offset<ll_base_hook<Tag> >;
