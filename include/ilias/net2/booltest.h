@@ -23,7 +23,7 @@ namespace {
 
 
 #if !HAS_EXPL_OP_BOOL
-class ILIAS_NET2_EXPORT bool_test_base
+class bool_test_base
 {
 protected:
 	typedef void (bool_test_base::*bool_type)() const;
