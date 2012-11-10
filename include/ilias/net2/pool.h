@@ -35,7 +35,7 @@
 namespace ilias {
 
 
-class ILIAS_NET2_EXPORT pool
+class ILIAS_NET2_LOCAL pool
 {
 public:
 	typedef std::size_t size_type;
@@ -71,11 +71,12 @@ public:
 	const size_type size;
 	ll_list_type head;
 
-	static CONSTEXPR_VALUE size_type default_align = (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
-	static CONSTEXPR_VALUE size_type default_offset = 0;
+	static ILIAS_NET2_EXPORT CONSTEXPR_VALUE size_type default_align =
+	    (sizeof(double) > sizeof(void*) ? sizeof(double) : sizeof(void*));
+	static ILIAS_NET2_EXPORT CONSTEXPR_VALUE size_type default_offset = 0;
 
-	pool(size_type, size_type = default_align, size_type = default_offset) ILIAS_NET2_NOTHROW;
-	~pool() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT pool(size_type, size_type = default_align, size_type = default_offset) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT ~pool() ILIAS_NET2_NOTHROW;
 
 private:
 	inline size_type entries_per_page() const;
@@ -89,9 +90,9 @@ private:
 	ILIAS_NET2_LOCAL page_ptr alloc_big_page(size_type);
 
 public:
-	void* allocate(std::nothrow_t, size_type, void* = nullptr) ILIAS_NET2_NOTHROW;
-	bool deallocate(std::nothrow_t, void*, size_type) ILIAS_NET2_NOTHROW;
-	bool resize(std::nothrow_t, void*, size_type, size_type) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void* allocate(std::nothrow_t, size_type, void* = nullptr) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool deallocate(std::nothrow_t, void*, size_type) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool resize(std::nothrow_t, void*, size_type, size_type) ILIAS_NET2_NOTHROW;
 
 	void*
 	allocate(size_type sz, void* hint = nullptr) throw (std::bad_alloc)
@@ -172,7 +173,7 @@ private:
 	static inline size_type waste(size_type, size_type, size_type) ILIAS_NET2_NOTHROW;
 
 public:
-	static size_type recommend_size(size_type min, size_type max, size_type align = default_align, size_type offset = default_offset) ILIAS_NET2_NOTHROW;
+	static ILIAS_NET2_EXPORT size_type recommend_size(size_type min, size_type max, size_type align = default_align, size_type offset = default_offset) ILIAS_NET2_NOTHROW;
 
 
 #if HAS_DELETED_FN
