@@ -28,7 +28,7 @@ namespace ilias {
 class buffer; /* From ilias/net2/buffer.h */
 
 /* Interface to hash functions. */
-class ILIAS_NET2_EXPORT hash_ctx
+class hash_ctx
 {
 public:
 	typedef std::uint32_t size_type;
@@ -37,16 +37,16 @@ public:
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx(std::string, size_type, size_type);
-	virtual ~hash_ctx() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT hash_ctx(std::string, size_type, size_type);
+	ILIAS_NET2_EXPORT virtual ~hash_ctx() ILIAS_NET2_NOTHROW;
 
-	virtual void update(const buffer&) = 0;
-	virtual buffer final() = 0;
+	ILIAS_NET2_EXPORT virtual void update(const buffer&) = 0;
+	ILIAS_NET2_EXPORT virtual buffer final() = 0;
 };
 
 typedef std::unique_ptr<hash_ctx> hash_ctx_ptr;
 
-class ILIAS_NET2_EXPORT hash_ctx_factory
+class hash_ctx_factory
 {
 public:
 	typedef hash_ctx::size_type size_type;
@@ -55,15 +55,15 @@ public:
 	const size_type keylen;
 	const std::string name;
 
-	hash_ctx_factory(std::string name, size_type hashlen, size_type keylen);
-	virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
-	virtual hash_ctx_ptr instantiate(buffer) const = 0;
+	ILIAS_NET2_EXPORT hash_ctx_factory(std::string name, size_type hashlen, size_type keylen);
+	ILIAS_NET2_EXPORT virtual ~hash_ctx_factory() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT virtual hash_ctx_ptr instantiate(buffer) const = 0;
 
 	/*
 	 * Short-cut for full hash context handling.
 	 * Called with key, data.
 	 */
-	virtual buffer run(buffer key, const buffer& data) const;
+	ILIAS_NET2_EXPORT virtual buffer run(buffer key, const buffer& data) const;
 };
 
 

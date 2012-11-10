@@ -47,23 +47,23 @@ template<typename Result> class promise;
 template<typename Result> class future;
 
 
-class ILIAS_NET2_EXPORT broken_promise :
+class broken_promise :
 	public std::runtime_error
 {
 public:
-	broken_promise();
-	virtual ~broken_promise() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT broken_promise();
+	ILIAS_NET2_EXPORT virtual ~broken_promise() ILIAS_NET2_NOTHROW;
 };
 
-class ILIAS_NET2_EXPORT uninitialized_promise :
+class uninitialized_promise :
 	public std::logic_error
 {
 public:
 	/* Throw this exception. */
-	static void throw_me();
+	ILIAS_NET2_EXPORT static void throw_me();
 
-	uninitialized_promise();
-	virtual ~uninitialized_promise() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT uninitialized_promise();
+	ILIAS_NET2_EXPORT virtual ~uninitialized_promise() ILIAS_NET2_NOTHROW;
 };
 
 
