@@ -591,94 +591,72 @@ if (BUILD_TESTING)
 
 
 
-	# Carver tests.
-	add_executable (test_carver
-		test/carver.c
-		)
-	target_link_libraries (test_carver ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_carver COMMAND test_carver)
-	set_tests_properties (test_carver PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Carver tests.
+	#add_executable (test_carver
+	#	test/carver.c
+	#	)
+	#target_link_libraries (test_carver ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_carver COMMAND test_carver)
+	#set_tests_properties (test_carver PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# Signature tests.
-	add_executable (test_sign
-		test/sign.c
-		)
-	target_link_libraries (test_sign ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_sign COMMAND test_sign)
-	set_tests_properties (test_sign PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Signature tests.
+	#add_executable (test_sign
+	#	test/sign.c
+	#	)
+	#target_link_libraries (test_sign ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_sign COMMAND test_sign)
+	#set_tests_properties (test_sign PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# Encryption/decryption tests.
-	add_executable (test_enc
-		test/enc.c
-		)
-	target_link_libraries (test_enc ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_enc COMMAND test_enc)
-	set_tests_properties (test_enc PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Encryption/decryption tests.
+	#add_executable (test_enc
+	#	test/enc.c
+	#	)
+	#target_link_libraries (test_enc ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_enc COMMAND test_enc)
+	#set_tests_properties (test_enc PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# Key exchange tests.
-	add_executable (test_xchange
-		test/xchange.c
-		)
-	target_link_libraries (test_xchange ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_xchange COMMAND test_xchange)
-	set_tests_properties (test_xchange PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Key exchange tests.
+	#add_executable (test_xchange
+	#	test/xchange.c
+	#	)
+	#target_link_libraries (test_xchange ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_xchange COMMAND test_xchange)
+	#set_tests_properties (test_xchange PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# Workq tests.
-	add_executable (test_workq
-		test/workq.c
-		)
-	target_link_libraries (test_workq ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_workq COMMAND test_workq)
-	set_tests_properties (test_workq PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Workq tests.
+	#add_executable (test_workq
+	#	test/workq.c
+	#	)
+	#target_link_libraries (test_workq ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_workq COMMAND test_workq)
+	#set_tests_properties (test_workq PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# Connection management tests.
-	add_executable (test_conn
-		test/conn.c
-		test/testprotocol.h
-		test/testprotocol.c
-		test/testconn.h
-		test/testconn.c
-		)
-	target_link_libraries (test_conn ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_conn COMMAND test_conn)
-	set_tests_properties (test_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+	## Connection management tests.
+	#add_executable (test_conn
+	#	test/conn.c
+	#	test/testprotocol.h
+	#	test/testprotocol.c
+	#	test/testconn.h
+	#	test/testconn.c
+	#	)
+	#target_link_libraries (test_conn ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_conn COMMAND test_conn)
+	#set_tests_properties (test_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
-	# UDP connection tests.
-	add_executable (test_udp_conn
-		test/udp_conn.c
-		test/testprotocol.h
-		test/testprotocol.c
-		)
-	target_link_libraries (test_udp_conn ilias_net2
-	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-	add_test(NAME test_udp_conn COMMAND test_udp_conn)
-	set_tests_properties (test_udp_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
-
-	if (${WITH_EXUDE})
-		target_link_libraries (test_buffer debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_carver debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_encdec_ctypes debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_hash debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_sign debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_enc debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_xchange debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_conn debug ${exude_LIBS} debug ${clog_LIBS})
-		target_link_libraries (test_udp_conn debug ${exude_LIBS} debug ${clog_LIBS})
-
-		set_property (TARGET test_buffer PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_carver PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_encdec_ctypes PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_hash PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_sign PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_enc PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_xchange PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-		set_property (TARGET test_udp_conn PROPERTY COMPILE_DEFINITIONS_DEBUG "NET2_USE_EXUDE_DEBUG")
-	endif (${WITH_EXUDE})
+	## UDP connection tests.
+	#add_executable (test_udp_conn
+	#	test/udp_conn.c
+	#	test/testprotocol.h
+	#	test/testprotocol.c
+	#	)
+	#target_link_libraries (test_udp_conn ilias_net2
+	#    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	#add_test(NAME test_udp_conn COMMAND test_udp_conn)
+	#set_tests_properties (test_udp_conn PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 endif (BUILD_TESTING)
