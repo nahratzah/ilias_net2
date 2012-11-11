@@ -593,8 +593,9 @@ public:
 
 	ILIAS_NET2_EXPORT bool unlink_nowait() const ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT void unlink_wait(const hook&) const ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_EXPORT void unlink_wait_inslock(const hook&) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void unlink_wait_inslock(const hook&) const ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT bool unlink(const hook&) const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool unlink_robust(const hook&) const ILIAS_NET2_NOTHROW;
 
 private:
 	bool insert_lock() const ILIAS_NET2_NOTHROW;
@@ -822,6 +823,14 @@ public:
 		assert(this->listhead == &lst.m_head);
 		assert(this->element);
 		return this->element.unlink(lst.m_head);
+	}
+
+	bool
+	unlink_robust(list& lst) const ILIAS_NET2_NOTHROW
+	{
+		assert(this->listhead == &lst.m_head);
+		assert(this->element);
+		return this->element.unlink_robust(lst.m_head);
 	}
 
 	void
@@ -1357,6 +1366,20 @@ public:
 	erase_element(const reverse_iterator& i) ILIAS_NET2_NOTHROW
 	{
 		return i.simple_iterator::unlink(*this);
+	}
+
+	/*
+	 * Guarantee the element pointed at by iterator will not be on the list.
+	 * Guarantee it will not be inserted (not ever).
+	 *
+	 * Intended use: call on element prior to running its destructor.
+	 *
+	 * Returns true if, as part of this call, the element was erased from the list.
+	 */
+	bool
+	unlink_robust(const iterator& i) ILIAS_NET2_NOTHROW
+	{
+		return i.simple_iterator::unlink_robust(*this);
 	}
 
 	iterator
@@ -2632,6 +2655,24 @@ public:
 			disposer(ll_smartptr_list::acquire(r));
 		});
 		return rv;
+	}
+
+	/*
+	 * Guarantee the element pointed at by iterator will not be on the list.
+	 * Guarantee it will not be inserted (not ever).
+	 *
+	 * Intended use: call on element prior to running its destructor.
+	 *
+	 * Returns smart pointer if, as part of this call, the element was erased from the list.
+	 */
+	pointer
+	unlink_robust(iterator&& i) ILIAS_NET2_NOTHROW
+	{
+		pointer p;
+		if (this->m_list.unlink_robust(i))
+			p = acquire(&*i);	/* Move reference from list to external smart pointer. */
+		i = iterator();
+		return p;
 	}
 
 	void

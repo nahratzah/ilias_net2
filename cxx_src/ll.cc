@@ -132,7 +132,7 @@ hook_ptr::unlink_wait(const hook& list_head) const ILIAS_NET2_NOTHROW
 }
 
 void
-hook_ptr::unlink_wait_inslock(const hook& list_head) ILIAS_NET2_NOTHROW
+hook_ptr::unlink_wait_inslock(const hook& list_head) const ILIAS_NET2_NOTHROW
 {
 	for (hook_ptr s = MOVE(this->succ().first);
 	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1;
@@ -164,6 +164,41 @@ hook_ptr::unlink(const hook& list_head) const ILIAS_NET2_NOTHROW
 	if (!unlink_nowait())
 		return false;
 	this->unlink_wait(list_head);
+	return true;
+}
+
+/*
+ * This call unlinks the element (even if it is still being inserted).
+ * It then acquires the insert lock, to prevent all insert operations.
+ * This guarantees the element will not join any list.
+ *
+ * Returns true if an unlink operation was required to reach this stage.
+ */
+bool
+hook_ptr::unlink_robust(const hook& list_head) const ILIAS_NET2_NOTHROW
+{
+	/*
+	 * Attempt to unlink this and acquire the insert lock.
+	 */
+	do {
+		/* Attempt to acquire insert lock (this is the final stage). */
+		if (this->insert_lock())
+			return false;
+		/* Wait for the insert lock to unlock. */
+		while ((*this)->m_succ.get_flag()) {
+			//SPINWAIT();
+		}
+	} while (!this->unlink_nowait());
+
+	/*
+	 * The element is marked deleted.
+	 * We will now acquire the insert lock.
+	 *
+	 * This blocks all list operations:
+	 * - no insert is possible, since we hold the insert lock,
+	 * - no delete is possible, since the element is not on the list.
+	 */
+	this->unlink_wait_inslock(list_head);
 	return true;
 }
 
