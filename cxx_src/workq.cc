@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/workq.h>
+#include <thread>
 
 
 namespace ilias {
@@ -387,6 +388,22 @@ workq::workq(const refpointer<workq_service>& wqs) ILIAS_NET2_NOTHROW :
 	return;
 }
 
+/*
+ * Ensure the workq is no longer in use.
+ */
+void
+workq::destroy() ILIAS_NET2_NOTHROW
+{
+	assert(refcnt_is_solo(*this));
+
+	workq_service_workq& s = this->get_workq_service().m_workq_srv;
+	s.m_workqs.unlink_robust(s.m_workqs.iterator_to(*this));
+
+	while (!this->int_is_solo())
+		std::this_thread::yield();
+	workq_int_release(*this);
+}
+
 /* Returns a job, having marked it runnable. */
 workq::runnable_job
 workq::get_runnable_job() ILIAS_NET2_NOTHROW
@@ -439,6 +456,19 @@ workq::job::clear_running(workq_int_pointer<job>&& ptr) ILIAS_NET2_NOTHROW
 		this->get_workq().runq.push_back(std::move(ptr));
 }
 #endif
+
+workq&
+workq::job::get_workq() const ILIAS_NET2_NOTHROW
+{
+	assert(this->wq);
+	return *this->wq;
+}
+
+workq_service&
+workq::job::get_workq_service() const ILIAS_NET2_NOTHROW
+{
+	return this->get_workq().get_workq_service();
+}
 
 workq::job::~job() ILIAS_NET2_NOTHROW
 {
@@ -561,6 +591,12 @@ workq::coroutine_job::workq_service_coroutines::run_coroutine(std::size_t& count
 	return true;
 }
 
+
+refpointer<workq>
+workq_service::new_workq()
+{
+	return refpointer<workq>(new workq(this));
+}
 
 bool
 workq::workq_service_workq::run_workq(std::size_t& counter) ILIAS_NET2_NOTHROW
