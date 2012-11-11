@@ -209,8 +209,10 @@
 
 #if HAS_OVERRIDE
 #define OVERRIDE		override
+#define FINAL			final
 #else
 #define OVERRIDE		/* Unsupported. */
+#define FINAL			/* Unsupported. */
 #endif
 
 #if HAS_NOEXCEPT
