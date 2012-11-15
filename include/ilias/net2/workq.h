@@ -49,6 +49,7 @@ namespace workq_detail {
 
 struct runq_tag {};
 struct coroutine_tag {};
+struct parallel_tag {};
 
 
 template<typename Type> struct workq_intref_mgr;
@@ -126,7 +127,8 @@ typedef std::unique_ptr<workq_job, workq_detail::wq_deleter> workq_job_ptr;	/* X
 
 class workq_job :
 	public workq_detail::workq_int,
-	public ll_base_hook<workq_detail::runq_tag>
+	public ll_base_hook<workq_detail::runq_tag>,
+	public ll_base_hook<workq_detail::parallel_tag>
 {
 friend class workq_service;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
@@ -220,7 +222,13 @@ private:
 	    refpointer_acquire<workq_job, workq_detail::workq_intref_mgr<workq_job> >,
 	    refpointer_release<workq_job, workq_detail::workq_intref_mgr<workq_job> > > job_runq;
 
+	typedef ll_smartptr_list<workq_detail::workq_intref<workq_job>,
+	    ll_base<workq_job, workq_detail::parallel_tag>,
+	    refpointer_acquire<workq_job, workq_detail::workq_intref_mgr<workq_job> >,
+	    refpointer_release<workq_job, workq_detail::workq_intref_mgr<workq_job> > > job_p_runq;
+
 	job_runq m_runq;
+	job_p_runq m_p_runq;
 	const workq_service_ptr m_wqs;
 	std::atomic<bool> m_run_single;
 	std::atomic<unsigned int> m_run_parallel;

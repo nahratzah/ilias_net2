@@ -173,7 +173,13 @@ workq::get_workq_service() const ILIAS_NET2_NOTHROW
 void
 workq::job_to_runq(workq_detail::workq_intref<workq_job> j) ILIAS_NET2_NOTHROW
 {
-	if (this->m_runq.push_back(j))
+	bool activate = false;
+	if ((j->m_type & workq_job::TYPE_PARALLEL) && this->m_p_runq.push_back(j))
+		activate = true;
+	if (this->m_runq.push_back(std::move(j)))
+		activate = true;
+
+	if (activate)
 		this->get_workq_service()->wq_to_runq(this);
 }
 
@@ -252,6 +258,8 @@ void
 wq_deleter::operator()(const workq_job* wqj) const ILIAS_NET2_NOTHROW
 {
 	wqj->get_workq()->m_runq.unlink_robust(wqj->get_workq()->m_runq.iterator_to(const_cast<workq_job&>(*wqj)));
+	wqj->get_workq()->m_p_runq.unlink_robust(wqj->get_workq()->m_p_runq.iterator_to(const_cast<workq_job&>(*wqj)));
+	const_cast<workq_job*>(wqj)->deactivate();
 
 	/* XXX check if this job is being destroyed from within its own worker thread, then perform special handling. */
 
