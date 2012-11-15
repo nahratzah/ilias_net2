@@ -87,14 +87,16 @@ public:
 	void
 	acquire(const workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
 	{
-		const unsigned int old = wir.int_refcnt.fetch_add(1, std::memory_order_acquire);
+		const unsigned int old = wir.int_refcnt.fetch_add(1,
+		    std::memory_order_acquire);
 		assert(old + 1 > 0);
 	}
 
 	void
 	release(const workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
 	{
-		const unsigned int old = wir.int_refcnt.fetch_sub(1, std::memory_order_release);
+		const unsigned int old = wir.int_refcnt.fetch_sub(1,
+		    std::memory_order_release);
 		assert(old > 0);
 	}
 };
