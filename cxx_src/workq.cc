@@ -98,7 +98,7 @@ public:
 	{
 		assert(!this->m_locked && this->m_ptr);
 		auto old = this->m_ptr->m_state.load(std::memory_order_relaxed);
-		auto set = old;
+		decltype(old) set;
 		do {
 			/* Fail if the job is currently running or is not active. */
 			if ((old & job::STATE_RUNNING) || !(old & job::STATE_ACTIVE))
@@ -398,13 +398,13 @@ workq::workq_service_workq::run_workq(std::size_t& counter) ILIAS_NET2_NOTHROW
 
 
 void
-workq_service::activate(workq_int_pointer<workq> wq)
+workq_service::activate(workq_int_pointer<workq> wq) ILIAS_NET2_NOTHROW
 {
 	this->m_workq_srv.m_workqs.push_front(std::move(wq));
 }
 
 void
-workq_service::activate(refpointer<workq> wq)
+workq_service::activate(refpointer<workq> wq) ILIAS_NET2_NOTHROW
 {
 	this->activate(workq_int_pointer<workq>(wq.get()));
 }
