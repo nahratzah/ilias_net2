@@ -108,7 +108,49 @@ struct workq_intref_mgr
 	}
 };
 
+#if HAS_ALIAS_TEMPLATES
 template<typename Type> using workq_intref = refpointer<Type, workq_intref_mgr<Type> >;
+#else
+/* Fallback code for MSVC and other compilers that are slow to implement new features. */
+template<typename Type>
+class workq_intref :
+	public refpointer<Type, workq_intref_mgr<Type> >
+{
+private:
+	typedef refpointer<Type, workq_intref_mgr<Type> > impl_type;
+
+public:
+	workq_intref() ILIAS_NET2_NOTHROW :
+		impl_type()
+	{
+		/* Empty body. */
+	}
+
+	template<typename V>
+	workq_intref(const V& v) ILIAS_NET2_NOTHROW :
+		impl_type(v)
+	{
+		/* Empty body. */
+	}
+
+	template<typename V>
+	workq_intref(V&& v) ILIAS_NET2_NOTHROW :
+		impl_type(std::move(v))
+	{
+		/* Empty body. */
+	}
+
+	template<typename V, typename U>
+	workq_intref(const V& v, const U& u) ILIAS_NET2_NOTHROW :
+		impl_type(v, u)
+	{
+		/* Empty body. */
+	}
+
+	using impl_type::operator=;
+	using impl_type::operator==;
+};
+#endif
 
 /* Deleter for workq and workq_service. */
 struct wq_deleter
