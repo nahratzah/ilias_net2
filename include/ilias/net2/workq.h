@@ -38,15 +38,18 @@ namespace ilias {
 class workq;
 class workq_service;
 
-namespace {
+namespace workq_detail {
 
 struct wq_runq_tag {};
 struct wq_coroutine_tag {};
 
+class workq_int_refcnt_mgr;
 class workq_int_refcnt
 {
+friend class workq_int_refcnt_mgr;
+
 private:
-	std::atomic<unsigned int> int_refcnt;
+	mutable std::atomic<unsigned int> int_refcnt;
 
 protected:
 	workq_int_refcnt() ILIAS_NET2_NOTHROW :
@@ -76,16 +79,20 @@ protected:
 	{
 		return (this->int_refcnt.load(std::memory_order_relaxed) == 1);
 	}
+};
 
-	friend void
-	workq_int_acquire(workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
+class workq_int_refcnt_mgr
+{
+public:
+	void
+	acquire(const workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
 	{
 		const unsigned int old = wir.int_refcnt.fetch_add(1, std::memory_order_acquire);
 		assert(old + 1 > 0);
 	}
 
-	friend void
-	workq_int_release(workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
+	void
+	release(const workq_int_refcnt& wir) ILIAS_NET2_NOTHROW
 	{
 		const unsigned int old = wir.int_refcnt.fetch_sub(1, std::memory_order_release);
 		assert(old > 0);
@@ -112,40 +119,30 @@ public:
 	}
 };
 
-} /* namespace ilias::<unnamed> */
 
-
+#if HAS_ALIAS_TEMPLATES
+template<typename T> using workq_int_pointer = refpointer<T, workq_int_refcnt_mgr>;
+#else
 /*
- * Internal pointer type for workq.
- *
- * This pointer indicates items that are borrowed.
- * The pointer does not have real ownership semantics, it only prevents object
- * destructors from running while the workq still needs an item.
+ * This should implement sufficient constructors to handle workq internals.
  */
-template<typename Type> class workq_int_pointer;
-
-
-namespace {
-
-
 template<typename Type>
-struct workq_int_refcnt_acquire
+class workq_int_pointer :
+	public refpointer<Type, workq_int_refcnt_mgr>
 {
-	workq_int_pointer<Type>
-	operator()(Type* p) const ILIAS_NET2_NOTHROW
-	{
-		return workq_int_pointer<Type>(p, false);
-	}
+private:
+	typedef refpointer<Type, ilias::workq_detail::workq_int_refcnt_mgr> impl_type;
+
+public:
+	workq_int_pointer() ILIAS_NET2_NOTHROW {}
+	workq_int_pointer(const workq_int_pointer& p) ILIAS_NET2_NOTHROW : impl_type(p) {}
+	workq_int_pointer(workq_int_pointer&& p) ILIAS_NET2_NOTHROW : impl_type(std::move(p)) {}
+	workq_int_pointer(const refpointer<Type>& p) ILIAS_NET2_NOTHROW : impl_type(p) {}
+	template<typename U, typename AcqRel> workq_int_pointer(const refpointer<U, AcqRel>& p) ILIAS_NET2_NOTHROW : impl_type(p) {}
+	workq_int_pointer(typename impl_type::pointer p) ILIAS_NET2_NOTHROW : impl_type(p) {}
+	workq_int_pointer(typename impl_type::pointer p, bool acquire) ILIAS_NET2_NOTHROW : impl_type(p, acquire) {}
 };
-template<typename Type>
-struct workq_int_refcnt_release
-{
-	Type*
-	operator()(workq_int_pointer<Type> p) const ILIAS_NET2_NOTHROW
-	{
-		return p.release();
-	}
-};
+#endif
 
 
 }
@@ -153,17 +150,17 @@ struct workq_int_refcnt_release
 
 class workq_destroy
 {
-friend void refcnt_release(workq&);
+friend void refcnt_release(const workq&);
 
 private:
-	void operator()(workq*) ILIAS_NET2_NOTHROW;
+	void operator()(const workq*) ILIAS_NET2_NOTHROW;
 };
 
 class ILIAS_NET2_LOCAL workq FINAL :
-	public ll_base_hook<wq_runq_tag>,
-	public workq_int_refcnt,
+	public ll_base_hook<workq_detail::wq_runq_tag>,
+	public workq_detail::workq_int_refcnt,
 	public refcount_base<workq, workq_destroy>,
-	public identity_comparable
+	public workq_detail::identity_comparable
 {
 friend class workq_service;	/* Needs access to coroutine_job, job. */
 friend class workq_destroy;	/* Destructor. */
@@ -175,16 +172,13 @@ private:
 	class runnable_job;
 	class workq_service_workq;
 
-	typedef ll_smartptr_list<workq_int_pointer<job>,
-	    ll_base<job, wq_runq_tag>,
-	    workq_int_refcnt_acquire<job>,
-	    workq_int_refcnt_release<job> > runq_list;
+	typedef ll_smartptr_list<workq_detail::workq_int_pointer<job>,
+	    ll_base<job, workq_detail::wq_runq_tag>,
+	    refpointer_acquire<job, workq_detail::workq_int_refcnt_mgr>,
+	    refpointer_release<job, workq_detail::workq_int_refcnt_mgr> > runq_list;
 
 	const refpointer<workq_service> wqs;
 	runq_list runq;
-	std::atomic<int> m_flags;
-
-	static const int QMOD = 0x80000000;
 
 protected:
 	ILIAS_NET2_LOCAL workq(const refpointer<workq_service>&) ILIAS_NET2_NOTHROW;
@@ -200,27 +194,30 @@ public:
 private:
 	ILIAS_NET2_LOCAL runnable_job get_runnable_job() ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT void destroy() ILIAS_NET2_NOTHROW;
+
+	ILIAS_NET2_LOCAL void activate() const ILIAS_NET2_NOTHROW;
 };
 
 void
-workq_destroy::operator()(workq* wq) ILIAS_NET2_NOTHROW
+workq_destroy::operator()(const workq* wq) ILIAS_NET2_NOTHROW
 {
-	wq->destroy();
+	const_cast<workq*>(wq)->destroy();
 	delete wq;
 }
 
 
 class ILIAS_NET2_EXPORT workq::job :
-	public ll_base_hook<wq_runq_tag>,
-	public workq_int_refcnt,
-	public identity_comparable
+	public ll_base_hook<workq_detail::wq_runq_tag>,
+	public workq_detail::workq_int_refcnt,
+	public workq_detail::identity_comparable
 {
 friend class workq::runnable_job;
 
 private:
-	const refpointer<workq> wq;	/* Associated workq. */
-	std::atomic<int> m_state;	/* State indication bits. */
-	const int m_type;		/* Type indication bits. */
+	const refpointer<workq> wq;		/* Associated workq. */
+	mutable std::atomic<int> m_state;	/* State indication bits. */
+	const int m_type;			/* Type indication bits. */
+	mutable std::atomic<int> m_rungen;	/* Run invocation sequence. */
 
 public:
 	static CONSTEXPR_VALUE int STATE_RUNNING = 0x0001;
@@ -234,15 +231,13 @@ protected:
 	job(const refpointer<workq>& wq, int type) ILIAS_NET2_NOTHROW :
 		wq(wq),
 		m_state(0),
-		m_type(type)
+		m_type(type),
+		m_rungen(0)
 	{
 		/* Empty body. */
 	}
 
-	void clear_running(const workq_int_pointer<job>&) ILIAS_NET2_NOTHROW;
-#if HAS_RVALUE_REF
-	void clear_running(workq_int_pointer<job>&&) ILIAS_NET2_NOTHROW;
-#endif
+	void clear_running(workq_detail::workq_int_pointer<job>) ILIAS_NET2_NOTHROW;
 
 public:
 	virtual ~job() ILIAS_NET2_NOTHROW;
@@ -253,6 +248,8 @@ private:
 public:
 	workq& get_workq() const ILIAS_NET2_NOTHROW;
 	workq_service& get_workq_service() const ILIAS_NET2_NOTHROW;
+	void activate() ILIAS_NET2_NOTHROW;
+	void deactivate() ILIAS_NET2_NOTHROW;
 };
 
 
@@ -272,7 +269,7 @@ private:
 
 class ILIAS_NET2_LOCAL workq::coroutine_job FINAL :
 	public workq::job,
-	public ll_base_hook<wq_coroutine_tag>
+	public ll_base_hook<workq_detail::wq_coroutine_tag>
 {
 friend class workq_service;	/* Grant access to class workq_service_coroutines. */
 
@@ -300,21 +297,16 @@ class ILIAS_NET2_LOCAL workq::coroutine_job::workq_service_coroutines
 friend class workq::coroutine_job;
 
 private:
-	typedef ll_smartptr_list<workq_int_pointer<coroutine_job>,
-	    ll_base<coroutine_job, wq_coroutine_tag>,
-	    workq_int_refcnt_acquire<coroutine_job>,
-	    workq_int_refcnt_release<coroutine_job> > coroutine_list;
+	typedef ll_smartptr_list<workq_detail::workq_int_pointer<coroutine_job>,
+	    ll_base<coroutine_job, workq_detail::wq_coroutine_tag>,
+	    refpointer_acquire<coroutine_job, workq_detail::workq_int_refcnt_mgr>,
+	    refpointer_release<coroutine_job, workq_detail::workq_int_refcnt_mgr> > coroutine_list;
 
 	/* Active co-routines. */
 	coroutine_list m_coroutines;
 
 	void activate(coroutine_job&, runnable_job&) ILIAS_NET2_NOTHROW;
-	std::pair<workq_int_pointer<coroutine_job>, fn_list::size_type> get_coroutine() ILIAS_NET2_NOTHROW;
-
-	void push_coroutine(const workq_int_pointer<coroutine_job>&) ILIAS_NET2_NOTHROW;
-#if HAS_RVALUE_REF
-	void push_coroutine(workq_int_pointer<coroutine_job>&&) ILIAS_NET2_NOTHROW;
-#endif
+	std::pair<workq_detail::workq_int_pointer<coroutine_job>, fn_list::size_type> get_coroutine() ILIAS_NET2_NOTHROW;
 
 public:
 	workq_service_coroutines() ILIAS_NET2_NOTHROW
@@ -340,12 +332,13 @@ public:
 class ILIAS_NET2_LOCAL workq::workq_service_workq
 {
 friend class workq;
+friend class workq_service;
 
 private:
-	typedef ll_smartptr_list<workq_int_pointer<workq>,
-	    ll_base<workq, wq_runq_tag>,
-	    workq_int_refcnt_acquire<workq>,
-	    workq_int_refcnt_release<workq> > workq_list;
+	typedef ll_smartptr_list<workq_detail::workq_int_pointer<workq>,
+	    ll_base<workq, workq_detail::wq_runq_tag>,
+	    refpointer_acquire<workq, workq_detail::workq_int_refcnt_mgr>,
+	    refpointer_release<workq, workq_detail::workq_int_refcnt_mgr> > workq_list;
 
 	/* Active workqs. */
 	workq_list m_workqs;
@@ -373,8 +366,8 @@ public:
 
 class ILIAS_NET2_LOCAL workq_service FINAL :
 	public refcount_base<workq_service>,
-	public workq_int_refcnt,
-	public identity_comparable
+	public workq_detail::workq_int_refcnt,
+	public workq_detail::identity_comparable
 {
 friend std::size_t workq::coroutine_job::do_run(runnable_job&) ILIAS_NET2_NOTHROW;
 friend void workq::destroy() ILIAS_NET2_NOTHROW;
@@ -390,6 +383,8 @@ public:
 	}
 
 	ILIAS_NET2_EXPORT refpointer<workq> new_workq();
+	ILIAS_NET2_EXPORT void activate(workq_detail::workq_int_pointer<workq>) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void activate(refpointer<workq>) ILIAS_NET2_NOTHROW;
 
 private:
 	bool do_work(std::size_t) ILIAS_NET2_NOTHROW;

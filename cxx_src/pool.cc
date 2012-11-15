@@ -485,7 +485,7 @@ public:
 		/* Empty body. */
 	}
 
-	void operator()(page* p) const ILIAS_NET2_NOTHROW;
+	void operator()(const page* p) const ILIAS_NET2_NOTHROW;
 };
 
 
@@ -882,12 +882,12 @@ public:
 
 
 inline void
-pool::deleter_type::operator()(pool::page* p) const ILIAS_NET2_NOTHROW
+pool::deleter_type::operator()(const pool::page* p) const ILIAS_NET2_NOTHROW
 {
 	assert(this->m_pool != nullptr);
 	assert(p->empty() || p->type == page::BIG_PAGE);
 	if (p->empty())
-		this->m_pool->dealloc_page(p);
+		this->m_pool->dealloc_page(const_cast<pool::page*>(p));
 }
 
 

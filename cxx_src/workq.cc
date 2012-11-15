@@ -20,240 +20,7 @@
 namespace ilias {
 
 
-template<typename Type>
-class workq_int_pointer :
-	public bool_test<workq_int_pointer<Type> >
-{
-public:
-	typedef Type element_type;
-	typedef element_type* pointer;
-	typedef element_type& reference;
-
-private:
-	pointer m_ptr;
-
-public:
-	workq_int_pointer() ILIAS_NET2_NOTHROW :
-		m_ptr(nullptr)
-	{
-		return;
-	}
-
-	workq_int_pointer(std::nullptr_t, bool = true) ILIAS_NET2_NOTHROW :
-		m_ptr(nullptr)
-	{
-		return;
-	}
-
-	workq_int_pointer(const workq_int_pointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_acquire(*this->m_ptr))) :
-		m_ptr(nullptr)
-	{
-		this->reset(o);
-	}
-
-#if HAS_RVALUE_REF
-	workq_int_pointer(workq_int_pointer&& o) ILIAS_NET2_NOTHROW :
-		m_ptr(nullptr)
-	{
-		std::swap(this->m_ptr, o.m_ptr);
-	}
-#endif
-
-	template<typename U>
-	workq_int_pointer(const workq_int_pointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_acquire(*this->m_ptr))) :
-		m_ptr(nullptr)
-	{
-		this->reset(o.get());
-	}
-
-	workq_int_pointer(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_acquire(*this->m_ptr))) :
-		m_ptr(nullptr)
-	{
-		this->reset(p, do_acquire);
-	}
-
-	~workq_int_pointer() ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		this->reset();
-	}
-
-	void
-	reset() ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		if (this->m_ptr) {
-			workq_int_release(*this->m_ptr);
-			this->m_ptr = nullptr;
-		}
-	}
-
-	void
-	reset(const workq_int_pointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		const pointer old = this->m_ptr;
-		if (o.m_ptr) {
-			workq_int_acquire(*o.m_ptr);
-			this->m_ptr = o.m_ptr;
-		} else
-			this->m_ptr = nullptr;
-
-		if (old)
-			workq_int_release(*old);
-	}
-
-#if HAS_RVALUE_REF
-	void
-	reset(workq_int_pointer&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		const pointer old = this->m_ptr;
-		this->m_ptr = o.m_ptr;
-		o.m_ptr = nullptr;
-
-		if (old)
-			workq_int_release(*old);
-	}
-#endif
-
-	void
-	reset(pointer p, bool do_acquire = true) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		const pointer old = this->m_ptr;
-		if (p) {
-			if (do_acquire)
-				workq_int_acquire(*p);
-			this->m_ptr = p;
-		} else
-			this->m_ptr = nullptr;
-
-		if (old)
-			workq_int_release(*old);
-	}
-
-	template<typename U>
-	void
-	reset(const workq_int_pointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		this->reset(o.get(), true);
-	}
-
-#if HAS_RVALUE_REF
-	template<typename U>
-	void
-	reset(workq_int_pointer<U>&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		this->reset(o.release(), false);
-	}
-#endif
-
-	void
-	swap(workq_int_pointer& rv) ILIAS_NET2_NOTHROW
-	{
-		using std::swap;
-		swap(this->m_ptr, rv.m_ptr);
-	}
-
-	friend void
-	swap(workq_int_pointer& lhs, workq_int_pointer& rhs) ILIAS_NET2_NOTHROW
-	{
-		lhs.swap(rhs);
-	}
-
-	workq_int_pointer&
-	operator=(std::nullptr_t) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		this->reset();
-		return *this;
-	}
-
-	workq_int_pointer&
-	operator=(const workq_int_pointer& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		this->reset(o);
-		return *this;
-	}
-
-#if HAS_RVALUE_REF
-	workq_int_pointer&
-	operator=(workq_int_pointer&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)))
-	{
-		this->reset(o);
-		return *this;
-	}
-#endif
-
-	template<typename U>
-	workq_int_pointer&
-	operator=(const workq_int_pointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		this->reset(o.get());
-		return *this;
-	}
-
-	workq_int_pointer&
-	operator=(pointer p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(workq_int_release(*this->m_ptr)) && noexcept(workq_int_acquire(*this->m_ptr)))
-	{
-		this->reset(p);
-		return *this;
-	}
-
-	bool
-	operator==(const workq_int_pointer& o) const ILIAS_NET2_NOTHROW
-	{
-		return (this->get() == o.get());
-	}
-
-	template<typename U>
-	bool
-	operator==(const workq_int_pointer<U>& o) const ILIAS_NET2_NOTHROW
-	{
-		return (this->get() == o.get());
-	}
-
-	template<typename Ptr>
-	bool
-	operator==(Ptr* p) const ILIAS_NET2_NOTHROW
-	{
-		return (this->get() == p);
-	}
-
-	template<typename U>
-	bool
-	operator!=(const U& o) const ILIAS_NET2_NOTHROW
-	{
-		return !(*this == o);
-	}
-
-	bool
-	booltest() const ILIAS_NET2_NOTHROW
-	{
-		return this->get();
-	}
-
-	pointer
-	get() const ILIAS_NET2_NOTHROW
-	{
-		return this->m_ptr;
-	}
-
-	pointer
-	release() ILIAS_NET2_NOTHROW
-	{
-		const pointer rv = this->m_ptr;
-		this->m_ptr = nullptr;
-		return rv;
-	}
-
-	reference
-	operator*() const ILIAS_NET2_NOTHROW
-	{
-		return *this->get();
-	}
-
-	pointer
-	operator->() const ILIAS_NET2_NOTHROW
-	{
-		return this->get();
-	}
-};
+using namespace workq_detail;
 
 
 class workq::runnable_job
@@ -346,6 +113,9 @@ public:
 		} while (!this->m_ptr->m_state.compare_exchange_weak(old, set,
 		    std::memory_order_acquire, std::memory_order_relaxed));
 
+		/* Increment generation counter (must happen after job got marked runnable). */
+		this->m_ptr->m_rungen.fetch_add(1, std::memory_order_acquire);
+
 		this->m_locked = true;
 		return true;
 	}
@@ -401,7 +171,14 @@ workq::destroy() ILIAS_NET2_NOTHROW
 
 	while (!this->int_is_solo())
 		std::this_thread::yield();
-	workq_int_release(*this);
+
+	workq_int_refcnt_mgr().release(*this);
+}
+
+void
+workq::activate() const ILIAS_NET2_NOTHROW
+{
+	/* XXX implement */
 }
 
 /* Returns a job, having marked it runnable. */
@@ -422,7 +199,7 @@ workq::get_runnable_job() ILIAS_NET2_NOTHROW
 }
 
 void
-workq::job::clear_running(const workq_int_pointer<job>& ptr) ILIAS_NET2_NOTHROW
+workq::job::clear_running(workq_int_pointer<job> ptr) ILIAS_NET2_NOTHROW
 {
 	assert(this == ptr.get());	/* Ensure this pointer is owned. */
 
@@ -444,19 +221,6 @@ workq::job::clear_running(const workq_int_pointer<job>& ptr) ILIAS_NET2_NOTHROW
 		this->get_workq().runq.push_back(ptr);
 }
 
-#if HAS_RVALUE_REF
-void
-workq::job::clear_running(workq_int_pointer<job>&& ptr) ILIAS_NET2_NOTHROW
-{
-	assert(this == ptr.get());	/* Ensure this pointer is owned. */
-
-	const auto old = this->m_state.fetch_and(~STATE_RUNNING, std::memory_order_release);
-	assert(old & STATE_RUNNING);
-	if (old & STATE_ACTIVE)
-		this->get_workq().runq.push_back(std::move(ptr));
-}
-#endif
-
 workq&
 workq::job::get_workq() const ILIAS_NET2_NOTHROW
 {
@@ -473,6 +237,32 @@ workq::job::get_workq_service() const ILIAS_NET2_NOTHROW
 workq::job::~job() ILIAS_NET2_NOTHROW
 {
 	return;
+}
+
+void
+workq::job::activate() ILIAS_NET2_NOTHROW
+{
+	const int fl = this->m_state.fetch_or(STATE_RUNNING, std::memory_order_relaxed);
+	if (fl & (STATE_RUNNING | STATE_ACTIVE))
+		return;
+	if ((this->m_type & TYPE_ONCE) && (fl & STATE_HAS_RUN))
+		return;
+	workq& wq = this->get_workq();
+	wq.runq.push_back(workq_int_pointer<job>(this));
+	wq.activate();
+}
+
+void
+workq::job::deactivate() ILIAS_NET2_NOTHROW
+{
+	const int gen = this->m_rungen.load(std::memory_order_acquire);
+	int fl = this->m_state.fetch_and(~STATE_ACTIVE, std::memory_order_relaxed);
+
+	while ((fl & STATE_RUNNING) &&
+	    this->m_rungen.load(std::memory_order_relaxed) == gen) {
+		std::this_thread::yield();
+		fl = this->m_state.load(std::memory_order_relaxed);
+	}
 }
 
 
@@ -506,7 +296,7 @@ workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 
 	workq_service& wqs = this->get_workq_service();
 	wqs.m_coroutines_srv.activate(*this, rj);
-	wqs.wakeup(sz - 1);
+	wqs.wakeup(sz);
 
 	return 0;	/* We didn't execute any jobs, only changed the queueing of this job. */
 }
@@ -515,14 +305,11 @@ workq::coroutine_job::do_run(runnable_job& rj) ILIAS_NET2_NOTHROW
 void
 workq::coroutine_job::workq_service_coroutines::activate(coroutine_job& cj, runnable_job& rj) ILIAS_NET2_NOTHROW
 {
-	/* XXX implement cast. */
-	workq_int_pointer<job> p = rj.release();
-	workq_int_pointer<coroutine_job> cj_ptr(&cj);
-	assert(cj_ptr.get() == p.get());
+	workq_int_pointer<coroutine_job> cj_ptr(static_pointer_cast<workq::coroutine_job>(rj.release()));
+	assert(cj_ptr.get() == &cj);
 
-	const bool enqueue = this->m_coroutines.push_back(cj_ptr);
+	const bool enqueue = this->m_coroutines.push_back(std::move(cj_ptr));
 	assert(enqueue);
-	p.release();
 }
 
 std::pair<workq_int_pointer<workq::coroutine_job>, workq::coroutine_job::fn_list::size_type>
@@ -542,21 +329,6 @@ workq::coroutine_job::workq_service_coroutines::get_coroutine() ILIAS_NET2_NOTHR
 
 	return rv;
 }
-
-void
-workq::coroutine_job::workq_service_coroutines::push_coroutine(const workq_int_pointer<workq::coroutine_job>& crj) ILIAS_NET2_NOTHROW
-{
-	const bool ok = this->m_coroutines.push_back(crj);
-	assert(ok);
-}
-#if HAS_RVALUE_REF
-void
-workq::coroutine_job::workq_service_coroutines::push_coroutine(workq_int_pointer<workq::coroutine_job>&& crj) ILIAS_NET2_NOTHROW
-{
-	const bool ok = this->m_coroutines.push_back(std::move(crj));
-	assert(ok);
-}
-#endif
 
 bool
 workq::coroutine_job::workq_service_coroutines::run_coroutine(std::size_t& counter) ILIAS_NET2_NOTHROW
@@ -624,6 +396,18 @@ workq::workq_service_workq::run_workq(std::size_t& counter) ILIAS_NET2_NOTHROW
 	return true;
 }
 
+
+void
+workq_service::activate(workq_int_pointer<workq> wq)
+{
+	this->m_workq_srv.m_workqs.push_front(std::move(wq));
+}
+
+void
+workq_service::activate(refpointer<workq> wq)
+{
+	this->activate(workq_int_pointer<workq>(wq.get()));
+}
 
 bool
 workq_service::do_work(std::size_t n) ILIAS_NET2_NOTHROW

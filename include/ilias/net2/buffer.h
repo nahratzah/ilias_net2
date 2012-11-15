@@ -135,7 +135,7 @@ private:
 	class ILIAS_NET2_LOCAL mem_segment_free
 	{
 	public:
-		void operator()(mem_segment* ms) const ILIAS_NET2_NOTHROW;
+		void operator()(const mem_segment* ms) const ILIAS_NET2_NOTHROW;
 	};
 
 	/*
@@ -269,7 +269,7 @@ private:
 		}
 
 		/* Destroy and deallocate mem_segment. */
-		static void free(mem_segment* ms) ILIAS_NET2_NOTHROW;
+		static void free(const mem_segment* ms) ILIAS_NET2_NOTHROW;
 
 	public:
 		/* Create a new mem_segment that is able to hold at least sz bytes. */
@@ -1046,7 +1046,7 @@ public:
 
 
 inline void
-buffer::mem_segment_free::operator()(buffer::mem_segment* ms) const ILIAS_NET2_NOTHROW
+buffer::mem_segment_free::operator()(const buffer::mem_segment* ms) const ILIAS_NET2_NOTHROW
 {
 	mem_segment::free(ms);
 }

@@ -73,10 +73,10 @@ buffer::segment_ref::grow(const void* data, size_type datalen, bool sensitive) I
 }
 
 void
-buffer::mem_segment::free(mem_segment* ms) ILIAS_NET2_NOTHROW
+buffer::mem_segment::free(const mem_segment* ms) ILIAS_NET2_NOTHROW
 {
 	/* Retrieve data we want to hang on to. */
-	void*const ptr = ms;
+	void*const ptr = const_cast<mem_segment*>(ms);
 	const size_type sz = ms->alloc_size();
 	const bool sensitive = ms->m_sensitive.load(std::memory_order_relaxed);
 
