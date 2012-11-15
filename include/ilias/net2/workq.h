@@ -145,7 +145,7 @@ public:
 #endif
 
 
-}
+} /* namespace ilias::workq_detail */
 
 
 class workq_destroy
