@@ -242,7 +242,7 @@ workq::job::~job() ILIAS_NET2_NOTHROW
 void
 workq::job::activate() ILIAS_NET2_NOTHROW
 {
-	const int fl = this->m_state.fetch_or(STATE_RUNNING, std::memory_order_relaxed);
+	const int fl = this->m_state.fetch_or(STATE_ACTIVE, std::memory_order_relaxed);
 	if (fl & (STATE_RUNNING | STATE_ACTIVE))
 		return;
 	if ((this->m_type & TYPE_ONCE) && (fl & STATE_HAS_RUN))
