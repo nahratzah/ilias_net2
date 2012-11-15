@@ -2796,6 +2796,12 @@ public:
 	{
 		return const_iterator(this->m_list.iterator_to(v));
 	}
+
+	bool
+	empty() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_list.empty();
+	}
 };
 
 
