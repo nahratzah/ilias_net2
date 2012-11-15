@@ -138,7 +138,8 @@ public:
 
 	static const unsigned int TYPE_ONCE = 0x0001;
 	static const unsigned int TYPE_PERSIST = 0x0002;
-	static const unsigned int TYPE_MASK = (TYPE_ONCE | TYPE_PERSIST);
+	static const unsigned int TYPE_PARALLEL = 0x0004;
+	static const unsigned int TYPE_MASK = (TYPE_ONCE | TYPE_PERSIST | TYPE_PARALLEL);
 
 	const unsigned int m_type;
 
@@ -146,6 +147,14 @@ private:
 	mutable std::atomic<unsigned int> m_run_gen;
 	mutable std::atomic<unsigned int> m_state;
 	const workq_ptr m_wq;
+
+	enum run_lck {
+		RUNNING,
+		BUSY
+	};
+
+	ILIAS_NET2_LOCAL run_lck lock_run() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW;
 
 protected:
 	ILIAS_NET2_EXPORT workq_job(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
@@ -186,7 +195,7 @@ protected:
 	ILIAS_NET2_EXPORT co_runnable(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
 
 	ILIAS_NET2_EXPORT virtual void co_run() ILIAS_NET2_NOTHROW = 0;
-	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
 	ILIAS_NET2_EXPORT virtual std::size_t size() const ILIAS_NET2_NOTHROW = 0;
 };
 
@@ -201,6 +210,7 @@ class workq :
 {
 friend class workq_service;
 friend void workq_job::activate() ILIAS_NET2_NOTHROW;
+friend void workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
@@ -212,6 +222,16 @@ private:
 
 	job_runq m_runq;
 	const workq_service_ptr m_wqs;
+	std::atomic<bool> m_run_single;
+	std::atomic<unsigned int> m_run_parallel;
+
+	enum run_lck {
+		RUN_SINGLE,
+		RUN_PARALLEL
+	};
+
+	ILIAS_NET2_LOCAL run_lck lock_run() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_LOCAL workq(workq_service_ptr wqs) throw (std::invalid_argument);
 	ILIAS_NET2_LOCAL ~workq() ILIAS_NET2_NOTHROW;

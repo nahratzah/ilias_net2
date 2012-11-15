@@ -87,6 +87,48 @@ workq_job::get_workq_service() const ILIAS_NET2_NOTHROW
 	return this->get_workq()->get_workq_service();
 }
 
+workq_job::run_lck
+workq_job::lock_run() ILIAS_NET2_NOTHROW
+{
+	auto s = this->m_state.load(std::memory_order_relaxed);
+	decltype(s) new_s;
+
+	do {
+		if (!(s & STATE_ACTIVE))
+			return BUSY;
+		if (s & STATE_RUNNING)
+			return BUSY;
+		if ((this->m_type & TYPE_ONCE) && (s & STATE_HAS_RUN))
+			return BUSY;
+
+		new_s = s | STATE_RUNNING;
+		if (!(this->m_type & TYPE_PERSIST))
+			new_s &= ~STATE_ACTIVE;
+	} while (!this->m_state.compare_exchange_weak(s, new_s, std::memory_order_acquire, std::memory_order_relaxed));
+
+	this->m_run_gen.fetch_add(1, std::memory_order_acquire);
+	return RUNNING;
+}
+
+void
+workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW
+{
+	switch (rl) {
+	case RUNNING:
+		{
+			auto s = this->m_state.fetch_and(~STATE_RUNNING, std::memory_order_release);
+			assert(s & STATE_RUNNING);
+			if (this->m_type & TYPE_ONCE)
+				return;
+			if (s & STATE_ACTIVE)
+				this->get_workq()->job_to_runq(this);
+		}
+		break;
+	case BUSY:
+		break;
+	}
+}
+
 
 workq_detail::co_runnable::~co_runnable() ILIAS_NET2_NOTHROW
 {
@@ -107,7 +149,9 @@ workq_detail::co_runnable::run() ILIAS_NET2_NOTHROW
 
 
 workq::workq(workq_service_ptr wqs) throw (std::invalid_argument) :
-	m_wqs(std::move(wqs))
+	m_wqs(std::move(wqs)),
+	m_run_single(false),
+	m_run_parallel(0)
 {
 	if (!this->m_wqs)
 		throw std::invalid_argument("workq: null workq service");
@@ -116,6 +160,8 @@ workq::workq(workq_service_ptr wqs) throw (std::invalid_argument) :
 workq::~workq() ILIAS_NET2_NOTHROW
 {
 	assert(this->m_runq.empty());
+	assert(!this->m_run_single.load(std::memory_order_acquire));
+	assert(this->m_run_parallel.load(std::memory_order_acquire) == 0);
 }
 
 const workq_service_ptr&
@@ -131,6 +177,34 @@ workq::job_to_runq(workq_detail::workq_intref<workq_job> j) ILIAS_NET2_NOTHROW
 		this->get_workq_service()->wq_to_runq(this);
 }
 
+workq::run_lck
+workq::lock_run() ILIAS_NET2_NOTHROW
+{
+	if (!this->m_run_single.exchange(true, std::memory_order_acquire))
+		return RUN_SINGLE;
+	this->m_run_parallel.fetch_add(1, std::memory_order_acquire);
+	return RUN_PARALLEL;
+}
+
+void
+workq::unlock_run(run_lck rl) ILIAS_NET2_NOTHROW
+{
+	switch (rl) {
+	case RUN_SINGLE:
+		{
+			const auto old_run_single = this->m_run_single.exchange(false, std::memory_order_release);
+			assert(old_run_single);
+		}
+		break;
+	case RUN_PARALLEL:
+		{
+			const auto old_run_parallel = this->m_run_parallel.fetch_sub(1, std::memory_order_release);
+			assert(old_run_parallel > 0);
+		}
+		break;
+	}
+}
+
 
 workq_service::workq_service() ILIAS_NET2_NOTHROW
 {
@@ -139,7 +213,8 @@ workq_service::workq_service() ILIAS_NET2_NOTHROW
 
 workq_service::~workq_service() ILIAS_NET2_NOTHROW
 {
-	assert(m_runq.empty());
+	assert(this->m_wq_runq.empty());
+	assert(this->m_co_runq.empty());
 }
 
 void
@@ -325,8 +400,8 @@ class ILIAS_NET2_LOCAL job_once FINAL :
 {
 public:
 	template<typename... FN>
-	job_once(workq_ptr ptr, FN... fn) :
-		JobType(std::move(ptr), std::move(fn)..., workq_job::TYPE_ONCE)	/* XXX fn... -> std::forward(fn)... */
+	job_once(workq_ptr ptr, FN&&... fn) :
+		JobType(std::move(ptr), std::forward<FN>(fn)..., workq_job::TYPE_ONCE)
 	{
 		if (this->m_type & workq_job::TYPE_ONCE)
 			throw std::invalid_argument("job_once: TYPE_ONCE is implied");
