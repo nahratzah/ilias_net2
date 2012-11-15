@@ -23,6 +23,7 @@
 #include <utility>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <exception>
 
 #if defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
@@ -202,9 +203,8 @@ protected:
 		void
 		wait_ready() const ILIAS_NET2_NOTHROW
 		{
-			while (!this->ready()) {
-				// XXX std::thread::yield();
-			}
+			while (!this->ready())
+				std::this_thread::yield();
 		}
 
 		bool
@@ -509,7 +509,7 @@ private:
 		bool
 		has_value() const ILIAS_NET2_NOTHROW
 		{
-			return this->ready() && m_value_isset;
+			return this->ready() && this->m_value_isset;
 		}
 
 		reference
