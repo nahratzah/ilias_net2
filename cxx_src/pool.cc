@@ -1018,7 +1018,7 @@ pool::osdep::valloc(std::size_t sz) const
 	assert(sz % this->alloc_align() == 0);
 
 	/* Allocate memory. */
-	void* ptr = mmap(nullptr, sz, PROT_NONE, MAP_ANON, -1, 0);
+	void* ptr = mmap(nullptr, sz, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
 	if (ptr == MAP_FAILED)
 		return nullptr;
 
@@ -1037,7 +1037,7 @@ pool::osdep::valloc(void* position, std::size_t sz) const
 	if (sz == 0)
 		return nullptr;
 
-	void* ptr = mmap(position, sz, PROT_NONE, MAP_ANON, -1, 0);
+	void* ptr = mmap(position, sz, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
 	if (ptr == MAP_FAILED)
 		return nullptr;
 	if (ptr != position) {
