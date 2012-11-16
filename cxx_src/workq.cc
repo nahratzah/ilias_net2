@@ -196,6 +196,10 @@ wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 				break;		/* GUARD */
 		}
 
+		/* Take job away from parallel runq iff it is parallel. */
+		if (this->m_wq_job && (this->m_wq_job->m_type & workq_job::TYPE_PARALLEL))
+			this->m_wq->m_p_runq.erase(this->m_wq->m_p_runq.iterator_to(*this->m_wq_job));
+
 		/* Downgrade to parallel lock iff job is a parallel job. */
 		if (this->m_wq_job && (this->m_wq_job->m_type & workq_job::TYPE_PARALLEL)) {
 			this->m_wq_lck = this->m_wq->lock_run_downgrade(this->m_wq_lck);
@@ -214,6 +218,9 @@ wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 			if ((this->m_wq_job_lck = this->m_wq_job->lock_run()) != workq_job::BUSY)
 				break;		/* GUARD */
 		}
+
+		/* Take job away from single runq. */
+		this->m_wq->m_runq.erase(this->m_wq->m_runq.iterator_to(*this->m_wq_job));
 
 		break;
 	}
@@ -258,6 +265,12 @@ wq_run_lock::lock(workq_job& what) ILIAS_NET2_NOTHROW
 		return false;
 	} else
 		assert(this->m_wq_job->is_running());
+
+	/* Take job from the runqs. */
+	this->m_wq->m_runq.erase(this->m_wq->m_runq.iterator_to(*this->m_wq_job));
+	if (this->m_wq_job->m_type & workq_job::TYPE_PARALLEL)
+		this->m_wq->m_p_runq.erase(this->m_wq->m_p_runq.iterator_to(*this->m_wq_job));
+
 	return true;
 }
 
@@ -441,8 +454,20 @@ workq_detail::co_runnable::run() ILIAS_NET2_NOTHROW
 {
 	const std::size_t runcount = this->size();
 
-	this->m_runcount.store(this->size());
-	this->get_workq_service()->co_to_runq(this, runcount);
+	if (runcount > 0) {
+		this->m_runcount.store(runcount);
+		this->get_workq_service()->co_to_runq(this, runcount);
+	} else {
+		/*
+		 * This is stretching the interface a little: we are technically not supposed to
+		 * clear the running state in the run() method.
+		 *
+		 * However since our unlock will not take any action, we are kind of required
+		 * to do so now, because the release method will only clear the running state
+		 * once.
+		 */
+		this->workq_job::unlock_run(RUNNING);
+	}
 }
 
 void
@@ -460,6 +485,18 @@ workq_detail::co_runnable::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW
 void
 workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
 {
+	/*
+	 * When release is called, the co-runnable cannot start more work.
+	 * It must be unlinked from the co-runq.
+	 * Note that this call will fail a lot, because multiple threads will attempt this operation
+	 * but only one will succeed (which is fine, we simply don't want it to keep appearing on the
+	 * co-runq).
+	 *
+	 * Note: this call must complete before the co-runnable ceases to run, otherwise a race
+	 * could cause co-runnable insertion to fail when it is next activated.
+	 */
+	this->get_workq_service()->m_co_runq.erase(this->get_workq_service()->m_co_runq.iterator_to(*this));
+
 	if (n > 0) {
 		const std::size_t old = this->m_runcount.fetch_sub(n, std::memory_order_release);
 		assert(old >= n);
@@ -613,13 +650,30 @@ workq_service::new_workq() throw (std::bad_alloc)
 void
 workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 {
+	using std::begin;
+	using std::end;
+
+	auto co = begin(this->m_co_runq);
 	for (unsigned int i = 0; i < count; ++i) {
+		/* Run co-runnables before workqs. */
+		if (co != end(this->m_co_runq)) {
+			do {
+				if (co->co_run())
+					++i;
+			} while (i < count && co != end(this->m_co_runq));
+			continue;
+		}
+
+		/* Run a workq. */
 		workq_detail::wq_run_lock rlck(*this);
 		if (!rlck.is_locked())
-			break;
+			break;	/* GUARD: No co-runnables, nor workqs available. */
 
 		rlck.get_wq_job()->run();
 		rlck.commit();
+
+		/* Update co-routine iterator. */
+		co = begin(this->m_co_runq);
 	}
 }
 
@@ -732,7 +786,7 @@ public:
 
 	virtual ~coroutine_job() ILIAS_NET2_NOTHROW;
 	virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
-	virtual void co_run() ILIAS_NET2_NOTHROW OVERRIDE;
+	virtual bool co_run() ILIAS_NET2_NOTHROW OVERRIDE;
 	virtual std::size_t size() const ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
@@ -748,7 +802,7 @@ coroutine_job::run() ILIAS_NET2_NOTHROW
 	this->co_runnable::run();
 }
 
-void
+bool
 coroutine_job::co_run() ILIAS_NET2_NOTHROW
 {
 	std::size_t runcount = 0;
@@ -759,6 +813,7 @@ coroutine_job::co_run() ILIAS_NET2_NOTHROW
 		this->m_coroutines[idx]();
 	}
 	this->release(runcount);
+	return runcount > 0;
 }
 
 std::size_t

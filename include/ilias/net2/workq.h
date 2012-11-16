@@ -258,7 +258,7 @@ protected:
 	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW OVERRIDE;
 	ILIAS_NET2_EXPORT void release(std::size_t n) ILIAS_NET2_NOTHROW;
 
-	ILIAS_NET2_EXPORT virtual void co_run() ILIAS_NET2_NOTHROW = 0;
+	ILIAS_NET2_EXPORT virtual bool co_run() ILIAS_NET2_NOTHROW = 0;
 	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
 	ILIAS_NET2_EXPORT virtual std::size_t size() const ILIAS_NET2_NOTHROW = 0;
 };
@@ -395,6 +395,7 @@ friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::co_runnable::run() ILIAS_NET2_NOTHROW;
+friend void workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW;
 friend void workq::job_to_runq(workq_detail::workq_intref<workq_job>) ILIAS_NET2_NOTHROW;
 
 private:
