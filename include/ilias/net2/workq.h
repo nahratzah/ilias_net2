@@ -195,6 +195,8 @@ public:
 	static const unsigned int TYPE_PARALLEL = 0x0004;
 	static const unsigned int TYPE_MASK = (TYPE_ONCE | TYPE_PERSIST | TYPE_PARALLEL);
 
+	static const unsigned int ACT_IMMED = 0x0001;
+
 	const unsigned int m_type;
 
 private:
@@ -211,7 +213,7 @@ protected:
 	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW = 0;
 
 public:
-	ILIAS_NET2_EXPORT void activate() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void activate(unsigned int flags = 0) ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT void deactivate() ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT const workq_ptr& get_workq() const ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT const workq_service_ptr& get_workq_service() const ILIAS_NET2_NOTHROW;
@@ -265,7 +267,7 @@ class workq FINAL :
 {
 friend class workq_service;
 friend class workq_detail::wq_run_lock;
-friend void workq_job::activate() ILIAS_NET2_NOTHROW;
+friend void workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
 friend void workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
@@ -363,6 +365,8 @@ public:
 	}
 #endif
 
+	ILIAS_NET2_EXPORT void aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
+
 
 #if HAS_DELETED_FN
 	workq(const workq&) = delete;
@@ -409,6 +413,7 @@ private:
 
 public:
 	ILIAS_NET2_EXPORT workq_ptr new_workq() throw (std::bad_alloc);
+	ILIAS_NET2_EXPORT void aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
 
 
 #if HAS_DELETED_FN

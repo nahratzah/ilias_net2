@@ -78,24 +78,24 @@ public:
 		this->lock(wqs);
 	}
 
-	wq_run_lock(workq_intref<workq>& wq) ILIAS_NET2_NOTHROW :
+	wq_run_lock(workq& wq) ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
 	{
-		this->lock(std::move(wq));
+		this->lock(wq);
 	}
 
-	wq_run_lock(workq_intref<workq_job>& wqj) ILIAS_NET2_NOTHROW :
+	wq_run_lock(workq_job& wqj) ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
 	{
-		this->lock(std::move(wqj));
+		this->lock(wqj);
 	}
 
 	~wq_run_lock() ILIAS_NET2_NOTHROW
@@ -160,8 +160,8 @@ public:
 		this->m_commited = false;
 	}
 
-	bool lock(workq_intref<workq> what) ILIAS_NET2_NOTHROW;
-	bool lock(workq_intref<workq_job> what) ILIAS_NET2_NOTHROW;
+	bool lock(workq& what) ILIAS_NET2_NOTHROW;
+	bool lock(workq_job& what) ILIAS_NET2_NOTHROW;
 	bool lock(workq_service& wqs) ILIAS_NET2_NOTHROW;
 
 
@@ -176,14 +176,12 @@ private:
 };
 
 bool
-wq_run_lock::lock(workq_intref<workq> what) ILIAS_NET2_NOTHROW
+wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 {
 	assert(!this->m_wq && !this->m_wq_job);
-	if (!what)
-		return false;
 
 	this->m_commited = false;
-	this->m_wq = std::move(what);
+	this->m_wq = &what;
 	this->m_wq_lck = this->m_wq->lock_run();
 
 	switch (this->m_wq_lck) {
@@ -228,17 +226,15 @@ wq_run_lock::lock(workq_intref<workq> what) ILIAS_NET2_NOTHROW
 }
 
 bool
-wq_run_lock::lock(workq_intref<workq_job> what) ILIAS_NET2_NOTHROW
+wq_run_lock::lock(workq_job& what) ILIAS_NET2_NOTHROW
 {
 	assert(!this->m_wq && !this->m_wq_job);
-	if (!what)
-		return false;
 
 	this->m_commited = false;
-	this->m_wq = what->get_workq();
+	this->m_wq = what.get_workq();
 
 	/* Acquire proper lock type on workq. */
-	if (what->m_type & workq_job::TYPE_PARALLEL) {
+	if (what.m_type & workq_job::TYPE_PARALLEL) {
 		this->m_wq_lck = this->m_wq->lock_run_parallel();
 		if (this->m_wq_lck != workq::RUN_PARALLEL) {
 			this->unlock();
@@ -253,7 +249,7 @@ wq_run_lock::lock(workq_intref<workq_job> what) ILIAS_NET2_NOTHROW
 	}
 
 	/* Acquire run lock for the given job. */
-	this->m_wq_job = std::move(what);
+	this->m_wq_job = &what;
 	this->m_wq_job_lck = this->m_wq_job->lock_run();
 
 	if (!this->is_locked()) {
@@ -278,7 +274,7 @@ wq_run_lock::lock(workq_service& wqs) ILIAS_NET2_NOTHROW
 		auto wq = wqs.m_wq_runq.pop_front_nowait();
 		if (!wq)
 			break;		/* GUARD */
-		else if (this->lock(wq.get())) {
+		else if (this->lock(*wq)) {
 			/* Acquired a job: workq may stay on the runq. */
 			wqs.m_wq_runq.push_back(std::move(wq));
 			wqs.wakeup();
@@ -338,11 +334,20 @@ workq_job::~workq_job() ILIAS_NET2_NOTHROW
 }
 
 void
-workq_job::activate() ILIAS_NET2_NOTHROW
+workq_job::activate(unsigned int flags) ILIAS_NET2_NOTHROW
 {
 	const auto s = this->m_state.fetch_or(STATE_ACTIVE, std::memory_order_relaxed);
 	if (!(s & (STATE_RUNNING | STATE_ACTIVE)))
 		this->get_workq()->job_to_runq(this);
+
+	if (flags & ACT_IMMED) {
+		workq_detail::wq_run_lock rlck(*this);
+		if (rlck.is_locked()) {
+			assert(rlck.get_wq_job().get() == this);
+			this->run();
+			rlck.commit();
+		}
+	}
 }
 
 void
@@ -551,6 +556,19 @@ workq::lock_run_downgrade(workq::run_lck rl) ILIAS_NET2_NOTHROW
 	return rl;
 }
 
+void
+workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
+{
+	for (unsigned int i = 0; i < count; ++i) {
+		workq_detail::wq_run_lock rlck(*this);
+		if (!rlck.is_locked())
+			break;
+
+		rlck.get_wq_job()->run();
+		rlck.commit();
+	}
+}
+
 
 workq_service::workq_service() ILIAS_NET2_NOTHROW
 {
@@ -588,6 +606,19 @@ workq_ptr
 workq_service::new_workq() throw (std::bad_alloc)
 {
 	return workq_ptr(new workq(this));
+}
+
+void
+workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
+{
+	for (unsigned int i = 0; i < count; ++i) {
+		workq_detail::wq_run_lock rlck(*this);
+		if (!rlck.is_locked())
+			break;
+
+		rlck.get_wq_job()->run();
+		rlck.commit();
+	}
 }
 
 
