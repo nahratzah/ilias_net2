@@ -161,6 +161,9 @@ struct wq_deleter
 };
 
 
+class wq_run_lock;
+
+
 } /* namespace ilias::workq_detail */
 
 
@@ -174,6 +177,7 @@ class workq_job :
 {
 friend class workq;	/* Because MSVC and GCC cannot access private types in friend definitions. :P */
 friend class workq_service;
+friend class workq_detail::wq_run_lock;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
 public:
@@ -260,6 +264,7 @@ class workq FINAL :
 	public refcount_base<workq, workq_detail::wq_deleter>
 {
 friend class workq_service;
+friend class workq_detail::wq_run_lock;
 friend void workq_job::activate() ILIAS_NET2_NOTHROW;
 friend void workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
@@ -374,6 +379,7 @@ class workq_service FINAL :
 	public workq_detail::workq_int,
 	public refcount_base<workq_service, workq_detail::wq_deleter>
 {
+friend class workq_detail::wq_run_lock;
 friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;

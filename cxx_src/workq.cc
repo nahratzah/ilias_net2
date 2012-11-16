@@ -23,6 +23,279 @@
 
 
 namespace ilias {
+namespace workq_detail {
+
+
+/*
+ * wq_run_lock: lock a workq and job for execution.
+ *
+ * This forms the basis for locking a job to be executed.
+ * If this is in the locked state, the job _must_ be run,
+ * after which commit() is called.
+ *
+ * Destroying a locked, but uncommited wq_run_lock will
+ * result in an assertion failure, since it would invalidate
+ * the promise to a job (when the job is succesfully locked,
+ * it is guaranteed to run and to unlock).
+ */
+class ILIAS_NET2_LOCAL wq_run_lock
+{
+private:
+	workq_intref<workq> m_wq;
+	workq_intref<workq_job> m_wq_job;
+	workq::run_lck m_wq_lck;
+	workq_job::run_lck m_wq_job_lck;
+	bool m_commited;
+
+public:
+	wq_run_lock() ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		/* Empty body. */
+	}
+
+	wq_run_lock(wq_run_lock&& o) ILIAS_NET2_NOTHROW :
+		m_wq(std::move(o.m_wq)),
+		m_wq_job(std::move(o.m_wq_job)),
+		m_wq_lck(o.m_wq_lck),
+		m_wq_job_lck(o.m_wq_job_lck),
+		m_commited(o.m_commited)
+	{
+		/* Empty body. */
+	}
+
+	wq_run_lock(workq_service& wqs) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(wqs);
+	}
+
+	wq_run_lock(workq_intref<workq>& wq) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(std::move(wq));
+	}
+
+	wq_run_lock(workq_intref<workq_job>& wqj) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(std::move(wqj));
+	}
+
+	~wq_run_lock() ILIAS_NET2_NOTHROW
+	{
+		this->unlock();
+	}
+
+	wq_run_lock&
+	operator=(wq_run_lock&& o) ILIAS_NET2_NOTHROW
+	{
+		assert(!this->m_wq && !this->m_wq_job);
+		this->m_wq = std::move(o.m_wq);
+		this->m_wq_job = std::move(o.m_wq_job);
+		this->m_wq_lck = o.m_wq_lck;
+		this->m_wq_job_lck = o.m_wq_job_lck;
+		this->m_commited = o.m_commited;
+		return *this;
+	}
+
+	const workq_intref<workq>&
+	get_wq() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_wq;
+	}
+
+	const workq_intref<workq_job>&
+	get_wq_job() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_wq_job;
+	}
+
+	bool
+	is_commited() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_commited;
+	}
+
+	void
+	commit() ILIAS_NET2_NOTHROW
+	{
+		assert(this->is_locked() && !this->is_commited());
+		this->m_commited = true;
+	}
+
+	bool
+	is_locked() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_wq_job_lck != workq_job::BUSY && this->get_wq() && this->get_wq_job());
+	}
+
+	void
+	unlock() ILIAS_NET2_NOTHROW
+	{
+		assert(!this->is_locked() || this->m_commited);
+
+		if (this->m_wq_job && this->m_wq_job_lck != workq_job::BUSY)
+			this->m_wq_job->unlock_run(this->m_wq_job_lck);
+		if (this->m_wq)
+			this->m_wq->unlock_run(this->m_wq_lck);
+		this->m_wq_job.reset();
+		this->m_wq.reset();
+		this->m_commited = false;
+	}
+
+	bool lock(workq_intref<workq> what) ILIAS_NET2_NOTHROW;
+	bool lock(workq_intref<workq_job> what) ILIAS_NET2_NOTHROW;
+	bool lock(workq_service& wqs) ILIAS_NET2_NOTHROW;
+
+
+#if HAS_DELETED_FN
+	wq_run_lock(const wq_run_lock&) = delete;
+	wq_run_lock& operator=(const wq_run_lock&) = delete;
+#else
+private:
+	wq_run_lock(const wq_run_lock&);
+	wq_run_lock& operator=(const wq_run_lock&);
+#endif
+};
+
+bool
+wq_run_lock::lock(workq_intref<workq> what) ILIAS_NET2_NOTHROW
+{
+	assert(!this->m_wq && !this->m_wq_job);
+	if (!what)
+		return false;
+
+	this->m_commited = false;
+	this->m_wq = std::move(what);
+	this->m_wq_lck = this->m_wq->lock_run();
+
+	switch (this->m_wq_lck) {
+	case workq::RUN_SINGLE:
+		/*
+		 * Find a job we can run.
+		 *
+		 * Loop terminates either with a locked job, or without job.
+		 */
+		while ((this->m_wq_job = this->m_wq->m_runq.pop_front())) {
+			if ((this->m_wq_job_lck = this->m_wq_job->lock_run()) != workq_job::BUSY)
+				break;		/* GUARD */
+		}
+
+		/* Downgrade to parallel lock iff job is a parallel job. */
+		if (this->m_wq_job && (this->m_wq_job->m_type & workq_job::TYPE_PARALLEL)) {
+			this->m_wq_lck = this->m_wq->lock_run_downgrade(this->m_wq_lck);
+			assert(this->m_wq_lck == workq::RUN_SINGLE ||
+			    this->m_wq_lck == workq::RUN_PARALLEL);
+		}
+
+		break;
+	case workq::RUN_PARALLEL:
+		/*
+		 * Find a parallel job we can run.
+		 *
+		 * Loop terminates either with a locked job, or without job.
+		 */
+		while ((this->m_wq_job = this->m_wq->m_p_runq.pop_front())) {
+			if ((this->m_wq_job_lck = this->m_wq_job->lock_run()) != workq_job::BUSY)
+				break;		/* GUARD */
+		}
+
+		break;
+	}
+
+	if (!this->is_locked()) {
+		this->unlock();
+		return false;
+	}
+	return true;
+}
+
+bool
+wq_run_lock::lock(workq_intref<workq_job> what) ILIAS_NET2_NOTHROW
+{
+	assert(!this->m_wq && !this->m_wq_job);
+	if (!what)
+		return false;
+
+	this->m_commited = false;
+	this->m_wq = what->get_workq();
+
+	/* Acquire proper lock type on workq. */
+	if (what->m_type & workq_job::TYPE_PARALLEL) {
+		this->m_wq_lck = this->m_wq->lock_run_parallel();
+		if (this->m_wq_lck != workq::RUN_PARALLEL) {
+			this->unlock();
+			return false;
+		}
+	} else {
+		this->m_wq_lck = this->m_wq->lock_run();
+		if (this->m_wq_lck != workq::RUN_SINGLE) {
+			this->unlock();
+			return false;
+		}
+	}
+
+	/* Acquire run lock for the given job. */
+	this->m_wq_job = std::move(what);
+	this->m_wq_job_lck = this->m_wq_job->lock_run();
+
+	if (!this->is_locked()) {
+		this->unlock();
+		return false;
+	}
+	return true;
+}
+
+bool
+wq_run_lock::lock(workq_service& wqs) ILIAS_NET2_NOTHROW
+{
+	assert(!this->m_wq && !this->m_wq_job);
+
+	/*
+	 * Fetch a workq and hold on to it.
+	 *
+	 * Loop terminates when either we manage to lock a job on a workq,
+	 * or when the runq is depleted.
+	 */
+	for (;;) {
+		auto wq = wqs.m_wq_runq.pop_front_nowait();
+		if (!wq)
+			break;		/* GUARD */
+		else if (this->lock(wq.get())) {
+			/* Acquired a job: workq may stay on the runq. */
+			wqs.m_wq_runq.push_back(std::move(wq));
+			wqs.wakeup();
+			break;		/* GUARD */
+		} else {
+			/*
+			 * No job acquired, workq is depleted and (automatically)
+			 * removed from the runq:
+			 * wq is unlinked when scope of the loop ends.
+			 */
+		}
+	}
+	return this->is_locked();
+}
+
+
+} /* namespace ilias::workq_detail */
 
 
 void
