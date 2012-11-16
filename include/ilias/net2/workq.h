@@ -248,7 +248,7 @@ protected:
 } /* namespace workq_detail */
 
 
-class workq :
+class workq FINAL :
 	public workq_detail::workq_int,
 	public ll_base_hook<workq_detail::runq_tag>,
 	public refcount_base<workq, workq_detail::wq_deleter>
@@ -361,7 +361,7 @@ private:
 };
 
 
-class workq_service :
+class workq_service FINAL :
 	public workq_detail::workq_int,
 	public refcount_base<workq_service, workq_detail::wq_deleter>
 {
