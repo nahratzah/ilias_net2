@@ -175,6 +175,10 @@ class workq_job :
 friend class workq_service;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
+#ifdef _MSC_VER
+friend class workq;	/* Because MSVC cannot access private types in friend definitions. :P */
+#endif
+
 public:
 	static const unsigned int STATE_RUNNING = 0x0001;
 	static const unsigned int STATE_HAS_RUN = 0x0002;
