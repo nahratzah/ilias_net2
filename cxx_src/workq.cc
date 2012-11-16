@@ -221,7 +221,8 @@ wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 	if (!this->is_locked()) {
 		this->unlock();
 		return false;
-	}
+	} else
+		assert(this->m_wq_job->is_running());
 	return true;
 }
 
@@ -255,7 +256,8 @@ wq_run_lock::lock(workq_job& what) ILIAS_NET2_NOTHROW
 	if (!this->is_locked()) {
 		this->unlock();
 		return false;
-	}
+	} else
+		assert(this->m_wq_job->is_running());
 	return true;
 }
 

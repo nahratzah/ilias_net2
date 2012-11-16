@@ -218,6 +218,13 @@ public:
 	ILIAS_NET2_EXPORT const workq_ptr& get_workq() const ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT const workq_service_ptr& get_workq_service() const ILIAS_NET2_NOTHROW;
 
+	/* Test if the running bit is set. */
+	bool
+	is_running() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_state.load(std::memory_order_relaxed) & STATE_RUNNING);
+	}
+
 
 #if HAS_DELETED_FN
 	workq_job(const workq_job&) = delete;
