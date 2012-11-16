@@ -233,8 +233,15 @@ workq::lock_run() ILIAS_NET2_NOTHROW
 	return RUN_PARALLEL;
 }
 
+workq::run_lck
+workq::lock_run_parallel() ILIAS_NET2_NOTHROW
+{
+	this->m_run_parallel.fetch_add(1, std::memory_order_acquire);
+	return RUN_PARALLEL;
+}
+
 void
-workq::unlock_run(run_lck rl) ILIAS_NET2_NOTHROW
+workq::unlock_run(workq::run_lck rl) ILIAS_NET2_NOTHROW
 {
 	switch (rl) {
 	case RUN_SINGLE:
@@ -250,6 +257,25 @@ workq::unlock_run(run_lck rl) ILIAS_NET2_NOTHROW
 		}
 		break;
 	}
+}
+
+workq::run_lck
+workq::lock_run_downgrade(workq::run_lck rl) ILIAS_NET2_NOTHROW
+{
+	switch (rl) {
+	case RUN_SINGLE:
+		{
+			this->m_run_parallel.fetch_add(1, std::memory_order_acquire);
+			const auto old_run_single = this->m_run_single.exchange(false, std::memory_order_release);
+			assert(old_run_single);
+
+			rl = RUN_PARALLEL;
+		}
+		break;
+	case RUN_PARALLEL:
+		break;
+	}
+	return rl;
 }
 
 

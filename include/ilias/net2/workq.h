@@ -265,6 +265,12 @@ friend void workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
+public:
+	enum run_lck {
+		RUN_SINGLE,
+		RUN_PARALLEL
+	};
+
 private:
 	typedef ll_smartptr_list<workq_detail::workq_intref<workq_job>,
 	    ll_base<workq_job, workq_detail::runq_tag>,
@@ -282,13 +288,10 @@ private:
 	std::atomic<bool> m_run_single;
 	std::atomic<unsigned int> m_run_parallel;
 
-	enum run_lck {
-		RUN_SINGLE,
-		RUN_PARALLEL
-	};
-
 	ILIAS_NET2_LOCAL run_lck lock_run() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL run_lck lock_run_parallel() ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_LOCAL void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL run_lck lock_run_downgrade(run_lck rl) ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_LOCAL workq(workq_service_ptr wqs) throw (std::invalid_argument);
 	ILIAS_NET2_LOCAL ~workq() ILIAS_NET2_NOTHROW;
