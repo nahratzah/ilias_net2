@@ -135,13 +135,13 @@
 
 #elif defined(_MSC_VER)
 /* Features of Microsoft compiler. */
-#define HAS_VARARG_TEMPLATES	(_MSC_FULL_VER >= 170051025) /* VC++ 2010, November compiler. */
+#define HAS_VARARG_TEMPLATES	(_MSC_FULL_VER >= 170051025) /* VC++ 2012, November compiler. */
 #define HAS_DECLTYPE		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
 #define HAS_DELETED_FN		0 /* Didn't spot it in the table. */
 #define HAS_RVALUE_REF		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
 #define HAS_NOEXCEPT		0 /* But throw() actually functions similar. */
 #define HAS_CONSTEXPR		0 /* Blech, MSVC claims I may not redefine constexpr while they don't implement it, idiots. */
-#define HAS_EXPL_OP_BOOL	(_MSC_FULL_VER >= 170051025) /* VC++ 2010, November compiler. */
+#define HAS_EXPL_OP_BOOL	(_MSC_FULL_VER >= 170051025) /* VC++ 2012, November compiler. */
 #define HAS_OVERRIDE		(_MSC_VER >= 1600 /* Visual Studio 2010 (possibly earlier) */ )
 #define HAS_ALIAS_TEMPLATES	0 /* Slow to implement. */
 #endif
