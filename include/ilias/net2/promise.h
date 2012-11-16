@@ -23,12 +23,17 @@
 #include <utility>
 #include <memory>
 #include <stdexcept>
-#include <thread>
 #include <exception>
 
 #if defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
 #include <type_traits>	/* For combi promise templates. */
 #endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
+
+#ifdef __OpenBSD__
+#include <sched.h>
+#else
+#include <thread>
+#endif
 
 
 #ifdef _MSC_VER
@@ -203,8 +208,13 @@ protected:
 		void
 		wait_ready() const ILIAS_NET2_NOTHROW
 		{
-			while (!this->ready())
+			while (!this->ready()) {
+#ifdef __OpenBSD__
+				sched_yield();
+#else
 				std::this_thread::yield();
+#endif
+			}
 		}
 
 		bool

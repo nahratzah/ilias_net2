@@ -172,12 +172,9 @@ class workq_job :
 	public ll_base_hook<workq_detail::runq_tag>,
 	public ll_base_hook<workq_detail::parallel_tag>
 {
+friend class workq;	/* Because MSVC and GCC cannot access private types in friend definitions. :P */
 friend class workq_service;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
-
-#ifdef _MSC_VER
-friend class workq;	/* Because MSVC cannot access private types in friend definitions. :P */
-#endif
 
 public:
 	static const unsigned int STATE_RUNNING = 0x0001;
@@ -234,7 +231,7 @@ class co_runnable :
 	public ll_base_hook<coroutine_tag>,
 	public workq_job
 {
-friend class workq_service;
+friend class ilias::workq_service;
 
 public:
 	virtual ~co_runnable() ILIAS_NET2_NOTHROW;

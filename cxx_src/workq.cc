@@ -14,7 +14,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/workq.h>
+
+#ifdef __OpenBSD__
+#include <sched.h>
+#else
 #include <thread>
+#endif
 
 
 namespace ilias {
@@ -23,8 +28,13 @@ namespace ilias {
 void
 workq_detail::workq_int::wait_unreferenced() const ILIAS_NET2_NOTHROW
 {
-	while (this->int_refcnt.load(std::memory_order_acquire) > 0)
+	while (this->int_refcnt.load(std::memory_order_acquire) > 0) {
+#ifdef __OpenBSD__
+		sched_yield();
+#else
 		std::this_thread::yield();
+#endif
+	}
 }
 
 
@@ -70,7 +80,11 @@ workq_job::deactivate() ILIAS_NET2_NOTHROW
 
 	while ((s & STATE_RUNNING) &&
 	    gen == this->m_run_gen.load(std::memory_order_relaxed)) {
+#ifdef __OpenBSD__
+		sched_yield();
+#else
 		std::this_thread::yield();
+#endif
 		s = this->m_state.load(std::memory_order_relaxed);
 	}
 }
