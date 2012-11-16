@@ -150,7 +150,8 @@ workq_detail::co_runnable::~co_runnable() ILIAS_NET2_NOTHROW
 }
 
 workq_detail::co_runnable::co_runnable(workq_ptr wq, unsigned int type) throw (std::invalid_argument) :
-	workq_job(std::move(wq), type)
+	workq_job(std::move(wq), type),
+	m_runcount(0)
 {
 	/* Empty body. */
 }
@@ -158,7 +159,33 @@ workq_detail::co_runnable::co_runnable(workq_ptr wq, unsigned int type) throw (s
 void
 workq_detail::co_runnable::run() ILIAS_NET2_NOTHROW
 {
-	this->get_workq_service()->co_to_runq(this, this->size());
+	const std::size_t runcount = this->size();
+
+	this->m_runcount.store(this->size());
+	this->get_workq_service()->co_to_runq(this, runcount);
+}
+
+void
+workq_detail::co_runnable::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW
+{
+	switch (rl) {
+	case RUNNING:
+		return;	/* Handled by co_runnable::release, which will be called from co_run() as appropriate. */
+	case BUSY:
+		break;
+	}
+	this->workq_job::unlock_run(rl);
+}
+
+void
+workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
+{
+	if (n > 0) {
+		const std::size_t old = this->m_runcount.fetch_sub(n, std::memory_order_release);
+		assert(old >= n);
+		if (old == n)
+			this->workq_job::unlock_run(RUNNING);
+	}
 }
 
 
@@ -392,10 +419,14 @@ coroutine_job::run() ILIAS_NET2_NOTHROW
 void
 coroutine_job::co_run() ILIAS_NET2_NOTHROW
 {
+	std::size_t runcount = 0;
 	for (co_list::size_type idx = this->m_co_idx.fetch_add(1, std::memory_order_acquire);
 	    idx < this->m_coroutines.size();
-	    idx = this->m_co_idx.fetch_add(1, std::memory_order_acquire))
+	    idx = this->m_co_idx.fetch_add(1, std::memory_order_acquire)) {
+		++runcount;
 		this->m_coroutines[idx]();
+	}
+	this->release(runcount);
 }
 
 std::size_t

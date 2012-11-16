@@ -177,6 +177,11 @@ friend class workq_service;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
 public:
+	enum run_lck {
+		RUNNING,
+		BUSY
+	};
+
 	static const unsigned int STATE_RUNNING = 0x0001;
 	static const unsigned int STATE_HAS_RUN = 0x0002;
 	static const unsigned int STATE_ACTIVE = 0x0004;
@@ -193,15 +198,10 @@ private:
 	mutable std::atomic<unsigned int> m_state;
 	const workq_ptr m_wq;
 
-	enum run_lck {
-		RUNNING,
-		BUSY
-	};
-
-	ILIAS_NET2_LOCAL run_lck lock_run() ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_LOCAL void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW;
-
 protected:
+	ILIAS_NET2_EXPORT virtual run_lck lock_run() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW;
+
 	ILIAS_NET2_EXPORT workq_job(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
 	ILIAS_NET2_EXPORT virtual ~workq_job() ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW = 0;
@@ -233,11 +233,17 @@ class co_runnable :
 {
 friend class ilias::workq_service;
 
+private:
+	std::atomic<unsigned int> m_runcount;
+
 public:
-	virtual ~co_runnable() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT virtual ~co_runnable() ILIAS_NET2_NOTHROW;
 
 protected:
 	ILIAS_NET2_EXPORT co_runnable(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
+
+	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW OVERRIDE;
+	ILIAS_NET2_EXPORT void release(std::size_t n) ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_EXPORT virtual void co_run() ILIAS_NET2_NOTHROW = 0;
 	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
