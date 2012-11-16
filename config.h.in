@@ -115,6 +115,7 @@
 #define HAS_RVALUE_REF		__has_feature(cxx_rvalue_references)
 #define HAS_NOEXCEPT		__has_feature(cxx_noexcept)
 #define HAS_CONSTEXPR		__has_feature(cxx_constexpr)
+#define HAS_EXPL_OP_BOOL	__has_feature(cxx_explicit_conversions)
 #define HAS_OVERRIDE		__has_feature(cxx_override_control)
 #define HAS_ALIAS_TEMPLATES	__has_feature(cxx_alias_templates)
 
@@ -128,6 +129,7 @@
 #define HAS_RVALUE_REF		ILIAS_NET2_gnuc_require(4, 3)
 #define HAS_NOEXCEPT		ILIAS_NET2_gnuc_require(4, 6)
 #define HAS_CONSTEXPR		ILIAS_NET2_gnuc_require(4, 6)
+#define HAS_EXPL_OP_BOOL	ILIAS_NET2_gnuc_require(4, 5)
 #define HAS_OVERRIDE		ILIAS_NET2_gnuc_require(4, 7)
 #define HAS_ALIAS_TEMPLATES	ILIAS_NET2_gnuc_require(4, 7)
 
