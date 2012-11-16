@@ -407,9 +407,9 @@ class ILIAS_NET2_LOCAL job_once FINAL :
 	public JobType
 {
 public:
-	template<typename... FN>
-	job_once(workq_ptr ptr, FN&&... fn) :
-		JobType(std::move(ptr), std::forward<FN>(fn)..., workq_job::TYPE_ONCE)
+	template<typename FN>
+	job_once(workq_ptr ptr, FN&& fn) :
+		JobType(std::move(ptr), std::forward<FN>(fn), workq_job::TYPE_ONCE)
 	{
 		if (this->m_type & workq_job::TYPE_ONCE)
 			throw std::invalid_argument("job_once: TYPE_ONCE is implied");
