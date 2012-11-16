@@ -1511,25 +1511,45 @@ pool::waste(size_type sz, size_type align, size_type offset) ILIAS_NET2_NOTHROW
 pool::size_type
 pool::recommend_size(size_type min, size_type max, size_type align, size_type offset) ILIAS_NET2_NOTHROW
 {
-	if (min >= max)
-		return min; /* Don't clog our iteration below. */
+	static const bool printit = false;	/* Debugging aid: set to true if you want the size printed. */
 
-	const osdep& os = osdep::get();
-	align = std::min(align, size_type(1U));
-	offset %= align;
+	/* Default: as small as possible, but a multiple of alignment. */
+	size_type rv = round_up(min, align);
+	size_type nentries = page::page_entries_max(rv, align, offset);
 
-	size_type best = min;
-	size_type best_waste = waste(min, align, offset);
-
-	for (size_type i = round_up(min + 1, align); i < max + 1; i += align) {
-		const size_type i_waste = waste(i, align, offset);
-
-		if (i_waste < best_waste) {
-			best = i;
-			best_waste = i_waste;
-		}
+	/* Attempt to grow entries to minimize wasted space. */
+	if (nentries > 1) {
+		while (rv + align <= max &&
+		    page::page_entries_max(rv + align, align, offset) == nentries)
+			rv += align;
 	}
-	return best;
+
+	/* Handle the case where at most 1 entry fits in the page: grow it. */
+	if (nentries <= 1) {
+		const osdep& os = osdep::get();
+		rv = round_up(min, os.alloc_align()) - page::overhead(1, align, offset);
+	}
+
+	/* Clamp to specification. */
+	if (rv > max)
+		rv = round_down(max, align);
+	if (rv < min)
+		rv = round_up(min, align);
+	if (rv > max)
+		rv = min;
+
+	/* Update nentries based on these values. */
+	nentries = page::page_entries_max(rv, align, offset);
+	if (nentries < 1)
+		nentries = 1;
+
+	/* Print calculation if requested. */
+	if (printit) {
+		fprintf(stderr, "pool::recommend_size(min = %lu, max = %lu, align = 0x%lx, offset = %lu) "
+		    "-> %lu for %lu entries and %lu bytes overhead\n",
+		    min, max, align, offset, rv, nentries, page::overhead(1, align, offset));
+	}
+	return rv;
 }
 
 

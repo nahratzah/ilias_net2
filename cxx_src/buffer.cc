@@ -44,7 +44,7 @@ const std::size_t buffer::mem_segment::m_pool_overhead = pool::round_up(sizeof(m
 const std::size_t buffer::mem_segment::m_pool_offset = m_pool_align - ((m_pool_overhead - 1) % m_pool_align + 1);
 pool buffer::mem_segment::m_pool(
     pool::recommend_size(buffer::mem_segment::m_pool_overhead + 256,
-	buffer::mem_segment::m_pool_overhead + 8192,
+	buffer::mem_segment::m_pool_overhead + 65536,
 	m_pool_align, m_pool_offset),
     m_pool_align,
     m_pool_offset);
