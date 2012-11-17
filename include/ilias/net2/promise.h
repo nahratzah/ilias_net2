@@ -23,6 +23,7 @@
 #include <utility>
 #include <memory>
 #include <vector>
+#include <mutex>
 #include <stdexcept>
 #include <exception>
 #include <type_traits>
