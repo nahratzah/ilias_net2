@@ -22,6 +22,7 @@
 #include <cassert>
 #include <utility>
 #include <memory>
+#include <vector>
 #include <stdexcept>
 #include <exception>
 #include <type_traits>
@@ -171,6 +172,8 @@ protected:
 				ready_state_t old = this->self.m_ready.exchange(DONE, std::memory_order_release);
 				assert(old == ASSIGNING);
 				this->m_locked = false;
+
+				this->self.on_assign();
 			}
 
 			bool
@@ -190,16 +193,15 @@ protected:
 #endif
 		};
 
-		basic_state() ILIAS_NET2_NOTHROW :
-			m_ready(NIL),
-			m_prom_refcnt(0)
-		{
-			/* Empty body. */
-		}
+		basic_state() ILIAS_NET2_NOTHROW;
 
 	public:
 		virtual ~basic_state() ILIAS_NET2_NOTHROW;
 
+	protected:
+		virtual void on_assign() ILIAS_NET2_NOTHROW;
+
+	public:
 		virtual bool start() ILIAS_NET2_NOTHROW;
 
 		bool
@@ -519,12 +521,16 @@ private:
 	public:
 		/* Definition of how functors to initialize the promise should look. */
 		typedef typename std::remove_const<result_type>::type initfn_type();
+		typedef void callback_type(reference);
 
 	private:
+		typedef std::vector<callback_type> direct_cb_list;
+
 		std::atomic<bool> m_value_isset;
 
 		std::mutex m_mtx;	/* Protect m_lazy. */
 		std::function<initfn_type> m_lazy;
+		direct_cb_list m_direct_cb;
 
 		/* Using a union to allow late initialization of the value. */
 		union container {
@@ -539,14 +545,32 @@ private:
 		container m_container;
 
 		void
-		resolve_lazy()
+		resolve_lazy() ILIAS_NET2_NOTHROW
 		{
 			assert(this->m_lazy);
 
 			try {
-				assign(this->m_lazy());
+				this->assign(this->m_lazy());
 			} catch (...) {
 				this->set_exception(std::current_exception());
+			}
+		}
+
+	protected:
+		virtual void
+		on_assign() ILIAS_NET2_NOTHROW OVERRIDE
+		{
+			assert(this->ready());
+
+			/* Move the list out of the lock. */
+			std::unique_lock<std::mutex> lck(this->m_mtx);
+			direct_cb_list cbs = m_direct_cb;
+			lck.unlock();
+
+			/* Invoke each of the callbacks, iff the promise completed with a value. */
+			if (this->has_value()) {
+				for (auto cb : cbs)
+					cb(this->get_value());
 			}
 		}
 
@@ -577,6 +601,33 @@ private:
 
 			if (this->is_started())
 				resolve_lazy();
+		}
+
+		void
+		add_callback(std::function<callback_type> fn) throw (std::invalid_argument, std::bad_alloc)
+		{
+			/* Validate functor. */
+			if (!fn)
+				throw std::invalid_argument("promise: callback is invalid");
+
+			/*
+			 * Only push the callback on the list, if the promise is not ready.
+			 * Uses the doubly-checked lock pattern.
+			 */
+			if (!this->ready()) {
+				std::unique_lock<std::mutex> lck(this->m_mtx);
+				if (!this->ready()) {
+					this->m_direct_cb.push_back(std::move(fn));
+					return;
+				}
+			}
+
+			/*
+			 * Promise is ready, invoke functor now if it is ready.
+			 * Note that the functor is only invoked if a value is present.
+			 */
+			if (this->has_value())
+				fn(this->get_value());
 		}
 
 		virtual bool

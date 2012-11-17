@@ -41,6 +41,13 @@ basic_promise::~basic_promise() ILIAS_NET2_NOTHROW
 }
 
 
+basic_promise::basic_state::basic_state() ILIAS_NET2_NOTHROW :
+	m_ready(NIL),
+	m_prom_refcnt(0)
+{
+	/* Empty body. */
+}
+
 basic_promise::basic_state::~basic_state() ILIAS_NET2_NOTHROW
 {
 	return;
@@ -54,6 +61,15 @@ bool
 basic_promise::basic_state::start() ILIAS_NET2_NOTHROW
 {
 	return !this->m_start.exchange(true, std::memory_order_relaxed);
+}
+
+/*
+ * Mark promise as completed and notify anything waiting for it.
+ */
+void
+basic_promise::basic_state::on_assign() ILIAS_NET2_NOTHROW
+{
+	return;
 }
 
 
@@ -71,9 +87,7 @@ basic_promise::mark_unreferenced::unreferenced(basic_state& s) const ILIAS_NET2_
 {
 	assert(s.m_prom_refcnt.load(std::memory_order_acquire) == 0);
 
-	/* Optimization: if the shared state has no futures, bypass setting the exception. */
-	if (!refcnt_is_solo(s))
-		s.set_exception(unref);
+	s.set_exception(unref);
 	refcnt_release(s);
 }
 
