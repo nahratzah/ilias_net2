@@ -377,10 +377,10 @@ class co_runnable;
  */
 class ILIAS_NET2_LOCAL wq_run_lock
 {
-friend class workq_service;
+friend class ilias::workq_service;
 friend class co_runnable;	/* Can't get more specific, since the co_runnable requires wq_run_lock to be defined. */
-friend void workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
-friend void workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
+friend void ilias::workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
+friend void ilias::workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
 
 private:
 	workq_intref<workq> m_wq;
