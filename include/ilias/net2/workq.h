@@ -325,9 +325,7 @@ public:
 	    throw (std::bad_alloc, std::invalid_argument)
 	{
 		std::vector<std::function<void()> > fns;
-		fns.push_back(std::move(fn0));
-		fns.push_back(std::move(fn1));
-		fns.push_back(std::forward(fn)...);
+		fns.push_back(std::move(fn0), std::move(fn1), std::forward<FN>(fn)...);
 
 		return this->new_job(type, std::move(fns));
 	}
@@ -337,7 +335,7 @@ public:
 	new_job(std::function<void()> fn0, std::function<void()> fn1, FN&&... fn)
 	    throw (std::bad_alloc, std::invalid_argument)
 	{
-		return this->new_job(0U, std::move(fn0), std::move(fn1), std::forward(fn)...);
+		return this->new_job(0U, std::move(fn0), std::move(fn1), std::forward<FN>(fn)...);
 	}
 
 	template<typename... FN>
@@ -346,7 +344,7 @@ public:
 	    throw (std::bad_alloc, std::invalid_argument)
 	{
 		std::vector<std::function<void()> > fns;
-		fns.push_back(std::move(fn0), std::move(fn1), std::forward(fn)...);
+		fns.push_back(std::move(fn0), std::move(fn1), std::forward<FN>(fn)...);
 
 		this->once(std::move(fns));
 	}
