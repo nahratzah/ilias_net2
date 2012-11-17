@@ -145,13 +145,13 @@ public:
 		/* Empty body. */
 	}
 
-	workq_intref(const typename pointer& p) ILIAS_NET2_NOTHROW :
+	workq_intref(const typename impl_type::pointer& p) ILIAS_NET2_NOTHROW :
 		impl_type(p)
 	{
 		/* Empty body. */
 	}
 
-	workq_intref(const typename pointer& p, bool a) ILIAS_NET2_NOTHROW :
+	workq_intref(const typename impl_type::pointer& p, bool a) ILIAS_NET2_NOTHROW :
 		impl_type(p, a)
 	{
 		/* Empty body. */
