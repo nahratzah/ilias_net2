@@ -56,6 +56,36 @@ test_lazy_read()
 	TEST(f.get() == 42);
 }
 
+void
+test_wq_resolution()
+{
+	auto wqs = ilias::new_workq_service();
+	auto f = ilias::lazy_future(wqs->new_workq(), 0, []() -> int { return 42; });
+
+	TEST(f.valid());
+	TEST(!f.ready());
+	TEST(!f.has_exception());
+
+	f.start();
+
+	TEST(f.valid());
+	TEST(!f.ready());
+	TEST(!f.has_exception());
+
+	wqs->aid(10);
+
+	TEST(f.valid());
+	TEST(f.ready());
+	TEST(!f.has_exception());
+	TEST(f.get() == 42);
+}
+
+void
+SKIP()
+{
+	return;
+}
+
 
 int test_idx = 0;
 #define do_test(fn)							\
@@ -64,12 +94,18 @@ int test_idx = 0;
 		fn();							\
 	} while (0)
 
+#define skip_test(fn)							\
+	do {								\
+		printf("%2d: SKIP: %s\n", ++test_idx, #fn);		\
+	} while (0)
+
 int
 main()
 {
 	do_test(test_set_read);
 	do_test(test_set_destroy_read);
 	do_test(test_lazy_read);
+	skip_test(test_wq_resolution);
 
 	return 0;
 }
