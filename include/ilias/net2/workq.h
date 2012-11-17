@@ -28,6 +28,7 @@
 #ifdef _MSC_VER
 #pragma warning( push )
 #pragma warning( disable: 4275 )
+#pragma warning( disable: 4290 )
 #endif
 
 
@@ -126,23 +127,32 @@ public:
 		/* Empty body. */
 	}
 
-	template<typename V>
-	workq_intref(const V& v) ILIAS_NET2_NOTHROW :
+	workq_intref(std::nullptr_t) ILIAS_NET2_NOTHROW :
+		impl_type(nullptr)
+	{
+		/* Empty body. */
+	}
+
+	workq_intref(const impl_type& v) ILIAS_NET2_NOTHROW :
 		impl_type(v)
 	{
 		/* Empty body. */
 	}
 
-	template<typename V>
-	workq_intref(V&& v) ILIAS_NET2_NOTHROW :
+	workq_intref(impl_type&& v) ILIAS_NET2_NOTHROW :
 		impl_type(std::move(v))
 	{
 		/* Empty body. */
 	}
 
-	template<typename V, typename U>
-	workq_intref(const V& v, const U& u) ILIAS_NET2_NOTHROW :
-		impl_type(v, u)
+	workq_intref(const typename pointer& p) ILIAS_NET2_NOTHROW :
+		impl_type(p)
+	{
+		/* Empty body. */
+	}
+
+	workq_intref(const typename pointer& p, bool a) ILIAS_NET2_NOTHROW :
+		impl_type(p, a)
 	{
 		/* Empty body. */
 	}
@@ -598,5 +608,10 @@ private:
 
 
 } /* namespace ilias */
+
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 #endif /* ILIAS_NET2_WORKQ_H */
