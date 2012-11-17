@@ -350,8 +350,8 @@ workq_job::activate(unsigned int flags) ILIAS_NET2_NOTHROW
 		workq_detail::wq_run_lock rlck(*this);
 		if (rlck.is_locked()) {
 			assert(rlck.get_wq_job().get() == this);
-			this->run();
-			rlck.commit();
+			rlck.commit();	/* XXX remove commit requirement? */
+			this->run(rlck);
 		}
 	}
 }
@@ -437,23 +437,15 @@ workq_detail::co_runnable::co_runnable(workq_ptr wq, unsigned int type) throw (s
 }
 
 void
-workq_detail::co_runnable::run() ILIAS_NET2_NOTHROW
+workq_detail::co_runnable::run(workq_detail::wq_run_lock& rlck) ILIAS_NET2_NOTHROW
 {
 	const std::size_t runcount = this->size();
 
 	if (runcount > 0) {
 		this->m_runcount.store(runcount);
-		this->get_workq_service()->co_to_runq(this, runcount);
+		this->get_workq_service()->co_to_runq(this, rlck, runcount);
 	} else {
-		/*
-		 * This is stretching the interface a little: we are technically not supposed to
-		 * clear the running state in the run() method.
-		 *
-		 * However since our unlock will not take any action, we are kind of required
-		 * to do so now, because the release method will only clear the running state
-		 * once.
-		 */
-		this->workq_job::unlock_run(RUNNING);
+		/* Not publishing co-runnable, not eating lock, co-runnable will unlock on return. */
 	}
 }
 
@@ -590,8 +582,8 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		if (!rlck.is_locked())
 			break;
 
-		rlck.get_wq_job()->run();
 		rlck.commit();
+		rlck.get_wq_job()->run(rlck);
 	}
 }
 
@@ -615,7 +607,7 @@ workq_service::wq_to_runq(workq_detail::workq_intref<workq> wq) ILIAS_NET2_NOTHR
 }
 
 void
-workq_service::co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable> co, unsigned int n) ILIAS_NET2_NOTHROW
+workq_service::co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable> co, workq_detail::wq_run_lock& rlck, unsigned int n) ILIAS_NET2_NOTHROW
 {
 	assert(n > 0);
 	if (this->m_co_runq.push_back(co))
@@ -656,8 +648,8 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		if (!rlck.is_locked())
 			break;	/* GUARD: No co-runnables, nor workqs available. */
 
-		rlck.get_wq_job()->run();
 		rlck.commit();
+		rlck.get_wq_job()->run(rlck);
 
 		/* Update co-routine iterator. */
 		co = begin(this->m_co_runq);
@@ -727,7 +719,7 @@ public:
 	}
 
 	virtual ~job_single() ILIAS_NET2_NOTHROW;
-	virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
+	virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
 job_single::~job_single() ILIAS_NET2_NOTHROW
@@ -736,7 +728,7 @@ job_single::~job_single() ILIAS_NET2_NOTHROW
 }
 
 void
-job_single::run() ILIAS_NET2_NOTHROW
+job_single::run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW
 {
 	this->m_fn();
 }
@@ -772,7 +764,7 @@ public:
 	}
 
 	virtual ~coroutine_job() ILIAS_NET2_NOTHROW;
-	virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
+	virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW OVERRIDE;
 	virtual bool co_run() ILIAS_NET2_NOTHROW OVERRIDE;
 	virtual std::size_t size() const ILIAS_NET2_NOTHROW OVERRIDE;
 };
@@ -783,10 +775,10 @@ coroutine_job::~coroutine_job() ILIAS_NET2_NOTHROW
 }
 
 void
-coroutine_job::run() ILIAS_NET2_NOTHROW
+coroutine_job::run(workq_detail::wq_run_lock& rlck) ILIAS_NET2_NOTHROW
 {
 	this->m_co_idx.store(0, std::memory_order_acq_rel);
-	this->co_runnable::run();
+	this->co_runnable::run(rlck);
 }
 
 bool
@@ -835,13 +827,13 @@ public:
 	}
 
 	virtual void
-	run() ILIAS_NET2_NOTHROW OVERRIDE
+	run(workq_detail::wq_run_lock& rlck) ILIAS_NET2_NOTHROW OVERRIDE
 	{
 		/* Release internal reference to self. */
 		workq_detail::wq_deleter expunge;
 		expunge(this);
 		/* Run the function. */
-		this->JobType::run();
+		this->JobType::run(rlck);
 	}
 };
 
