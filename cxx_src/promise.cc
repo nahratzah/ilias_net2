@@ -52,7 +52,7 @@ namespace {
 /*
  * Pre-allocated broken promise, so we can destroy without throwing an exception.
  */
-const ILIAS_NET2_LOCAL std::exception_ptr unref = std::make_exception_ptr(broken_promise());
+const std::exception_ptr unref = std::make_exception_ptr(broken_promise());
 
 } /* namespace ilias::<unnamed> */
 
