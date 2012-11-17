@@ -525,7 +525,7 @@ private:
 		typedef void callback_type(reference);
 
 	private:
-		typedef std::vector<callback_type> direct_cb_list;
+		typedef std::vector<std::function<callback_type> > direct_cb_list;
 
 		std::atomic<bool> m_value_isset;
 
@@ -535,7 +535,7 @@ private:
 
 		/* Using a union to allow late initialization of the value. */
 		union container {
-			result_type value;
+			typename std::remove_const<result_type>::type value;
 
 			container()
 			{
@@ -638,7 +638,9 @@ private:
 				std::lock_guard<std::mutex> lck(this->m_mtx);
 				if (this->m_lazy)
 					resolve_lazy();
+				return true;
 			}
+			return false;
 		}
 
 		bool
@@ -651,7 +653,7 @@ private:
 			if (this->m_value_isset)
 				return false;
 
-			new (&this->m_container.m_value) result_type(v);
+			new (&this->m_container.value) result_type(v);
 			this->m_value_isset = true;
 		}
 
@@ -666,7 +668,7 @@ private:
 			if (this->m_value_isset)
 				return false;
 
-			new (&this->m_container.m_value) result_type(std::move(v));
+			new (&this->m_container.value) result_type(std::move(v));
 			this->m_value_isset = true;
 		}
 #endif
@@ -683,7 +685,7 @@ private:
 			if (this->m_value_isset)
 				return false;
 
-			new (&this->m_container.m_value) result_type(std::move(args)...);
+			new (&this->m_container.value) result_type(std::move(args)...);
 			this->m_value_isset = true;
 		}
 #endif
@@ -829,6 +831,16 @@ public:
 	}
 #endif
 
+	template<typename Functor>
+	void
+	set_lazy(Functor f)
+	{
+		refpointer<state> s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+		s->set_lazy(std::move(f));
+	}
+
 	future<typename std::remove_const<result_type>::type>
 	get_future() const throw (uninitialized_promise)
 	{
@@ -862,7 +874,7 @@ private:
 
 	/* Special constructor called by promise<Result>::get_future(). */
 	future(refpointer<state> s) ILIAS_NET2_NOTHROW :
-		basic_future(std::move(s))
+		basic_future(s)
 	{
 		/* Empty body. */
 	}
