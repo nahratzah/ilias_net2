@@ -58,7 +58,7 @@ basic_promise::basic_state::~basic_state() ILIAS_NET2_NOTHROW
  * Returns true if the state changed from not-started to started.
  */
 bool
-basic_promise::basic_state::start() ILIAS_NET2_NOTHROW
+basic_promise::basic_state::start(bool) ILIAS_NET2_NOTHROW
 {
 	return !this->m_start.exchange(true, std::memory_order_relaxed);
 }
@@ -70,6 +70,12 @@ void
 basic_promise::basic_state::on_assign() ILIAS_NET2_NOTHROW
 {
 	return;
+}
+
+bool
+basic_promise::basic_state::has_lazy() const ILIAS_NET2_NOTHROW
+{
+	return false;
 }
 
 

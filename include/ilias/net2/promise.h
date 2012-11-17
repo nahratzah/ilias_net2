@@ -18,6 +18,7 @@
 
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/refcnt.h>
+#include <ilias/net2/workq.h>
 #include <atomic>
 #include <cassert>
 #include <utility>
@@ -201,9 +202,10 @@ protected:
 
 	protected:
 		virtual void on_assign() ILIAS_NET2_NOTHROW;
+		virtual bool has_lazy() const ILIAS_NET2_NOTHROW;
 
 	public:
-		virtual bool start() ILIAS_NET2_NOTHROW;
+		virtual bool start(bool wait) ILIAS_NET2_NOTHROW;
 
 		bool
 		is_started() const ILIAS_NET2_NOTHROW
@@ -361,7 +363,7 @@ public:
 		if (!s)
 			uninitialized_promise::throw_me();
 
-		return s->start();
+		return s->start(false);
 	}
 
 	bool
@@ -420,7 +422,7 @@ basic_promise::mark_unreferenced::release(const basic_state& s) const ILIAS_NET2
 {
 	const auto old = s.m_prom_refcnt.fetch_sub(1, std::memory_order_release);
 	assert(old > 0);
-	if (old == 1)
+	if (old == 1 && s.has_lazy())
 		this->unreferenced(const_cast<basic_state&>(s));
 }
 
@@ -490,7 +492,7 @@ public:
 		if (!s)
 			uninitialized_promise::throw_me();
 
-		return s->start();
+		return s->start(false);
 	}
 
 	bool
@@ -527,12 +529,6 @@ private:
 	private:
 		typedef std::vector<std::function<callback_type> > direct_cb_list;
 
-		std::atomic<bool> m_value_isset;
-
-		std::mutex m_mtx;	/* Protect m_lazy. */
-		std::function<initfn_type> m_lazy;
-		direct_cb_list m_direct_cb;
-
 		/* Using a union to allow late initialization of the value. */
 		union container {
 			typename std::remove_const<result_type>::type value;
@@ -543,18 +539,33 @@ private:
 			}
 		};
 
+		std::atomic<bool> m_value_isset;
+
+		mutable std::mutex m_mtx;	/* Protect callbacks. */
+		std::function<initfn_type> m_lazy;
+		workq_job_ptr m_lazy_job;
+		direct_cb_list m_direct_cb;
+
 		container m_container;
 
 		void
-		resolve_lazy() ILIAS_NET2_NOTHROW
+		resolve_lazy(bool wait) ILIAS_NET2_NOTHROW
 		{
-			assert(this->m_lazy);
+			if (this->ready())
+				return;
 
-			try {
-				this->assign(this->m_lazy());
-			} catch (...) {
-				this->set_exception(std::current_exception());
+			/* Run lazy initializaton. */
+			if (this->m_lazy) {
+				try {
+					this->assign(this->m_lazy());
+				} catch (...) {
+					this->set_exception(std::current_exception());
+				}
 			}
+
+			/* Activate the workq job. */
+			if (this->m_lazy_job)
+				this->m_lazy_job->activate(wait ? workq_job::ACT_IMMED : 0);
 		}
 
 	protected:
@@ -589,6 +600,13 @@ private:
 				this->m_container.value.~result_type();
 		}
 
+		virtual bool
+		has_lazy() const ILIAS_NET2_NOTHROW OVERRIDE
+		{
+			std::lock_guard<std::mutex> lck(this->m_mtx);
+			return (this->m_lazy || this->m_lazy_job);
+		}
+
 		void
 		set_lazy(std::function<initfn_type> fn) throw (std::invalid_argument, std::logic_error)
 		{
@@ -596,12 +614,67 @@ private:
 				throw std::invalid_argument("promise: lazy resolution is invalid");
 
 			std::lock_guard<std::mutex> lck(this->m_mtx);
-			if (m_lazy)
+			if (this->m_lazy || this->m_lazy_job)
 				throw std::logic_error("promise: lazy resolution set twice");
-			m_lazy = std::move(fn);
+			this->m_lazy = std::move(fn);
 
 			if (this->is_started())
-				resolve_lazy();
+				this->resolve_lazy(false);
+		}
+
+	private:
+		struct wq_resolver
+		{
+			std::function<initfn_type> fn;
+			state& s;
+
+			wq_resolver(state& s, std::function<initfn_type> fn) ILIAS_NET2_NOTHROW :
+				fn(std::move(fn)),
+				s(s)
+			{
+				/* Empty body. */
+			}
+
+			wq_resolver(const wq_resolver& o) :
+				fn(o.fn),
+				s(o.s)
+			{
+				/* Empty body. */
+			}
+
+			wq_resolver(wq_resolver&& o) ILIAS_NET2_NOTHROW :
+				fn(std::move(o.fn)),
+				s(o.s)
+			{
+				/* Empty body. */
+			}
+
+			void
+			operator()() const ILIAS_NET2_NOTHROW
+			{
+				try {
+					s.assign(fn());
+				} catch (...) {
+					s.set_exception(std::current_exception());
+				}
+			}
+		};
+
+	public:
+		void
+		set_lazy(workq_ptr wq, unsigned int type, std::function<initfn_type> fn)
+		    throw (std::bad_alloc, std::invalid_argument, std::logic_error)
+		{
+			if (!fn)
+				throw std::invalid_argument("promise: lazy resolution is invalid");
+
+			std::lock_guard<std::mutex> lck(this->m_mtx);
+			if (this->m_lazy || this->m_lazy_job)
+				throw std::logic_error("promise: lazy resolution set twice");
+			this->m_lazy_job = wq->new_job(type | workq_job::TYPE_ONCE, wq_resolver(*this, std::move(fn)));
+
+			if (this->is_started())
+				this->resolve_lazy(false);
 		}
 
 		void
@@ -632,12 +705,11 @@ private:
 		}
 
 		virtual bool
-		start() ILIAS_NET2_NOTHROW OVERRIDE
+		start(bool wait) ILIAS_NET2_NOTHROW OVERRIDE
 		{
-			if (this->basic_state::start()) {
-				std::lock_guard<std::mutex> lck(this->m_mtx);
-				if (this->m_lazy)
-					resolve_lazy();
+			std::lock_guard<std::mutex> lck(this->m_mtx);
+			if (this->basic_state::start(wait)) {
+				this->resolve_lazy(wait);
 				return true;
 			}
 			return false;
@@ -655,6 +727,7 @@ private:
 
 			new (&this->m_container.value) result_type(v);
 			this->m_value_isset = true;
+			return true;
 		}
 
 #if HAS_RVALUE_REF
@@ -670,6 +743,7 @@ private:
 
 			new (&this->m_container.value) result_type(std::move(v));
 			this->m_value_isset = true;
+			return true;
 		}
 #endif
 
@@ -687,6 +761,7 @@ private:
 
 			new (&this->m_container.value) result_type(std::move(args)...);
 			this->m_value_isset = true;
+			return true;
 		}
 #endif
 
@@ -833,12 +908,22 @@ public:
 
 	template<typename Functor>
 	void
-	set_lazy(Functor f)
+	set_lazy(Functor f) throw (uninitialized_promise, std::invalid_argument, std::logic_error)
 	{
-		refpointer<state> s = this->get_state();
+		state* s = this->get_state();
 		if (!s)
 			uninitialized_promise::throw_me();
 		s->set_lazy(std::move(f));
+	}
+
+	template<typename Functor>
+	void
+	set_lazy(workq_ptr wq, unsigned int type, Functor f) throw (uninitialized_promise, std::invalid_argument, std::logic_error)
+	{
+		state* s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+		s->set_lazy(std::move(wq), type, std::move(f));
 	}
 
 	future<typename std::remove_const<result_type>::type>
@@ -953,6 +1038,18 @@ lazy_future(Functor f) throw (std::bad_alloc)
 
 	auto p = new_promise<result_type>();
 	p.set_lazy(std::move(f));
+	return p.get_future();
+}
+
+template<typename Functor>
+auto
+lazy_future(workq_ptr wq, unsigned int type, Functor f) throw (std::invalid_argument, std::bad_alloc)
+    -> future<typename std::remove_reference<typename std::remove_cv<decltype(f())>::type>::type>
+{
+	typedef typename std::remove_reference<typename std::remove_cv<decltype(f())>::type>::type result_type;
+
+	auto p = new_promise<result_type>();
+	p.set_lazy(std::move(wq), type, std::move(f));
 	return p.get_future();
 }
 
