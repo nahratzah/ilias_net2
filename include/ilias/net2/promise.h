@@ -220,8 +220,9 @@ protected:
 		}
 
 		void
-		wait_ready() const ILIAS_NET2_NOTHROW
+		wait_ready() ILIAS_NET2_NOTHROW
 		{
+			this->start(true);
 			while (!this->ready())
 				std::this_thread::yield();
 		}
@@ -422,7 +423,7 @@ basic_promise::mark_unreferenced::release(const basic_state& s) const ILIAS_NET2
 {
 	const auto old = s.m_prom_refcnt.fetch_sub(1, std::memory_order_release);
 	assert(old > 0);
-	if (old == 1 && s.has_lazy())
+	if (old == 1 && !s.has_lazy())
 		this->unreferenced(const_cast<basic_state&>(s));
 }
 
@@ -541,9 +542,11 @@ private:
 
 		std::atomic<bool> m_value_isset;
 
-		mutable std::mutex m_mtx;	/* Protect callbacks. */
+		mutable std::mutex m_mtx;	/* Protect lazy resolvers. */
 		std::function<initfn_type> m_lazy;
 		workq_job_ptr m_lazy_job;
+
+		mutable std::mutex m_cbmtx;	/* Protect callback list. */
 		direct_cb_list m_direct_cb;
 
 		container m_container;
@@ -575,8 +578,8 @@ private:
 			assert(this->ready());
 
 			/* Move the list out of the lock. */
-			std::unique_lock<std::mutex> lck(this->m_mtx);
-			direct_cb_list cbs = m_direct_cb;
+			std::unique_lock<std::mutex> lck(this->m_cbmtx);
+			direct_cb_list cbs = std::move(this->m_direct_cb);
 			lck.unlock();
 
 			/* Invoke each of the callbacks, iff the promise completed with a value. */
@@ -689,7 +692,7 @@ private:
 			 * Uses the doubly-checked lock pattern.
 			 */
 			if (!this->ready()) {
-				std::unique_lock<std::mutex> lck(this->m_mtx);
+				std::unique_lock<std::mutex> lck(this->m_cbmtx);
 				if (!this->ready()) {
 					this->m_direct_cb.push_back(std::move(fn));
 					return;

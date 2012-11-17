@@ -43,7 +43,8 @@ basic_promise::~basic_promise() ILIAS_NET2_NOTHROW
 
 basic_promise::basic_state::basic_state() ILIAS_NET2_NOTHROW :
 	m_ready(NIL),
-	m_prom_refcnt(0)
+	m_prom_refcnt(0),
+	m_start(false)
 {
 	/* Empty body. */
 }
