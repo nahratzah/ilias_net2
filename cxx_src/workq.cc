@@ -461,9 +461,11 @@ workq_detail::co_runnable::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW
 	this->workq_job::unlock_run(rl);
 }
 
-void
+bool
 workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
 {
+	bool did_unlock = false;
+
 	/*
 	 * When release is called, the co-runnable cannot start more work.
 	 * It must be unlinked from the co-runq.
@@ -479,9 +481,12 @@ workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
 	if (n > 0) {
 		const std::size_t old = this->m_runcount.fetch_sub(n, std::memory_order_release);
 		assert(old >= n);
-		if (old == n)
+		if (old == n) {
 			this->workq_job::unlock_run(RUNNING);
+			did_unlock = true;
+		}
 	}
+	return did_unlock;
 }
 
 
