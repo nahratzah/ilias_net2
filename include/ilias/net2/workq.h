@@ -42,7 +42,7 @@ class workq_service;
 typedef refpointer<workq> workq_ptr;
 typedef refpointer<workq_service> workq_service_ptr;
 
-ILIAS_NET2_EXPORT workq_service_ptr new_workq_service(workq_service_ptr) throw (std::bad_alloc);
+ILIAS_NET2_EXPORT workq_service_ptr new_workq_service() throw (std::bad_alloc);
 
 
 namespace workq_detail {
