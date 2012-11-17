@@ -46,6 +46,16 @@ basic_promise::basic_state::~basic_state() ILIAS_NET2_NOTHROW
 	return;
 }
 
+/*
+ * Mark the promise as to-be-executing.
+ * Returns true if the state changed from not-started to started.
+ */
+bool
+basic_promise::basic_state::start() ILIAS_NET2_NOTHROW
+{
+	return !this->m_start.exchange(true, std::memory_order_relaxed);
+}
+
 
 namespace {
 

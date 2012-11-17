@@ -114,6 +114,7 @@ protected:
 		std::exception_ptr m_except;
 		std::atomic<ready_state_t> m_ready;
 		mutable std::atomic<unsigned int> m_prom_refcnt;
+		std::atomic<bool> m_start;	/* Set if the promise needs to start. */
 
 	protected:
 		class ILIAS_NET2_LOCAL state_lock :
@@ -198,6 +199,14 @@ protected:
 
 	public:
 		virtual ~basic_state() ILIAS_NET2_NOTHROW;
+
+		virtual bool start() ILIAS_NET2_NOTHROW;
+
+		bool
+		is_started() const ILIAS_NET2_NOTHROW
+		{
+			return this->m_start.load(std::memory_order_relaxed);
+		}
 
 		bool
 		ready() const ILIAS_NET2_NOTHROW
@@ -343,6 +352,16 @@ protected:
 
 public:
 	bool
+	start() ILIAS_NET2_NOTHROW
+	{
+		basic_state*const s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+
+		return s->start();
+	}
+
+	bool
 	valid() const ILIAS_NET2_NOTHROW
 	{
 		return (this->get_state() != nullptr);
@@ -462,6 +481,16 @@ protected:
 
 public:
 	bool
+	start() ILIAS_NET2_NOTHROW
+	{
+		basic_state*const s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+
+		return s->start();
+	}
+
+	bool
 	valid() const ILIAS_NET2_NOTHROW
 	{
 		return (this->get_state() != nullptr);
@@ -487,8 +516,15 @@ private:
 	class state :
 		public basic_state
 	{
+	public:
+		/* Definition of how functors to initialize the promise should look. */
+		typedef typename std::remove_const<result_type>::type initfn_type();
+
 	private:
 		std::atomic<bool> m_value_isset;
+
+		std::mutex m_mtx;	/* Protect m_lazy. */
+		std::function<initfn_type> m_lazy;
 
 		/* Using a union to allow late initialization of the value. */
 		union container {
@@ -502,6 +538,18 @@ private:
 
 		container m_container;
 
+		void
+		resolve_lazy()
+		{
+			assert(this->m_lazy);
+
+			try {
+				assign(this->m_lazy());
+			} catch (...) {
+				this->set_exception(std::current_exception());
+			}
+		}
+
 	public:
 		state() ILIAS_NET2_NOTHROW :
 			basic_state(),
@@ -510,10 +558,35 @@ private:
 			/* Empty body. */
 		}
 
-		~state() ILIAS_NET2_NOTHROW
+		virtual ~state() ILIAS_NET2_NOTHROW
 		{
 			if (this->m_value_isset)
 				this->m_container.value.~result_type();
+		}
+
+		void
+		set_lazy(std::function<initfn_type> fn) throw (std::invalid_argument, std::logic_error)
+		{
+			if (!fn)
+				throw std::invalid_argument("promise: lazy resolution is invalid");
+
+			std::lock_guard<std::mutex> lck(this->m_mtx);
+			if (m_lazy)
+				throw std::logic_error("promise: lazy resolution set twice");
+			m_lazy = std::move(fn);
+
+			if (this->is_started())
+				resolve_lazy();
+		}
+
+		virtual bool
+		start() ILIAS_NET2_NOTHROW OVERRIDE
+		{
+			if (this->basic_state::start()) {
+				std::lock_guard<std::mutex> lck(this->m_mtx);
+				if (this->m_lazy)
+					resolve_lazy();
+			}
 		}
 
 		bool
@@ -587,6 +660,10 @@ private:
 #endif
 	};
 
+public:
+	typedef typename state::initfn_type initfn_type;
+
+private:
 	state*
 	get_state() const ILIAS_NET2_NOTHROW
 	{
@@ -652,6 +729,17 @@ public:
 		return *this;
 	}
 #endif
+
+	/* Set lazy promise resolution. */
+	void
+	set(std::function<initfn_type> fn) throw (uninitialized_promise, std::invalid_argument, std::logic_error)
+	{
+		state*const s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+
+		s->set_lazy(fn);
+	}
 
 	/* Set the value of the promise, using value_type copy constructor. */
 	bool
@@ -781,6 +869,28 @@ public:
 		return (s && s->has_value());
 	}
 };
+
+
+/* Create a new promise returning the given type. */
+template<typename Type>
+promise<Type>
+new_promise() throw (std::bad_alloc)
+{
+	return promise<Type>::new_promise();
+}
+
+/* Create a future that will resolve when its get() or start() method is called. */
+template<typename Functor>
+auto
+lazy_future(Functor f) throw (std::bad_alloc)
+    -> future<typename std::remove_reference<typename std::remove_cv<decltype(f())>::type>::type>
+{
+	typedef typename std::remove_reference<typename std::remove_cv<decltype(f())>::type>::type result_type;
+
+	auto p = new_promise<result_type>();
+	p.set_lazy(std::move(f));
+	return p.get_future();
+}
 
 
 } /* namespace ilias */
