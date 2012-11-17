@@ -197,7 +197,7 @@ public:
 #endif
 
 	template<typename U, typename U_AcqRel>
-	refpointer(const refpointer<U, U_AcqRel>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::acquire(*this->m_ptr))) :
+	explicit refpointer(const refpointer<U, U_AcqRel>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::acquire(*this->m_ptr))) :
 		m_ptr(nullptr)
 	{
 		this->reset(o.get());
@@ -265,21 +265,12 @@ public:
 			this->AcqRel::release(*old);
 	}
 
-	template<typename U>
+	template<typename U, typename U_AcqRel>
 	void
-	reset(const refpointer<U>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)) && noexcept(AcqRel::acquire(*this->m_ptr)))
+	reset(const refpointer<U, U_AcqRel>& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)) && noexcept(AcqRel::acquire(*this->m_ptr)))
 	{
 		this->reset(o.get(), true);
 	}
-
-#if HAS_RVALUE_REF
-	template<typename U>
-	void
-	reset(refpointer<U>&& o) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)))
-	{
-		this->reset(o.release(), false);
-	}
-#endif
 
 	refpointer&
 	operator=(std::nullptr_t) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)))
@@ -304,9 +295,9 @@ public:
 	}
 #endif
 
-	template<typename T>
+	template<typename U, typename U_AcqRel>
 	refpointer&
-	operator=(const refpointer<T>& p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)) && noexcept(AcqRel::acquire(*this->m_ptr)))
+	operator=(const refpointer<U, U_AcqRel>& p) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(AcqRel::release(*this->m_ptr)) && noexcept(AcqRel::acquire(*this->m_ptr)))
 	{
 		this->reset(p.get());
 		return *this;
