@@ -15,11 +15,7 @@
  */
 #include <ilias/net2/workq.h>
 
-#if defined(__OpenBSD__) && defined(__clang__)
-#include <sched.h>
-#else
 #include <thread>
-#endif
 
 
 namespace ilias {
@@ -312,13 +308,8 @@ wq_run_lock::lock(workq_service& wqs) ILIAS_NET2_NOTHROW
 void
 workq_detail::workq_int::wait_unreferenced() const ILIAS_NET2_NOTHROW
 {
-	while (this->int_refcnt.load(std::memory_order_acquire) > 0) {
-#if defined(__OpenBSD__) && defined(__clang__)
-		sched_yield();
-#else
+	while (this->int_refcnt.load(std::memory_order_acquire) > 0)
 		std::this_thread::yield();
-#endif
-	}
 }
 
 
@@ -373,11 +364,7 @@ workq_job::deactivate() ILIAS_NET2_NOTHROW
 
 	while ((s & STATE_RUNNING) &&
 	    gen == this->m_run_gen.load(std::memory_order_relaxed)) {
-#if defined(__OpenBSD__) && defined(__clang__)
-		sched_yield();
-#else
 		std::this_thread::yield();
-#endif
 		s = this->m_state.load(std::memory_order_relaxed);
 	}
 }
