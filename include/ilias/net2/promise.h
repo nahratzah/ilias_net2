@@ -216,7 +216,7 @@ protected:
 		bool
 		ready() const ILIAS_NET2_NOTHROW
 		{
-			return (m_ready.load(std::memory_order_acquire) == DONE);
+			return (this->m_ready.load(std::memory_order_acquire) == DONE);
 		}
 
 		void
@@ -727,6 +727,7 @@ private:
 
 			new (&this->m_container.value) result_type(v);
 			this->m_value_isset = true;
+			lck.commit();
 			return true;
 		}
 
@@ -743,6 +744,7 @@ private:
 
 			new (&this->m_container.value) result_type(std::move(v));
 			this->m_value_isset = true;
+			lck.commit();
 			return true;
 		}
 #endif
@@ -761,6 +763,7 @@ private:
 
 			new (&this->m_container.value) result_type(std::move(args)...);
 			this->m_value_isset = true;
+			lck.commit();
 			return true;
 		}
 #endif
@@ -859,20 +862,9 @@ public:
 	}
 #endif
 
-	/* Set lazy promise resolution. */
-	void
-	set(std::function<initfn_type> fn) throw (uninitialized_promise, std::invalid_argument, std::logic_error)
-	{
-		state*const s = this->get_state();
-		if (!s)
-			uninitialized_promise::throw_me();
-
-		s->set_lazy(fn);
-	}
-
 	/* Set the value of the promise, using value_type copy constructor. */
 	bool
-	set(const result_type& v)
+	set(const typename std::remove_const<result_type>::type& v)
 	{
 		state*const s = this->get_state();
 		if (!s)
@@ -883,7 +875,7 @@ public:
 
 	/* Set the value of the promise, using value_type move constructor. */
 	bool
-	set(result_type&& v)
+	set(typename std::remove_const<result_type>::type&& v)
 	{
 		state*const s = this->get_state();
 		if (!s)
@@ -902,7 +894,7 @@ public:
 		if (!s)
 			uninitialized_promise::throw_me();
 
-		return s->assign(std::move(args)...);
+		return s->assign(std::forward<Args>(args)...);
 	}
 #endif
 
@@ -982,6 +974,22 @@ public:
 		basic_future(f)
 	{
 		/* Empty body. */
+	}
+#endif
+
+	future&
+	operator=(const future& f) ILIAS_NET2_NOTHROW
+	{
+		this->basic_future::operator=(f);
+		return *this;
+	}
+
+#if HAS_RVALUE_REF
+	future&
+	operator=(future&& f) ILIAS_NET2_NOTHROW
+	{
+		this->basic_future::operator=(std::move(f));
+		return *this;
 	}
 #endif
 
