@@ -29,11 +29,7 @@
 #include <type_traits>	/* For combi promise templates. */
 #endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
 
-#if defined(__OpenBSD__) && defined(__clang__)
-#include <sched.h>
-#else
 #include <thread>
-#endif
 
 
 #ifdef _MSC_VER
@@ -208,13 +204,8 @@ protected:
 		void
 		wait_ready() const ILIAS_NET2_NOTHROW
 		{
-			while (!this->ready()) {
-#if defined(__OpenBSD__) && defined(__clang__)
-				sched_yield();
-#else
+			while (!this->ready())
 				std::this_thread::yield();
-#endif
-			}
 		}
 
 		bool
