@@ -190,7 +190,6 @@ protected:
 		};
 
 		basic_state() ILIAS_NET2_NOTHROW :
-			m_except(),
 			m_ready(NIL),
 			m_prom_refcnt(0)
 		{
