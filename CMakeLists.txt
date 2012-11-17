@@ -571,6 +571,15 @@ if (BUILD_TESTING)
 	add_test(NAME test_buffer COMMAND test_buffer)
 	set_tests_properties (test_buffer PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
 
+	# Promise tests.
+	add_executable (test_promise
+		test/promise.cc
+		)
+	target_link_libraries (test_promise ilias_net2
+	    ${EV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+	add_test(NAME test_promise COMMAND test_promise)
+	set_tests_properties (test_promise PROPERTIES ENVIRONMENT "PATH=${TESTS_PATH}")
+
 	# Encoding/decoding tests.
 	add_executable (test_encdec_ctypes
 		test/encdec_ctypes.cc
