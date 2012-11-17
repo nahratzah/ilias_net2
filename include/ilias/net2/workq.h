@@ -237,36 +237,6 @@ private:
 };
 
 
-namespace workq_detail {
-
-
-class co_runnable :
-	public ll_base_hook<coroutine_tag>,
-	public workq_job
-{
-friend class ilias::workq_service;
-
-private:
-	std::atomic<unsigned int> m_runcount;
-
-public:
-	ILIAS_NET2_EXPORT virtual ~co_runnable() ILIAS_NET2_NOTHROW;
-
-protected:
-	ILIAS_NET2_EXPORT co_runnable(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
-
-	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW OVERRIDE;
-	ILIAS_NET2_EXPORT bool release(std::size_t n) ILIAS_NET2_NOTHROW;
-
-	ILIAS_NET2_EXPORT virtual bool co_run() ILIAS_NET2_NOTHROW = 0;
-	ILIAS_NET2_EXPORT virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW OVERRIDE;
-	ILIAS_NET2_EXPORT virtual std::size_t size() const ILIAS_NET2_NOTHROW = 0;
-};
-
-
-} /* namespace workq_detail */
-
-
 class workq FINAL :
 	public workq_detail::workq_int,
 	public ll_base_hook<workq_detail::runq_tag>,
@@ -386,6 +356,198 @@ private:
 };
 
 
+namespace workq_detail {
+
+
+class co_runnable;
+
+/*
+ * wq_run_lock: lock a workq and job for execution.
+ *
+ * This is an internal type that should only be passed around by reference.
+ *
+ * This forms the basis for locking a job to be executed.
+ * If this is in the locked state, the job _must_ be run,
+ * after which commit() is called.
+ *
+ * Destroying a locked, but uncommited wq_run_lock will
+ * result in an assertion failure, since it would invalidate
+ * the promise to a job (when the job is succesfully locked,
+ * it is guaranteed to run and to unlock).
+ */
+class ILIAS_NET2_LOCAL wq_run_lock
+{
+friend class workq_service;
+friend class co_runnable;	/* Can't get more specific, since the co_runnable requires wq_run_lock to be defined. */
+friend void workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
+friend void workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
+
+private:
+	workq_intref<workq> m_wq;
+	workq_intref<workq_job> m_wq_job;
+	workq::run_lck m_wq_lck;
+	workq_job::run_lck m_wq_job_lck;
+	bool m_commited;
+
+public:
+	wq_run_lock() ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		/* Empty body. */
+	}
+
+	~wq_run_lock() ILIAS_NET2_NOTHROW
+	{
+		this->unlock();
+	}
+
+private:
+	wq_run_lock(wq_run_lock&& o) ILIAS_NET2_NOTHROW :
+		m_wq(std::move(o.m_wq)),
+		m_wq_job(std::move(o.m_wq_job)),
+		m_wq_lck(o.m_wq_lck),
+		m_wq_job_lck(o.m_wq_job_lck),
+		m_commited(o.m_commited)
+	{
+		/* Empty body. */
+	}
+
+	wq_run_lock(workq_service& wqs) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(wqs);
+	}
+
+	wq_run_lock(workq& wq) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(wq);
+	}
+
+	wq_run_lock(workq_job& wqj) ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_wq_job(),
+		m_wq_lck(),
+		m_wq_job_lck(),
+		m_commited(false)
+	{
+		this->lock(wqj);
+	}
+
+	wq_run_lock&
+	operator=(wq_run_lock&& o) ILIAS_NET2_NOTHROW
+	{
+		assert(!this->m_wq && !this->m_wq_job);
+		this->m_wq = std::move(o.m_wq);
+		this->m_wq_job = std::move(o.m_wq_job);
+		this->m_wq_lck = o.m_wq_lck;
+		this->m_wq_job_lck = o.m_wq_job_lck;
+		this->m_commited = o.m_commited;
+		return *this;
+	}
+
+	const workq_intref<workq>&
+	get_wq() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_wq;
+	}
+
+	const workq_intref<workq_job>&
+	get_wq_job() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_wq_job;
+	}
+
+	void
+	commit() ILIAS_NET2_NOTHROW
+	{
+		assert(this->is_locked() && !this->is_commited());
+		this->m_commited = true;
+	}
+
+	void
+	unlock() ILIAS_NET2_NOTHROW
+	{
+		assert(!this->is_locked() || this->m_commited);
+
+		if (this->m_wq_job && this->m_wq_job_lck != workq_job::BUSY)
+			this->m_wq_job->unlock_run(this->m_wq_job_lck);
+		if (this->m_wq)
+			this->m_wq->unlock_run(this->m_wq_lck);
+		this->m_wq_job.reset();
+		this->m_wq.reset();
+		this->m_commited = false;
+	}
+
+	bool lock(workq& what) ILIAS_NET2_NOTHROW;
+	bool lock(workq_job& what) ILIAS_NET2_NOTHROW;
+	bool lock(workq_service& wqs) ILIAS_NET2_NOTHROW;
+
+public:
+	bool
+	is_commited() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_commited;
+	}
+
+	bool
+	is_locked() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_wq_job_lck != workq_job::BUSY && this->get_wq() && this->get_wq_job());
+	}
+
+
+#if HAS_DELETED_FN
+	wq_run_lock(const wq_run_lock&) = delete;
+	wq_run_lock& operator=(const wq_run_lock&) = delete;
+#else
+private:
+	wq_run_lock(const wq_run_lock&);
+	wq_run_lock& operator=(const wq_run_lock&);
+#endif
+};
+
+
+class co_runnable :
+	public ll_base_hook<coroutine_tag>,
+	public workq_job
+{
+friend class ilias::workq_service;
+
+private:
+	wq_run_lock m_rlck;
+	std::atomic<unsigned int> m_runcount;
+
+public:
+	ILIAS_NET2_EXPORT virtual ~co_runnable() ILIAS_NET2_NOTHROW;
+
+protected:
+	ILIAS_NET2_EXPORT co_runnable(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
+
+	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW OVERRIDE;
+
+	ILIAS_NET2_EXPORT void co_publish(wq_run_lock&, std::size_t) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool release(std::size_t) ILIAS_NET2_NOTHROW;
+
+	ILIAS_NET2_EXPORT virtual bool co_run() ILIAS_NET2_NOTHROW = 0;
+};
+
+
+} /* namespace ilias::workq_detail */
+
+
 class workq_service FINAL :
 	public workq_detail::workq_int,
 	public refcount_base<workq_service, workq_detail::wq_deleter>
@@ -394,7 +556,7 @@ friend class workq_detail::wq_run_lock;
 friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;
-friend void workq_detail::co_runnable::run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW;
+friend void workq_detail::co_runnable::co_publish(workq_detail::wq_run_lock&, std::size_t) ILIAS_NET2_NOTHROW;
 friend bool workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW;
 friend void workq::job_to_runq(workq_detail::workq_intref<workq_job>) ILIAS_NET2_NOTHROW;
 
@@ -416,7 +578,7 @@ private:
 	ILIAS_NET2_LOCAL ~workq_service() ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_LOCAL void wq_to_runq(workq_detail::workq_intref<workq>) ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_LOCAL void co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable>, workq_detail::wq_run_lock&, unsigned int) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable>, unsigned int) ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_LOCAL void wakeup(unsigned int = 1) ILIAS_NET2_NOTHROW;
 
 public:
