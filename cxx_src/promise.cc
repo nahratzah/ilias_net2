@@ -20,13 +20,6 @@
 namespace ilias {
 
 
-basic_future::basic_future(basic_state* s) :
-	m_state(s)
-{
-	if (!s)
-		uninitialized_promise::throw_me();
-}
-
 bool
 basic_future::ready() const ILIAS_NET2_NOTHROW
 {
@@ -64,10 +57,14 @@ const ILIAS_NET2_LOCAL std::exception_ptr unref = std::make_exception_ptr(broken
 } /* namespace ilias::<unnamed> */
 
 void
-basic_promise::mark_unreferenced::operator()(basic_state* s) const ILIAS_NET2_NOTHROW
+basic_promise::mark_unreferenced::unreferenced(basic_state& s) const ILIAS_NET2_NOTHROW
 {
-	s->set_exception(unref);
-	refcnt_release(*s);
+	assert(s.m_prom_refcnt.load(std::memory_order_acquire) == 0);
+
+	/* Optimization: if the shared state has no futures, bypass setting the exception. */
+	if (!refcnt_is_solo(s))
+		s.set_exception(unref);
+	refcnt_release(s);
 }
 
 

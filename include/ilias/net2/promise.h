@@ -24,10 +24,7 @@
 #include <memory>
 #include <stdexcept>
 #include <exception>
-
-#if defined(HAVE_TYPE_TRAITS) && HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF
-#include <type_traits>	/* For combi promise templates. */
-#endif /* HAS_VARARG_TEMPLATES && HAS_DECLTYPE && HAS_RVALUE_REF */
+#include <type_traits>
 
 #include <thread>
 
@@ -78,15 +75,21 @@ protected:
 	class basic_state;
 
 private:
-	struct ILIAS_NET2_EXPORT mark_unreferenced
+	struct ILIAS_NET2_LOCAL mark_unreferenced
 	{
-		void operator() (basic_state*) const ILIAS_NET2_NOTHROW;
+		void operator() (const basic_state*) const ILIAS_NET2_NOTHROW;
+
+		void acquire(const basic_state&) const ILIAS_NET2_NOTHROW;
+		void release(const basic_state&) const ILIAS_NET2_NOTHROW;
+		ILIAS_NET2_EXPORT void unreferenced(basic_state&) const ILIAS_NET2_NOTHROW;
 	};
 
 protected:
 	class ILIAS_NET2_EXPORT basic_state :
 		public refcount_base<basic_state>
 	{
+	friend struct basic_promise::mark_unreferenced;
+
 	private:
 		/*
 		 * ready_state_t is actually an enum, but it seems at least
@@ -110,6 +113,7 @@ protected:
 
 		std::exception_ptr m_except;
 		std::atomic<ready_state_t> m_ready;
+		mutable std::atomic<unsigned int> m_prom_refcnt;
 
 	protected:
 		class ILIAS_NET2_LOCAL state_lock :
@@ -187,7 +191,8 @@ protected:
 
 		basic_state() ILIAS_NET2_NOTHROW :
 			m_except(),
-			m_ready(NIL)
+			m_ready(NIL),
+			m_prom_refcnt(0)
 		{
 			/* Empty body. */
 		}
@@ -277,24 +282,50 @@ protected:
 #endif
 	};
 
+	typedef ilias::refpointer<basic_state, mark_unreferenced> state_ptr_type;
+
 private:
-	typedef std::unique_ptr<basic_state, mark_unreferenced> state_ptr_type;
 	state_ptr_type m_state;
 
 protected:
+	basic_promise() ILIAS_NET2_NOTHROW :
+		m_state()
+	{
+		/* Empty body. */
+	}
+
+	basic_promise(const basic_promise& p) ILIAS_NET2_NOTHROW :
+		m_state(p.m_state)
+	{
+		/* Empty body. */
+	}
+
 	basic_promise(basic_promise&& p) ILIAS_NET2_NOTHROW :
 		m_state(std::move(p.m_state))
 	{
 		/* Empty body. */
 	}
 
-	explicit basic_promise(refpointer<basic_state>& state_ptr) ILIAS_NET2_NOTHROW :
-		m_state(state_ptr.release())	/* Decrement of refcount done by deleter. */
+	explicit basic_promise(state_ptr_type&& state_ptr) ILIAS_NET2_NOTHROW :
+		m_state(std::move(state_ptr))
+	{
+		/* Empty body. */
+	}
+
+	explicit basic_promise(const state_ptr_type& state_ptr) ILIAS_NET2_NOTHROW :
+		m_state(state_ptr)
 	{
 		/* Empty body. */
 	}
 
 	~basic_promise() ILIAS_NET2_NOTHROW;
+
+	basic_promise&
+	operator=(const basic_promise& p) ILIAS_NET2_NOTHROW
+	{
+		this->m_state = p.m_state;
+		return *this;
+	}
 
 #if HAS_RVALUE_REF
 	basic_promise&
@@ -352,19 +383,25 @@ public:
 		return s->emplace_exception(std::move(args)...);
 	}
 #endif
-
-
-#if HAS_DELETED_FN
-	basic_promise() = delete;
-	basic_promise(const basic_promise&) = delete;
-	basic_promise& operator=(const basic_promise&) = delete;
-#else
-private:
-	basic_promise();
-	basic_promise(const basic_promise&);
-	basic_promise& operator=(const basic_promise&);
-#endif
 };
+
+/* Promise refcount acquire method. */
+inline void
+basic_promise::mark_unreferenced::acquire(const basic_state& s) const ILIAS_NET2_NOTHROW
+{
+	if (s.m_prom_refcnt.fetch_add(1, std::memory_order_acquire) == 0)
+		refcnt_acquire(s);
+}
+
+/* Promise refcount release method: once no promises refer to the shared state, the shared state is marked unreferenced. */
+inline void
+basic_promise::mark_unreferenced::release(const basic_state& s) const ILIAS_NET2_NOTHROW
+{
+	const auto old = s.m_prom_refcnt.fetch_sub(1, std::memory_order_release);
+	assert(old > 0);
+	if (old == 1)
+		this->unreferenced(const_cast<basic_state&>(s));
+}
 
 class ILIAS_NET2_EXPORT basic_future
 {
@@ -376,7 +413,11 @@ private:
 
 protected:
 	/* Constructor with initial state. */
-	basic_future(basic_state* s);
+	basic_future(refpointer<basic_state> s) ILIAS_NET2_NOTHROW :
+		m_state(std::move(s))
+	{
+		/* Empty body. */
+	}
 
 	basic_future() ILIAS_NET2_NOTHROW :
 		m_state()
@@ -395,6 +436,22 @@ protected:
 		m_state(std::move(f.m_state))
 	{
 		/* Empty body. */
+	}
+#endif
+
+	basic_future&
+	operator=(const basic_future& o) ILIAS_NET2_NOTHROW
+	{
+		this->m_state = o.m_state;
+		return *this;
+	}
+
+#if HAS_RVALUE_REF
+	basic_future&
+	operator=(basic_future&& o) ILIAS_NET2_NOTHROW
+	{
+		this->m_state = std::move(o.m_state);
+		return *this;
 	}
 #endif
 
@@ -538,17 +595,34 @@ private:
 		return (bs ? static_cast<state*>(bs) : nullptr);
 	}
 
-	static refpointer<state>
+	static state_ptr_type
 	create_state() throw (std::bad_alloc)
 	{
-		refpointer<state> p(new state());
-		return p;
+		return state_ptr_type(new state());
+	}
+
+	promise(state_ptr_type&& s) ILIAS_NET2_NOTHROW :
+		basic_promise(std::move(s))
+	{
+		/* Empty body. */
 	}
 
 public:
+	static promise
+	new_promise() throw (std::bad_alloc)
+	{
+		return promise(create_state());
+	}
+
 	/* Create a new promise. */
 	promise() :
 		basic_promise(create_state())
+	{
+		/* Empty body. */
+	}
+
+	promise(const promise& p) ILIAS_NET2_NOTHROW :
+		basic_promise(p)
 	{
 		/* Empty body. */
 	}
@@ -560,7 +634,17 @@ public:
 	{
 		/* Empty body. */
 	}
+#endif
 
+	/* Move assignment. */
+	promise&
+	operator= (const promise& p) ILIAS_NET2_NOTHROW
+	{
+		this->basic_promise::operator= (p);
+		return *this;
+	}
+
+#if HAS_RVALUE_REF
 	/* Move assignment. */
 	promise&
 	operator= (promise&& p) ILIAS_NET2_NOTHROW
@@ -606,21 +690,14 @@ public:
 	}
 #endif
 
-	future<Result>
-	get_future() const
+	future<typename std::remove_const<result_type>::type>
+	get_future() const throw (uninitialized_promise)
 	{
-		return future<Result>(this->get_state());
+		refpointer<state> s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+		return future<typename std::remove_const<result_type>::type>(s);
 	}
-
-
-#if HAS_DELETED_FN
-	promise(const promise&) = delete;
-	promise& operator=(const promise&) = delete;
-#else
-private:
-	promise(const promise&);
-	promise& operator=(const promise&);
-#endif
 };
 
 template<typename Result>
@@ -645,8 +722,8 @@ private:
 	}
 
 	/* Special constructor called by promise<Result>::get_future(). */
-	future(state* s) ILIAS_NET2_NOTHROW :
-		basic_future(s)
+	future(refpointer<state> s) ILIAS_NET2_NOTHROW :
+		basic_future(std::move(s))
 	{
 		/* Empty body. */
 	}
