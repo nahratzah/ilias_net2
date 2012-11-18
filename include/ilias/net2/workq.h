@@ -583,9 +583,9 @@ private:
 	    refpointer_acquire<workq_detail::co_runnable, workq_detail::workq_intref_mgr<workq_detail::co_runnable> >,
 	    refpointer_release<workq_detail::co_runnable, workq_detail::workq_intref_mgr<workq_detail::co_runnable> > > co_runq;
 
-	threadpool m_workers;
 	wq_runq m_wq_runq;
 	co_runq m_co_runq;
+	threadpool m_workers;	/* Must be the last member variable in this class. */
 
 	ILIAS_NET2_LOCAL workq_service();
 	ILIAS_NET2_LOCAL explicit workq_service(unsigned int threads);
