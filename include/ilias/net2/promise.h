@@ -584,7 +584,7 @@ private:
 
 			/* Invoke each of the callbacks, iff the promise completed with a value. */
 			if (this->has_value()) {
-				for (auto cb : cbs)
+				for (const auto& cb : cbs)
 					cb(this->get_value());
 			}
 		}
