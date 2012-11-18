@@ -76,7 +76,7 @@ threadpool::thread::do_sleep(const std::function<bool()>& pred) ILIAS_NET2_NOTHR
 			/* Go to sleep: predicate test failed to indicate more work is available. */
 			std::unique_lock<std::mutex> slck(this->m_sleep_mtx);
 			if (this->m_state.compare_exchange_strong(pstate, STATE_SLEEP,
-			    std::memory_order_acq_rel, std::memory_order_release)) {
+			    std::memory_order_acq_rel, std::memory_order_relaxed)) {
 				/* Sleep until our state changes to either active or dying. */
 				this->m_wakeup.wait(slck, [this]() -> bool {
 					return (this->get_state() != STATE_SLEEP);
