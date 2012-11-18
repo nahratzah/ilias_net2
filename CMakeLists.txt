@@ -67,12 +67,27 @@ set (CMAKE_MODULE_PATH
 )
 
 list (APPEND headers
+	# Utilities.
 	include/ilias/net2/ilias_net2_export.h
+	include/ilias/net2/booltest.h
 	include/ilias/net2/ll.h
+	include/ilias/net2/pool.h
+	include/ilias/net2/refcnt.h
+
+	# Buffer utilities.
+	include/ilias/net2/buffer.h
+	include/ilias/net2/hash.h
+
+	# Protocol utilities.
+	include/ilias/net2/encdec_ctx.h
+	include/ilias/net2/cp.h
+
+	# Parallelism utilities.
+	include/ilias/net2/promise.h
+	include/ilias/net2/workq.h
+
 	# include/ilias/net2/acceptor.h
 	# include/ilias/net2/bitset.h
-	include/ilias/net2/booltest.h
-	include/ilias/net2/buffer.h
 	# include/ilias/net2/carver.h
 	# include/ilias/net2/signed_carver.h
 	# include/ilias/net2/datapipe.h
@@ -86,18 +101,12 @@ list (APPEND headers
 	# include/ilias/net2/udp_connection.h
 	# include/ilias/net2/context.h
 	# include/ilias/net2/context_xchange.h
-	include/ilias/net2/cp.h
-	include/ilias/net2/encdec_ctx.h
 	# include/ilias/net2/enc.h
-	include/ilias/net2/hash.h
 	# include/ilias/net2/memory.h
 	# include/ilias/net2/mutex.h
 	# include/ilias/net2/obj_manager.h
 	# include/ilias/net2/obj_window.h
-	include/ilias/net2/promise.h
 	# include/ilias/net2/protocol.h
-	include/ilias/net2/pool.h
-	include/ilias/net2/refcnt.h
 	# include/ilias/net2/semaphore.h
 	# include/ilias/net2/sign.h
 	# include/ilias/net2/signset.h
@@ -106,7 +115,6 @@ list (APPEND headers
 	# include/ilias/net2/stream_acceptor.h
 	# include/ilias/net2/thread.h
 	# include/ilias/net2/tx_callback.h
-	include/ilias/net2/workq.h
 	# include/ilias/net2/workq_timer.h
 	# include/ilias/net2/workq_io.h
 	# include/ilias/net2/xchange.h
