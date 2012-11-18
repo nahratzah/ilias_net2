@@ -14,10 +14,20 @@ threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker,
 		m_all.push_back(m_factory(*this));
 }
 
+/*
+ * XXX this should be a delegating constructor, but gcc-4.6.2 doesn't have those yet
+ * (and I'm sure many other compilers lack this as well).
+ */
 threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker) :
-	threadpool(std::move(pred), std::move(worker), std::max(1U, std::thread::hardware_concurrency()))
+	m_factory([pred, worker](threadpool& self) -> thread_ptr {
+		return thread_ptr(new thread(self, pred, worker));
+	    }),
+	m_idle(new idle_threads),
+	m_all()
 {
-	/* Delegating only. */
+	const unsigned int threads = std::max(1U, std::thread::hardware_concurrency());
+	for (unsigned int i = 0; i < threads; ++i)
+		m_all.push_back(m_factory(*this));
 }
 
 threadpool::~threadpool() ILIAS_NET2_NOTHROW
