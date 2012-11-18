@@ -204,18 +204,6 @@ test_callbacks()
 }
 
 
-int test_idx = 0;
-#define do_test(fn)							\
-	do {								\
-		printf("%2d: %s\n", ++test_idx, #fn);			\
-		fn();							\
-	} while (0)
-
-#define skip_test(fn)							\
-	do {								\
-		printf("%2d: SKIP: %s\n", ++test_idx, #fn);		\
-	} while (0)
-
 int
 main()
 {
