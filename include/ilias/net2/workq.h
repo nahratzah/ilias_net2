@@ -19,6 +19,7 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/ll.h>
 #include <ilias/net2/refcnt.h>
+#include <ilias/net2/threadpool.h>
 #include <atomic>
 #include <functional>
 #include <utility>
@@ -579,6 +580,7 @@ private:
 	    refpointer_acquire<workq_detail::co_runnable, workq_detail::workq_intref_mgr<workq_detail::co_runnable> >,
 	    refpointer_release<workq_detail::co_runnable, workq_detail::workq_intref_mgr<workq_detail::co_runnable> > > co_runq;
 
+	threadpool m_workers;
 	wq_runq m_wq_runq;
 	co_runq m_co_runq;
 
@@ -591,7 +593,7 @@ private:
 
 public:
 	ILIAS_NET2_EXPORT workq_ptr new_workq() throw (std::bad_alloc);
-	ILIAS_NET2_EXPORT void aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
 
 
 #if HAS_DELETED_FN

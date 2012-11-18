@@ -450,7 +450,9 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 }
 
 
-workq_service::workq_service() ILIAS_NET2_NOTHROW
+workq_service::workq_service() ILIAS_NET2_NOTHROW :
+	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
+	    [this]() -> bool { return this->aid(32); })
 {
 	return;
 }
@@ -489,14 +491,15 @@ workq_service::new_workq() throw (std::bad_alloc)
 	return workq_ptr(new workq(this));
 }
 
-void
+bool
 workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 {
 	using std::begin;
 	using std::end;
 
+	unsigned int i;
 	auto co = begin(this->m_co_runq);
-	for (unsigned int i = 0; i < count; ++i) {
+	for (i = 0; i < count; ++i) {
 		/* Run co-runnables before workqs. */
 		if (co != end(this->m_co_runq)) {
 			do {
@@ -517,6 +520,8 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		/* Update co-routine iterator. */
 		co = begin(this->m_co_runq);
 	}
+
+	return (i == count);
 }
 
 
