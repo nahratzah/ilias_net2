@@ -353,7 +353,7 @@ public:
 	}
 #endif
 
-	ILIAS_NET2_EXPORT void aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT bool aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
 
 
 #if HAS_DELETED_FN
@@ -391,7 +391,7 @@ class ILIAS_NET2_LOCAL wq_run_lock
 friend class ilias::workq_service;
 friend class co_runnable;	/* Can't get more specific, since the co_runnable requires wq_run_lock to be defined. */
 friend void ilias::workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
-friend void ilias::workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
+friend bool ilias::workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
 
 private:
 	workq_intref<workq> m_wq;

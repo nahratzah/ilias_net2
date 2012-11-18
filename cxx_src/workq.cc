@@ -442,10 +442,11 @@ workq::lock_run_downgrade(workq::run_lck rl) ILIAS_NET2_NOTHROW
 	return rl;
 }
 
-void
+bool
 workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 {
-	for (unsigned int i = 0; i < count; ++i) {
+	unsigned int i;
+	for (i = 0; i < count; ++i) {
 		workq_detail::wq_run_lock rlck(*this);
 		if (!rlck.is_locked())
 			break;
@@ -453,6 +454,7 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		rlck.commit();
 		rlck.get_wq_job()->run(rlck);
 	}
+	return (i > 0);
 }
 
 
@@ -534,7 +536,7 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		co = begin(this->m_co_runq);
 	}
 
-	return (i == count);
+	return (i > 0);
 }
 
 
