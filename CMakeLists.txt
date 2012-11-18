@@ -69,47 +69,47 @@ set (CMAKE_MODULE_PATH
 list (APPEND headers
 	include/ilias/net2/ilias_net2_export.h
 	include/ilias/net2/ll.h
-	include/ilias/net2/acceptor.h
-	include/ilias/net2/bitset.h
+	# include/ilias/net2/acceptor.h
+	# include/ilias/net2/bitset.h
 	include/ilias/net2/booltest.h
 	include/ilias/net2/buffer.h
-	include/ilias/net2/carver.h
-	include/ilias/net2/signed_carver.h
-	include/ilias/net2/datapipe.h
-	include/ilias/net2/cneg_stage1.h
-	include/ilias/net2/cneg_key_xchange.h
-	include/ilias/net2/conn_negotiator.h
-	include/ilias/net2/conn_keys.h
-	include/ilias/net2/connection.h
-	include/ilias/net2/connstats.h
-	include/ilias/net2/connwindow.h
-	include/ilias/net2/udp_connection.h
-	include/ilias/net2/context.h
-	include/ilias/net2/context_xchange.h
+	# include/ilias/net2/carver.h
+	# include/ilias/net2/signed_carver.h
+	# include/ilias/net2/datapipe.h
+	# include/ilias/net2/cneg_stage1.h
+	# include/ilias/net2/cneg_key_xchange.h
+	# include/ilias/net2/conn_negotiator.h
+	# include/ilias/net2/conn_keys.h
+	# include/ilias/net2/connection.h
+	# include/ilias/net2/connstats.h
+	# include/ilias/net2/connwindow.h
+	# include/ilias/net2/udp_connection.h
+	# include/ilias/net2/context.h
+	# include/ilias/net2/context_xchange.h
 	include/ilias/net2/cp.h
 	include/ilias/net2/encdec_ctx.h
-	include/ilias/net2/enc.h
+	# include/ilias/net2/enc.h
 	include/ilias/net2/hash.h
-	include/ilias/net2/memory.h
-	include/ilias/net2/mutex.h
-	include/ilias/net2/obj_manager.h
-	include/ilias/net2/obj_window.h
+	# include/ilias/net2/memory.h
+	# include/ilias/net2/mutex.h
+	# include/ilias/net2/obj_manager.h
+	# include/ilias/net2/obj_window.h
 	include/ilias/net2/promise.h
-	include/ilias/net2/protocol.h
+	# include/ilias/net2/protocol.h
 	include/ilias/net2/pool.h
 	include/ilias/net2/refcnt.h
-	include/ilias/net2/semaphore.h
-	include/ilias/net2/sign.h
-	include/ilias/net2/signset.h
-	include/ilias/net2/sockdgram.h
-	include/ilias/net2/spinlock.h
-	include/ilias/net2/stream_acceptor.h
-	include/ilias/net2/thread.h
-	include/ilias/net2/tx_callback.h
+	# include/ilias/net2/semaphore.h
+	# include/ilias/net2/sign.h
+	# include/ilias/net2/signset.h
+	# include/ilias/net2/sockdgram.h
+	# include/ilias/net2/spinlock.h
+	# include/ilias/net2/stream_acceptor.h
+	# include/ilias/net2/thread.h
+	# include/ilias/net2/tx_callback.h
 	include/ilias/net2/workq.h
-	include/ilias/net2/workq_timer.h
-	include/ilias/net2/workq_io.h
-	include/ilias/net2/xchange.h
+	# include/ilias/net2/workq_timer.h
+	# include/ilias/net2/workq_io.h
+	# include/ilias/net2/xchange.h
 	)
 list (APPEND internal_headers
 	internal/poetry.h
