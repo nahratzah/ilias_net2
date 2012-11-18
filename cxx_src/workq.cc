@@ -73,7 +73,8 @@ wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 		}
 
 		/* Take job away from single runq. */
-		this->m_wq->m_runq.erase(this->m_wq->m_runq.iterator_to(*this->m_wq_job));
+		if (this->m_wq_job)
+			this->m_wq->m_runq.erase(this->m_wq->m_runq.iterator_to(*this->m_wq_job));
 
 		break;
 	}
