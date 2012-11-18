@@ -760,6 +760,13 @@ private:
 	}
 #endif
 
+	void
+	reset()
+	{
+		this->listhead = nullptr;
+		this->element = nullptr;
+	}
+
 public:
 	ILIAS_NET2_EXPORT void step_forward() ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT void step_backward() ILIAS_NET2_NOTHROW;
@@ -1481,6 +1488,7 @@ public:
 		if (!w)
 			throw std::invalid_argument("cannot insert empty unlink_wait");
 		this->list::push_front_nowait(w.m_ptr);
+		w.m_ptr = simple_iterator();
 	}
 
 	void
@@ -1489,6 +1497,7 @@ public:
 		if (!w)
 			throw std::invalid_argument("cannot insert empty unlink_wait");
 		this->list::push_back_nowait(w.m_ptr);
+		w.m_ptr = simple_iterator();
 	}
 #endif
 
@@ -2258,7 +2267,7 @@ public:
 		if (this->get())
 			this->m_ptr.unlink_wait();
 		pointer p = this->get();
-		this->m_ptr = MOVE(simple_iterator());
+		this->m_ptr = simple_iterator();
 		return p;
 	}
 

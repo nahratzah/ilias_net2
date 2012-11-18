@@ -108,6 +108,7 @@ hook_ptr::unlink_nowait() const ILIAS_NET2_NOTHROW
 void
 hook_ptr::unlink_wait(const hook& list_head) const ILIAS_NET2_NOTHROW
 {
+	assert(this->pred().second);
 	for (hook_ptr s = MOVE(this->succ().first);
 	    (*this)->m_refcnt.load(std::memory_order_relaxed) > 1;
 	    s = MOVE(s.succ().first)) {
@@ -127,7 +128,7 @@ hook_ptr::unlink_wait(const hook& list_head) const ILIAS_NET2_NOTHROW
 	}
 
 	const pointer_flag clear(hook_ptr(), false);
-	(*this)->m_succ.exchange(clear);
+	(*this)->m_succ.exchange(hook_ptr());
 	(*this)->m_pred.exchange(clear);
 }
 
@@ -161,7 +162,7 @@ hook_ptr::unlink_wait_inslock(const hook& list_head) const ILIAS_NET2_NOTHROW
 bool
 hook_ptr::unlink(const hook& list_head) const ILIAS_NET2_NOTHROW
 {
-	if (!unlink_nowait())
+	if (!this->unlink_nowait())
 		return false;
 	this->unlink_wait(list_head);
 	return true;

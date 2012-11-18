@@ -105,7 +105,7 @@ main()
 	do_test(test_set_read);
 	do_test(test_set_destroy_read);
 	do_test(test_lazy_read);
-	skip_test(test_wq_resolution);
+	do_test(test_wq_resolution);
 
 	return 0;
 }
