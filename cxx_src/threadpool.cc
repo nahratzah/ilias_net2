@@ -3,14 +3,21 @@
 namespace ilias {
 
 
-threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker) :
+threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker, unsigned int threads) :
 	m_factory([pred, worker](threadpool& self) -> thread_ptr {
 		return thread_ptr(new thread(self, pred, worker));
 	    }),
 	m_idle(new idle_threads),
 	m_all()
 {
-	/* Empty body. */
+	for (unsigned int i = 0; i < threads; ++i)
+		m_all.push_back(m_factory(*this));
+}
+
+threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker) :
+	threadpool(std::move(pred), std::move(worker), std::max(1U, std::thread::hardware_concurrency()))
+{
+	/* Delegating only. */
 }
 
 threadpool::~threadpool() ILIAS_NET2_NOTHROW

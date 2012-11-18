@@ -176,6 +176,12 @@ new_workq_service() throw (std::bad_alloc)
 	return workq_service_ptr(new workq_service());
 }
 
+workq_service_ptr
+new_workq_service(unsigned int threads) throw (std::bad_alloc)
+{
+	return workq_service_ptr(new workq_service(threads));
+}
+
 
 workq_job::workq_job(workq_ptr wq, unsigned int type) throw (std::invalid_argument) :
 	m_type(type),
@@ -450,9 +456,16 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 }
 
 
-workq_service::workq_service() ILIAS_NET2_NOTHROW :
+workq_service::workq_service() :
 	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
 	    [this]() -> bool { return this->aid(32); })
+{
+	return;
+}
+
+workq_service::workq_service(unsigned int threads) :
+	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
+	    [this]() -> bool { return this->aid(32); }, threads)
 {
 	return;
 }

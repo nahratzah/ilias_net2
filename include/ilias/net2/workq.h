@@ -43,7 +43,9 @@ class workq_service;
 typedef refpointer<workq> workq_ptr;
 typedef refpointer<workq_service> workq_service_ptr;
 
+
 ILIAS_NET2_EXPORT workq_service_ptr new_workq_service() throw (std::bad_alloc);
+ILIAS_NET2_EXPORT workq_service_ptr new_workq_service(unsigned int threads) throw (std::bad_alloc);
 
 
 namespace workq_detail {
@@ -563,6 +565,7 @@ class workq_service FINAL :
 {
 friend class workq_detail::wq_run_lock;
 friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
+friend workq_service_ptr new_workq_service(unsigned int) throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::co_runnable::co_publish(workq_detail::wq_run_lock&, std::size_t) ILIAS_NET2_NOTHROW;
@@ -584,7 +587,8 @@ private:
 	wq_runq m_wq_runq;
 	co_runq m_co_runq;
 
-	ILIAS_NET2_LOCAL workq_service() ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL workq_service();
+	ILIAS_NET2_LOCAL explicit workq_service(unsigned int threads);
 	ILIAS_NET2_LOCAL ~workq_service() ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_LOCAL void wq_to_runq(workq_detail::workq_intref<workq>) ILIAS_NET2_NOTHROW;

@@ -24,6 +24,7 @@ private:
 	all_threads m_all;
 
 public:
+	ILIAS_NET2_EXPORT threadpool(std::function<bool()>, const std::function<bool()>, unsigned int threads);
 	ILIAS_NET2_EXPORT threadpool(std::function<bool()>, const std::function<bool()>);
 
 	ILIAS_NET2_EXPORT threadpool(threadpool&& o) ILIAS_NET2_NOTHROW :

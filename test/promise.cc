@@ -59,7 +59,7 @@ test_lazy_read()
 void
 test_workq_resolution()
 {
-	auto wqs = ilias::new_workq_service();
+	auto wqs = ilias::new_workq_service(0);
 	auto f = ilias::lazy_future(wqs->new_workq(), 0, []() -> int { return 42; });
 
 	TEST(f.valid());
@@ -157,7 +157,7 @@ test_lazy_exception()
 void
 test_workq_exception()
 {
-	auto wqs = ilias::new_workq_service();
+	auto wqs = ilias::new_workq_service(0);
 	auto f = ilias::lazy_future(wqs->new_workq(), 0, []() -> int { throw int(42); });
 	bool caught = false;
 
