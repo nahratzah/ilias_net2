@@ -279,7 +279,7 @@ protected:
 			if (!lck)
 				return false;
 
-			this->m_except = std::make_exception_ptr(std::move(args)...);
+			this->m_except = std::make_exception_ptr<Exception>(std::forward<Args>(args)...);
 			lck.commit();
 			return true;
 		}
@@ -396,7 +396,7 @@ public:
 #endif
 
 #if HAS_VARARG_TEMPLATES
-	template<typename... Args>
+	template<typename Exception, typename... Args>
 	bool
 	emplace_exception(Args&&... args)
 	{
@@ -404,7 +404,7 @@ public:
 		if (!s)
 			uninitialized_promise::throw_me();
 
-		return s->emplace_exception(std::move(args)...);
+		return s->emplace_exception<Exception>(std::forward<Args>(args)...);
 	}
 #endif
 };
@@ -921,6 +921,17 @@ public:
 		s->set_lazy(std::move(wq), type, std::move(f));
 	}
 
+	template<typename Functor>
+	void
+	add_callback(Functor f) throw (uninitialized_promise, std::invalid_argument, std::bad_alloc)
+	{
+		state* s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+		s->add_callback(std::move(f));
+	}
+
+
 	future<typename std::remove_const<result_type>::type>
 	get_future() const throw (uninitialized_promise)
 	{
@@ -1027,6 +1038,16 @@ public:
 	{
 		state*const s = this->get_state();
 		return (s && s->has_value());
+	}
+
+	template<typename Functor>
+	void
+	add_callback(Functor f) throw (uninitialized_promise, std::invalid_argument, std::bad_alloc)
+	{
+		state* s = this->get_state();
+		if (!s)
+			uninitialized_promise::throw_me();
+		s->add_callback(std::move(f));
 	}
 };
 
