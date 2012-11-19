@@ -14,8 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <ilias/net2/workq.h>
-
 #include <thread>
+
+#if !HAS_TLS
+#include "tls_fallback.h"
+#endif
 
 
 #ifdef _MSC_VER
@@ -25,6 +28,79 @@
 
 
 namespace ilias {
+namespace {
+
+
+struct wq_stack
+{
+	wq_stack *next;
+	workq_detail::workq_intref<workq> wq;
+	workq_detail::workq_intref<workq_job> job;
+
+	wq_stack(wq_stack* next, workq_detail::workq_intref<workq> wq, workq_detail::workq_intref<workq_job> job) ILIAS_NET2_NOTHROW :
+		next(next),
+		wq(wq),
+		job(job)
+	{
+		return;
+	}
+};
+
+struct wq_tls
+{
+	workq_service* wqs;
+	wq_stack* stack;
+};
+
+wq_tls&
+get_wq_tls()
+{
+#if HAS_TLS
+	static THREAD_LOCAL wq_tls impl;
+	return impl;
+#else
+	static tls<wq_tls> impl;
+	return *impl;
+#endif
+};
+
+
+class wq_stack_element
+{
+private:
+	wq_stack data;
+
+public:
+	wq_stack_element(workq_detail::workq_intref<workq> wq, workq_detail::workq_intref<workq_job> j) ILIAS_NET2_NOTHROW :
+		data(get_wq_tls().stack, wq, j)
+	{
+		get_wq_tls().stack = &this->data;
+	}
+
+	~wq_stack_element() ILIAS_NET2_NOTHROW
+	{
+		assert(get_wq_tls().stack == &this->data);
+		get_wq_tls().stack = this->data.next;
+		this->data.next = nullptr;
+	}
+
+
+#if HAS_DELETED_FN
+	wq_stack_element() = delete;
+	wq_stack_element(const wq_stack_element&) = delete;
+	wq_stack_element& operator=(const wq_stack_element&) = delete;
+#else
+private:
+	wq_stack_element();
+	wq_stack_element(const wq_stack_element&);
+	wq_stack_element& operator=(const wq_stack_element&);
+#endif
+};
+
+
+} /* ilias::<unnamed> */
+
+
 namespace workq_detail {
 
 
@@ -215,6 +291,7 @@ workq_job::activate(unsigned int flags) ILIAS_NET2_NOTHROW
 		if (rlck.is_locked()) {
 			assert(rlck.get_wq_job().get() == this);
 			rlck.commit();	/* XXX remove commit requirement? */
+			wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
 			this->run(rlck);
 		}
 	}
@@ -453,6 +530,7 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 			break;
 
 		rlck.commit();
+		wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
 		rlck.get_wq_job()->run(rlck);
 	}
 	return (i > 0);
@@ -519,6 +597,7 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		/* Run co-runnables before workqs. */
 		if (co != end(this->m_co_runq)) {
 			do {
+				wq_stack_element stack(co->get_workq(), co.get());
 				if (co->co_run())
 					++i;
 			} while (i < count && co != end(this->m_co_runq));
@@ -530,8 +609,11 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		if (!rlck.is_locked())
 			break;	/* GUARD: No co-runnables, nor workqs available. */
 
-		rlck.commit();
-		rlck.get_wq_job()->run(rlck);
+		{
+			rlck.commit();
+			wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
+			rlck.get_wq_job()->run(rlck);
+		}
 
 		/* Update co-routine iterator. */
 		co = begin(this->m_co_runq);
