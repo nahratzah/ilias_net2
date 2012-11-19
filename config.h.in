@@ -240,6 +240,21 @@
 
 #define ILIAS_NET2_NOTHROW_CND_TEST(_x)	/* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
 
+/*
+ * Declare how to get thread-local storage support.
+ */
+#define ILIAS_THREAD_LOCAL	1	/* Changed to 0 below, if unsupported. */
+#if defined(HAS_THREAD_LOCAL)
+#define THREAD_LOCAL		thread_local
+#elif defined(HAS___THREAD)
+#define THREAD_LOCAL		__thread
+#elif WIN32
+#define THREAD_LOCAL		__declspec(thread)
+#else
+#undef ILIAS_THREAD_LOCAL
+#define ILIAS_THREAD_LOCAL	0	/* No support for tls.  A fallback using posix will be used. */
+#endif
+
 
 /* Exclude whatever breaks this library on windows, due to too many definitions in <windows.h>. */
 #ifdef WIN32

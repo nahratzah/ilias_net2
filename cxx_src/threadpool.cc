@@ -6,10 +6,7 @@ namespace ilias {
 threadpool::thread*&
 threadpool::thread::tls_self() ILIAS_NET2_NOTHROW
 {
-#ifdef WIN32
-#define thread_local __declspec(thread)
-#endif
-	static thread_local threadpool::thread* tls;
+	static THREAD_LOCAL threadpool::thread* tls;
 	return tls;
 }
 
