@@ -22,7 +22,7 @@ void
 test_job_immed()
 {
 	int i = 0;
-	auto job = ilias::new_workq_service()->new_workq()->new_job([&i]() { ++i; });
+	auto job = ilias::new_workq_service(0)->new_workq()->new_job([&i]() { ++i; });
 
 	TEST(i == 0);
 	job->activate(ilias::workq_job::ACT_IMMED);
