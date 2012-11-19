@@ -92,7 +92,7 @@ public:
 	pointer
 	get()
 	{
-		void* p = ::pthread_getspecific(key);
+		void* p = ::pthread_getspecific(this->key);
 		if (p)
 			return &static_cast<elem*>(p)->data;
 
