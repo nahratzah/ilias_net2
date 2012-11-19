@@ -6,6 +6,13 @@
 namespace ilias {
 
 
+const int threadpool::thread::STATE_ACTIVE = 0;
+const int threadpool::thread::STATE_SLEEP_TEST = 1;
+const int threadpool::thread::STATE_SLEEP = 2;
+const int threadpool::thread::STATE_DYING = 0xff;
+const int threadpool::thread::STATE_SUICIDE = 0xfe;
+
+
 threadpool::thread*&
 threadpool::thread::tls_self() ILIAS_NET2_NOTHROW
 {

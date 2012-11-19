@@ -66,12 +66,14 @@ public:
 	 * SLEEP       -> { ACTIVE, DYING, SUICIDE }
 	 * DYING       -> {  }
 	 * SUICIDE     -> {  }
+	 *
+	 * Const outside class, since gcc 4.6.2 blows up during link stage.
 	 */
-	static CONSTEXPR_VALUE int STATE_ACTIVE = 0;
-	static CONSTEXPR_VALUE int STATE_SLEEP_TEST = 1;
-	static CONSTEXPR_VALUE int STATE_SLEEP = 2;
-	static CONSTEXPR_VALUE int STATE_DYING = 0xff;		/* Worker died and needs to be joined. */
-	static CONSTEXPR_VALUE int STATE_SUICIDE = 0xfe;	/* Worker killed itself and detached. */
+	static const int STATE_ACTIVE;
+	static const int STATE_SLEEP_TEST;
+	static const int STATE_SLEEP;
+	static const int STATE_DYING;	/* Worker died and needs to be joined. */
+	static const int STATE_SUICIDE;	/* Worker killed itself and detached. */
 
 	enum kill_result {
 		KILL_TWICE,	/* Was already dying. */
