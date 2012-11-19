@@ -537,9 +537,46 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 }
 
 
+class publish_wqs
+{
+private:
+	wq_tls& m_tls;
+	workq_service*const m_wqs;
+
+public:
+	publish_wqs(workq_service& wqs) ILIAS_NET2_NOTHROW :
+		m_tls(get_wq_tls()),
+		m_wqs(&wqs)
+	{
+		assert(!this->m_tls.wqs);
+		this->m_tls.wqs = this->m_wqs;
+	}
+
+	~publish_wqs() ILIAS_NET2_NOTHROW
+	{
+		assert(this->m_tls.wqs == this->m_wqs);
+		this->m_tls.wqs = nullptr;
+	}
+
+
+#if HAS_DELETED_FN
+	publish_wqs() = delete;
+	publish_wqs(const publish_wqs&) = delete;
+	publish_wqs& operator=(const publish_wqs&) = delete;
+#else
+private:
+	publish_wqs();
+	publish_wqs(const publish_wqs&);
+	publish_wqs& operator=(const publish_wqs&);
+#endif
+};
+
 workq_service::workq_service() :
 	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
-	    [this]() -> bool { return this->aid(32); })
+	    [this]() -> bool {
+	        publish_wqs(*this);
+		return this->aid(32);
+	    })
 {
 	return;
 }
