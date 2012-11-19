@@ -1,4 +1,7 @@
 #include <ilias/net2/threadpool.h>
+#if !HAS_TLS
+#include "tls_fallback.h"
+#endif
 
 namespace ilias {
 
@@ -6,8 +9,13 @@ namespace ilias {
 threadpool::thread*&
 threadpool::thread::tls_self() ILIAS_NET2_NOTHROW
 {
+#if HAS_TLS
 	static THREAD_LOCAL threadpool::thread* tls;
 	return tls;
+#else
+	static tls<threadpool::thread*> impl;
+	return *impl;
+#endif
 }
 
 

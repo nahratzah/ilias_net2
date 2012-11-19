@@ -252,6 +252,11 @@ file (READ "CMake/source/tls__thread_local.cc" TLS_THREADLOCAL_CC)
 mark_as_advanced (TLS_THREADLOCAL_CC)
 check_cxx_source_runs ("${TLS_THREADLOCAL_CC}" HAS_THREAD_LOCAL)
 
+if (NOT HAS___THREAD AND NOT HAS_THREAD_LOCAL)
+	list (APPEND headers internal/tls_fallback.h)
+	list (APPEND cxx_srcs internal/tls_fallback.h)
+endif (NOT HAS___THREAD AND NOT HAS_THREAD_LOCAL)
+
 # Test if hardware is big endian.
 test_big_endian (IS_BIG_ENDIAN)
 

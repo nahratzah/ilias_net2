@@ -243,7 +243,7 @@
 /*
  * Declare how to get thread-local storage support.
  */
-#define ILIAS_THREAD_LOCAL	1	/* Changed to 0 below, if unsupported. */
+#define HAS_TLS			1	/* Changed to 0 below, if unsupported. */
 #if defined(HAS_THREAD_LOCAL)
 #define THREAD_LOCAL		thread_local
 #elif defined(HAS___THREAD)
@@ -251,8 +251,8 @@
 #elif WIN32
 #define THREAD_LOCAL		__declspec(thread)
 #else
-#undef ILIAS_THREAD_LOCAL
-#define ILIAS_THREAD_LOCAL	0	/* No support for tls.  A fallback using posix will be used. */
+#undef HAS_TLS
+#define HAS_TLS			0	/* No support for tls.  A fallback using posix will be used. */
 #endif
 
 
