@@ -206,6 +206,7 @@ include (CheckIncludeFileCXX)
 include (CheckTypeSize)
 include (TestBigEndian)
 include (CheckCXXSourceCompiles)
+include (CheckCXXSourceRuns)
 check_function_exists (arc4random HAS_ARC4RANDOM)
 check_function_exists (vasprintf HAS_VASPRINTF)
 check_function_exists (asprintf HAS_ASPRINTF)
@@ -240,6 +241,16 @@ check_cxx_source_compiles ("${STD_MOVE_IF_NOEXCEPT_CC}" HAS_STD_MOVE_IF_NOEXCEPT
 file (READ "CMake/source/std_constructor_traits.cc" STD_CONSTRUCTOR_TRAITS_CC)
 mark_as_advanced (STD_CONSTRUCTOR_TRAITS_CC)
 check_cxx_source_compiles ("${STD_CONSTRUCTOR_TRAITS_CC}" HAS_CONSTRUCTOR_TRAITS)
+
+# Test if __thread keyword is supported.
+file (READ "CMake/source/tls__thread.cc" TLS_THREAD_CC)
+mark_as_advanced (TLS_THREAD_CC)
+check_cxx_source_runs ("${TLS_THREAD_CC}" HAS___THREAD)
+
+# Test if thread_local keyword is supported.
+file (READ "CMake/source/tls__thread_local.cc" TLS_THREADLOCAL_CC)
+mark_as_advanced (TLS_THREADLOCAL_CC)
+check_cxx_source_runs ("${TLS_THREADLOCAL_CC}" HAS_THREAD_LOCAL)
 
 # Test if hardware is big endian.
 test_big_endian (IS_BIG_ENDIAN)

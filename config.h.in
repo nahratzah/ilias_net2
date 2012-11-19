@@ -106,6 +106,12 @@
 /* Set if std::is_nothrow_{copy,move}_constructable and std::is_nothrow_destructable templates exist. */
 #cmakedefine HAS_CONSTRUCTOR_TRAITS
 
+/* Set if __thread makes a variable use thread-local storage. */
+#cmakedefine HAS___THREAD
+
+/* Set if thread_local keyword is supported. */
+#cmakedefine HAS_THREAD_LOCAL
+
 
 #if defined(__clang__)
 /* Features of clang compiler. */
