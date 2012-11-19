@@ -10,6 +10,9 @@
 #include <vector>
 
 
+namespace ilias {
+namespace {
+
 /*
  * Thread-local fallback.
  * It basically behaves like a smart pointer, with lazy initialization.
@@ -144,5 +147,8 @@ private:
 	tls& operator=(const tls&);
 #endif
 };
+
+
+}} /* namespace ilias::<unnamed> */
 
 #endif /* ILIAS_TLS_FALLBACK_H */
