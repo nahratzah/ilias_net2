@@ -34,7 +34,7 @@ test_once()
 {
 	static int i;
 	i = 0;
-	auto wqs = ilias::new_workq_service();
+	auto wqs = ilias::new_workq_service(0);
 	auto wq = wqs->new_workq();
 
 	wq->once([]() { ++i; });
@@ -55,6 +55,7 @@ test_persist()
 		if (++i == 10)
 			job->deactivate();
 	    });
+	job->activate();
 
 	while (wqs->aid());
 	TEST(i ==10);
