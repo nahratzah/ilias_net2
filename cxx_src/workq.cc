@@ -329,6 +329,9 @@ workq_job::deactivate() ILIAS_NET2_NOTHROW
 	const auto gen = this->m_run_gen.load(std::memory_order_relaxed);
 	auto s = this->m_state.fetch_and(~STATE_ACTIVE, std::memory_order_release);
 
+	if ((s & STATE_RUNNING) && get_wq_tls().find(*this))
+		return;	/* Deactivated from within. */
+
 	while ((s & STATE_RUNNING) &&
 	    gen == this->m_run_gen.load(std::memory_order_relaxed)) {
 		std::this_thread::yield();
