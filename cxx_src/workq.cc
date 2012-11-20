@@ -666,11 +666,14 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		/* Run co-runnables before workqs. */
 		if (co != end(this->m_co_runq)) {
 			do {
+				workq_detail::workq_intref<workq_detail::co_runnable> co_ptr = co.get();
+				co = this->m_co_runq.end();	/* Remove from list, so co_runnable::release() can unlink. */
 				wq_stack_element stack(
-				    workq_detail::workq_intref<workq>(co->get_workq()),
-				    workq_detail::workq_intref<workq_job>(co.get()));
-				if (co->co_run())
+				    workq_detail::workq_intref<workq>(co_ptr->get_workq()),
+				    workq_detail::workq_intref<workq_job>(co_ptr));
+				if (co_ptr->co_run())
 					++i;
+				co = this->m_co_runq.begin();
 			} while (i < count && co != end(this->m_co_runq));
 			continue;
 		}
