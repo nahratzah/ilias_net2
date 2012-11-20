@@ -33,6 +33,24 @@ private:
 	{
 		tls* self;
 		value_type data;
+
+		elem(tls* self) :
+			self(self),
+			data()
+		{
+			assert(self != nullptr);
+		}
+
+
+#if HAS_DELETED_FN
+		elem() = delete;
+		elem(const elem&) = delete;
+		elem& operator=(const elem&) = delete;
+#else
+		elem();
+		elem(const elem&);
+		elem& operator=(const elem&);
+#endif
 	};
 
 	struct ip_delete
@@ -97,12 +115,12 @@ public:
 			return &static_cast<elem*>(p)->data;
 
 		internal_pointer ip;
-		p = std::malloc(sizeof(value_type));
+		p = std::malloc(sizeof(elem));
 		if (!p)
 			throw std::bad_alloc();
-		memset(p, 0, sizeof(value_type));
+		memset(p, 0, sizeof(elem));
 		try {
-			ip.reset(new (p) elem());
+			ip.reset(new (p) elem(this));
 		} catch (...) {
 			std::free(p);
 			throw;
