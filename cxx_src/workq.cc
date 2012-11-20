@@ -44,12 +44,38 @@ struct wq_stack
 	{
 		return;
 	}
+
+	wq_stack*
+	find(const workq& wq) ILIAS_NET2_NOTHROW
+	{
+		return (this->wq.get() == &wq ? this :
+		    (this->next ? this->next->find(wq) : nullptr));
+	}
+
+	wq_stack*
+	find(const workq_job& job) ILIAS_NET2_NOTHROW
+	{
+		return (this->job.get() == &job ? this :
+		    (this->next ? this->next->find(job) : nullptr));
+	}
 };
 
 struct wq_tls
 {
 	workq_service* wqs;
 	wq_stack* stack;
+
+	wq_stack*
+	find(const workq& wq) ILIAS_NET2_NOTHROW
+	{
+		return (this->stack ? this->stack->find(wq) : nullptr);
+	}
+
+	wq_stack*
+	find(const workq_job& job) ILIAS_NET2_NOTHROW
+	{
+		return (this->stack ? this->stack->find(job) : nullptr);
+	}
 };
 
 wq_tls&
@@ -672,7 +698,14 @@ wq_deleter::operator()(const workq_job* wqj) const ILIAS_NET2_NOTHROW
 	wqj->get_workq()->m_p_runq.unlink_robust(wqj->get_workq()->m_p_runq.iterator_to(const_cast<workq_job&>(*wqj)));
 	const_cast<workq_job*>(wqj)->deactivate();
 
-	/* XXX check if this job is being destroyed from within its own worker thread, then perform special handling. */
+	/*
+	 * If this job is being destroyed from within its own worker thread,
+	 * inform the internal references that they are responsible for destruction.
+	 */
+	if (get_wq_tls().find(*wqj)) {
+		wqj->int_suicide.store(true, std::memory_order_release);
+		return;
+	}
 
 	/* Wait until the last reference to this job goes away. */
 	wqj->wait_unreferenced();
@@ -685,7 +718,14 @@ wq_deleter::operator()(const workq* wq) const ILIAS_NET2_NOTHROW
 {
 	wq->get_workq_service()->m_wq_runq.unlink_robust(wq->get_workq_service()->m_wq_runq.iterator_to(const_cast<workq&>(*wq)));
 
-	/* XXX check if this wq is being destroyed from within its own worker thread, then perform special handling. */
+	/*
+	 * If this wq is being destroyed from within its own worker thread,
+	 * inform the internal references that they are responsible for destruction.
+	 */
+	if (get_wq_tls().find(*wq)) {
+		wq->int_suicide.store(true, std::memory_order_release);
+		return;
+	}
 
 	/* Wait for the last internal reference to go away. */
 	wq->wait_unreferenced();
@@ -741,7 +781,7 @@ job_single::run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW
 workq_job_ptr
 workq::new_job(unsigned int type, std::function<void()> fn) throw (std::bad_alloc, std::invalid_argument)
 {
-	return workq_job_ptr(new job_single(workq_ptr(this), std::move(fn), type));
+	return new_workq_job<job_single>(workq_ptr(this), std::move(fn), type);
 }
 
 
@@ -807,7 +847,7 @@ workq::new_job(unsigned int type, std::vector<std::function<void()> > fn) throw 
 	if (fn.size() == 1)
 		return this->new_job(type, std::move(fn.front()));	/* Use simpler job type if there is only one function. */
 
-	return workq_job_ptr(new coroutine_job(this, std::move(fn), type));
+	return new_workq_job<coroutine_job>(this, std::move(fn), type);
 }
 
 
@@ -838,7 +878,7 @@ void
 workq::once(std::function<void()> fn) throw (std::bad_alloc, std::invalid_argument)
 {
 	/* Create a job that will run once and then kill itself. */
-	workq_job_ptr j(new job_once<job_single>(this, std::move(fn)));
+	workq_job_ptr j = new_workq_job<job_once<job_single> >(this, std::move(fn));
 
 	/* Activate this job, so it will run. */
 	j->activate();
@@ -851,7 +891,7 @@ void
 workq::once(std::vector<std::function<void()> > fns) throw (std::bad_alloc, std::invalid_argument)
 {
 	/* Create a job that will run once and then kill itself. */
-	workq_job_ptr j(new job_once<coroutine_job>(workq_ptr(this), std::move(fns)));
+	workq_job_ptr j = new_workq_job<job_once<coroutine_job> >(this, std::move(fns));
 
 	/* Activate this job, so it will run. */
 	j->activate();	/* Never throws */

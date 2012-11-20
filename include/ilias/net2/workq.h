@@ -56,24 +56,29 @@ struct coroutine_tag {};
 struct parallel_tag {};
 
 
+struct wq_deleter;
 template<typename Type> struct workq_intref_mgr;
 
 class workq_int
 {
 template<typename Type> friend struct workq_intref_mgr;
+friend struct wq_deleter;
 
 private:
 	mutable std::atomic<std::uintptr_t> int_refcnt;
+	mutable std::atomic<bool> int_suicide;
 
 protected:
 	workq_int() ILIAS_NET2_NOTHROW :
-		int_refcnt(0)
+		int_refcnt(0),
+		int_suicide(0)
 	{
 		return;
 	}
 
 	workq_int(const workq_int&) ILIAS_NET2_NOTHROW :
-		int_refcnt(0)
+		int_refcnt(0),
+		int_suicide(0)
 	{
 		return;
 	}
@@ -109,6 +114,9 @@ struct workq_intref_mgr
 		const workq_int& i = v;
 		const auto o = i.int_refcnt.fetch_sub(1, std::memory_order_release);
 		assert(o > 0);
+
+		if (o == 0 && i.int_suicide.load(std::memory_order_acquire))	/* XXX consume? */
+			delete &v;
 	}
 };
 
@@ -182,6 +190,13 @@ class wq_run_lock;
 
 typedef std::unique_ptr<workq_job, workq_detail::wq_deleter> workq_job_ptr;	/* XXX probably needs change. */
 
+template<typename JobType, typename... Args>
+std::unique_ptr<JobType, workq_detail::wq_deleter>
+new_workq_job(const workq_ptr& wq, Args&&... args)
+{
+	return std::unique_ptr<JobType, workq_detail::wq_deleter>(new JobType(wq, std::forward<Args>(args)...));
+}
+
 
 class workq_job :
 	public workq_detail::workq_int,
@@ -191,6 +206,7 @@ class workq_job :
 friend class workq;	/* Because MSVC and GCC cannot access private types in friend definitions. :P */
 friend class workq_service;
 friend class workq_detail::wq_run_lock;
+friend struct workq_detail::workq_intref_mgr<workq_job>;
 friend void workq_detail::wq_deleter::operator()(const workq_job*) const ILIAS_NET2_NOTHROW;
 
 public:
@@ -257,6 +273,7 @@ class workq FINAL :
 {
 friend class workq_service;
 friend class workq_detail::wq_run_lock;
+friend struct workq_detail::workq_intref_mgr<workq>;
 friend void workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
 friend void workq_job::unlock_run(workq_job::run_lck rl) ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
