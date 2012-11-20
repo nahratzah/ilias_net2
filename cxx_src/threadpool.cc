@@ -33,8 +33,11 @@ threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker,
 	m_idle(new idle_threads),
 	m_all()
 {
-	for (unsigned int i = 0; i < threads; ++i)
-		m_all.push_back(m_factory(*this, i));
+	for (unsigned int i = 0; i < threads; ++i) {
+		auto thr = this->m_factory(*this, i);
+		assert(thr != nullptr);
+		this->m_all.push_back(std::move(thr));
+	}
 }
 
 /*
@@ -49,8 +52,11 @@ threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker)
 	m_all()
 {
 	const unsigned int threads = std::max(1U, std::thread::hardware_concurrency());
-	for (unsigned int i = 0; i < threads; ++i)
-		m_all.push_back(m_factory(*this, i));
+	for (unsigned int i = 0; i < threads; ++i) {
+		auto thr = this->m_factory(*this, i);
+		assert(thr != nullptr);
+		this->m_all.push_back(std::move(thr));
+	}
 }
 
 bool
@@ -62,7 +68,7 @@ threadpool::curthread_is_threadpool() ILIAS_NET2_NOTHROW
 
 threadpool::~threadpool() ILIAS_NET2_NOTHROW
 {
-	for (auto& thr : m_all) {
+	for (auto& thr : this->m_all) {
 		switch (thr->kill()) {
 		case thread::KILL_OK:
 			thr->join();
