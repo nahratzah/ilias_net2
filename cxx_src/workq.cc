@@ -600,22 +600,24 @@ private:
 #endif
 };
 
+bool
+workq_service::threadpool_work() ILIAS_NET2_NOTHROW
+{
+	publish_wqs pub(*this);
+	return this->aid(32);
+}
+
 workq_service::workq_service() :
-	m_workers(
-	    [this]() -> bool {
-		return !this->m_wq_runq.empty() || !this->m_co_runq.empty();
-	    },
-	    [this]() -> bool {
-	        publish_wqs pub(*this);
-		return this->aid(32);
-	    })
+	m_workers(std::bind(&workq_service::threadpool_pred, this),
+	    std::bind(&workq_service::threadpool_work, this))
 {
 	return;
 }
 
 workq_service::workq_service(unsigned int threads) :
-	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
-	    [this]() -> bool { return this->aid(32); }, threads)
+	m_workers(std::bind(&workq_service::threadpool_pred, this),
+	    std::bind(&workq_service::threadpool_work, this),
+	    threads)
 {
 	return;
 }

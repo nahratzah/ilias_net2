@@ -26,11 +26,11 @@ threadpool::thread::tls_self() ILIAS_NET2_NOTHROW
 }
 
 
-threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker, unsigned int threads) :
-	m_factory([pred, worker](threadpool& self, unsigned int idx) -> thread_ptr {
-		return thread_ptr(new thread(self, idx, pred, worker));
-	    }),
-	m_idle(new idle_threads),
+threadpool::threadpool(std::function<bool()> pred, std::function<bool()> work, unsigned int threads) :
+	m_factory(std::bind(&factory_impl,
+	    std::placeholders::_1, std::placeholders::_2,
+	    std::move(pred), std::move(work))),
+	m_idle(new idle_threads()),
 	m_all()
 {
 	for (unsigned int i = 0; i < threads; ++i) {
@@ -40,30 +40,12 @@ threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker,
 	}
 }
 
-/*
- * XXX this should be a delegating constructor, but gcc-4.6.2 doesn't have those yet
- * (and I'm sure many other compilers lack this as well).
- */
-threadpool::threadpool(std::function<bool()> pred, std::function<bool()> worker) :
-	m_factory([pred, worker](threadpool& self, unsigned int idx) -> thread_ptr {
-		return thread_ptr(new thread(self, idx, pred, worker));
-	    }),
-	m_idle(new idle_threads),
-	m_all()
+threadpool::threadpool(threadpool&& o) ILIAS_NET2_NOTHROW :
+	m_factory(std::move(o.m_factory)),
+	m_idle(std::move(o.m_idle)),
+	m_all(std::move(o.m_all))
 {
-	const unsigned int threads = std::max(1U, std::thread::hardware_concurrency());
-	for (unsigned int i = 0; i < threads; ++i) {
-		auto thr = this->m_factory(*this, i);
-		assert(thr != nullptr);
-		this->m_all.push_back(std::move(thr));
-	}
-}
-
-bool
-threadpool::curthread_is_threadpool() ILIAS_NET2_NOTHROW
-{
-	const thread* t = thread::tls_self();
-	return (t && &t->m_idle == this->m_idle.get());
+	/* Empty body. */
 }
 
 threadpool::~threadpool() ILIAS_NET2_NOTHROW
@@ -83,122 +65,11 @@ threadpool::~threadpool() ILIAS_NET2_NOTHROW
 	this->m_all.clear();
 }
 
-
-class threadpool::thread::publish_idle
+bool
+threadpool::curthread_is_threadpool() ILIAS_NET2_NOTHROW
 {
-private:
-	thread& m_self;
-
-public:
-	publish_idle(thread& s) ILIAS_NET2_NOTHROW :
-		m_self(s)
-	{
-		this->m_self.m_idle.push_back(this->m_self);
-	}
-
-	~publish_idle() ILIAS_NET2_NOTHROW
-	{
-		this->m_self.m_idle.erase_element(this->m_self.m_idle.iterator_to(this->m_self));
-	}
-
-
-#if HAS_DELETED_FN
-	publish_idle(const publish_idle&) = delete;
-	publish_idle& operator=(const publish_idle&) = delete;
-#else
-private:
-	publish_idle(const publish_idle&);
-	publish_idle& operator=(const publish_idle&);
-#endif
-};
-
-threadpool::thread::thread(threadpool& tp, unsigned int idx, const std::function<bool()>& pred, const std::function<bool()>& worker) :
-	m_state(STATE_ACTIVE),
-	m_sleep_mtx(),
-	m_wakeup(),
-	m_idle(*tp.m_idle),
-	m_idx(idx),
-	m_self(&thread::run, this, pred, worker)
-{
-	/* Empty body. */
-}
-
-void
-threadpool::thread::do_sleep(const std::function<bool()>& pred) ILIAS_NET2_NOTHROW
-{
-	int pstate = STATE_ACTIVE;
-
-	/* Move to sleep-test state. */
-	if (this->m_state.compare_exchange_strong(pstate, STATE_SLEEP_TEST,
-	    std::memory_order_acquire, std::memory_order_relaxed)) {
-		pstate = STATE_SLEEP_TEST;
-
-		/*
-		 * Publish idle state prior to testing predicate:
-		 * if we publish after, there is a race where a wakeup will be missed,
-		 * between the point the idle test completes and the publish operation
-		 * happens.
-		 */
-		publish_idle pub(*this);
-
-		if (pred()) {
-			/* Don't go to sleep. */
-			this->m_state.compare_exchange_strong(pstate, STATE_ACTIVE,
-			    std::memory_order_acquire, std::memory_order_relaxed);
-		} else {
-			/* Go to sleep: predicate test failed to indicate more work is available. */
-			std::unique_lock<std::mutex> slck(this->m_sleep_mtx);
-			if (this->m_state.compare_exchange_strong(pstate, STATE_SLEEP,
-			    std::memory_order_acq_rel, std::memory_order_relaxed)) {
-				/* Sleep until our state changes to either active or dying. */
-				this->m_wakeup.wait(slck, [this]() -> bool {
-					return (this->get_state() != STATE_SLEEP);
-				    });
-			}
-		}
-	}
-
-	/* Ensure state is valid on exit. */
-	const auto end_state = this->get_state();
-	assert(end_state == STATE_ACTIVE || end_state == STATE_DYING || end_state == STATE_SUICIDE);
-}
-
-std::unique_ptr<threadpool::thread>
-threadpool::thread::run(const std::function<bool()>& pred, const std::function<bool()>& functor)
-{
-	std::unique_ptr<threadpool::thread> cyanide;	/* Used to pass this to parent in order for it to clean up. */
-
-	struct tls_storage
-	{
-		tls_storage(thread* self) ILIAS_NET2_NOTHROW
-		{
-			assert(self);
-			assert(!tls_self());
-			tls_self() = self;
-		}
-
-		~tls_storage() ILIAS_NET2_NOTHROW
-		{
-			assert(tls_self());
-			tls_self() = nullptr;
-		}
-	};
-
-
-	{
-		/* Publish thread, so we can detect suicide cases. */
-		tls_storage identification(this);
-
-		while (this->get_state() == STATE_ACTIVE) {
-			if (!functor())
-				do_sleep(pred);
-		}
-	}
-
-	/* Swallow the pill to kill ourselves. */
-	if (this->get_state() == STATE_SUICIDE)
-		cyanide.reset(this);
-	return cyanide;
+	const thread* t = thread::tls_self();
+	return (t && &t->m_idle == this->m_idle.get());
 }
 
 bool
@@ -259,6 +130,89 @@ threadpool::thread::join() ILIAS_NET2_NOTHROW
 threadpool::thread::~thread() ILIAS_NET2_NOTHROW
 {
 	return;
+}
+
+
+threadpool::thread_ptr
+threadpool::factory_impl(threadpool& self, unsigned int idx,
+    const std::function<bool()>& pred, const std::function<bool()>& work)
+{
+	return thread_ptr(new thread(self, idx, pred, work));
+}
+
+
+std::unique_ptr<threadpool::thread>
+threadpool::thread::run(const std::function<bool()>& pred, const std::function<bool()>& work) ILIAS_NET2_NOTHROW
+{
+	std::unique_ptr<threadpool::thread> cyanide;	/* Used to fulfill suicide. */
+
+	struct tls_storage
+	{
+		tls_storage(thread& self) ILIAS_NET2_NOTHROW
+		{
+			assert(!tls_self());
+			tls_self() = &self;
+		}
+
+		~tls_storage() ILIAS_NET2_NOTHROW
+		{
+			assert(tls_self());
+			tls_self() = nullptr;
+		}
+	};
+
+	tls_storage identification(*this);
+
+	/* Keep running work while active. */
+	while (this->get_state() == STATE_ACTIVE) {
+		if (!work())
+			do_sleep(pred);
+	}
+
+	/* If this thread killed itself, use cyanide to fulfill suicide promise. */
+	if (this->get_state() == STATE_SUICIDE)
+		cyanide.reset(this);
+	return cyanide;
+}
+
+void
+threadpool::thread::do_sleep(const std::function<bool()>& pred) ILIAS_NET2_NOTHROW
+{
+	int pstate = STATE_ACTIVE;
+
+	/* Move to sleep-test state. */
+	if (this->m_state.compare_exchange_strong(pstate, STATE_SLEEP_TEST,
+	    std::memory_order_acquire, std::memory_order_relaxed)) {
+		pstate = STATE_SLEEP_TEST;
+
+		/*
+		 * Publish idle state prior to testing predicate:
+		 * if we publish after, there is a race where a wakeup will be missed,
+		 * between the point the idle test completes and the publish operation
+		 * happens.
+		 */
+		publish_idle pub(*this);
+
+		if (pred()) {
+			/* Don't go to sleep. */
+			this->m_state.compare_exchange_strong(pstate, STATE_ACTIVE,
+			    std::memory_order_acquire, std::memory_order_relaxed);
+		} else {
+			/* Go to sleep: predicate test failed to indicate more work is available. */
+			std::unique_lock<std::mutex> slck(this->m_sleep_mtx);
+			if (this->m_state.compare_exchange_strong(pstate, STATE_SLEEP,
+			    std::memory_order_acq_rel, std::memory_order_relaxed)) {
+				/* Sleep until our state changes to either active or dying. */
+				this->m_wakeup.wait(slck, [this]() -> bool {
+					return (this->get_state() != STATE_SLEEP);
+				    });
+			}
+		}
+	}
+
+	/* Ensure state is valid on exit. */
+	const auto end_state = this->get_state();
+	assert(end_state == STATE_ACTIVE || end_state == STATE_DYING || end_state == STATE_SUICIDE);
 }
 
 

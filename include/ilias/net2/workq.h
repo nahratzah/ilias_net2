@@ -612,6 +612,14 @@ private:
 	ILIAS_NET2_LOCAL void co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable>, unsigned int) ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_LOCAL void wakeup(unsigned int = 1) ILIAS_NET2_NOTHROW;
 
+	bool
+	threadpool_pred() ILIAS_NET2_NOTHROW
+	{
+		return !this->m_wq_runq.empty() || !this->m_co_runq.empty();
+	}
+
+	ILIAS_NET2_LOCAL bool threadpool_work() ILIAS_NET2_NOTHROW;
+
 public:
 	ILIAS_NET2_EXPORT workq_ptr new_workq() throw (std::bad_alloc);
 	ILIAS_NET2_EXPORT bool aid(unsigned int = 1) ILIAS_NET2_NOTHROW;
