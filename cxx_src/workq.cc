@@ -598,9 +598,12 @@ private:
 };
 
 workq_service::workq_service() :
-	m_workers([this]() -> bool { return !this->m_wq_runq.empty() || !this->m_co_runq.empty(); },
+	m_workers(
 	    [this]() -> bool {
-	        publish_wqs(*this);
+		return !this->m_wq_runq.empty() || !this->m_co_runq.empty();
+	    },
+	    [this]() -> bool {
+	        publish_wqs pub(*this);
 		return this->aid(32);
 	    })
 {
