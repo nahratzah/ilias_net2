@@ -97,7 +97,15 @@ buffer::buffer(const buffer& rhs) throw (std::bad_alloc) :
 	m_list(rhs.m_list),
 	m_reserve(0)
 {
-	return;
+	/* Empty body. */
+}
+
+buffer::buffer(const void* data, size_type len) throw (std::bad_alloc) :
+	m_list(),
+	m_reserve(0)
+{
+	if (len > 0)
+		this->append(data, len);
 }
 
 buffer::~buffer() ILIAS_NET2_NOTHROW

@@ -754,7 +754,7 @@ private:
 
 public:
 	/* Default constructor. */
-	buffer() ILIAS_NET2_NOTHROW :
+	buffer() ILIAS_NET2_NOTHROW
 		m_list(),
 		m_reserve(0)
 	{
@@ -774,12 +774,7 @@ public:
 	}
 #endif
 
-	buffer(const void* data, size_type len) :
-		m_list(),
-		m_reserve()
-	{
-		this->append(data, len);
-	}
+	ILIAS_NET2_EXPORT buffer(const void* data, size_type len) throw (std::bad_alloc)
 
 	ILIAS_NET2_EXPORT ~buffer() ILIAS_NET2_NOTHROW;
 
@@ -827,7 +822,10 @@ public:
 		return copy;
 	}
 
-	/* Swap the contents of two buffers. */
+	/*
+	 * Swap the contents of two buffers.
+	 * Requires that neither buffer has outstanding prepared statements.
+	 */
 	void
 	swap(buffer& o) ILIAS_NET2_NOTHROW
 	{
@@ -946,7 +944,7 @@ public:
 		return (this->cmp(o) >= 0);
 	}
 
-	/* Try to find a string in the buffer, starting at offset. */
+	/* Try to find a byte string in the buffer, starting at offset. */
 	ILIAS_NET2_EXPORT size_type find_string(const void*, size_type, size_type = 0) const ILIAS_NET2_NOTHROW;
 
 	/*
@@ -958,9 +956,10 @@ public:
 	void
 	visit(Functor f) const
 	{
-		for (list_type::const_iterator i = this->m_list.begin(); i != this->m_list.end(); ++i) {
-			const void* p = i->second.data();
-			f(p, i->second.length());
+		for (const auto& s : this->m_list) {
+			const void* addr = s.second.data();
+			size_type sz = s.second.length();
+			f(addr, sz);
 		}
 	}
 
@@ -977,11 +976,14 @@ public:
 		if (len > this->size())
 			throw std::out_of_range("len argument exceeds buffer length");
 
-		for (list_type::const_iterator i = this->m_list.begin(); i != this->m_list.end() && len > 0; ++i) {
-			const void* p = i->second.data();
-			size_type vlen = std::min(i->second.length(), len);
-			f(p, vlen);
-			len -= vlen;
+		for (const auto& s : this->m_list) {
+			const void* addr = s.second.data();
+			size_type sz = std::min(s.second.length(), remainder);
+			len -= sz;
+			f(addr, sz);
+
+			if (len == 0)
+				break;
 		}
 	}
 
@@ -996,11 +998,17 @@ public:
 		 * Capturing this, since gcc 4.6.2 attempts to use non-static set_iov_{base,len} for some off reason.
 		 */
 		this->visit([&iter, this](const void *p, size_type len) {
-			buffer::iovec rv;
-			set_iov_base(rv, const_cast<void*>(p));
-			set_iov_len(rv, len);
-			*iter++ = rv;
-		});
+			do {
+				size_type sz = std::min(len, max_iov_len());
+
+				buffer::iovec rv;
+				set_iov_base(rv, const_cast<void*>(p));
+				set_iov_len(rv, sz);
+
+				*iter++ = rv;
+				len -= sz;
+			} while (len > 0);
+		    });
 		return iter;
 	}
 
@@ -1017,11 +1025,17 @@ public:
 		 * Capturing this, since gcc 4.6.2 attempts to use non-static set_iov_{base,len} for some off reason.
 		 */
 		this->visit([&iter, this](const void* p, size_type len) {
-			buffer::iovec rv;
-			set_iov_base(rv, const_cast<void*>(p));
-			set_iov_len(rv, len);
-			*iter++ = rv;
-		}, len);
+			do {
+				size_type sz = std::min(len, max_iov_len());
+
+				buffer::iovec rv;
+				set_iov_base(rv, const_cast<void*>(p));
+				set_iov_len(rv, sz);
+
+				*iter++ = rv;
+				len -= sz;
+			} while (len > 0);
+		    }, len);
 		return iter;
 	}
 
