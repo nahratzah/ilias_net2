@@ -24,6 +24,7 @@
 #include <ilias/net2/refcnt.h>
 #include <atomic>
 #include <cstdint>
+#include <algorithm>
 #include <vector>
 
 #ifdef WIN32
@@ -52,6 +53,12 @@ public:
 
 	/* Indicator of invalid offset. */
 	static ILIAS_NET2_EXPORT const size_type npos;
+
+	static CONSTEXPR_VALUE size_type
+	max_iov_len()
+	{
+		return SIZE_MAX;
+	}
 
 #if WIN32
 	typedef _WSABUF iovec;
@@ -754,7 +761,7 @@ private:
 
 public:
 	/* Default constructor. */
-	buffer() ILIAS_NET2_NOTHROW
+	buffer() ILIAS_NET2_NOTHROW :
 		m_list(),
 		m_reserve(0)
 	{
@@ -774,7 +781,7 @@ public:
 	}
 #endif
 
-	ILIAS_NET2_EXPORT buffer(const void* data, size_type len) throw (std::bad_alloc)
+	ILIAS_NET2_EXPORT buffer(const void* data, size_type len) throw (std::bad_alloc);
 
 	ILIAS_NET2_EXPORT ~buffer() ILIAS_NET2_NOTHROW;
 
@@ -978,7 +985,7 @@ public:
 
 		for (const auto& s : this->m_list) {
 			const void* addr = s.second.data();
-			size_type sz = std::min(s.second.length(), remainder);
+			size_type sz = std::min(s.second.length(), len);
 			len -= sz;
 			f(addr, sz);
 
