@@ -33,8 +33,7 @@ namespace {
 
 class publish_wqs;
 
-struct wq_stack :
-	public boost::intrusive::list_base_hook<>
+struct wq_stack
 {
 	workq_detail::wq_run_lock lck;
 	wq_stack* pred;
@@ -93,11 +92,9 @@ struct wq_tls
 {
 friend class publish_wqs;
 
-private:
 	workq_service* wqs;
 	wq_stack* stack;
 
-public:
 	const wq_stack*
 	find(const workq& wq) const ILIAS_NET2_NOTHROW
 	{
