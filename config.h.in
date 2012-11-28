@@ -113,6 +113,35 @@
 #cmakedefine HAS_THREAD_LOCAL
 
 
+/*
+ * Different versions of MS-compiler.
+ *
+ * The _MSC_VER points at the visual studio versions, which are stable releases
+ * (i.e. if feature X is present in VS10, it will be present in VS11).
+ * The _MSC_FULL_VER is a more detailed version number, used to find specific builds
+ * of the compiler.
+ *
+ * Unfortunately, MSC support for C++11 is pretty shitty.  The November CTP finally
+ * introduces variadic templates and explicit conversion operators.  Unfortunately
+ * this does not mean new compilers automatically have the same functionality:
+ * the TFS release has a higher _MSC_FULL_VER, but is a release targeting windows XP,
+ * lacking the C++11 features this library requires.  Feature testing on MS is going
+ * to be a giant white-list of compilers until they finally release real C++11
+ * support.
+ *
+ * Sad tidbit of information: notice that the MSC_VS2012 macro is not used in feature
+ * tests: they have hardly anything interesting in 2 years of development.  Even the
+ * boring stuff for which all they had to do was add a line to their parser (noexcept,
+ * without the conditionals) they did not manage to implement in this time span.
+ * I really wonder why I even bother with this platform...
+ */
+#define MSC_VS10		(_MSC_VER >= 1600)
+#define MSC_VS11		(_MSC_VER >= 1700)
+#define MSC_VS11_NOV_CTP	(_MSC_FULL_VER == 170051025)	/* Nov CTP, has some c++11 features. */
+#define MSC_VS2010		MSC_VS10
+#define MSC_VS2012		MSC_VS11
+
+
 #if defined(__clang__)
 /* Features of clang compiler. */
 #define HAS_VARARG_TEMPLATES	__has_feature(cxx_variadic_templates)
@@ -141,15 +170,15 @@
 
 #elif defined(_MSC_VER)
 /* Features of Microsoft compiler. */
-#define HAS_VARARG_TEMPLATES	(_MSC_FULL_VER >= 170051025) /* VC++ 2012, November compiler. */
-#define HAS_DECLTYPE		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
-#define HAS_DELETED_FN		0 /* Didn't spot it in the table. */
-#define HAS_RVALUE_REF		(_MSC_VER >= 1600 /* Visual Studio 2010 */ )
-#define HAS_NOEXCEPT		0 /* But throw() actually functions similar. */
-#define HAS_CONSTEXPR		0 /* Blech, MSVC claims I may not redefine constexpr while they don't implement it, idiots. */
-#define HAS_EXPL_OP_BOOL	(_MSC_FULL_VER >= 170051025) /* VC++ 2012, November compiler. */
-#define HAS_OVERRIDE		(_MSC_VER >= 1600 /* Visual Studio 2010 (possibly earlier) */ )
-#define HAS_ALIAS_TEMPLATES	0 /* Slow to implement. */
+#define HAS_VARARG_TEMPLATES	MSC_VS11_NOV_CTP /* Specific version, subsequent releases will not contain features. */
+#define HAS_DECLTYPE		MSC_VS2010
+#define HAS_DELETED_FN		0 /* They don't have it. */
+#define HAS_RVALUE_REF		MSC_VS2010
+#define HAS_NOEXCEPT		0 /* They don't have it, despite them being a major reason for the semantics. */
+#define HAS_CONSTEXPR		0 /* They don't have it.  They will complain if you redefine it, though. */
+#define HAS_EXPL_OP_BOOL	MSC_VS11_NOV_CTP
+#define HAS_OVERRIDE		MSC_VS2010
+#define HAS_ALIAS_TEMPLATES	0 /* They don't have this either. */
 #endif
 
 /* Unknown compiler, assume it doesn't implement anything. */
