@@ -21,6 +21,7 @@
 #include <ilias/net2/refcnt.h>
 #include <ilias/net2/threadpool.h>
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -563,7 +564,7 @@ friend class wq_run_lock;
 
 private:
 	wq_run_lock m_rlck;
-	std::atomic<unsigned int> m_runcount;
+	std::atomic<std::size_t> m_runcount;
 
 public:
 	ILIAS_NET2_EXPORT virtual ~co_runnable() ILIAS_NET2_NOTHROW;
@@ -588,8 +589,8 @@ class workq_service FINAL :
 	public refcount_base<workq_service, workq_detail::wq_deleter>
 {
 friend class workq_detail::wq_run_lock;
-friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
-friend workq_service_ptr new_workq_service(unsigned int) throw (std::bad_alloc);
+friend ILIAS_NET2_EXPORT workq_service_ptr new_workq_service() throw (std::bad_alloc);
+friend ILIAS_NET2_EXPORT workq_service_ptr new_workq_service(unsigned int) throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::co_runnable::co_publish(std::size_t) ILIAS_NET2_NOTHROW;
@@ -616,8 +617,8 @@ private:
 	ILIAS_NET2_LOCAL ~workq_service() ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_LOCAL void wq_to_runq(workq_detail::workq_intref<workq>) ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_LOCAL void co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable>, unsigned int) ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_LOCAL void wakeup(unsigned int = 1) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable>, std::size_t) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_LOCAL void wakeup(std::size_t = 1) ILIAS_NET2_NOTHROW;
 
 	bool
 	threadpool_pred() ILIAS_NET2_NOTHROW

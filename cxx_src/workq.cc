@@ -743,7 +743,7 @@ workq_service::wq_to_runq(workq_detail::workq_intref<workq> wq) ILIAS_NET2_NOTHR
 }
 
 void
-workq_service::co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable> co, unsigned int max_threads) ILIAS_NET2_NOTHROW
+workq_service::co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable> co, std::size_t max_threads) ILIAS_NET2_NOTHROW
 {
 	assert(max_threads > 0);
 	const bool pushback_succeeded = (this->m_co_runq.push_back(co));
@@ -752,7 +752,7 @@ workq_service::co_to_runq(workq_detail::workq_intref<workq_detail::co_runnable> 
 }
 
 void
-workq_service::wakeup(unsigned int count) ILIAS_NET2_NOTHROW
+workq_service::wakeup(std::size_t count) ILIAS_NET2_NOTHROW
 {
 	/* STUB */
 }
