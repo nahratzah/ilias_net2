@@ -15,7 +15,6 @@
  */
 #include <ilias/net2/workq.h>
 #include <thread>
-#include <boost/intrusive/list.hpp>
 
 #if !HAS_TLS
 #include "tls_fallback.h"
