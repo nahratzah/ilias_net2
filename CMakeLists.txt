@@ -29,7 +29,6 @@ if (MEMDEBUG)
 	add_definitions (-DMEMDEBUG)
 endif (MEMDEBUG)
 
-
 if ("${CMAKE_C_COMPILER}" MATCHES "clang$" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
 	set(CMAKE_COMPILER_IS_CLANG 1)
 	unset(CMAKE_COMPILER_IS_GNUCC)
@@ -197,6 +196,12 @@ else ()
 	list (APPEND EXTRA_LIBS ${OPENSSL_LIBRARIES})
 endif ()
 
+find_package (Threads)
+if (CMAKE_USE_PTHREADS_INIT)
+	set (CMAKE_REQUIRED_DEFINITIONS "-pthread")
+	set (CMAKE_REQUIRED_LIBRARIES "-pthread")
+endif ()
+
 #
 # Require boost intrusive for internal stacks.
 #
@@ -340,7 +345,6 @@ else (${WITH_EXUDE})
 endif (${WITH_EXUDE})
 
 
-find_package (Threads)
 if (NOT USE_EMBEDDED_EV)
 	find_package (Ev REQUIRED)
 endif (NOT USE_EMBEDDED_EV)
