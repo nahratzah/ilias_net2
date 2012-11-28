@@ -122,6 +122,7 @@ public:
 	void
 	pop(wq_stack& s) ILIAS_NET2_NOTHROW
 	{
+		assert(!this->stack.empty());
 		assert(&this->stack.back() == &s);
 		this->stack.pop_back();
 	}
@@ -129,6 +130,7 @@ public:
 	workq_detail::wq_run_lock
 	steal_lock(const workq_job& j) ILIAS_NET2_NOTHROW
 	{
+		assert(!this->stack.empty());
 		wq_stack& s = this->stack.back();
 		return s.steal_lock(j);
 	}
@@ -136,8 +138,16 @@ public:
 	workq_detail::wq_run_lock
 	store(workq_detail::wq_run_lock&& rlck) ILIAS_NET2_NOTHROW
 	{
+		assert(!this->stack.empty());
 		wq_stack& s = this->stack.back();
 		return s.store(std::move(rlck));
+	}
+
+	const workq_detail::workq_intref<workq>&
+	get_wq() const ILIAS_NET2_NOTHROW
+	{
+		static const workq_detail::workq_intref<workq> stack_empty;
+		return (this->stack.empty() ?  stack_empty : this->stack.back().get_wq());
 	}
 };
 
@@ -604,6 +614,12 @@ workq::get_workq_service() const ILIAS_NET2_NOTHROW
 	return this->m_wqs;
 }
 
+workq_ptr
+workq::get_current() ILIAS_NET2_NOTHROW
+{
+	return get_wq_tls().get_wq();
+}
+
 void
 workq::job_to_runq(workq_detail::workq_intref<workq_job> j) ILIAS_NET2_NOTHROW
 {
@@ -758,8 +774,8 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 		if (co != end(this->m_co_runq)) {
 			do {
 				workq_detail::workq_intref<workq_detail::co_runnable> co_ptr = co.get();
-				co = this->m_co_runq.end();	/* Remove from list, so co_runnable::release() can unlink. */
-				wq_stack stack(*co_ptr);
+				wq_stack stack(*co_ptr);	/* Acquire lock and publish intent to execute. */
+				co = this->m_co_runq.end();	/* Release list refcount, so co_runnable::release() can unlink. */
 				if (co_ptr->co_run())
 					++i;
 				co = this->m_co_runq.begin();

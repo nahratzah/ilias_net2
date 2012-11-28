@@ -312,6 +312,7 @@ private:
 
 public:
 	ILIAS_NET2_EXPORT const workq_service_ptr& get_workq_service() const ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT static workq_ptr get_current() ILIAS_NET2_NOTHROW;
 
 private:
 	ILIAS_NET2_LOCAL void job_to_runq(workq_detail::workq_intref<workq_job>) ILIAS_NET2_NOTHROW;
