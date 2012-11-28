@@ -38,6 +38,7 @@ struct wq_stack :
 	public boost::intrusive::list_base_hook<>
 {
 	workq_detail::wq_run_lock lck;
+	wq_stack* pred;
 
 	wq_stack(workq_detail::wq_run_lock&&) ILIAS_NET2_NOTHROW;
 	~wq_stack() ILIAS_NET2_NOTHROW;
@@ -75,28 +76,35 @@ struct wq_stack :
 		this->lck = std::move(rlck);
 		return old;
 	}
+
+
+#if HAS_DELETED_FN
+	wq_stack() = delete;
+	wq_stack(const wq_stack&) = delete;
+	wq_stack& operator=(const wq_stack&) = delete;
+#else
+private:
+	wq_stack();
+	wq_stack(const wq_stack&);
+	wq_stack& operator=(const wq_stack&);
+#endif
 };
 
 struct wq_tls
 {
 friend class publish_wqs;
 
-public:
-	typedef boost::intrusive::list<wq_stack> stack_t;
-
 private:
 	workq_service* wqs;
-	stack_t stack;
+	wq_stack* stack;
 
 public:
 	const wq_stack*
 	find(const workq& wq) const ILIAS_NET2_NOTHROW
 	{
-		for (auto i = this->stack.crbegin();
-		    i != this->stack.crend();
-		    ++i) {
+		for (wq_stack* i = this->stack; i; i = i->pred) {
 			if (i->get_wq() == &wq)
-				return &*i;
+				return i;
 		}
 		return nullptr;
 	}
@@ -104,11 +112,9 @@ public:
 	const wq_stack*
 	find(const workq_job& job) const ILIAS_NET2_NOTHROW
 	{
-		for (auto i = this->stack.crbegin();
-		    i != this->stack.crend();
-		    ++i) {
+		for (wq_stack* i = this->stack; i; i = i->pred) {
 			if (i->get_wq_job() == &job)
-				return &*i;
+				return i;
 		}
 		return nullptr;
 	}
@@ -116,38 +122,37 @@ public:
 	void
 	push(wq_stack& s) ILIAS_NET2_NOTHROW
 	{
-		this->stack.push_back(s);
+		s.pred = this->stack;
+		this->stack = &s;
 	}
 
 	void
 	pop(wq_stack& s) ILIAS_NET2_NOTHROW
 	{
-		assert(!this->stack.empty());
-		assert(&this->stack.back() == &s);
-		this->stack.pop_back();
+		assert(this->stack == &s);
+		this->stack = s.pred;
+		s.pred = nullptr;
 	}
 
 	workq_detail::wq_run_lock
 	steal_lock(const workq_job& j) ILIAS_NET2_NOTHROW
 	{
-		assert(!this->stack.empty());
-		wq_stack& s = this->stack.back();
-		return s.steal_lock(j);
+		assert(this->stack);
+		return this->stack->steal_lock(j);
 	}
 
 	workq_detail::wq_run_lock
 	store(workq_detail::wq_run_lock&& rlck) ILIAS_NET2_NOTHROW
 	{
-		assert(!this->stack.empty());
-		wq_stack& s = this->stack.back();
-		return s.store(std::move(rlck));
+		assert(this->stack);
+		return this->stack->store(std::move(rlck));
 	}
 
 	const workq_detail::workq_intref<workq>&
 	get_wq() const ILIAS_NET2_NOTHROW
 	{
 		static const workq_detail::workq_intref<workq> stack_empty;
-		return (this->stack.empty() ?  stack_empty : this->stack.back().get_wq());
+		return (this->stack ? stack_empty : this->stack->get_wq());
 	}
 };
 
@@ -200,6 +205,7 @@ private:
 
 inline
 wq_stack::wq_stack(workq_detail::wq_run_lock&& lck) ILIAS_NET2_NOTHROW :
+	pred(nullptr),
 	lck(std::move(lck))
 {
 	get_wq_tls().push(*this);
