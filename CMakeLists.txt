@@ -198,6 +198,12 @@ else ()
 endif ()
 
 #
+# Require boost intrusive for internal stacks.
+#
+find_package (Boost REQUIRED)
+include_directories (${Boost_INCLUDE_DIRS})
+
+#
 # Enable BSD compatibility.
 #
 include (CheckFunctionExists)

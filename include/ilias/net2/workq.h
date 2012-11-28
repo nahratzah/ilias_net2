@@ -239,7 +239,7 @@ protected:
 
 	ILIAS_NET2_EXPORT workq_job(workq_ptr, unsigned int = 0) throw (std::invalid_argument);
 	ILIAS_NET2_EXPORT virtual ~workq_job() ILIAS_NET2_NOTHROW;
-	ILIAS_NET2_EXPORT virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW = 0;
+	ILIAS_NET2_EXPORT virtual void run() ILIAS_NET2_NOTHROW = 0;
 
 public:
 	ILIAS_NET2_EXPORT void activate(unsigned int flags = 0) ILIAS_NET2_NOTHROW;
@@ -413,6 +413,7 @@ friend bool ilias::workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
 private:
 	workq_intref<workq> m_wq;
 	workq_intref<workq_job> m_wq_job;
+	workq_intref<workq_detail::co_runnable> m_co;
 	workq::run_lck m_wq_lck;
 	workq_job::run_lck m_wq_job_lck;
 	bool m_commited;
@@ -421,6 +422,7 @@ public:
 	wq_run_lock() ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
+		m_co(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
@@ -433,10 +435,10 @@ public:
 		this->unlock();
 	}
 
-private:
 	wq_run_lock(wq_run_lock&& o) ILIAS_NET2_NOTHROW :
 		m_wq(std::move(o.m_wq)),
 		m_wq_job(std::move(o.m_wq_job)),
+		m_co(std::move(o.m_co)),
 		m_wq_lck(o.m_wq_lck),
 		m_wq_job_lck(o.m_wq_job_lck),
 		m_commited(o.m_commited)
@@ -444,9 +446,11 @@ private:
 		/* Empty body. */
 	}
 
+private:
 	wq_run_lock(workq_service& wqs) ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
+		m_co(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
@@ -457,6 +461,7 @@ private:
 	wq_run_lock(workq& wq) ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
+		m_co(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
@@ -467,6 +472,7 @@ private:
 	wq_run_lock(workq_job& wqj) ILIAS_NET2_NOTHROW :
 		m_wq(),
 		m_wq_job(),
+		m_co(),
 		m_wq_lck(),
 		m_wq_job_lck(),
 		m_commited(false)
@@ -474,12 +480,16 @@ private:
 		this->lock(wqj);
 	}
 
+	wq_run_lock(workq_detail::co_runnable& co) ILIAS_NET2_NOTHROW;
+
+public:
 	wq_run_lock&
 	operator=(wq_run_lock&& o) ILIAS_NET2_NOTHROW
 	{
 		assert(!this->m_wq && !this->m_wq_job);
 		this->m_wq = std::move(o.m_wq);
 		this->m_wq_job = std::move(o.m_wq_job);
+		this->m_co = std::move(o.m_co);
 		this->m_wq_lck = o.m_wq_lck;
 		this->m_wq_job_lck = o.m_wq_job_lck;
 		this->m_commited = o.m_commited;
@@ -498,6 +508,13 @@ private:
 		return this->m_wq_job;
 	}
 
+	const workq_intref<workq_detail::co_runnable>&
+	get_co() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_co;
+	}
+
+private:
 	void
 	commit() ILIAS_NET2_NOTHROW
 	{
@@ -505,20 +522,8 @@ private:
 		this->m_commited = true;
 	}
 
-	void
-	unlock() ILIAS_NET2_NOTHROW
-	{
-		assert(!this->is_locked() || this->m_commited);
-
-		if (this->m_wq_job && this->m_wq_job_lck != workq_job::BUSY)
-			this->m_wq_job->unlock_run(this->m_wq_job_lck);
-		if (this->m_wq)
-			this->m_wq->unlock_run(this->m_wq_lck);
-		this->m_wq_job.reset();
-		this->m_wq.reset();
-		this->m_commited = false;
-	}
-
+	void unlock() ILIAS_NET2_NOTHROW;
+	bool co_unlock() ILIAS_NET2_NOTHROW;
 	bool lock(workq& what) ILIAS_NET2_NOTHROW;
 	bool lock(workq_job& what) ILIAS_NET2_NOTHROW;
 	bool lock(workq_service& wqs) ILIAS_NET2_NOTHROW;
@@ -533,7 +538,7 @@ public:
 	bool
 	is_locked() const ILIAS_NET2_NOTHROW
 	{
-		return (this->m_wq_job_lck != workq_job::BUSY && this->get_wq() && this->get_wq_job());
+		return (this->m_wq_job_lck != workq_job::BUSY && this->get_wq_job());
 	}
 
 
@@ -553,6 +558,7 @@ class co_runnable :
 	public workq_job
 {
 friend class ilias::workq_service;
+friend class wq_run_lock;
 
 private:
 	wq_run_lock m_rlck;
@@ -566,7 +572,7 @@ protected:
 
 	ILIAS_NET2_EXPORT virtual void unlock_run(run_lck rl) ILIAS_NET2_NOTHROW OVERRIDE;
 
-	ILIAS_NET2_EXPORT void co_publish(wq_run_lock&, std::size_t) ILIAS_NET2_NOTHROW;
+	ILIAS_NET2_EXPORT void co_publish(std::size_t) ILIAS_NET2_NOTHROW;
 	ILIAS_NET2_EXPORT bool release(std::size_t) ILIAS_NET2_NOTHROW;
 
 	ILIAS_NET2_EXPORT virtual bool co_run() ILIAS_NET2_NOTHROW = 0;
@@ -585,7 +591,7 @@ friend workq_service_ptr new_workq_service() throw (std::bad_alloc);
 friend workq_service_ptr new_workq_service(unsigned int) throw (std::bad_alloc);
 friend void workq_detail::wq_deleter::operator()(const workq*) const ILIAS_NET2_NOTHROW;
 friend void workq_detail::wq_deleter::operator()(const workq_service*) const ILIAS_NET2_NOTHROW;
-friend void workq_detail::co_runnable::co_publish(workq_detail::wq_run_lock&, std::size_t) ILIAS_NET2_NOTHROW;
+friend void workq_detail::co_runnable::co_publish(std::size_t) ILIAS_NET2_NOTHROW;
 friend bool workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW;
 friend void workq::job_to_runq(workq_detail::workq_intref<workq_job>) ILIAS_NET2_NOTHROW;
 

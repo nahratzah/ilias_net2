@@ -15,6 +15,7 @@
  */
 #include <ilias/net2/workq.h>
 #include <thread>
+#include <boost/intrusive/list.hpp>
 
 #if !HAS_TLS
 #include "tls_fallback.h"
@@ -31,50 +32,112 @@ namespace ilias {
 namespace {
 
 
-struct wq_stack
+class publish_wqs;
+
+struct wq_stack :
+	public boost::intrusive::list_base_hook<>
 {
-	wq_stack *next;
-	workq_detail::workq_intref<workq> wq;
-	workq_detail::workq_intref<workq_job> job;
+	workq_detail::wq_run_lock lck;
 
-	wq_stack(wq_stack* next, workq_detail::workq_intref<workq> wq, workq_detail::workq_intref<workq_job> job) ILIAS_NET2_NOTHROW :
-		next(next),
-		wq(wq),
-		job(job)
+	wq_stack(workq_detail::wq_run_lock&&) ILIAS_NET2_NOTHROW;
+	~wq_stack() ILIAS_NET2_NOTHROW;
+
+	const workq_detail::workq_intref<workq>&
+	get_wq() const ILIAS_NET2_NOTHROW
 	{
-		return;
+		return this->lck.get_wq();
 	}
 
-	wq_stack*
-	find(const workq& wq) ILIAS_NET2_NOTHROW
+	const workq_detail::workq_intref<workq_job>&
+	get_wq_job() const ILIAS_NET2_NOTHROW
 	{
-		return (this->wq.get() == &wq ? this :
-		    (this->next ? this->next->find(wq) : nullptr));
+		return this->lck.get_wq_job();
 	}
 
-	wq_stack*
-	find(const workq_job& job) ILIAS_NET2_NOTHROW
+	const workq_detail::workq_intref<workq_detail::co_runnable>&
+	get_co() const ILIAS_NET2_NOTHROW
 	{
-		return (this->job.get() == &job ? this :
-		    (this->next ? this->next->find(job) : nullptr));
+		return this->lck.get_co();
+	}
+
+	workq_detail::wq_run_lock
+	steal_lock(const workq_job& j) ILIAS_NET2_NOTHROW
+	{
+		assert(this->get_wq_job() == &j || this->get_co() == &j);
+		assert(this->lck.is_locked() || this->get_co() == &j);	/* Can only steal once. */
+		return std::move(this->lck);
+	}
+
+	workq_detail::wq_run_lock
+	store(workq_detail::wq_run_lock&& rlck) ILIAS_NET2_NOTHROW
+	{
+		workq_detail::wq_run_lock old = std::move(this->lck);
+		this->lck = std::move(rlck);
+		return old;
 	}
 };
 
 struct wq_tls
 {
-	workq_service* wqs;
-	wq_stack* stack;
+friend class publish_wqs;
 
-	wq_stack*
-	find(const workq& wq) ILIAS_NET2_NOTHROW
+public:
+	typedef boost::intrusive::list<wq_stack> stack_t;
+
+private:
+	workq_service* wqs;
+	stack_t stack;
+
+public:
+	const wq_stack*
+	find(const workq& wq) const ILIAS_NET2_NOTHROW
 	{
-		return (this->stack ? this->stack->find(wq) : nullptr);
+		for (auto i = this->stack.crbegin();
+		    i != this->stack.crend();
+		    ++i) {
+			if (i->get_wq() == &wq)
+				return &*i;
+		}
+		return nullptr;
 	}
 
-	wq_stack*
-	find(const workq_job& job) ILIAS_NET2_NOTHROW
+	const wq_stack*
+	find(const workq_job& job) const ILIAS_NET2_NOTHROW
 	{
-		return (this->stack ? this->stack->find(job) : nullptr);
+		for (auto i = this->stack.crbegin();
+		    i != this->stack.crend();
+		    ++i) {
+			if (i->get_wq_job() == &job)
+				return &*i;
+		}
+		return nullptr;
+	}
+
+	void
+	push(wq_stack& s) ILIAS_NET2_NOTHROW
+	{
+		this->stack.push_back(s);
+	}
+
+	void
+	pop(wq_stack& s) ILIAS_NET2_NOTHROW
+	{
+		assert(&this->stack.back() == &s);
+		this->stack.pop_back();
+	}
+
+	workq_detail::wq_run_lock
+	steal_lock(const workq_job& j) ILIAS_NET2_NOTHROW
+	{
+		wq_stack& s = this->stack.back();
+		return s.steal_lock(j);
+	}
+
+	workq_detail::wq_run_lock
+	store(workq_detail::wq_run_lock&& rlck) ILIAS_NET2_NOTHROW
+	{
+		wq_stack& s = this->stack.back();
+		return s.store(std::move(rlck));
 	}
 };
 
@@ -90,38 +153,53 @@ get_wq_tls()
 #endif
 };
 
-
-class wq_stack_element
+class publish_wqs
 {
 private:
-	wq_stack data;
+	wq_tls& m_tls;
+	workq_service*const m_wqs;
 
 public:
-	wq_stack_element(workq_detail::workq_intref<workq> wq, workq_detail::workq_intref<workq_job> j) ILIAS_NET2_NOTHROW :
-		data(get_wq_tls().stack, wq, j)
+	publish_wqs(workq_service& wqs) ILIAS_NET2_NOTHROW :
+		m_tls(get_wq_tls()),
+		m_wqs(&wqs)
 	{
-		get_wq_tls().stack = &this->data;
+		assert(!this->m_tls.wqs);
+		this->m_tls.wqs = this->m_wqs;
 	}
 
-	~wq_stack_element() ILIAS_NET2_NOTHROW
+	~publish_wqs() ILIAS_NET2_NOTHROW
 	{
-		assert(get_wq_tls().stack == &this->data);
-		get_wq_tls().stack = this->data.next;
-		this->data.next = nullptr;
+		assert(this->m_tls.wqs == this->m_wqs);
+		this->m_tls.wqs = nullptr;
 	}
 
 
 #if HAS_DELETED_FN
-	wq_stack_element() = delete;
-	wq_stack_element(const wq_stack_element&) = delete;
-	wq_stack_element& operator=(const wq_stack_element&) = delete;
+	publish_wqs() = delete;
+	publish_wqs(const publish_wqs&) = delete;
+	publish_wqs& operator=(const publish_wqs&) = delete;
 #else
 private:
-	wq_stack_element();
-	wq_stack_element(const wq_stack_element&);
-	wq_stack_element& operator=(const wq_stack_element&);
+	publish_wqs();
+	publish_wqs(const publish_wqs&);
+	publish_wqs& operator=(const publish_wqs&);
 #endif
 };
+
+
+inline
+wq_stack::wq_stack(workq_detail::wq_run_lock&& lck) ILIAS_NET2_NOTHROW :
+	lck(std::move(lck))
+{
+	get_wq_tls().push(*this);
+}
+
+inline
+wq_stack::~wq_stack() ILIAS_NET2_NOTHROW
+{
+	get_wq_tls().pop(*this);
+}
 
 
 } /* ilias::<unnamed> */
@@ -130,10 +208,54 @@ private:
 namespace workq_detail {
 
 
+wq_run_lock::wq_run_lock(workq_detail::co_runnable& co) ILIAS_NET2_NOTHROW :
+	m_wq(),
+	m_wq_job(),
+	m_co(),
+	m_wq_lck(),
+	m_wq_job_lck(),
+	m_commited(false)
+{
+	co.m_runcount.fetch_add(1, std::memory_order_acquire);
+	this->m_co = &co;
+	this->m_wq = co.get_workq();
+	this->m_wq_lck = this->m_wq->lock_run_parallel();
+	assert(this->m_wq_lck == workq::RUN_PARALLEL);
+}
+
+void
+wq_run_lock::unlock() ILIAS_NET2_NOTHROW
+{
+	assert(!this->is_locked() || this->m_commited);
+
+	if (this->m_wq_job && this->m_wq_job_lck != workq_job::BUSY)
+		this->m_wq_job->unlock_run(this->m_wq_job_lck);
+	if (this->m_wq)
+		this->m_wq->unlock_run(this->m_wq_lck);
+	if (this->m_co)
+		this->m_co->m_runcount.fetch_sub(1, std::memory_order_release);
+	this->m_wq.reset();
+	this->m_wq_job.reset();
+	this->m_co.reset();
+	this->m_commited = false;
+}
+
+bool
+wq_run_lock::co_unlock() ILIAS_NET2_NOTHROW
+{
+	assert(this->m_co);
+
+	const auto old = this->m_co->m_runcount.fetch_sub(1,
+	    std::memory_order_release);
+	this->m_co.reset();
+	this->unlock();
+	return (old == 1);
+}
+
 bool
 wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 {
-	assert(!this->m_wq && !this->m_wq_job);
+	assert(!this->m_wq && !this->m_wq_job && !this->m_co);
 
 	this->m_commited = false;
 	this->m_wq = &what;
@@ -192,7 +314,7 @@ wq_run_lock::lock(workq& what) ILIAS_NET2_NOTHROW
 bool
 wq_run_lock::lock(workq_job& what) ILIAS_NET2_NOTHROW
 {
-	assert(!this->m_wq && !this->m_wq_job);
+	assert(!this->m_wq && !this->m_wq_job && !this->m_co);
 
 	this->m_commited = false;
 	this->m_wq = what.get_workq();
@@ -233,7 +355,7 @@ wq_run_lock::lock(workq_job& what) ILIAS_NET2_NOTHROW
 bool
 wq_run_lock::lock(workq_service& wqs) ILIAS_NET2_NOTHROW
 {
-	assert(!this->m_wq && !this->m_wq_job);
+	assert(!this->m_wq && !this->m_wq_job && !this->m_co);
 
 	/*
 	 * Fetch a workq and hold on to it.
@@ -317,8 +439,8 @@ workq_job::activate(unsigned int flags) ILIAS_NET2_NOTHROW
 		if (rlck.is_locked()) {
 			assert(rlck.get_wq_job().get() == this);
 			rlck.commit();	/* XXX remove commit requirement? */
-			wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
-			this->run(rlck);
+			wq_stack stack(std::move(rlck));
+			this->run();
 		}
 	}
 }
@@ -407,10 +529,10 @@ workq_detail::co_runnable::co_runnable(workq_ptr wq, unsigned int type) throw (s
 }
 
 void
-workq_detail::co_runnable::co_publish(workq_detail::wq_run_lock& rlck, std::size_t runcount) ILIAS_NET2_NOTHROW
+workq_detail::co_runnable::co_publish(std::size_t runcount) ILIAS_NET2_NOTHROW
 {
 	if (runcount > 0) {
-		this->m_rlck = std::move(rlck);
+		this->m_rlck = get_wq_tls().steal_lock(*this);
 		this->m_runcount.store(runcount, std::memory_order_acq_rel);
 		this->get_workq_service()->co_to_runq(this, runcount);
 	} else {
@@ -434,6 +556,8 @@ bool
 workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
 {
 	bool did_unlock = false;
+	/* XXX gcc-4.6.2 does not have atomic_thread_fence.  Use a workaround using a temporary. */
+	std::atomic<int> atom;
 
 	/*
 	 * When release is called, the co-runnable cannot start more work.
@@ -447,14 +571,12 @@ workq_detail::co_runnable::release(std::size_t n) ILIAS_NET2_NOTHROW
 	 */
 	this->get_workq_service()->m_co_runq.erase(this->get_workq_service()->m_co_runq.iterator_to(*this));
 
-	if (n > 0) {
-		const std::size_t old = this->m_runcount.fetch_sub(n, std::memory_order_release);
-		assert(old >= n);
-		assert(this->m_rlck.is_locked());
-		if (old == n) {
-			this->m_rlck.unlock();
-			did_unlock = true;
-		}
+	assert(this->m_rlck.is_locked());
+	atom.store(0, std::memory_order_release);	/* XXX std::atomic_thread_fence(std::memory_order_release) */
+	if (get_wq_tls().steal_lock(*this).co_unlock()) {
+		get_wq_tls().store(std::move(this->m_rlck));
+		did_unlock = true;
+		atom.load(std::memory_order_acquire);	/* XXX std::atomic_thread_fence(std::memory_order_acquire) */
 	}
 	return did_unlock;
 }
@@ -559,46 +681,13 @@ workq::aid(unsigned int count) ILIAS_NET2_NOTHROW
 			break;
 
 		rlck.commit();
-		wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
-		rlck.get_wq_job()->run(rlck);
+		auto job = rlck.get_wq_job();
+		wq_stack stack(std::move(rlck));
+		job->run();
 	}
 	return (i > 0);
 }
 
-
-class publish_wqs
-{
-private:
-	wq_tls& m_tls;
-	workq_service*const m_wqs;
-
-public:
-	publish_wqs(workq_service& wqs) ILIAS_NET2_NOTHROW :
-		m_tls(get_wq_tls()),
-		m_wqs(&wqs)
-	{
-		assert(!this->m_tls.wqs);
-		this->m_tls.wqs = this->m_wqs;
-	}
-
-	~publish_wqs() ILIAS_NET2_NOTHROW
-	{
-		assert(this->m_tls.wqs == this->m_wqs);
-		this->m_tls.wqs = nullptr;
-	}
-
-
-#if HAS_DELETED_FN
-	publish_wqs() = delete;
-	publish_wqs(const publish_wqs&) = delete;
-	publish_wqs& operator=(const publish_wqs&) = delete;
-#else
-private:
-	publish_wqs();
-	publish_wqs(const publish_wqs&);
-	publish_wqs& operator=(const publish_wqs&);
-#endif
-};
 
 bool
 workq_service::threadpool_work() ILIAS_NET2_NOTHROW
@@ -670,9 +759,7 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 			do {
 				workq_detail::workq_intref<workq_detail::co_runnable> co_ptr = co.get();
 				co = this->m_co_runq.end();	/* Remove from list, so co_runnable::release() can unlink. */
-				wq_stack_element stack(
-				    workq_detail::workq_intref<workq>(co_ptr->get_workq()),
-				    workq_detail::workq_intref<workq_job>(co_ptr));
+				wq_stack stack(*co_ptr);
 				if (co_ptr->co_run())
 					++i;
 				co = this->m_co_runq.begin();
@@ -687,8 +774,9 @@ workq_service::aid(unsigned int count) ILIAS_NET2_NOTHROW
 
 		{
 			rlck.commit();
-			wq_stack_element stack(rlck.get_wq(), rlck.get_wq_job());
-			rlck.get_wq_job()->run(rlck);
+			auto job = rlck.get_wq_job();
+			wq_stack stack(std::move(rlck));
+			job->run();
 		}
 
 		/* Update co-routine iterator. */
@@ -775,7 +863,7 @@ public:
 	}
 
 	virtual ~job_single() ILIAS_NET2_NOTHROW;
-	virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW OVERRIDE;
+	virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
 job_single::~job_single() ILIAS_NET2_NOTHROW
@@ -784,7 +872,7 @@ job_single::~job_single() ILIAS_NET2_NOTHROW
 }
 
 void
-job_single::run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW
+job_single::run() ILIAS_NET2_NOTHROW
 {
 	this->m_fn();
 }
@@ -820,7 +908,7 @@ public:
 	}
 
 	virtual ~coroutine_job() ILIAS_NET2_NOTHROW;
-	virtual void run(workq_detail::wq_run_lock&) ILIAS_NET2_NOTHROW OVERRIDE;
+	virtual void run() ILIAS_NET2_NOTHROW OVERRIDE;
 	virtual bool co_run() ILIAS_NET2_NOTHROW OVERRIDE;
 };
 
@@ -830,10 +918,10 @@ coroutine_job::~coroutine_job() ILIAS_NET2_NOTHROW
 }
 
 void
-coroutine_job::run(workq_detail::wq_run_lock& rlck) ILIAS_NET2_NOTHROW
+coroutine_job::run() ILIAS_NET2_NOTHROW
 {
 	this->m_co_idx.store(0, std::memory_order_acq_rel);
-	this->co_publish(rlck, this->m_coroutines.size());
+	this->co_publish(this->m_coroutines.size());
 }
 
 bool
@@ -875,13 +963,13 @@ public:
 	}
 
 	virtual void
-	run(workq_detail::wq_run_lock& rlck) ILIAS_NET2_NOTHROW OVERRIDE
+	run() ILIAS_NET2_NOTHROW OVERRIDE
 	{
 		/* Release internal reference to self. */
 		workq_detail::wq_deleter expunge;
 		expunge(this);
 		/* Run the function. */
-		this->JobType::run(rlck);
+		this->JobType::run();
 	}
 };
 

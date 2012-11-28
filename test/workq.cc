@@ -47,7 +47,7 @@ test_persist()
 {
 	static int i;
 	i = 0;
-	auto wqs = ilias::new_workq_service();
+	auto wqs = ilias::new_workq_service(0);
 	auto wq = wqs->new_workq();
 	ilias::workq_job_ptr job;
 
@@ -58,7 +58,7 @@ test_persist()
 	job->activate();
 
 	while (wqs->aid());
-	TEST(i ==10);
+	TEST(i == 10);
 }
 
 void
