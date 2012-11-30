@@ -28,6 +28,42 @@
 
 
 namespace ilias {
+
+
+workq_error::~workq_error() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+workq_deadlock::~workq_deadlock() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+void
+workq_deadlock::throw_me() throw (workq_deadlock)
+{
+	throw workq_deadlock();
+}
+
+workq_stack_error::~workq_stack_error() ILIAS_NET2_NOTHROW
+{
+	return;
+}
+
+void
+workq_stack_error::throw_me(const std::string& s) throw (workq_stack_error)
+{
+	throw workq_stack_error(s);
+}
+
+void
+workq_stack_error::throw_me(const char* s) throw (workq_stack_error)
+{
+	throw workq_stack_error(s);
+}
+
+
 namespace {
 
 
@@ -150,6 +186,12 @@ friend class publish_wqs;
 		static const workq_detail::workq_intref<workq> stack_empty;
 		return (this->stack ? stack_empty : this->stack->get_wq());
 	}
+
+	wq_stack*
+	head() const ILIAS_NET2_NOTHROW
+	{
+		return this->stack;
+	}
 };
 
 wq_tls&
@@ -250,6 +292,14 @@ wq_run_lock::unlock() ILIAS_NET2_NOTHROW
 	this->m_wq_job.reset();
 	this->m_co.reset();
 	this->m_commited = false;
+}
+
+void
+wq_run_lock::unlock_wq() ILIAS_NET2_NOTHROW
+{
+	if (this->m_wq)
+		this->m_wq->unlock_run(this->m_wq_lck);
+	this->m_wq.reset();
 }
 
 bool
@@ -393,6 +443,36 @@ wq_run_lock::lock(workq_service& wqs) ILIAS_NET2_NOTHROW
 		}
 	}
 	return this->is_locked();
+}
+
+/*
+ * Acquire a specific lock on only this workq.
+ *
+ * XXX needs to have priority over run threads for locking run-single.
+ */
+void
+wq_run_lock::lock_wq(workq& what, workq::run_lck how) ILIAS_NET2_NOTHROW
+{
+	assert(!this->m_wq);	/* May not hold a workq lock. */
+
+	for (;;) {
+		switch (how) {
+		case workq::RUN_SINGLE:
+			this->m_wq_lck = what.lock_run();
+			break;
+		case workq::RUN_PARALLEL:
+			this->m_wq_lck = what.lock_run_parallel();
+			break;
+		}
+
+		if (this->m_wq_lck == how)
+			break;		/* GUARD */
+
+		what.unlock_run(this->m_wq_lck);
+		std::this_thread::yield();
+	}
+
+	this->m_wq = &what;
 }
 
 
@@ -1015,6 +1095,67 @@ workq::once(std::vector<std::function<void()> > fns) throw (std::bad_alloc, std:
 
 	/* Keep this job alive until it has run. */
 	j.release();	/* Never throws */
+}
+
+
+/*
+ * Switch to destination workq at the specified run level.
+ *
+ * Returns the previous run level.
+ */
+workq_pop_state
+workq_switch(const workq_pop_state& dst) throw (workq_deadlock, workq_stack_error)
+{
+	auto& tls = get_wq_tls();
+	wq_stack*const head = tls.head();
+
+	if (!head) {
+		workq_stack_error::throw_me("workq_switch: require active workq invocation to switch stacks "
+		    "(otherwise it is impossible to know when the stack frame ends)");	/* Nothing to lock. */
+	}
+
+	workq_detail::wq_run_lock& lck = head->lck;
+	workq_pop_state rv(lck.get_wq(),
+	    (lck.wq_is_single() ? workq::RUN_SINGLE : workq::RUN_PARALLEL));
+
+	/* Request is to release the lock. */
+	if (!dst.get_workq()) {
+		lck.unlock_wq();
+		return rv;
+	}
+
+	/*
+	 * Request is to change the lock level of the workq.
+	 * This can only deadlock if the current workq is changed from
+	 * run-parallel to run-single.
+	 */
+	if (lck.get_wq() == dst.get_workq()) {
+		if (dst.is_single() == lck.wq_is_single())
+			return rv;	/* No change. */
+		if (!dst.is_single()) {
+			lck.wq_downgrade();
+			return rv;	/* Downgrade never fails. */
+		}
+	}
+
+	/*
+	 * Check for deadlock: deadlock can occur if the request is to lock for
+	 * run-single, while a previous invocation already has run-single.
+	 */
+	if (dst.is_single()) {
+		for (const wq_stack* s = head->pred; s; s = s->pred) {
+			if (s->get_wq() == dst.get_workq() &&
+			    s->lck.wq_is_single())
+				workq_deadlock::throw_me();	/* Recursive lock -> deadlock. */
+		}
+	}
+
+	/* Deadlock has been checked and is guaranteed not to happen. */
+	lck.unlock_wq();
+	lck.lock_wq(*dst.get_workq(),
+	    (dst.is_single() ? workq::RUN_SINGLE : workq::RUN_PARALLEL));
+
+	return rv;
 }
 
 

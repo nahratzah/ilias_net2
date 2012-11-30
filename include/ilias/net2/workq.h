@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -40,13 +41,70 @@ namespace ilias {
 class workq_job;
 class workq;
 class workq_service;
+class workq_pop_state;
 
 typedef refpointer<workq> workq_ptr;
 typedef refpointer<workq_service> workq_service_ptr;
 
 
+class ILIAS_NET2_EXPORT workq_error :
+	public std::runtime_error
+{
+public:
+	explicit workq_error(const std::string& s) :
+		std::runtime_error(s)
+	{
+		/* Empty body. */
+	}
+
+	explicit workq_error(const char* s) :
+		std::runtime_error(s)
+	{
+		/* Empty body. */
+	}
+
+	virtual ~workq_error() ILIAS_NET2_NOTHROW;
+};
+
+class ILIAS_NET2_EXPORT workq_deadlock :
+	public workq_error
+{
+public:
+	workq_deadlock() :
+		workq_error("workq deadlock detected")
+	{
+		/* Empty body. */
+	}
+
+	static void throw_me() throw (workq_deadlock);
+	virtual ~workq_deadlock() ILIAS_NET2_NOTHROW;
+};
+
+class ILIAS_NET2_EXPORT workq_stack_error :
+	public workq_error
+{
+public:
+	explicit workq_stack_error(const std::string& s) :
+		workq_error(s)
+	{
+		/* Empty body. */
+	}
+
+	explicit workq_stack_error(const char* s) :
+		workq_error(s)
+	{
+		/* Empty body. */
+	}
+
+	static void throw_me(const std::string&) throw (workq_stack_error);
+	static void throw_me(const char*) throw (workq_stack_error);
+	virtual ~workq_stack_error() ILIAS_NET2_NOTHROW;
+};
+
+
 ILIAS_NET2_EXPORT workq_service_ptr new_workq_service() throw (std::bad_alloc);
 ILIAS_NET2_EXPORT workq_service_ptr new_workq_service(unsigned int threads) throw (std::bad_alloc);
+ILIAS_NET2_EXPORT workq_pop_state workq_switch(const workq_pop_state&) throw (workq_deadlock, workq_stack_error);
 
 
 namespace workq_detail {
@@ -411,6 +469,7 @@ friend class ilias::workq_service;
 friend class co_runnable;	/* Can't get more specific, since the co_runnable requires wq_run_lock to be defined. */
 friend void ilias::workq_job::activate(unsigned int) ILIAS_NET2_NOTHROW;
 friend bool ilias::workq::aid(unsigned int) ILIAS_NET2_NOTHROW;
+friend ILIAS_NET2_EXPORT workq_pop_state ilias::workq_switch(const workq_pop_state&) throw (workq_deadlock, workq_stack_error);
 
 private:
 	workq_intref<workq> m_wq;
@@ -516,6 +575,12 @@ public:
 		return this->m_co;
 	}
 
+	bool
+	wq_is_single() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_wq && this->m_wq_lck == workq::RUN_SINGLE);
+	}
+
 private:
 	void
 	commit() ILIAS_NET2_NOTHROW
@@ -525,10 +590,21 @@ private:
 	}
 
 	void unlock() ILIAS_NET2_NOTHROW;
+	void unlock_wq() ILIAS_NET2_NOTHROW;
 	bool co_unlock() ILIAS_NET2_NOTHROW;
 	bool lock(workq& what) ILIAS_NET2_NOTHROW;
 	bool lock(workq_job& what) ILIAS_NET2_NOTHROW;
 	bool lock(workq_service& wqs) ILIAS_NET2_NOTHROW;
+	void lock_wq(workq& what, workq::run_lck how) ILIAS_NET2_NOTHROW;
+
+	void
+	wq_downgrade() ILIAS_NET2_NOTHROW
+	{
+		assert(this->get_wq() && this->m_wq_lck == workq::RUN_SINGLE);
+
+		this->m_wq->lock_run_downgrade(this->m_wq_lck);
+		this->m_wq_lck = workq::RUN_PARALLEL;
+	}
 
 public:
 	bool
@@ -641,6 +717,76 @@ private:
 	workq_service(const workq_service&);
 	workq_service& operator=(const workq_service&);
 #endif
+};
+
+class workq_pop_state
+{
+private:
+	workq_ptr m_wq;
+	workq::run_lck m_lck;
+
+public:
+	workq_pop_state() ILIAS_NET2_NOTHROW :
+		m_wq(),
+		m_lck()
+	{
+		/* Empty body. */
+	}
+
+	workq_pop_state(const workq_pop_state& o) ILIAS_NET2_NOTHROW :
+		m_wq(o.m_wq),
+		m_lck(o.m_lck)
+	{
+		/* Empty body. */
+	}
+
+	workq_pop_state(workq_pop_state&& o) ILIAS_NET2_NOTHROW :
+		m_wq(std::move(o.m_wq)),
+		m_lck(std::move(o.m_lck))
+	{
+		/* Empty body. */
+	}
+
+	workq_pop_state(workq_ptr wq, workq::run_lck lck = workq::RUN_SINGLE) ILIAS_NET2_NOTHROW :
+		m_wq(wq),
+		m_lck(lck)
+	{
+		/* Empty body. */
+	}
+
+	workq_pop_state&
+	operator=(workq_pop_state o) ILIAS_NET2_NOTHROW
+	{
+		this->swap(o);
+		return *this;
+	}
+
+	void
+	swap(workq_pop_state& o) ILIAS_NET2_NOTHROW
+	{
+		using std::swap;
+
+		swap(this->m_wq, o.m_wq);
+		swap(this->m_lck, o.m_lck);
+	}
+
+	friend void
+	swap(workq_pop_state& a, workq_pop_state& b) ILIAS_NET2_NOTHROW
+	{
+		a.swap(b);
+	}
+
+	const workq_ptr&
+	get_workq() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_wq;
+	}
+
+	bool
+	is_single() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_wq && this->m_lck == workq::RUN_SINGLE);
+	}
 };
 
 
