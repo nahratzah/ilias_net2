@@ -281,7 +281,8 @@ public:
 	static const unsigned int TYPE_ONCE = 0x0001;
 	static const unsigned int TYPE_PERSIST = 0x0002;
 	static const unsigned int TYPE_PARALLEL = 0x0004;
-	static const unsigned int TYPE_MASK = (TYPE_ONCE | TYPE_PERSIST | TYPE_PARALLEL);
+	static const unsigned int TYPE_NO_AID = 0x0010;
+	static const unsigned int TYPE_MASK = (TYPE_ONCE | TYPE_PERSIST | TYPE_PARALLEL | TYPE_NO_AID);
 
 	static const unsigned int ACT_IMMED = 0x0001;
 

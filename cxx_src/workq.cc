@@ -526,7 +526,7 @@ workq_job::activate(unsigned int flags) ILIAS_NET2_NOTHROW
 	if (!(s & (STATE_RUNNING | STATE_ACTIVE)))
 		this->get_workq()->job_to_runq(this);
 
-	if (flags & ACT_IMMED) {
+	if (flags & ACT_IMMED && !(this->m_type & TYPE_NO_AID)) {
 		workq_detail::wq_run_lock rlck(*this);
 		if (rlck.is_locked()) {
 			assert(rlck.get_wq_job().get() == this);
