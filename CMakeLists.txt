@@ -262,11 +262,16 @@ check_cxx_source_runs ("${TLS_THREAD_CC}" HAS___THREAD)
 file (READ "CMake/source/tls__thread_local.cc" TLS_THREADLOCAL_CC)
 mark_as_advanced (TLS_THREADLOCAL_CC)
 check_cxx_source_runs ("${TLS_THREADLOCAL_CC}" HAS_THREAD_LOCAL)
-
+# Work around absent tls.
 if (NOT HAS___THREAD AND NOT HAS_THREAD_LOCAL)
 	list (APPEND headers internal/tls_fallback.h)
 	list (APPEND cxx_srcs internal/tls_fallback.h)
 endif (NOT HAS___THREAD AND NOT HAS_THREAD_LOCAL)
+
+# Test if std::allocator_traits is present in <memory>
+file (READ "CMake/source/std_allocator_traits.cc" STD_ALLOCATOR_TRAITS_CC)
+mark_as_advanced (STD_ALLOCATOR_TRAITS_CC)
+check_cxx_source_compiles ("${STD_ALLOCATOR_TRAITS_CC}" HAS_ALLOCATOR_TRAITS)
 
 # Test if hardware is big endian.
 test_big_endian (IS_BIG_ENDIAN)

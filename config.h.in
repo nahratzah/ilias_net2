@@ -112,6 +112,9 @@
 /* Set if thread_local keyword is supported. */
 #cmakedefine HAS_THREAD_LOCAL
 
+/* Set if std::allocator_traits is present in <memory>. */
+#cmakedefine01 HAS_ALLOCATOR_TRAITS
+
 
 /*
  * Different versions of MS-compiler.
@@ -268,6 +271,12 @@
 #endif
 
 #define ILIAS_NET2_NOTHROW_CND_TEST(_x)	/* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
+
+#if HAS_CONSTRUCTOR_TRAITS
+#define ILIAS_NET2_NOTHROW_TRAITS	ILIAS_NET2_NOTHROW_CND
+#else
+#define ILIAS_NET2_NOTHROW_TRAITS(...)	/* Type traits not available. */
+#endif
 
 /*
  * Declare how to get thread-local storage support.
