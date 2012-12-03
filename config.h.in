@@ -264,13 +264,20 @@
 
 #if HAS_NOEXCEPT
 #define ILIAS_NET2_NOTHROW		noexcept
-#define ILIAS_NET2_NOTHROW_CND(_x)	noexcept(_x)
-#else
-#define ILIAS_NET2_NOTHROW		throw ()
-#define ILIAS_NET2_NOTHROW_CND(_x)	/* No conditional support. */
+#define ILIAS_NET2_NOTHROW_CND		noexcept	/* ILIAS_NET2_NOTHROW_CND(...) -> noexcept(...) */
 #endif
 
-#define ILIAS_NET2_NOTHROW_CND_TEST(_x)	/* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
+/* noexcept fallback */
+#ifndef ILIAS_NET2_NOTHROW
+#define ILIAS_NET2_NOTHROW		throw ()	/* Deprecated in c++11, but still works. */
+#endif
+
+/* noexcept(noexcept(...)) fallback */
+#ifndef ILIAS_NET2_NOTHROW_CND
+#define ILIAS_NET2_NOTHROW_CND(...)	/* No conditional support (i.e. noexcept(noexcept(...)) does not work). */
+#endif
+
+#define ILIAS_NET2_NOTHROW_CND_TEST(...) /* Not yet: figure out correct syntax for noexcept(noexcept(expr)) and compiler support. */
 
 #if HAS_CONSTRUCTOR_TRAITS
 #define ILIAS_NET2_NOTHROW_TRAITS	ILIAS_NET2_NOTHROW_CND
