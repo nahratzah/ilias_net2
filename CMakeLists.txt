@@ -82,6 +82,7 @@ list (APPEND headers
 	include/ilias/net2/cp.h
 
 	# Parallelism utilities.
+	include/ilias/net2/msg_queue.h
 	include/ilias/net2/promise.h
 	include/ilias/net2/threadpool.h
 	include/ilias/net2/workq.h
@@ -166,6 +167,7 @@ list (APPEND cxx_srcs
 	cxx_src/cp.cc
 	cxx_src/hash.cc
 	cxx_src/ll.cc
+	cxx_src/msg_queue.cc
 	cxx_src/promise.cc
 	cxx_src/poetry.cc
 	cxx_src/pool.cc
