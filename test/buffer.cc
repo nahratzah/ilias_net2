@@ -16,6 +16,7 @@
 #include <ilias/net2/buffer.h>
 #include "test.h"
 #include <array>
+#include <limits>
 #include <memory>
 #include <string>
 #include <cstring>
@@ -167,7 +168,7 @@ test_remove()
 		2,
 		17,
 		123456,
-		-1
+		std::numeric_limits<ilias::buffer::size_type>::max()
 	}};
 
 	std::for_each(sizes.begin(), sizes.end(), [&orig](ilias::buffer::size_type sz) {
