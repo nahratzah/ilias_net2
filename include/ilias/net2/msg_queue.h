@@ -1,5 +1,6 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/ll.h>
+#include <ilias/net2/refcnt.h>
 #include <ilias/net2/workq.h>
 #include <cassert>
 #include <functional>
@@ -305,6 +306,101 @@ private:
 	msg_queue_alloc(const msg_queue_alloc&);
 	msg_queue_alloc& operator=(const msg_queue_alloc&);
 #endif
+};
+
+
+/* Reference counting for message queue. */
+class msg_queue_ref
+{
+public:
+	enum ref_side {
+		REF_IN,
+		REF_OUT
+	};
+
+private:
+	static const unsigned int MQ_HAS_IN = 0x01;
+	static const unsigned int MQ_HAS_OUT = 0x02;
+
+	mutable std::atomic<unsigned int> m_in_ref, m_out_ref;
+	mutable std::atomic<unsigned int> m_state;
+
+public:
+	msg_queue_ref() ILIAS_NET2_NOTHROW :
+		m_in_ref(0),
+		m_out_ref(0),
+		m_state(MQ_HAS_IN | MQ_HAS_OUT)
+	{
+		/* Empty body. */
+	}
+
+	msg_queue_ref(const msg_queue_ref&) ILIAS_NET2_NOTHROW :
+		msg_queue_ref()
+	{
+		/* Empty body. */
+	}
+
+	/* Test if the input side is connected. */
+	bool
+	has_input_conn() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_in_ref.load(std::memory_order_relaxed) > 0);
+	}
+
+	/* Test if the output side is connected. */
+	bool
+	has_output_conn() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_out_ref.load(std::memory_order_relaxed) > 0);
+	}
+
+	template<typename Derived, ref_side Side>
+	struct refman;
+};
+
+/* Refcount management, input side. */
+template<typename Derived>
+struct msg_queue_ref::refman<Derived, msg_queue_ref::REF_IN>
+{
+	void
+	acquire(const Derived& v) ILIAS_NET2_NOTHROW
+	{
+		msg_queue_ref& v_ = v;
+		v_.m_in_ref.fetch_add(1, std::memory_order_acquire);
+	}
+
+	void
+	release(const Derived& v) ILIAS_NET2_NOTHROW
+	{
+		msg_queue_ref& v_ = v;
+		const auto p = v_.m_in_ref.fetch_sub(1, std::memory_order_release);
+		assert(p > 0);
+		if (p == 1 &&
+		    v_.m_state.fetch_and(~MQ_HAS_IN, std::memory_order_acquire) == MQ_HAS_IN)
+			delete &v;
+	}
+};
+/* Refcount management, output side. */
+template<typename Derived>
+struct msg_queue_ref::refman<Derived, msg_queue_ref::REF_OUT>
+{
+	void
+	acquire(const Derived& v) ILIAS_NET2_NOTHROW
+	{
+		msg_queue_ref& v_ = v;
+		v_.m_out_ref.fetch_add(1, std::memory_order_acquire);
+	}
+
+	void
+	release(const Derived& v) ILIAS_NET2_NOTHROW
+	{
+		msg_queue_ref& v_ = v;
+		const auto p = v_.m_out_ref.fetch_sub(1, std::memory_order_release);
+		assert(p > 0);
+		if (p == 1 &&
+		    v_.m_state.fetch_and(~MQ_HAS_OUT, std::memory_order_acquire) == MQ_HAS_OUT)
+			delete &v;
+	}
 };
 
 
@@ -722,6 +818,7 @@ private:
  */
 template<typename MQ, typename ElemType = typename MQ::element_type>
 class prepared_push :
+	private MQ::in_refpointer,
 	private prepare_hold<typename MQ::ll_data_type, typename MQ::allocator_type>
 {
 private:
@@ -737,6 +834,7 @@ private:
 
 public:
 	prepared_push() ILIAS_NET2_NOTHROW :
+		MQ::in_refpointer(),
 		parent_type(),
 		m_assigned(false),
 		m_lck()
@@ -745,6 +843,7 @@ public:
 	}
 
 	prepared_push(prepared_push&& pp) ILIAS_NET2_NOTHROW :
+		msgq_type::in_refpointer(),
 		parent_type(),
 		m_assigned(false),
 		m_lck()
@@ -753,7 +852,8 @@ public:
 	}
 
 	template<typename... Args>
-	explicit prepared_push(msgq_type& self, Args&&... args) :
+	explicit prepared_push(const typename msgq_type::in_refpointer& self, Args&&... args) :
+		msgq_type::in_refpointer(&self),
 		parent_type(self, std::forward<Args>(args)...),
 		m_assigned(sizeof...(args) > 0)
 	{
@@ -787,7 +887,7 @@ public:
 			throw std::runtime_error("msg_queue prepared push: no value was assigned");
 		assert(this->get_alloc() && this->get_ptr() && this->m_lck.get_lockable());	/* Implied by above. */
 
-		msgq_type& self = static_cast<msgq_type&>(*this->get_alloc());
+		msgq_type& self = *this;
 		self.push(std::move(this->m_lck), this->get_ptr());
 		this->release_ptr();
 	}
@@ -797,6 +897,7 @@ public:
 	{
 		using std::swap;
 
+		this->MQ::in_refpointer.swap(pp);
 		this->parent_type::swap(pp);
 		this->m_lck.swap(pp.m_lck);
 		swap(this->m_assigned, pp.m_assigned);
@@ -833,7 +934,7 @@ public:
 	typedef void value_type;
 
 private:
-	msgq_type* m_self;
+	typename msgq_type::in_refpointer m_self;
 	typename msgq_type::insert_lock m_lck;
 
 public:
@@ -851,7 +952,7 @@ public:
 		this->swap(pp);
 	}
 
-	explicit prepared_push(msgq_type& self) :
+	explicit prepared_push(const typename msgq_type::in_refpointer& self) :
 		m_self(&self),
 		m_lck(self)
 	{
@@ -928,7 +1029,8 @@ struct default_allocator : public select_allocator<Type, std::allocator<Type> > 
 
 template<typename Type, typename Alloc = typename msg_queue_detail::default_allocator<Type>::type >
 class msg_queue :
-	public msg_queue_detail::msg_queue_data<Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type>
+	public msg_queue_detail::msg_queue_data<Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type>,
+	public msg_queue_detail::msg_queue_ref
 {
 friend class msg_queue_detail::prepared_push<msg_queue>;
 
@@ -938,14 +1040,21 @@ public:
 	typedef typename parent_type::opt_element_type opt_element_type;
 	typedef msg_queue_detail::prepared_push<msg_queue> prepared_push;
 
+	typedef refpointer<msg_queue, msg_queue_detail::msg_queue_ref::refman<msg_queue, REF_IN> >
+	    in_refpointer;
+	typedef refpointer<msg_queue, msg_queue_detail::msg_queue_ref::refman<msg_queue, REF_OUT> >
+	    out_refpointer;
+
 	msg_queue() :
-		parent_type()
+		parent_type(),
+		msg_queue_detail::msg_queue_ref()
 	{
 		/* Empty body. */
 	}
 
 	msg_queue(size_type maxsize) :
-		parent_type(maxsize)
+		parent_type(maxsize),
+		msg_queue_detail::msg_queue_ref()
 	{
 		/* Empty body. */
 	}
