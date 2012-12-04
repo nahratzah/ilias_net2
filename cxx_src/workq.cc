@@ -243,8 +243,8 @@ private:
 
 inline
 wq_stack::wq_stack(workq_detail::wq_run_lock&& lck) ILIAS_NET2_NOTHROW :
-	pred(nullptr),
-	lck(std::move(lck))
+	lck(std::move(lck)),
+	pred(nullptr)
 {
 	get_wq_tls().push(*this);
 }
