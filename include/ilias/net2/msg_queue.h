@@ -1,5 +1,6 @@
 #include <ilias/net2/ilias_net2_export.h>
 #include <ilias/net2/ll.h>
+#include <ilias/net2/workq.h>
 #include <cassert>
 #include <functional>
 #include <memory>
@@ -434,7 +435,7 @@ public:
  *
  * Hold elements in the message queue, provide push/pop operations.
  */
-template<typename Derived, typename Type, typename Alloc>
+template<typename Type, typename Alloc>
 class msg_queue_data :
 	protected msg_queue_alloc<msgq_ll_data<Type>, Alloc>,
 	public msg_queue_size
@@ -472,6 +473,19 @@ public:
 		this->m_list.clear_and_dispose(std::bind(&msg_queue_alloc<Type, Alloc>::destroy, this, _1));
 	}
 
+	bool
+	empty() const ILIAS_NET2_NOTHROW
+	{
+		return this->m_list.empty();
+	}
+
+	bool
+	full() const ILIAS_NET2_NOTHROW
+	{
+		return (this->m_eff_avail.load(std::memory_order_relaxed) == 0);
+	}
+
+protected:
 	void
 	push(element_type v)
 	{
@@ -485,10 +499,19 @@ public:
 		this->push(this->create(std::forward<Args>(args)...));
 	}
 
-	bool
-	empty() const ILIAS_NET2_NOTHROW
+	void
+	push(ll_data_type* ld)
 	{
-		return this->m_list.empty();
+		this->push(insert_lock(*this), ld);
+	}
+
+	void
+	push(insert_lock&& lck, ll_data_type* ld) ILIAS_NET2_NOTHROW
+	{
+		assert(lck.get_lockable() == this);
+		auto rv = this->m_list.push_back(ld);
+		assert(rv);
+		lck.commit();
 	}
 
 	opt_element_type
@@ -510,22 +533,6 @@ public:
 		}
 		return rv;
 	}
-
-protected:
-	void
-	push(ll_data_type* ld)
-	{
-		this->push(insert_lock(*this), ld);
-	}
-
-	void
-	push(insert_lock&& lck, ll_data_type* ld) ILIAS_NET2_NOTHROW
-	{
-		assert(lck.get_lockable() == this);
-		auto rv = this->m_list.push_back(ld);
-		assert(rv);
-		lck.commit();
-	}
 };
 
 
@@ -534,8 +541,8 @@ protected:
  *
  * Since void can hold no data, no list is required to keep track of the data either.
  */
-template<typename Derived, typename Alloc>
-class msg_queue_data<Derived, void, Alloc> :
+template<typename Alloc>
+class msg_queue_data<void, Alloc> :
 	public msg_queue_size
 {
 public:
@@ -554,30 +561,30 @@ public:
 		/* Empty body. */
 	}
 
-	void
-	push()
-	{
-		this->push(insert_lock(*this));
-	}
-
 	bool
 	empty() const ILIAS_NET2_NOTHROW
 	{
 		return this->eff_empty();
 	}
 
-	bool
-	pop() ILIAS_NET2_NOTHROW
+protected:
+	void
+	push()
 	{
-		return this->eff_attempt_remove();
+		this->push(insert_lock(*this));
 	}
 
-protected:
 	void
 	push(insert_lock&& lck) ILIAS_NET2_NOTHROW
 	{
 		assert(lck.get_lockable() == this);
 		lck.commit();
+	}
+
+	bool
+	pop() ILIAS_NET2_NOTHROW
+	{
+		return this->eff_attempt_remove();
 	}
 };
 
@@ -921,26 +928,52 @@ struct default_allocator : public select_allocator<Type, std::allocator<Type> > 
 
 template<typename Type, typename Alloc = typename msg_queue_detail::default_allocator<Type>::type >
 class msg_queue :
-	public msg_queue_detail::msg_queue_data<msg_queue<Type, Alloc>,
-	    Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type>
+	public msg_queue_detail::msg_queue_data<Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type>
 {
 friend class msg_queue_detail::prepared_push<msg_queue>;
 
 public:
-	typedef msg_queue_detail::msg_queue_data<msg_queue, Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type> parent_type;
+	typedef msg_queue_detail::msg_queue_data<Type, typename msg_queue_detail::select_allocator<Type, Alloc>::type> parent_type;
 	typedef typename parent_type::size_type size_type;
+	typedef typename parent_type::opt_element_type opt_element_type;
 	typedef msg_queue_detail::prepared_push<msg_queue> prepared_push;
 
 	msg_queue() :
-		msg_queue_detail::msg_queue_data<msg_queue, Type, Alloc>()
+		parent_type()
 	{
 		/* Empty body. */
 	}
 
 	msg_queue(size_type maxsize) :
-		msg_queue_detail::msg_queue_data<msg_queue, Type, Alloc>(maxsize)
+		parent_type(maxsize)
 	{
 		/* Empty body. */
+	}
+
+protected:
+	template<typename... Args>
+	void
+	push(Args&&... args) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(parent_type::push(Args...)))
+	{
+		this->parent_type::push(std::forward<Args>(args)...);
+		/* XXX read-event */
+		if (!this->full()) {
+			/* XXX write-event */
+		}
+	}
+
+	template<typename... Args>
+	opt_element_type
+	pop(Args&&... args) ILIAS_NET2_NOTHROW_CND_TEST(noexcept(parent_type::pop(Args...)))
+	{
+		auto rv = this->parent_type::pop(std::forward<Args>(args)...);
+		if (!this->full()) {
+			/* XXX write-event */
+		}
+		if (!this->empty()) {
+			/* XXX read-event */
+		}
+		return rv;
 	}
 };
 
